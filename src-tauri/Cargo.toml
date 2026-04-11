@@ -42,6 +42,8 @@ epub-builder = "0.7"
 # File system
 dirs = "5"
 log = "0.4"
+tokio-tungstenite = { version = "0.29.0", features = ["native-tls"] }
+futures-util = "0.3.32"
 
 # LanceDB - 向量数据库 (待Rust升级后启用)
 # lancedb = "0.12"

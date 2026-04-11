@@ -56,7 +56,16 @@
       "Bash(awk '/^async fn export_story/,/^}/' src-tauri/src/main.rs)",
       "Bash(head -310 src-tauri/src/main.rs)",
       "Bash(cat /tmp/export_fn.txt)",
-      "Bash(mv /tmp/main_head.rs src-tauri/src/main.rs)"
+      "Bash(mv /tmp/main_head.rs src-tauri/src/main.rs)",
+      "Bash(gh repo:*)",
+      "Bash(gh auth:*)",
+      "Bash(sed:*)",
+      "Bash(cargo add:*)",
+      "Bash(head -368 src-tauri/src/main.rs)",
+      "Bash(echo '        content: std::fs::read_to_string\\(\\\\u0026output_path\\).unwrap_or_default\\(\\),')",
+      "Bash(tail -n +370 src-tauri/src/main.rs)",
+      "Bash(mv /tmp/main_part1.rs src-tauri/src/main.rs)",
+      "Bash(mv /tmp/main_new.rs src-tauri/src/main.rs)"
     ]
   }
 }

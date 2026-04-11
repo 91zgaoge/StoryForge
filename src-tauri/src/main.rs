@@ -366,7 +366,7 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
 
     Ok(ExportResult {
         file_path: output_path.to_string_lossy().to_string(),
-        content: String::new(),
+        content: std::fs::read_to_string(&output_path).unwrap_or_default(),
         format: options.format,
     })
 }

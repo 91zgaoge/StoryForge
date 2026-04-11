@@ -13,6 +13,8 @@ export function Chapters() {
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedContent, setEditedContent] = useState('');
+  const [editedOutline, setEditedOutline] = useState('');
+  const [activeTab, setActiveTab] = useState<'content' | 'outline'>('content');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const createChapter = useCreateChapter();
@@ -24,6 +26,7 @@ export function Chapters() {
     if (selectedChapter) {
       setEditedTitle(selectedChapter.title || '');
       setEditedContent(selectedChapter.content || '');
+      setEditedOutline(selectedChapter.outline || '');
     }
   }, [selectedChapter]);
 
@@ -31,7 +34,7 @@ export function Chapters() {
     if (selectedChapter) {
       updateChapter.mutate({
         id: selectedChapter.id,
-        updates: { title: editedTitle, content: editedContent },
+        updates: { title: editedTitle, content: editedContent, outline: editedOutline },
       });
     }
   };
@@ -164,13 +167,48 @@ export function Chapters() {
                     保存
                   </Button>
                 </div>
+                {/* Tabs */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() =>
+003e setActiveTab('content')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      activeTab === 'content'
+                        ? 'bg-cinema-gold/20 text-cinema-gold'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    正文
+                  </button>
+                  <button
+                    onClick={() =>
+003e setActiveTab('outline')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      activeTab === 'outline'
+                        ? 'bg-cinema-gold/20 text-cinema-gold'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    大纲
+                  </button>
+                </div>
+
                 <div className="flex-1 min-h-0 border border-cinema-800 rounded-xl overflow-hidden">
-                  <MonacoEditor
-                    value={editedContent}
-                    onChange={setEditedContent}
-                    onSave={handleSave}
-                    placeholder="开始写作..."
-                  />
+                  {activeTab === 'content' ? (
+                    <MonacoEditor
+                      value={editedContent}
+                      onChange={setEditedContent}
+                      onSave={handleSave}
+                      placeholder="开始写作..."
+                    />
+                  ) : (
+                    <MonacoEditor
+                      value={editedOutline}
+                      onChange={setEditedOutline}
+                      onSave={handleSave}
+                      placeholder="本章大纲..."
+                    />
+                  )}
                 </div>
                 <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
                   <span>{editedContent.length} 字符</span>

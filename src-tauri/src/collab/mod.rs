@@ -1,4 +1,5 @@
 pub mod ot;
+pub mod websocket;
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
@@ -6,6 +7,8 @@ use std::collections::HashMap;
 
 #[allow(unused_imports)]
 pub use ot::*;
+#[allow(unused_imports)]
+pub use websocket::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollabSession {

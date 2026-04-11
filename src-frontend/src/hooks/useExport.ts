@@ -25,6 +25,16 @@ export function useExport() {
   return useMutation({
     mutationFn: exportStory,
     onSuccess: (data) => {
+      // Trigger file download
+      const blob = new Blob([data.content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.file_path.split('\\').pop()?.split('/').pop() || 'export.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       toast.success(`导出成功: ${data.file_path}`);
     },
     onError: (error: Error) => {
