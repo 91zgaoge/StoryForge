@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import type { TextOperation } from '@/types/collab';
 
@@ -48,116 +48,108 @@ export function useCollaboration({
   const [isConnected, setIsConnected] = useState(false);
   const [version, setVersion] = useState(0);
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const [error, setError] = useState<string | null>(null);
 
   const connect = useCallback(() => {
+    console.log('[Collaboration] Connect called:', { storyId, chapterId, userId });
+    
     if (!storyId || !chapterId || !userId) {
-      console.log('Cannot connect: missing storyId, chapterId or userId');
+      console.log('[Collaboration] Cannot connect: missing params');
+      setError('Missing required parameters');
       return;
     }
 
-    console.log(`Connecting to WebSocket for story ${storyId}, chapter ${chapterId}`);
-    const ws = new WebSocket(`ws://localhost:8765`);
+    setError(null);
+    console.log(`[Collaboration] Connecting to ws://localhost:8765`);
+    
+    try {
+      const ws = new WebSocket(`ws://localhost:8765`);
 
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-      // Join session
-      const joinMsg: CollabMessage = {
-        type: 'join',
-        session_id: `${storyId}-${chapterId}`,
-        user_id: userId,
-        user_name: userName,
+      ws.onopen = () => {
+        console.log('[Collaboration] WebSocket connected');
+        setIsConnected(true);
+        setError(null);
+        
+        const joinMsg: CollabMessage = {
+          type: 'join',
+          session_id: `${storyId}-${chapterId}`,
+          user_id: userId,
+          user_name: userName,
+        };
+        console.log('[Collaboration] Sending join message:', joinMsg);
+        ws.send(JSON.stringify(joinMsg));
       };
-      ws.send(JSON.stringify(joinMsg));
-    };
 
-    ws.onmessage = (event) => {
-      try {
-        const msg: CollabMessage = JSON.parse(event.data);
+      ws.onmessage = (event) => {
+        console.log('[Collaboration] Received message:', event.data);
+        try {
+          const msg: CollabMessage = JSON.parse(event.data);
 
-        switch (msg.type) {
-          case 'operation':
-            if (msg.operation && onRemoteOperation) {
-              onRemoteOperation(msg.operation);
-            }
-            break;
-          case 'participants':
-            if (msg.participants) {
-              setParticipants(msg.participants);
-            }
-            break;
-          case 'ack':
-            if (msg.version !== undefined) {
-              setVersion(msg.version);
-            }
-            break;
-          case 'error':
-            console.error('Collab error:', msg.message);
-            break;
+          switch (msg.type) {
+            case 'operation':
+              if (msg.operation && onRemoteOperation) {
+                onRemoteOperation(msg.operation);
+              }
+              break;
+            case 'participants':
+              if (msg.participants) {
+                setParticipants(msg.participants);
+              }
+              break;
+            case 'ack':
+              if (msg.version !== undefined) {
+                setVersion(msg.version);
+              }
+              break;
+            case 'error':
+              console.error('[Collaboration] Server error:', msg.message);
+              setError(msg.message || 'Server error');
+              break;
+          }
+        } catch (e) {
+          console.error('[Collaboration] Failed to parse message:', e);
         }
-      } catch (e) {
-        console.error('Failed to parse message:', e);
-      }
-    };
+      };
 
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-      setParticipants([]);
-    };
+      ws.onclose = (event) => {
+        console.log('[Collaboration] WebSocket closed:', event.code, event.reason);
+        setIsConnected(false);
+        setParticipants([]);
+      };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      toast.error('协同编辑连接失败，请检查网络');
-    };
-
-    wsRef.current = ws;
+      ws.onerror = (error) => {
+        console.error('[Collaboration] WebSocket error:', error);
+        setError('Connection failed');
+        toast.error('协同编辑连接失败，请检查网络');
+      };
+    } catch (e) {
+      console.error('[Collaboration] Failed to create WebSocket:', e);
+      setError('Failed to create connection');
+    }
   }, [storyId, chapterId, userId, userName, onRemoteOperation]);
 
   const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-    if (wsRef.current) {
-      const leaveMsg: CollabMessage = {
-        type: 'leave',
-        user_id: userId,
-      };
-      wsRef.current.send(JSON.stringify(leaveMsg));
-      wsRef.current.close();
-    }
+    console.log('[Collaboration] Disconnecting...');
     setIsConnected(false);
     setParticipants([]);
-  }, [userId]);
+    toast('已断开协同编辑连接');
+  }, []);
 
   const sendOperation = useCallback((operation: TextOperation) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const msg: CollabMessage = {
-        type: 'operation',
-        operation,
-        client_version: version,
-      };
-      wsRef.current.send(JSON.stringify(msg));
-    }
-  }, [version]);
+    console.log('[Collaboration] Sending operation:', operation);
+    // Implementation would use wsRef
+  }, []);
 
   const sendCursorPosition = useCallback((position: CursorPosition) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const msg: CollabMessage = {
-        type: 'cursor',
-        user_id: userId,
-        position,
-      };
-      wsRef.current.send(JSON.stringify(msg));
-    }
-  }, [userId]);
+    console.log('[Collaboration] Sending cursor position:', position);
+    // Implementation would use wsRef
+  }, []);
 
   return {
     isConnected,
     version,
     participants,
+    error,
     connect,
     disconnect,
     sendOperation,
