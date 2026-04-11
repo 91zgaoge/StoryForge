@@ -15,9 +15,11 @@
       "capabilities": ["main-capability"]
     },
     "windows": [{
+      "label": "main",
       "title": "StoryForge (草苔)",
       "width": 1400,
-      "height": 900
+      "height": 900,
+      "center": true
     }]
   },
   "bundle": {
