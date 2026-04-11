@@ -36,6 +36,7 @@ use std::collections::HashMap;
 
 use collab::websocket::WebSocketServer;
 
+
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
 static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
