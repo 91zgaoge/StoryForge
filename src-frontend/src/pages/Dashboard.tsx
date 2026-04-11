@@ -4,8 +4,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useStories, useCreateStory } from '@/hooks/useStories';
-import { formatNumber } from '@/utils/format';
-import { formatDate } from '@/utils/format';
+import { formatNumber, formatDate } from '@/utils/format';
 import toast from 'react-hot-toast';
 
 export function Dashboard() {
