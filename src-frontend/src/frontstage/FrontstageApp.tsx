@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { StreamingText } from './components/StreamingText';
+import { ReaderWriter } from './components/ReaderWriter';
+import { ChapterOutline } from './components/ChapterOutline';
 import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
 
 interface Story {
@@ -246,37 +247,90 @@ const FrontstageApp: React.FC = () => {
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar */}
+        {/* Sidebar with Chapter Outline */}
         <aside 
           className={`frontstage-sidebar ${sidebarOpen ? '' : 'collapsed'}`}
-          style={{ width: sidebarOpen ? '280px' : '0px' }}
+          style={{ width: sidebarOpen ? '320px' : '0px' }}
         >
-          <div className="frontstage-sidebar-content">
-            <div className="sidebar-section-title">故事</div>
-            {stories.map(story => (
-              <div
-                key={story.id}
-                className={`sidebar-item ${currentStory?.id === story.id ? 'active' : ''}`}
-                onClick={() => selectStory(story)}
+          <div className="frontstage-sidebar-content h-full flex flex-col">
+            {/* 故事选择 */}
+            <div className="px-4 py-3 border-b border-[var(--warm-sand)]">
+              <label className="text-xs text-[var(--stone-gray)] uppercase tracking-wider">当前故事</label>
+              <select
+                value={currentStory?.id || ''}
+                onChange={(e) => {
+                  const story = stories.find(s => s.id === e.target.value);
+                  if (story) selectStory(story);
+                }}
+                className="w-full mt-1 px-3 py-2 bg-[var(--parchment)] border border-[var(--warm-sand)] rounded-lg text-[var(--charcoal)] text-sm focus:outline-none focus:border-[var(--terracotta)]"
               >
-                {story.title}
-              </div>
-            ))}
+                {stories.map(story => (
+                  <option key={story.id} value={story.id}>{story.title}</option>
+                ))}
+              </select>
+            </div>
 
-            <div className="sidebar-section-title">章节</div>
-            {chapters.map(chapter => (
-              <div
-                key={chapter.id}
-                className={`sidebar-chapter-item ${currentChapter?.id === chapter.id ? 'active' : ''}`}
-                onClick={() => selectChapter(chapter)}
+            {/* 章节大纲 */}
+            <div className="flex-1 overflow-hidden">
+              <ChapterOutline
+                items={chapters.map((c, index) => ({
+                  id: c.id,
+                  level: 0,
+                  title: c.title || `第${c.chapter_number}章`,
+                  wordCount: c.content ? Math.floor(c.content.length / 2) : 0,
+                }))}
+                selectedId={currentChapter?.id}
+                onReorder={(newItems) => {
+                  // TODO: 实现章节重新排序
+                  console.log('Reordered:', newItems);
+                }}
+                onSelect={(id) => {
+                  const chapter = chapters.find(c => c.id === id);
+                  if (chapter) selectChapter(chapter);
+                }}
+                onEdit={(id, title) => {
+                  const chapter = chapters.find(c => c.id === id);
+                  if (chapter) {
+                    invoke('update_chapter', {
+                      id: chapter.id,
+                      title,
+                      content: chapter.content,
+                    }).then(() => {
+                      loadStories();
+                    });
+                  }
+                }}
+                onDelete={(id) => {
+                  if (confirm('确定要删除这个章节吗？')) {
+                    invoke('delete_chapter', { id }).then(() => {
+                      loadStories();
+                    });
+                  }
+                }}
+                onAdd={() => {
+                  if (currentStory) {
+                    const nextNumber = chapters.length + 1;
+                    invoke('create_chapter', {
+                      storyId: currentStory.id,
+                      chapterNumber: nextNumber,
+                      title: `第${nextNumber}章`,
+                    }).then(() => {
+                      loadStories();
+                    });
+                  }
+                }}
+              />
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="p-4 border-t border-[var(--warm-sand)]">
+              <button 
+                className="backstage-btn" 
+                onClick={openBackstage}
               >
-                {chapter.chapter_number}. {chapter.title || '未命名'}
-              </div>
-            ))}
-
-            <button className="backstage-btn" onClick={openBackstage}>
-              打开幕后工作室 →
-            </button>
+                打开幕后工作室 →
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -291,13 +345,13 @@ const FrontstageApp: React.FC = () => {
             </div>
           )}
           
-          {/* Streaming Text Editor */}
-          <StreamingText
-            userContent={content}
-            onUserContentChange={handleContentChange}
+          {/* Rich Text Editor */}
+          <ReaderWriter
+            content={content}
+            onChange={handleContentChange}
             onRequestGeneration={handleRequestGeneration}
-            chapterId={currentChapter?.id}
             aiEnabled={showAI}
+            placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
           />
         </main>
       </div>
