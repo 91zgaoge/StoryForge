@@ -1,0 +1,32 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+build/
+*.log
+
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.db
+*.db-journal
+exports/
+vector_db/
+config.json

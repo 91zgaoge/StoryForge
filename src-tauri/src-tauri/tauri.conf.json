@@ -1,0 +1,27 @@
+{
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": "http://localhost:5173",
+    "distDir": "../public",
+    "withGlobalTauri": true
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true
+    },
+    "security": {
+      "csp": null
+    },
+    "bundle": {
+      "active": true,
+      "category": "Productivity",
+      "identifier": "com.cinema-ai.app"
+    },
+    "windows": [{
+      "title": "CINEMA-AI",
+      "width": 1400,
+      "height": 900
+    }]
+  }
+}

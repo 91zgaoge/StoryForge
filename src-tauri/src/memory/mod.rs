@@ -1,0 +1,138 @@
+use crate::agents::{AgentContext, ChapterSummary, CharacterInfo};
+use crate::db::{Chapter, Character, Story};
+
+/// 短期记忆管理器 - 维护 Agent 执行所需的上下文
+pub struct ShortTermMemory {
+    max_chapters: usize,
+    max_characters: usize,
+    max_events: usize,
+}
+
+impl ShortTermMemory {
+    pub fn new() -> Self {
+        Self {
+            max_chapters: 5,
+            max_characters: 10,
+            max_events: 20,
+        }
+    }
+
+    /// 从数据库记录构建 AgentContext
+    pub fn build_context(
+        &self,
+        story: &Story,
+        chapters: &[Chapter],
+        characters: &[Character],
+        target_chapter_number: u32,
+        outline: &str,
+    ) -> AgentContext {
+        // 构建章节摘要（最近 N 章）
+        let mut previous_chapters: Vec<ChapterSummary> = chapters
+            .iter()
+            .filter(|c| c.chapter_number < target_chapter_number as i32)
+            .map(|c| ChapterSummary {
+                chapter_number: c.chapter_number,
+                title: c.title.clone().unwrap_or_default(),
+                summary: self.summarize_chapter(c),
+                key_events: self.extract_key_events(c),
+            })
+            .collect();
+
+        // 只保留最近的 N 章
+        if previous_chapters.len() > self.max_chapters {
+            previous_chapters = previous_chapters
+                .into_iter()
+                .rev()
+                .take(self.max_chapters)
+                .rev()
+                .collect();
+        }
+
+        // 构建角色信息
+        let character_infos: Vec<CharacterInfo> = characters
+            .iter()
+            .take(self.max_characters)
+            .map(|c| CharacterInfo {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                personality: c.personality.clone().unwrap_or_default(),
+                current_state: self.infer_character_state(c, chapters),
+            })
+            .collect();
+
+        // 提取关键事件（最近 N 个）
+        let mut key_events = Vec::new();
+        for ch in chapters.iter().rev().take(3) {
+            key_events.extend(self.extract_key_events(ch));
+        }
+        key_events.truncate(self.max_events);
+        key_events.reverse();
+
+        AgentContext {
+            story_id: story.id.clone(),
+            story_title: story.title.clone(),
+            genre: story.genre.clone().unwrap_or_else(|| "general".to_string()),
+            tone: story.tone.clone().unwrap_or_else(|| "neutral".to_string()),
+            pacing: story.pacing.clone().unwrap_or_else(|| "medium".to_string()),
+            chapter_number: target_chapter_number,
+            outline: outline.to_string(),
+            previous_chapters,
+            characters: character_infos,
+            key_events,
+        }
+    }
+
+    /// 生成章节摘要（简化版，实际可用 LLM 生成更好摘要）
+    fn summarize_chapter(&self,
+        chapter: &Chapter,
+    ) -> String {
+        let content = chapter.content.as_ref().map(|s| s.as_str()).unwrap_or("");
+        if content.is_empty() {
+            return "No content".to_string();
+        }
+
+        // 取前 200 字符作为摘要
+        let summary: String = content.chars().take(200).collect();
+        format!("{}...", summary)
+    }
+
+    /// 提取关键事件（简化版，基于关键词）
+    fn extract_key_events(
+        &self,
+        chapter: &Chapter,
+    ) -> Vec<String> {
+        let mut events = Vec::new();
+
+        // 如果有大纲，使用大纲
+        if let Some(outline) = &chapter.outline {
+            events.push(format!("Chapter {}: {}", chapter.chapter_number, outline));
+        }
+
+        events
+    }
+
+    /// 推断角色当前状态
+    fn infer_character_state(
+        &self,
+        character: &Character,
+        _chapters: &[Chapter],
+    ) -> String {
+        // 简化版：返回目标或最新动态特征
+        character.goals.clone().unwrap_or_else(|| {
+            if let Some(first_trait) = character.dynamic_traits.first() {
+                format!("{} (confidence: {:.0}%)",
+                    first_trait.trait_name,
+                    first_trait.confidence * 100.0
+                )
+            } else {
+                "Active".to_string()
+            }
+        })
+    }
+}
+
+impl Default for ShortTermMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}

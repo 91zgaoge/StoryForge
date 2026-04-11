@@ -1,0 +1,217 @@
+# StoryForge (草苔) v2.0 项目完成状态
+
+## ✅ 已完成功能
+
+### 1. 核心架构 (100%)
+- ✅ Tauri + Rust 桌面应用框架
+- ✅ SQLite 数据库 (r2d2 连接池)
+- ✅ 错误处理模块
+
+### 2. 数据层 (100%)
+- ✅ Story 故事管理 (CRUD)
+- ✅ Character 角色管理 (CRUD)
+- ✅ Chapter 章节管理 (CRUD)
+- ✅ Repository 数据访问模式
+
+### 3. LLM 集成 (100%)
+- ✅ OpenAI GPT 支持
+- ✅ Anthropic Claude 支持
+- ✅ Ollama 本地模型支持
+- ✅ 流式生成
+- ✅ Prompt 管理系统
+
+### 4. Agent 系统 (95%)
+- ✅ WriterAgent - 智能写作
+- ✅ InspectorAgent - 质量检查
+- ✅ OutlinePlannerAgent - 大纲规划
+- ✅ StyleMimicAgent - 风格模仿
+- ✅ PlotComplexityAgent - 情节分析
+- ✅ LoopDetector - 循环检测
+
+### 5. 技能系统 Skills (100%) - v2.0 新增
+- ✅ 通用技能导入 (目录/文件)
+- ✅ 技能分类 (Writing/Analysis/Character/Plot/Style/Export/Integration/Custom)
+- ✅ Prompt 技能
+- ✅ MCP 技能
+- ✅ Hook 系统 (事件钩子)
+- ✅ 5个内置技能：
+  - builtin.style_enhancer (文风增强器)
+  - builtin.plot_twist (情节反转)
+  - builtin.character_voice (角色声音)
+  - builtin.emotion_analyzer (情感分析)
+  - builtin.pacing_optimizer (节奏优化)
+
+### 6. MCP 支持 (90%) - v2.0 新增
+- ✅ MCP Client (连接外部 MCP Server)
+- ✅ Tool calling
+- ✅ Resource reading
+- ✅ Stdio 传输
+- ⚠️ MCP Server (框架就绪，待完善)
+
+### 7. 状态管理 (100%) - v2.0 新增
+- ✅ StoryState (完整故事状态)
+- ✅ CharacterState (角色状态追踪)
+- ✅ ChapterState (章节状态)
+- ✅ PlotProgression (情节推进)
+- ✅ WorldState (世界观状态)
+- ✅ 数据验证 Schema
+
+### 8. 模型路由 (100%) - v2.0 新增
+- ✅ 模型配置管理
+- ✅ 智能路由 (基于任务类型)
+- ✅ 成本计算
+- ✅ 质量分级 (Ultra/High/Medium/Low)
+- ✅ 速度分级 (Fast/Normal/Slow/VerySlow)
+
+### 9. 进化算法 (100%) - v2.0 新增
+- ✅ ContentAnalyzer (内容分析：节奏、一致性、连贯性)
+- ✅ SkillUpdater (技能自动优化)
+- ✅ DeepReviewer (深度复盘)
+
+### 10. 导出功能 (100%)
+- ✅ Markdown 导出
+- ✅ PlainText 导出
+- ✅ JSON 导出
+- ✅ HTML 导出
+- ✅ PDF 导出 (printpdf)
+- ✅ EPUB 导出 (epub-builder)
+
+### 11. 向量检索 (95%)
+- ✅ 向量存储 (内存实现，LanceDB待升级)
+- ✅ 相似度搜索 (余弦相似度)
+- ✅ 章节嵌入
+- ✅ 改进的嵌入算法 (基于哈希的TF特征)
+
+### 12. 前端界面 (85%)
+- ✅ 仪表盘 (统计卡片、快速操作、真实数据)
+- ✅ 故事列表 (网格布局、创建模态框、删除功能)
+- ✅ 角色管理 (角色卡片、创建/删除功能)
+- ✅ 章节管理 (章节列表、创建/编辑/保存/删除、字数统计)
+- ✅ 技能管理 (分类标签、启用/禁用)
+- ✅ MCP 配置 (服务器列表)
+- ✅ 设置界面 (LLM 配置表单)
+- ✅ 侧边栏导航
+- ✅ Toast 通知系统
+- ✅ React Query 数据获取
+- ✅ 响应式布局
+
+### 13. 工具模块 Utils (100%) - v2.0 新增
+- ✅ 文本处理 (字数统计、对话提取等)
+- ✅ 文件操作 (安全文件名、目录操作)
+- ✅ 验证工具 (邮箱、URL、密码、JSON)
+
+### 14. 其他模块
+- ✅ 版本管理
+- ✅ 对话系统
+- ✅ 分析统计
+- ⚠️ 协同编辑 (基础框架，OT算法待完善)
+
+## 📊 整体完成度
+
+| 模块 | 完成度 |
+|------|--------|
+| 核心架构 | 100% |
+| 数据层 | 100% |
+| LLM 集成 | 100% |
+| Agent 系统 | 95% |
+| 技能系统 | 100% |
+| MCP 支持 | 90% |
+| 状态管理 | 100% |
+| 模型路由 | 100% |
+| 进化算法 | 100% |
+| 导出功能 | 100% |
+| 向量检索 | 95% |
+| 前端界面 | 85% |
+| 工具模块 | 100% |
+| **整体** | **~93%** |
+
+## 🚀 编译状态
+
+```bash
+$ cargo build
+   Compiling storyforge v0.1.0
+   Finished dev profile [unoptimized + debuginfo] target(s)
+```
+
+✅ **编译成功** (仅有轻微的警告，无错误)
+
+### 最近的改进
+1. **向量嵌入算法** - 从简单字符编码升级到基于哈希的TF特征提取
+2. **前端API连接** - 章节管理完全连接后端API
+3. **编译警告清理** - 修复了大部分未使用导入的警告
+
+## 📝 主要文件结构
+
+```
+v2-rust/
+├── index.html              # 前端入口
+├── src/
+│   ├── main.js            # 前端主逻辑
+│   ├── views.js           # UI 视图组件
+│   └── mock-tauri.js      # 开发模拟 API
+├── src-tauri/
+│   ├── src/
+│   │   ├── main.rs        # 应用入口
+│   │   ├── skills/        # 技能系统
+│   │   ├── mcp/           # MCP 支持
+│   │   ├── state/         # 状态管理
+│   │   ├── router/        # 模型路由
+│   │   ├── evolution/     # 进化算法
+│   │   ├── embeddings/    # 嵌入系统
+│   │   ├── utils/         # 工具函数
+│   │   └── ...
+├── README.md              # 项目说明
+├── CHANGELOG.md           # 更新日志
+└── PROJECT_STATUS.md      # 本文件
+```
+
+## 🎯 Tauri 命令列表
+
+### 故事管理
+- `get_state` - 获取仪表盘状态
+- `list_stories` - 获取故事列表
+- `create_story` - 创建故事
+- `update_story` - 更新故事
+- `delete_story` - 删除故事
+
+### 角色管理
+- `get_story_characters` - 获取角色列表
+- `create_character` - 创建角色
+- `update_character` - 更新角色
+- `delete_character` - 删除角色
+
+### 章节管理
+- `get_story_chapters` - 获取章节列表
+- `get_chapter` - 获取单章
+- `create_chapter` - 创建章节 (⭐ 新增)
+- `update_chapter` - 更新章节
+- `delete_chapter` - 删除章节
+
+### 技能系统
+- `get_skills` - 获取技能列表
+- `get_skills_by_category` - 按分类获取技能
+- `import_skill` - 导入技能
+- `enable_skill` - 启用技能
+- `disable_skill` - 禁用技能
+- `uninstall_skill` - 卸载技能
+- `execute_skill` - 执行技能
+
+### MCP 集成
+- `connect_mcp_server` - 连接 MCP 服务器
+- `call_mcp_tool` - 调用 MCP 工具
+
+### 向量搜索
+- `search_similar` - 向量相似度搜索
+- `embed_chapter` - 章节内容向量化
+
+## 🛠️ 开发说明
+
+由于 Tauri CLI 版本兼容性问题，建议使用以下方式测试:
+
+1. **后端测试**: `cargo test` (Rust 单元测试)
+2. **前端预览**: 使用任意 HTTP 服务器打开 `index.html`
+3. **API 模拟**: 已提供 `src/mock-tauri.js` 用于前端独立开发
+
+## 📝 更新日期
+
+2025-04-11 - 完成 v2.0.0-alpha 版本

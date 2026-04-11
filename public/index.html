@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CINEMA-AI v2.0 | 越写越懂的创作系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans SC', 'sans-serif'],
+                    },
+                    colors: {
+                        cinema: {
+                            900: "#0a0f1c",
+                            800: "#111827",
+                            700: "#1f2937",
+                            600: "#374151",
+                            accent: "#3b82f6",
+                            success: "#10b981",
+                            warning: "#f59e0b",
+                            danger: "#ef4444",
+                        }
+                    }
+                }
+            }
+        };
+    </script>
+    <style>
+        * { scrollbar-width: thin; scrollbar-color: #374151 #111827; }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-track { background: #111827; }
+        *::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        *::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        .loading-dots::after { content: ''; animation: dots 1.5s steps(4, end) infinite; }
+        @keyframes dots { 0%, 20% { content: ''; } 40% { content: '.'; } 60% { content: '..'; } 80% { content: '...'; } }
+        .glass { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="bg-cinema-900 text-gray-100 font-sans antialiased">
+    <div id="app" class="min-h-screen"></div>
+    <div id="modal-container"></div>
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+    <script src="src/mock-tauri.js"></script>
+    <script src="src/views.js"></script>
+    <script src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CINEMA-AI | 越写越懂的创作系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Distinctive Typography: Literary + Cinematic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    fontFamily: {
+                        display: ['Cinzel', 'serif'],
+                        body: ['Crimson Pro', 'serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        cinema: {
+                            950: "#050508",
+                            900: "#0a0a0f",
+                            850: "#0f0f16",
+                            800: "#151520",
+                            700: "#1e1e2e",
+                            600: "#2a2a3c",
+                            500: "#3a3a50",
+                            gold: "#d4af37",
+                            "gold-light": "#e8c547",
+                            "gold-dark": "#b8941f",
+                            amber: "#f59e0b",
+                            rust: "#c2410c",
+                            velvet: "#4c1d95",
+                        }
+                    },
+                    animation: {
+                        'fade-up': 'fadeUp 0.6s ease-out',
+                        'fade-in': 'fadeIn 0.4s ease-out',
+                        'slide-left': 'slideLeft 0.5s ease-out',
+                        'typewriter': 'typewriter 2s steps(40) forwards',
+                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'shimmer': 'shimmer 2s linear infinite',
+                    },
+                    keyframes: {
+                        fadeUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        slideLeft: {
+                            '0%': { opacity: '0', transform: 'translateX(-30px)' },
+                            '100%': { opacity: '1', transform: 'translateX(0)' },
+                        },
+                        typewriter: {
+                            '0%': { width: '0' },
+                            '100%': { width: '100%' },
+                        },
+                        shimmer: {
+                            '0%': { backgroundPosition: '-1000px 0' },
+                            '100%': { backgroundPosition: '1000px 0' },
+                        },
+                    }
+                }
+            }
+        };
+    </script>
+    <style>
+        /* Cinematic scrollbar */
+        * { scrollbar-width: thin; scrollbar-color: #3a3a50 #0a0a0f; }
+        *::-webkit-scrollbar { width: 6px; height: 6px; }
+        *::-webkit-scrollbar-track { background: #0a0a0f; }
+        *::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #d4af37, #b8941f); border-radius: 3px; }
+        *::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #e8c547, #d4af37); }
+
+        /* Film grain overlay */
+        .film-grain {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+
+        /* Gold accent line */
+        .gold-line {
+            background: linear-gradient(90deg, transparent, #d4af37, transparent);
+            height: 1px;
+        }
+
+        /* Cinematic glow effects */
+        .glow-gold {
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.15), 0 0 40px rgba(212, 175, 55, 0.05);
+        }
+
+        .text-glow {
+            text-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+        }
+
+        /* Glass morphism with gold tint */
+        .glass-cinema {
+            background: linear-gradient(135deg, rgba(21, 21, 32, 0.9), rgba(10, 10, 15, 0.95));
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(212, 175, 55, 0.1);
+        }
+
+        /* Animated gradient border */
+        .gradient-border {
+            position: relative;
+            background: linear-gradient(135deg, #151520, #0a0a0f);
+        }
+        .gradient-border::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(135deg, #d4af37, transparent, #d4af37);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            animation: rotate 4s linear infinite;
+        }
+
+        @keyframes rotate {
+            0% { filter: hue-rotate(0deg); }
+            100% { filter: hue-rotate(360deg); }
+        }
+
+        /* Typewriter cursor */
+        .typewriter-cursor::after {
+            content: '|';
+            animation: blink 1s step-end infinite;
+            color: #d4af37;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Loading animation */
+        .loading-reel {
+            width: 40px;
+            height: 40px;
+            border: 2px solid transparent;
+            border-top-color: #d4af37;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Stagger animation delays */
+        .stagger-1 { animation-delay: 0.1s; }
+        .stagger-2 { animation-delay: 0.2s; }
+        .stagger-3 { animation-delay: 0.3s; }
+        .stagger-4 { animation-delay: 0.4s; }
+        .stagger-5 { animation-delay: 0.5s; }
+
+        /* Custom selection color */
+        ::selection {
+            background: rgba(212, 175, 55, 0.3);
+            color: #fff;
+        }
+    </style>
+</head>
+<body class="bg-cinema-950 text-gray-200 font-body antialiased overflow-x-hidden">
+    <!-- Film grain overlay for cinematic feel -->
+    <div class="film-grain"></div>
+
+    <!-- Main app container -->
+    <div id="app" class="min-h-screen relative"></div>
+
+    <!-- Modal container -->
+    <div id="modal-container" class="relative z-50"></div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-3"></div>
+
+    <!-- Scripts -->
+    <script src="src/mock-tauri.js"></script>
+    <script src="src/views.js"></script>
+    <script src="src/main.js"></script>
+</body>
+</html>

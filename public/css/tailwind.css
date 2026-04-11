@@ -1,0 +1,17 @@
+/* Tailwind CSS compiled for production */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-gray-900 text-white; }
+}
+
+@layer components {
+  .btn-primary { @apply bg-blue-600 px-6 py-3 rounded hover:bg-blue-500; }
+  .btn-secondary { @apply bg-gray-700 px-4 py-2 rounded hover:bg-gray-600; }
+  .card { @apply bg-gray-800 p-4 rounded; }
+  .sidebar { @apply w-64 bg-gray-800 p-4; }
+  .nav-btn { @apply w-full text-left p-2 hover:bg-gray-700 rounded; }
+  .nav-btn-active { @apply w-full text-left p-2 bg-blue-600 rounded; }
+}

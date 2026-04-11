@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Tauri Test</title>
+</head>
+<body>
+    <h1>Tauri API Test</h1>
+    <div id="result">加载中...</div>
+    <script>
+        setTimeout(() => {
+            const result = {
+                hasTauri: typeof window.__TAURI__ !== 'undefined',
+                tauriKeys: window.__TAURI__ ? Object.keys(window.__TAURI__) : [],
+                hasInvoke: window.__TAURI__ ? typeof window.__TAURI__.invoke : 'no',
+                userAgent: navigator.userAgent.substring(0, 50)
+            };
+            document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+        }, 500);
+    </script>
+</body>
+</html>

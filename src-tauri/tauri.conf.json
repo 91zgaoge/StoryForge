@@ -1,0 +1,27 @@
+{
+  "build": {
+    "beforeBuildCommand": "cd ../src-frontend && npm run build",
+    "beforeDevCommand": "cd ../src-frontend && npm run dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../src-frontend/dist",
+    "withGlobalTauri": true
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true
+    },
+    "security": {
+      "csp": null
+    },
+    "bundle": {
+      "active": true,
+      "category": "Productivity",
+      "identifier": "com.storyforge.app"
+    },
+    "windows": [{
+      "title": "StoryForge (草苔)",
+      "width": 1400,
+      "height": 900
+    }]
+  }
+}

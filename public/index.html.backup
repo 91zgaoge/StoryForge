@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CINEMA-AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="app" class="p-8">⏳ 初始化中...</div>
+
+    <script>
+        // Mock for browser testing
+        const mockInvoke = async (cmd, args) => {
+            console.log('Mock:', cmd, args);
+            await new Promise(r => setTimeout(r, 300));
+            if (cmd === 'get_state') {
+                return {
+                    metadata: { title: "我的小说", current_chapter: 5, last_updated: new Date().toISOString() },
+                    characters: {
+                        "char_001": { name: "李明", base_profile: { background: "前特种兵" }, dynamic_traits: [{trait: "多疑", confidence: 0.8}] },
+                        "char_002": { name: "小红", base_profile: { background: "记者" }, dynamic_traits: [] }
+                    },
+                    writing_style: { tone: "dark", pacing: "medium" },
+                    quality_metrics: { consistency_score: 0.95 }
+                };
+            }
+            if (cmd === 'generate_chapter') {
+                await new Promise(r => setTimeout(r, 1500));
+                return {
+                    chapter_number: args.chapterNumber,
+                    content: "# 第" + args.chapterNumber + "章\n\n" + args.outline + "\n\n夜幕降临，城市的霓虹灯闪烁着诡异的光芒...\n\n这是AI生成的示例章节。",
+                    metadata: { word_count: 1500, model_used: "gpt-4", cost: 0.05 }
+                };
+            }
+            throw new Error('Unknown: ' + cmd);
+        };
+
+        async function init() {
+            const app = document.getElementById('app');
+            app.innerHTML = '<div>正在初始化... (v2)</div>';
+
+            try {
+                // Wait for Tauri (up to 1 second)
+                let invoke = mockInvoke;
+                let mode = 'mock';
+                for (let i = 0; i < 20; i++) {
+                    if (window.__TAURI__ && window.__TAURI__.invoke) {
+                        invoke = window.__TAURI__.invoke;
+                        mode = 'tauri';
+                        console.log('Tauri detected');
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 50));
+                }
+
+                console.log('Mode:', mode);
+                app.innerHTML += '<div>模式: ' + mode + '</div>';
+
+                const state = await invoke('get_state');
+                console.log('State:', state);
+                renderApp(state, invoke, mode);
+            } catch (err) {
+                console.error('Error:', err);
+                app.innerHTML = '<div class="text-red-400">错误: ' + err.message + '</div><div class="text-sm text-gray-500 mt-2">' + err.stack + '</div>';
+            }
+        }
+
+        // Ensure init runs
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        function renderApp(state, invoke, mode) {
+            const chars = Object.keys(state.characters).length;
+            const traits = Object.values(state.characters).reduce((a,c)=>a+(c.dynamic_traits?.length||0),0);
+
+            document.body.innerHTML = `
+                <div class="flex h-screen">
+                    <aside class="w-64 bg-gray-800 p-4">
+                        <h1 class="text-xl font-bold text-blue-400 mb-6">🎬 CINEMA-AI</h1>
+                        <nav class="space-y-2">
+                            <button onclick="location.reload()" class="w-full text-left p-2 bg-blue-600 rounded">刷新</button>
+                        </nav>
+                        ${mode === 'mock' ? '<div class="mt-4 p-2 bg-yellow-900 text-yellow-300 text-xs rounded">模拟模式</div>' : ''}
+                    </aside>
+                    <main class="flex-1 p-8">
+                        <h2 class="text-2xl font-bold mb-6">仪表盘</h2>
+                        <div class="grid grid-cols-4 gap-4 mb-8">
+                            <div class="bg-gray-800 p-4 rounded"><div class="text-gray-400">章节</div><div class="text-2xl">${state.metadata.current_chapter}</div></div>
+                            <div class="bg-gray-800 p-4 rounded"><div class="text-gray-400">角色</div><div class="text-2xl">${chars}</div></div>
+                            <div class="bg-gray-800 p-4 rounded"><div class="text-gray-400">特质</div><div class="text-2xl">${traits}</div></div>
+                            <div class="bg-gray-800 p-4 rounded"><div class="text-gray-400">一致性</div><div class="text-2xl text-green-400">95%</div></div>
+                        </div>
+
+                        <h3 class="text-xl font-bold mb-4">章节创作</h3>
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="bg-gray-800 p-4 rounded">
+                                <div class="mb-4"><label class="block text-gray-400 mb-1">章节号</label><input type="number" id="ch-num" value="6" class="w-full bg-gray-700 rounded p-2"></div>
+                                <div class="mb-4"><label class="block text-gray-400 mb-1">大纲</label><textarea id="ch-outline" rows="3" class="w-full bg-gray-700 rounded p-2" placeholder="输入章节大纲..."></textarea></div>
+                                <button onclick="generate()" class="w-full bg-green-600 p-2 rounded hover:bg-green-500">生成章节</button>
+                            </div>
+                            <div class="bg-gray-800 p-4 rounded">
+                                <h4 class="font-bold mb-2">生成结果</h4>
+                                <div id="ch-result" class="text-gray-300 text-sm">点击生成按钮...</div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            `;
+
+            window.appInvoke = invoke;
+            window.generate = async () => {
+                const resultDiv = document.getElementById('ch-result');
+                resultDiv.textContent = '生成中...';
+                try {
+                    const chapter_number = parseInt(document.getElementById('ch-num').value) || 1;
+                    const outline = document.getElementById('ch-outline').value || '默认大纲';
+                    console.log('Generating chapter:', { chapter_number, outline });
+                    // Use snake_case to match Rust parameter names
+                    const result = await window.appInvoke('generate_chapter', { chapter_number, outline });
+                    resultDiv.innerHTML = '<pre class="whitespace-pre-wrap">' + result.content + '</pre>';
+                } catch (err) {
+                    console.error('Generate error:', err);
+                    resultDiv.innerHTML = '<span class="text-red-400">错误: ' + err + '</span>';
+                }
+            };
+        }
+
+        init();
+    </script>
+</body>
+</html>
