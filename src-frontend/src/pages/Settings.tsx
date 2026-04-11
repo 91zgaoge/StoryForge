@@ -18,11 +18,13 @@ import { useState } from 'react';
 import { 
   Settings2, Key, Globe, Database, 
   Plus, Trash2, Edit2, Download, Upload,
-  Check, X, Bot, Sparkles, Image, MessageSquare
+  Check, X, Bot, Sparkles, Image, MessageSquare,
+  RefreshCw
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useSettings, useModels, useExportSettings, useImportSettings } from '@/hooks/useSettings';
+import { useUpdater } from '@/hooks/useUpdater';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
@@ -548,14 +550,88 @@ function AgentConfig() {
 
 // 通用设置组件
 function GeneralSettings() {
+  const { 
+    currentVersion, 
+    hasUpdate, 
+    latestVersion, 
+    isChecking, 
+    isInstalling,
+    checkUpdate, 
+    installUpdate 
+  } = useUpdater(false);
+
   return (
-    <Card>
-      <CardContent className="p-8 text-center">
-        <Settings2 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-white mb-2">通用设置</h3>
-        <p className="text-gray-500">主题、语言、自动保存等全局配置</p>
-        <p className="text-sm text-gray-600 mt-4">功能开发中...</p>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      {/* 版本信息 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-terracotta to-terracotta/60 flex items-center justify-center">
+                <span className="text-white font-serif text-2xl font-bold">草</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-white">StoryForge (草苔)</h3>
+                <p className="text-gray-400">当前版本: v{currentVersion}</p>
+                {hasUpdate && (
+                  <p className="text-terracotta text-sm">
+                    新版本可用: v{latestVersion}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {hasUpdate ? (
+                <Button 
+                  variant="primary" 
+                  onClick={installUpdate}
+                  disabled={isInstalling}
+                >
+                  {isInstalling ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      安装中...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4 mr-2" />
+                      立即更新
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button 
+                  variant="secondary" 
+                  onClick={checkUpdate}
+                  disabled={isChecking}
+                >
+                  {isChecking ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      检查中...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      检查更新
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 其他设置 */}
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Settings2 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-white mb-2">通用设置</h3>
+          <p className="text-gray-500">主题、语言、自动保存等全局配置</p>
+          <p className="text-sm text-gray-600 mt-4">功能开发中...</p>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

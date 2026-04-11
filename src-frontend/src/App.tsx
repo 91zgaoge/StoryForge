@@ -11,11 +11,26 @@ import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { FrontstageLauncher } from '@/components/FrontstageLauncher';
+import { UpdateNotification } from '@/components/updater';
+import { useUpdater } from '@/hooks/useUpdater';
 import type { ViewType } from '@/types';
 
 function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
+
+  // 自动更新检测
+  const {
+    currentVersion,
+    hasUpdate,
+    latestVersion,
+    updateInfo,
+    isInstalling,
+    error,
+    checkUpdate,
+    installUpdate,
+    dismissUpdate,
+  } = useUpdater(true);
 
   // Check if we're in frontstage mode (via URL or window label)
   useEffect(() => {
@@ -47,6 +62,17 @@ function App() {
       <div className="flex h-screen bg-cinema-950 film-grain">
         <DataLoader />
         <ConnectionStatus />
+        <UpdateNotification
+          isOpen={hasUpdate}
+          currentVersion={currentVersion}
+          latestVersion={latestVersion}
+          updateInfo={updateInfo}
+          isInstalling={isInstalling}
+          error={error}
+          onInstall={installUpdate}
+          onDismiss={dismissUpdate}
+          onCheck={checkUpdate}
+        />
         <FrontstageLauncher
           isOpen={isFrontstageOpen}
           onToggle={() => setIsFrontstageOpen(!isFrontstageOpen)}

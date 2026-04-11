@@ -311,7 +311,15 @@
 - ✅ Stdio Transport
 - 🟡 MCP Server（内置，框架）
 
-#### 3.11 窗口管理 (src/window)
+#### 3.11 自动更新 (src/updater)
+- ✅ tauri-plugin-updater 集成
+- ✅ 更新检测（check_update）
+- ✅ 后台下载与安装（install_update）
+- ✅ 前端更新通知（UpdateNotification）
+- ✅ 设置页面版本管理
+- ✅ GitHub Releases 更新源
+
+#### 3.12 窗口管理 (src/window)
 - ✅ WindowManager
 - ✅ 双窗口架构（frontstage/backstage）
 - ✅ 窗口显示/隐藏/切换
@@ -329,9 +337,9 @@
 | 架构基础 | 100% | 10% | 10.0 |
 | 幕前界面 | 95% | 25% | 23.75 |
 | 幕后界面 | 90% | 25% | 22.5 |
-| 后端系统 | 90% | 30% | 27.0 |
-| 文档/测试 | 75% | 10% | 7.5 |
-| **总计** | - | 100% | **90.75%** |
+| 后端系统 | 92% | 30% | 27.6 |
+| 文档/测试 | 80% | 10% | 8.0 |
+| **总计** | - | 100% | **92.35%** |
 
 ---
 
@@ -364,15 +372,19 @@
    - 说明: 章节版本管理和回滚
 
 ### P2 - 增强功能（锦上添花）
-7. **统计分析**
+7. ✅ **自动更新**
+   - 位置: `src-tauri/src/updater/`, `src-frontend/src/components/updater/`
+   - 状态: tauri-plugin-updater集成、GitHub Releases更新源
+
+8. **统计分析**
    - 位置: `src/pages/Dashboard.tsx`, `src-tauri/src/analytics/`
    - 说明: 写作数据可视化
 
-8. **云端同步**
+9. **云端同步**
    - 位置: 新增模块
    - 说明: 数据备份和跨设备同步
 
-9. **插件市场**
+10. **插件市场**
    - 位置: 新增模块
    - 说明: Skills 分享和下载平台
 
@@ -423,4 +435,21 @@
 - `index.ts` - 模块导出
 
 ---
+
+
+### 自动更新功能 (`src-tauri/src/updater/`, `src-frontend/src/components/updater/`)
+
+#### Rust后端
+- `src-tauri/src/updater/mod.rs` - Updater模块，更新检测和安装命令
+- `Cargo.toml` - 添加 tauri-plugin-updater 依赖
+- `tauri.conf.json` - 配置 updater 插件和 GitHub Releases 源
+
+#### 前端组件
+- `src-frontend/src/hooks/useUpdater.ts` - 更新检测 hook，自动检查
+- `src-frontend/src/components/updater/UpdateNotification.tsx` - 更新通知弹窗
+- `src-frontend/src/components/updater/index.ts` - 模块导出
+
+#### 集成
+- `src-frontend/src/App.tsx` - 集成 UpdateNotification 组件
+- `src-frontend/src/pages/Settings.tsx` - 设置页面版本信息
 

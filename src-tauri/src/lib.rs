@@ -21,6 +21,7 @@ mod evolution;
 mod embeddings;
 mod utils;
 mod window;
+mod updater;
 
 use tauri::{Manager, AppHandle};
 
@@ -54,6 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_dir = app.path().app_data_dir()
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
@@ -166,6 +168,11 @@ pub fn run() {
             agents::commands::agent_execute_stream,
             agents::commands::agent_cancel_task,
             agents::service::get_available_agents,
+            // Updater commands
+            updater::check_update,
+            updater::install_update,
+            updater::get_current_version,
+            updater::open_update_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
