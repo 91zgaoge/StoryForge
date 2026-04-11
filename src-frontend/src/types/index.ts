@@ -1,4 +1,5 @@
 // CINEMA-AI Frontend Types
+export * from './llm';
 
 export interface User {
   id: string;

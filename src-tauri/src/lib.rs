@@ -143,6 +143,19 @@ pub fn run() {
             notify_backstage_content_changed,
             notify_backstage_generation_requested,
             show_backstage,
+            // Settings commands
+            config::get_settings,
+            config::save_settings,
+            config::export_settings,
+            config::import_settings,
+            config::get_models,
+            config::create_model,
+            config::update_model,
+            config::delete_model,
+            config::set_active_model,
+            config::get_agent_mappings,
+            config::update_agent_mapping,
+            config::test_model_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
