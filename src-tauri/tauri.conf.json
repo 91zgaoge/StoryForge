@@ -21,7 +21,10 @@
       "height": 900,
       "center": true,
       "fullscreen": false,
-      "resizable": true
+      "resizable": true,
+      "visible": true,
+      "transparent": false,
+      "decorations": true
     }]
   },
   "bundle": {
