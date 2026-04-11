@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  getStoryChapters, 
+import {
+  getStoryChapters,
   getChapter,
   createChapter,
-  updateChapter, 
-  deleteChapter 
+  updateChapter,
+  deleteChapter
 } from '@services/tauri';
 import type { Chapter } from '@/types/index';
 import toast from 'react-hot-toast';
@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 const CHAPTERS_KEY = 'chapters';
 
 export function useChapters(storyId: string | null) {
-  return useQuery({
+  return useQuery<Chapter[]>({
     queryKey: [CHAPTERS_KEY, storyId],
     queryFn: () => storyId ? getStoryChapters(storyId) : Promise.resolve([]),
     enabled: !!storyId,

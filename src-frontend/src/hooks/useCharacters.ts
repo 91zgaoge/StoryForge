@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 const CHARACTERS_KEY = 'characters';
 
 export function useCharacters(storyId: string | null) {
-  return useQuery({
+  return useQuery<Character[]>({
     queryKey: [CHARACTERS_KEY, storyId],
     queryFn: () => storyId ? getStoryCharacters(storyId) : Promise.resolve([]),
     enabled: !!storyId,

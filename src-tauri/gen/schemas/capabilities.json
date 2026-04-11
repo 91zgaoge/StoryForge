@@ -1,0 +1,1 @@
+{"main-capability":{"identifier":"main-capability","description":"Main app capability","local":true,"windows":["main"],"permissions":["core:default","fs:default","dialog:default","shell:default","http:default"]}}

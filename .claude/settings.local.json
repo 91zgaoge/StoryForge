@@ -65,7 +65,21 @@
       "Bash(echo '        content: std::fs::read_to_string\\(\\\\u0026output_path\\).unwrap_or_default\\(\\),')",
       "Bash(tail -n +370 src-tauri/src/main.rs)",
       "Bash(mv /tmp/main_part1.rs src-tauri/src/main.rs)",
-      "Bash(mv /tmp/main_new.rs src-tauri/src/main.rs)"
+      "Bash(mv /tmp/main_new.rs src-tauri/src/main.rs)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(rustup update:*)",
+      "Bash(cargo outdated:*)",
+      "Bash(cargo search:*)",
+      "Bash(curl -s https://raw.githubusercontent.com/rust-lang/rust/master/RELEASES.md)",
+      "Bash(curl -s https://forge.rust-lang.org/infra/channel-layout.html)",
+      "Bash(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)",
+      "Bash(sh -s -- -y --default-toolchain stable)",
+      "Bash(export PATH=\"/d/Rust/cargo/bin:$PATH\")",
+      "Bash(rustup show:*)",
+      "Bash(rustup toolchain:*)",
+      "Bash(rustup default:*)",
+      "Bash(git add:*)"
     ]
   }
 }

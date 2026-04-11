@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
 import toast from 'react-hot-toast';
 
 export type ExportFormat = 'markdown' | 'pdf' | 'epub' | 'html' | 'txt' | 'json';
@@ -26,6 +26,10 @@ export function useExport() {
     mutationFn: exportStory,
     onSuccess: (data) => {
       // Trigger file download
+      if (!data.content) {
+        toast.error('导出内容为空');
+        return;
+      }
       const blob = new Blob([data.content], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

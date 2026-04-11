@@ -6,8 +6,13 @@ interface CursorPosition {
   column: number;
 }
 
+interface Participant {
+  user_id: string;
+  user_name: string;
+}
+
 interface CollabMessage {
-  type: 'join' | 'leave' | 'operation' | 'cursor' | 'ack' | 'sync' | 'error';
+  type: 'join' | 'leave' | 'operation' | 'cursor' | 'ack' | 'sync' | 'error' | 'participants';
   session_id?: string;
   user_id?: string;
   user_name?: string;
@@ -17,41 +22,45 @@ interface CollabMessage {
   version?: number;
   content?: string;
   message?: string;
+  participants?: Participant[];
 }
 
 interface UseCollaborationOptions {
-  sessionId: string;
-  documentId: string;
+  storyId: string;
+  chapterId: string;
   userId: string;
   userName: string;
-  onOperation?: (op: TextOperation) => void;
-  onCursorUpdate?: (userId: string, position: CursorPosition) => void;
-  onSync?: (content: string, version: number) => void;
+  onRemoteOperation?: (op: TextOperation) => void;
+  onUserJoined?: (user: Participant) => void;
+  onUserLeft?: (user: Participant) => void;
 }
 
 export function useCollaboration({
-  sessionId,
-  documentId,
+  storyId,
+  chapterId,
   userId,
   userName,
-  onOperation,
-  onCursorUpdate,
-  onSync,
+  onRemoteOperation,
+  onUserJoined,
+  onUserLeft,
 }: UseCollaborationOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [version, setVersion] = useState(0);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   const connect = useCallback(() => {
+    if (!storyId || !chapterId || !userId) return;
+
     const ws = new WebSocket(`ws://localhost:8765`);
-    
+
     ws.onopen = () => {
       setIsConnected(true);
       // Join session
       const joinMsg: CollabMessage = {
         type: 'join',
-        session_id: sessionId,
+        session_id: `${storyId}-${chapterId}`,
         user_id: userId,
         user_name: userName,
       };
@@ -61,26 +70,21 @@ export function useCollaboration({
     ws.onmessage = (event) => {
       try {
         const msg: CollabMessage = JSON.parse(event.data);
-        
+
         switch (msg.type) {
           case 'operation':
-            if (msg.operation && onOperation) {
-              onOperation(msg.operation);
+            if (msg.operation && onRemoteOperation) {
+              onRemoteOperation(msg.operation);
             }
             break;
-          case 'cursor':
-            if (msg.user_id && msg.position && onCursorUpdate) {
-              onCursorUpdate(msg.user_id, msg.position);
+          case 'participants':
+            if (msg.participants) {
+              setParticipants(msg.participants);
             }
             break;
           case 'ack':
             if (msg.version !== undefined) {
               setVersion(msg.version);
-            }
-            break;
-          case 'sync':
-            if (msg.content !== undefined && msg.version !== undefined && onSync) {
-              onSync(msg.content, msg.version);
             }
             break;
           case 'error':
@@ -94,10 +98,7 @@ export function useCollaboration({
 
     ws.onclose = () => {
       setIsConnected(false);
-      // Reconnect after 3 seconds
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
-      }, 3000);
+      setParticipants([]);
     };
 
     ws.onerror = (error) => {
@@ -105,7 +106,7 @@ export function useCollaboration({
     };
 
     wsRef.current = ws;
-  }, [sessionId, documentId, userId, userName, onOperation, onCursorUpdate, onSync]);
+  }, [storyId, chapterId, userId, userName, onRemoteOperation]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -119,6 +120,8 @@ export function useCollaboration({
       wsRef.current.send(JSON.stringify(leaveMsg));
       wsRef.current.close();
     }
+    setIsConnected(false);
+    setParticipants([]);
   }, [userId]);
 
   const sendOperation = useCallback((operation: TextOperation) => {
@@ -143,14 +146,12 @@ export function useCollaboration({
     }
   }, [userId]);
 
-  useEffect(() => {
-    connect();
-    return () => disconnect();
-  }, [connect, disconnect]);
-
   return {
     isConnected,
     version,
+    participants,
+    connect,
+    disconnect,
     sendOperation,
     sendCursorPosition,
   };

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Story, Character, Chapter, Skill, ViewType } from '@/types/index';
+import type { Story, Character, Chapter, Skill, ViewType, User } from '@/types/index';
 
 interface AppState {
   // Navigation
@@ -9,6 +9,10 @@ interface AppState {
   // Current Story Context
   currentStory: Story | null;
   setCurrentStory: (story: Story | null) => void;
+
+  // Current User
+  currentUser: User | null;
+  setCurrentUser: (user: User | null) => void;
   
   // Data
   stories: Story[];
@@ -50,6 +54,10 @@ export const useAppStore = create<AppState>((set) => ({
   // Current Story
   currentStory: null,
   setCurrentStory: (story) => set({ currentStory: story }),
+
+  // Current User
+  currentUser: null,
+  setCurrentUser: (user) => set({ currentUser: user }),
   
   // Stories
   stories: [],

@@ -9,11 +9,21 @@ import { formatNumber } from '@/utils/format';
 export function Dashboard() {
   const { data: stories = [] } = useStories();
   const setStories = useAppStore((s) => s.setStories);
+  const setCurrentUser = useAppStore((s) => s.setCurrentUser);
   const storiesList = useAppStore((s) => s.stories);
 
   useEffect(() => {
     setStories(stories);
   }, [stories, setStories]);
+
+  // Initialize current user for collaboration
+  useEffect(() => {
+    const userId = localStorage.getItem('user_id') || `user_${Date.now()}`;
+    const userName = localStorage.getItem('user_name') || '创作者';
+    localStorage.setItem('user_id', userId);
+    localStorage.setItem('user_name', userName);
+    setCurrentUser({ id: userId, name: userName });
+  }, [setCurrentUser]);
 
   // Calculate total characters and chapters across all stories
   const totalCharacters = storiesList.reduce((sum, s) => sum + (s.character_count || 0), 0);

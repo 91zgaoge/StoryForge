@@ -1,5 +1,12 @@
 // CINEMA-AI Frontend Types
 
+export interface User {
+  id: string;
+  name: string;
+  email?: string;
+  avatar?: string;
+}
+
 export interface Story {
   id: string;
   title: string;
@@ -7,6 +14,8 @@ export interface Story {
   genre?: string;
   tone?: string;
   pacing?: string;
+  character_count?: number;
+  chapter_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +39,7 @@ export interface Chapter {
   content?: string;
   chapter_number: number;
   status: 'draft' | 'outline' | 'completed';
+  word_count?: number;
   created_at: string;
   updated_at: string;
 }

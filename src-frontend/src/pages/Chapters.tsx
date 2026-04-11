@@ -1,25 +1,48 @@
 import { useState, useEffect } from 'react';
-import { FileText, Plus, ChevronRight, Save, Trash2 } from 'lucide-react';
+import { FileText, Plus, ChevronRight, Save, Trash2, Search, Users } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useChapters, useCreateChapter, useUpdateChapter, useDeleteChapter } from '@/hooks/useChapters';
 import { MonacoEditor } from '@/components/Editor';
+import { VectorSearch } from '@/components/VectorSearch';
+import { useCollaboration } from '@/hooks/useCollaboration';
 import type { Chapter } from '@/types/index';
 
 export function Chapters() {
   const currentStory = useAppStore((s) => s.currentStory);
+  const currentUser = useAppStore((s) => s.currentUser);
   const { data: chapters = [], isLoading } = useChapters(currentStory?.id || null);
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedContent, setEditedContent] = useState('');
   const [editedOutline, setEditedOutline] = useState('');
   const [activeTab, setActiveTab] = useState<'content' | 'outline'>('content');
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const createChapter = useCreateChapter();
   const updateChapter = useUpdateChapter();
   const deleteChapter = useDeleteChapter();
+
+  // Collaboration hook
+  const collab = useCollaboration({
+    storyId: currentStory?.id || '',
+    chapterId: selectedChapter?.id || '',
+    userId: currentUser?.id || '',
+    userName: currentUser?.name || 'Anonymous',
+    onRemoteOperation: (op) => {
+      // Apply remote operation to editor
+      console.log('Remote operation:', op);
+    },
+    onUserJoined: (user) => {
+      toast.success(`${user.user_name} 加入编辑`);
+    },
+    onUserLeft: (user) => {
+      toast(`${user.user_name} 离开编辑`, { icon: '👋' });
+    },
+  });
 
   // Update edited content when chapter changes
   useEffect(() => {
@@ -89,13 +112,37 @@ export function Chapters() {
           <h1 className="font-display text-3xl font-bold text-white">章节工坊</h1>
           <p className="text-gray-400">{currentStory.title} - 共 {chapters.length} 章</p>
         </div>
-        <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-          <Plus className="w-4 h-4" />
-          新建章节
-        </Button>
+        <div className="flex items-center gap-3">
+          {selectedChapter && (
+            <>
+              <Button
+                variant={collab.isConnected ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => collab.isConnected ? collab.disconnect() : collab.connect()}
+                className="gap-2"
+              >
+                <Users className="w-4 h-4" />
+                {collab.isConnected ? '协作中' : '开启协作'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSearchPanel(!showSearchPanel)}
+                className="gap-2"
+              >
+                <Search className="w-4 h-4" />
+                智能搜索
+              </Button>
+            </>
+          )}
+          <Button variant="primary" onClick={() => setIsModalOpen(true)}>
+            <Plus className="w-4 h-4" />
+            新建章节
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Chapter List */}
         <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
           {isLoading ? (
@@ -144,7 +191,7 @@ export function Chapters() {
         </div>
 
         {/* Editor Area */}
-        <Card className="lg:col-span-2 min-h-[500px]">
+        <Card className="lg:col-span-2 min-h-[500px] relative">
           <CardContent className="p-6 h-full flex flex-col">
             {selectedChapter ? (
               <>
@@ -170,8 +217,7 @@ export function Chapters() {
                 {/* Tabs */}
                 <div className="flex gap-2 mb-4">
                   <button
-                    onClick={() =>
-003e setActiveTab('content')}
+                    onClick={() => setActiveTab('content')}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       activeTab === 'content'
                         ? 'bg-cinema-gold/20 text-cinema-gold'
@@ -181,8 +227,7 @@ export function Chapters() {
                     正文
                   </button>
                   <button
-                    onClick={() =>
-003e setActiveTab('outline')}
+                    onClick={() => setActiveTab('outline')}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       activeTab === 'outline'
                         ? 'bg-cinema-gold/20 text-cinema-gold'
@@ -225,6 +270,44 @@ export function Chapters() {
             )}
           </CardContent>
         </Card>
+
+        {/* Vector Search Panel */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2">
+              <Search className="w-5 h-5 text-cinema-gold" />
+              智能搜索
+            </h2>
+            <button
+              onClick={() => setShowSearchPanel(!showSearchPanel)}
+              className="text-sm text-gray-400 hover:text-white transition-colors"
+            >
+              {showSearchPanel ? '收起' : '展开'}
+            </button>
+          </div>
+
+          {showSearchPanel && currentStory && (
+            <VectorSearch storyId={currentStory.id} />
+          )}
+
+          {/* Collaboration Panel */}
+          {collab.isConnected && (
+            <div className="mt-6">
+              <h2 className="font-display text-lg font-semibold text-white flex items-center gap-2 mb-3">
+                <Users className="w-5 h-5 text-cinema-gold" />
+                协作者
+              </h2>
+              <div className="space-y-2">
+                {collab.participants.map((p) => (
+                  <div key={p.user_id} className="flex items-center gap-2 text-sm">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-gray-300">{p.user_name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Create Modal */}

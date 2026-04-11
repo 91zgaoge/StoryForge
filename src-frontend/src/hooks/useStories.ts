@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 const STORIES_KEY = 'stories';
 
 export function useStories() {
-  return useQuery({
+  return useQuery<Story[]>({
     queryKey: [STORIES_KEY],
     queryFn: listStories,
   });
