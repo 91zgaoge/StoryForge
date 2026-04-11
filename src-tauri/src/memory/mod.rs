@@ -31,10 +31,9 @@ impl ShortTermMemory {
             .iter()
             .filter(|c| c.chapter_number < target_chapter_number as i32)
             .map(|c| ChapterSummary {
-                chapter_number: c.chapter_number,
+                number: c.chapter_number as u32,
                 title: c.title.clone().unwrap_or_default(),
                 summary: self.summarize_chapter(c),
-                key_events: self.extract_key_events(c),
             })
             .collect();
 
@@ -53,20 +52,11 @@ impl ShortTermMemory {
             .iter()
             .take(self.max_characters)
             .map(|c| CharacterInfo {
-                id: c.id.clone(),
                 name: c.name.clone(),
                 personality: c.personality.clone().unwrap_or_default(),
-                current_state: self.infer_character_state(c, chapters),
+                role: c.goals.clone().unwrap_or_else(|| "角色".to_string()),
             })
             .collect();
-
-        // 提取关键事件（最近 N 个）
-        let mut key_events = Vec::new();
-        for ch in chapters.iter().rev().take(3) {
-            key_events.extend(self.extract_key_events(ch));
-        }
-        key_events.truncate(self.max_events);
-        key_events.reverse();
 
         AgentContext {
             story_id: story.id.clone(),
@@ -75,10 +65,8 @@ impl ShortTermMemory {
             tone: story.tone.clone().unwrap_or_else(|| "neutral".to_string()),
             pacing: story.pacing.clone().unwrap_or_else(|| "medium".to_string()),
             chapter_number: target_chapter_number,
-            outline: outline.to_string(),
             previous_chapters,
             characters: character_infos,
-            key_events,
         }
     }
 

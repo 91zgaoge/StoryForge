@@ -156,6 +156,16 @@ pub fn run() {
             config::get_agent_mappings,
             config::update_agent_mapping,
             config::test_model_connection,
+            // LLM commands
+            llm::commands::llm_generate,
+            llm::commands::llm_generate_stream,
+            llm::commands::llm_test_connection,
+            llm::commands::llm_cancel_generation,
+            // Agent commands
+            agents::commands::agent_execute,
+            agents::commands::agent_execute_stream,
+            agents::commands::agent_cancel_task,
+            agents::service::get_available_agents,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -289,9 +299,14 @@ fn uninstall_skill(skill_id: String) -> Result<(), String> {
 fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
     let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
     let context = agents::AgentContext {
-        story_id: String::new(), story_title: String::new(), genre: String::new(),
-        tone: String::new(), pacing: String::new(), chapter_number: 0,
-        outline: String::new(), previous_chapters: vec![], characters: vec![], key_events: vec![],
+        story_id: String::new(),
+        story_title: String::new(),
+        genre: String::new(),
+        tone: String::new(),
+        pacing: String::new(),
+        chapter_number: 0,
+        characters: vec![],
+        previous_chapters: vec![],
     };
     let result = manager.execute_skill(&skill_id, &context, params)?;
     serde_json::to_value(result).map_err(|e| e.to_string())
