@@ -79,7 +79,18 @@
       "Bash(rustup show:*)",
       "Bash(rustup toolchain:*)",
       "Bash(rustup default:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(./target/release/storyforge.exe:*)",
+      "Bash(pkill -f storyforge.exe)",
+      "Bash(findstr 8765)",
+      "Bash(awk '{print $1}')",
+      "Bash(xargs -r kill -9)",
+      "Bash(taskkill /F /IM storyforge.exe)",
+      "Bash(findstr 5173)",
+      "Bash(taskkill:*)",
+      "Bash(/f/mywork/CINEMA-AI/v2-rust/target/release/storyforge.exe:*)"
     ]
   }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import type { TextOperation } from '@/types/collab';
 
 interface CursorPosition {
@@ -51,11 +52,16 @@ export function useCollaboration({
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   const connect = useCallback(() => {
-    if (!storyId || !chapterId || !userId) return;
+    if (!storyId || !chapterId || !userId) {
+      console.log('Cannot connect: missing storyId, chapterId or userId');
+      return;
+    }
 
+    console.log(`Connecting to WebSocket for story ${storyId}, chapter ${chapterId}`);
     const ws = new WebSocket(`ws://localhost:8765`);
 
     ws.onopen = () => {
+      console.log('WebSocket connected');
       setIsConnected(true);
       // Join session
       const joinMsg: CollabMessage = {
@@ -97,12 +103,14 @@ export function useCollaboration({
     };
 
     ws.onclose = () => {
+      console.log('WebSocket disconnected');
       setIsConnected(false);
       setParticipants([]);
     };
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      toast.error('协同编辑连接失败，请检查网络');
     };
 
     wsRef.current = ws;
