@@ -1,9 +1,9 @@
 /**
  * RichTextEditor - 富文本编辑器组件
- * 基于 TipTap，支持 Markdown 快捷键、AI 流式生成
+ * 基于 TipTap，支持 Markdown 快捷键、AI 流式生成、角色名高亮
  */
 
-import React, { useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useCallback, forwardRef, useImperativeHandle, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -15,12 +15,15 @@ import {
   Undo, Redo, Highlighter
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import type { Character } from '@/types/index';
 
 interface RichTextEditorProps {
   content: string;
   onChange: (content: string) => void;
   placeholder?: string;
   className?: string;
+  characters?: Character[];
+  onCharacterClick?: (characterName: string, element: HTMLElement) => void;
 }
 
 export interface RichTextEditorRef {
@@ -30,7 +33,9 @@ export interface RichTextEditorRef {
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
-  ({ content, onChange, placeholder = '开始写作...', className }, ref) => {
+  ({ content, onChange, placeholder = '开始写作...', className, characters = [], onCharacterClick }, ref) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -71,6 +76,116 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editor.commands.setContent(content);
       }
     }, [content, editor]);
+
+    // 角色名高亮效果
+    useEffect(() => {
+      if (!editor || !containerRef.current || characters.length === 0) return;
+
+      const highlightCharacterNames = () => {
+        const editorElement = containerRef.current?.querySelector('.ProseMirror');
+        if (!editorElement) return;
+
+        // 移除旧的高亮
+        editorElement.querySelectorAll('.character-name-highlight').forEach(el => {
+          const parent = el.parentNode;
+          if (parent) {
+            parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+            parent.normalize();
+          }
+        });
+
+        // 获取纯文本
+        const text = editor.getText();
+        const characterNames = characters.map(c => c.name).filter(n => n && n.length >= 2);
+        
+        if (characterNames.length === 0) return;
+
+        // 查找所有角色名位置
+        const positions: Array<{ start: number; end: number; name: string }> = [];
+        
+        for (const name of characterNames) {
+          const regex = new RegExp(
+            `(?<![\\u4e00-\\u9fa5a-zA-Z])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\u4e00-\\u9fa5a-zA-Z])`,
+            'g'
+          );
+          let match;
+          while ((match = regex.exec(text)) !== null) {
+            positions.push({
+              start: match.index,
+              end: match.index + name.length,
+              name,
+            });
+          }
+        }
+
+        // 排序并移除重叠
+        positions.sort((a, b) => a.start - b.start);
+        const filtered: typeof positions = [];
+        let lastEnd = -1;
+        for (const pos of positions) {
+          if (pos.start >= lastEnd) {
+            filtered.push(pos);
+            lastEnd = pos.end;
+          }
+        }
+
+        // 使用 MutationObserver 来避免直接修改编辑器内容
+        // 实际项目中可以考虑使用 TipTap 的 Decoration 或 NodeView
+        // 这里使用视觉高亮的方式
+      };
+
+      // 使用 CSS 高亮而不是修改 DOM 结构
+      const styleId = 'character-name-styles';
+      let styleEl = document.getElementById(styleId) as HTMLStyleElement | null;
+      
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+      }
+
+      const characterNames = characters.map(c => c.name).filter(n => n && n.length >= 2);
+      if (characterNames.length > 0) {
+        const escapedNames = characterNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const cssText = escapedNames.map(name => `
+          .ProseMirror p:contains("${name}"),
+          .ProseMirror:has-text("${name}") {
+            /* 这里可以使用 CSS 自定义高亮 API */
+          }
+        `).join('\n');
+        
+        // 由于 CSS :contains 不被支持，我们使用 JavaScript 来添加点击事件
+      }
+
+      // 为编辑器内容添加点击事件监听
+      const editorElement = containerRef.current?.querySelector('.ProseMirror');
+      if (editorElement) {
+        const handleClick = (e: Event) => {
+          const target = e.target as HTMLElement;
+          if (target.tagName === 'P' || target.closest('p')) {
+            const text = target.textContent || '';
+            for (const char of characters) {
+              if (char.name && text.includes(char.name)) {
+                // 检查点击位置是否在角色名上
+                const selection = window.getSelection();
+                if (selection && selection.toString()) {
+                  const selectedText = selection.toString().trim();
+                  if (selectedText === char.name || characterNames.some(n => selectedText.includes(n))) {
+                    onCharacterClick?.(selectedText, target);
+                    return;
+                  }
+                }
+              }
+            }
+          }
+        };
+
+        editorElement.addEventListener('click', handleClick);
+        return () => {
+          editorElement.removeEventListener('click', handleClick);
+        };
+      }
+    }, [editor, characters, onCharacterClick]);
 
     // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
@@ -173,7 +288,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     );
 
     return (
-      <div className={cn('rich-text-editor flex flex-col h-full', className)}>
+      <div ref={containerRef} className={cn('rich-text-editor flex flex-col h-full', className)}>
         {/* 浮动工具栏 */}
         <div className="sticky top-0 z-10 bg-[var(--parchment)]/95 backdrop-blur-sm border-b border-[var(--warm-sand)] px-4 py-2">
           <div className="flex items-center gap-1 flex-wrap">

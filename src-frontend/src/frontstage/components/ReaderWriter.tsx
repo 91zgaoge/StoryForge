@@ -6,13 +6,19 @@
  * - 沉浸式的写作体验
  * - 支持 AI 辅助快捷键
  * - 富文本编辑支持
+ * - 写作风格切换
+ * - 角色卡片弹窗
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import RichTextEditor, { RichTextEditorRef } from './RichTextEditor';
-import { Sparkles, Type, Palette, Focus, Minimize2 } from 'lucide-react';
+import { WritingStyleSwitcher } from './WritingStyleSwitcher';
+import { CharacterCardPopup } from './CharacterCardPopup';
+import { useWritingStyle } from '@/frontstage/hooks/useWritingStyle';
+import { Sparkles, Type, Focus, Minimize2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import type { Character } from '@/types/index';
 
 interface ReaderWriterProps {
   content: string;
@@ -24,6 +30,7 @@ interface ReaderWriterProps {
   onAcceptGeneration?: () => void;
   onRejectGeneration?: () => void;
   placeholder?: string;
+  characters?: Character[];
 }
 
 export function ReaderWriter({
@@ -35,15 +42,25 @@ export function ReaderWriter({
   generatedText = '',
   onAcceptGeneration,
   onRejectGeneration,
+  placeholder,
+  characters = [],
 }: ReaderWriterProps) {
   const editorRef = useRef<RichTextEditorRef>(null);
-  const [cursorPosition, setCursorPosition] = useState(0);
   const [wordCount, setWordCount] = useState(0);
   const [showZenMode, setShowZenMode] = useState(false);
   const [fontSize, setFontSize] = useState(18);
   const [lineHeight, setLineHeight] = useState(1.8);
   const [showSettings, setShowSettings] = useState(false);
   const [showAiPreview, setShowAiPreview] = useState(false);
+
+  // 写作风格管理
+  const { currentStyle, setStyle, getStyleVariables, availableStyles } = useWritingStyle();
+
+  // 角色卡片弹窗状态
+  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+  const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
+  const [showPopup, setShowPopup] = useState(false);
+  const [popupAnchor, setPopupAnchor] = useState<HTMLElement | null>(null);
 
   // Calculate word count (Chinese characters + English words)
   useEffect(() => {
@@ -52,6 +69,18 @@ export function ReaderWriter({
     const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
     setWordCount(chineseChars + englishWords);
   }, [content]);
+
+  // 处理角色名点击
+  const handleCharacterClick = useCallback((characterName: string, element: HTMLElement) => {
+    const character = characters.find(c => c.name === characterName);
+    if (character) {
+      const rect = element.getBoundingClientRect();
+      setPopupPosition({ x: rect.left, y: rect.bottom + 8 });
+      setPopupAnchor(element);
+      setSelectedCharacter(character);
+      setShowPopup(true);
+    }
+  }, [characters]);
 
   // Handle AI generation request
   const handleRequestGeneration = useCallback(async () => {
@@ -107,11 +136,13 @@ export function ReaderWriter({
     <div
       className={cn(
         'reader-writer flex flex-col h-full transition-all duration-300',
-        showZenMode && 'zen-mode fixed inset-0 z-50 bg-[var(--parchment)]'
+        showZenMode && 'zen-mode fixed inset-0 z-50'
       )}
       style={{
         fontSize: `${fontSize}px`,
         lineHeight: lineHeight,
+        ...getStyleVariables(),
+        backgroundColor: 'var(--fs-paper-color, var(--parchment))',
       }}
     >
       {/* 顶部工具栏 */}
@@ -153,6 +184,13 @@ export function ReaderWriter({
 
           {/* 右侧：设置 */}
           <div className="flex items-center gap-2">
+            {/* 写作风格切换 */}
+            <WritingStyleSwitcher
+              currentStyle={currentStyle}
+              availableStyles={availableStyles}
+              onStyleChange={setStyle}
+            />
+
             {/* 字体大小 */}
             <div className="relative">
               <button
@@ -287,6 +325,15 @@ export function ReaderWriter({
           onClick={() => setShowSettings(false)}
         />
       )}
+
+      {/* 角色卡片弹窗 */}
+      <CharacterCardPopup
+        character={selectedCharacter || { id: '', story_id: '', name: '', created_at: '', updated_at: '' }}
+        position={popupPosition}
+        visible={showPopup}
+        onClose={() => setShowPopup(false)}
+        anchorEl={popupAnchor}
+      />
     </div>
   );
 }

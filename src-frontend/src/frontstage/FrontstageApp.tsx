@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { ReaderWriter } from './components/ReaderWriter';
 import { ChapterOutline } from './components/ChapterOutline';
 import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
+import { useCharacters } from '@/hooks/useCharacters';
 
 interface Story {
   id: string;
@@ -41,6 +42,9 @@ const FrontstageApp: React.FC = () => {
   const [wordCount, setWordCount] = useState(0);
   const [isZenMode, setIsZenMode] = useState(false);
   const [isSaved, setIsSaved] = useState(true);
+
+  // 加载当前故事的角色
+  const { data: characters = [] } = useCharacters(currentStory?.id || null);
 
   // Load stories on mount
   useEffect(() => { 
@@ -352,6 +356,7 @@ const FrontstageApp: React.FC = () => {
             onRequestGeneration={handleRequestGeneration}
             aiEnabled={showAI}
             placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
+            characters={characters}
           />
         </main>
       </div>

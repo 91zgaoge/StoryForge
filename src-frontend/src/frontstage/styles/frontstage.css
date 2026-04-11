@@ -38,6 +38,16 @@
   --transition-fast: 0.15s ease;
   --transition-normal: 0.3s ease;
   --transition-slow: 0.5s ease;
+
+  /* Writing Style Variables (Dynamic) */
+  --fs-font-family: var(--font-serif);
+  --fs-font-size: 18px;
+  --fs-line-height: 1.8;
+  --fs-letter-spacing: normal;
+  --fs-paragraph-spacing: 1.5em;
+  --fs-paper-color: var(--parchment);
+  --fs-ink-color: var(--ink);
+  --fs-accent-color: var(--terracotta);
 }
 
 /* ===== Global Reset ===== */
@@ -120,13 +130,15 @@ body {
 /* ===== TipTap ProseMirror Editor Styles ===== */
 .ProseMirror {
   outline: none;
-  font-family: var(--font-serif);
-  color: var(--charcoal);
-  line-height: var(--line-height);
+  font-family: var(--fs-font-family, var(--font-serif));
+  color: var(--fs-ink-color, var(--charcoal));
+  line-height: var(--fs-line-height, var(--line-height));
+  letter-spacing: var(--fs-letter-spacing, normal);
+  transition: all 0.3s ease;
 }
 
 .ProseMirror p {
-  margin-bottom: var(--paragraph-spacing);
+  margin-bottom: var(--fs-paragraph-spacing, var(--paragraph-spacing));
   text-align: justify;
 }
 
@@ -139,8 +151,8 @@ body {
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.75em;
-  color: var(--ink);
-  font-family: var(--font-serif);
+  color: var(--fs-ink-color, var(--ink));
+  font-family: var(--fs-font-family, var(--font-serif));
 }
 
 .ProseMirror h2 {
@@ -148,8 +160,8 @@ body {
   font-weight: 600;
   margin-top: 1.25em;
   margin-bottom: 0.5em;
-  color: var(--ink);
-  font-family: var(--font-serif);
+  color: var(--fs-ink-color, var(--ink));
+  font-family: var(--fs-font-family, var(--font-serif));
 }
 
 .ProseMirror h3 {
@@ -157,12 +169,12 @@ body {
   font-weight: 600;
   margin-top: 1em;
   margin-bottom: 0.5em;
-  color: var(--ink);
-  font-family: var(--font-serif);
+  color: var(--fs-ink-color, var(--ink));
+  font-family: var(--fs-font-family, var(--font-serif));
 }
 
 .ProseMirror blockquote {
-  border-left: 4px solid var(--terracotta);
+  border-left: 4px solid var(--fs-accent-color, var(--terracotta));
   padding-left: 1em;
   margin: 1.5em 0;
   color: var(--olive-gray);
@@ -208,7 +220,7 @@ body {
 
 .ProseMirror strong {
   font-weight: 600;
-  color: var(--ink);
+  color: var(--fs-ink-color, var(--ink));
 }
 
 .ProseMirror em {
@@ -217,7 +229,7 @@ body {
 
 .ProseMirror u {
   text-decoration: underline;
-  text-decoration-color: var(--terracotta);
+  text-decoration-color: var(--fs-accent-color, var(--terracotta));
   text-underline-offset: 3px;
 }
 
@@ -493,17 +505,18 @@ body {
   background: transparent;
   border: none;
   outline: none;
-  font-size: 18px;
-  line-height: var(--line-height);
-  color: var(--ink);
-  font-family: var(--font-serif);
+  font-size: var(--fs-font-size, 18px);
+  line-height: var(--fs-line-height, var(--line-height));
+  color: var(--fs-ink-color, var(--ink));
+  font-family: var(--fs-font-family, var(--font-serif));
   resize: none;
   text-align: justify;
   padding: 0;
+  letter-spacing: var(--fs-letter-spacing, normal);
 }
 
 .reader-writer-editor.zen-mode {
-  font-size: 20px;
+  font-size: calc(var(--fs-font-size, 18px) + 2px);
 }
 
 .reader-writer-editor::placeholder {
@@ -677,6 +690,97 @@ body {
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+
+/* ===== Character Name Highlight ===== */
+.character-name-highlight {
+  background: linear-gradient(180deg, transparent 60%, rgba(201, 100, 66, 0.2) 60%);
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-radius: 2px;
+}
+
+.character-name-highlight:hover {
+  background: linear-gradient(180deg, transparent 60%, rgba(201, 100, 66, 0.4) 60%);
+}
+
+/* ===== Writing Styles ===== */
+
+/* Classical Style (陀思妥耶夫斯基) */
+.writing-style-classical .ProseMirror {
+  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', serif;
+  font-size: 16px;
+  line-height: 1.9;
+  letter-spacing: 0.02em;
+}
+
+.writing-style-classical .ProseMirror p {
+  margin-bottom: 1.8em;
+  text-indent: 2em;
+}
+
+.writing-style-classical .ProseMirror blockquote {
+  border-left-color: #8b4513;
+  font-style: italic;
+  margin: 2em 0;
+  padding: 1em 1.5em;
+  background: rgba(139, 69, 19, 0.05);
+}
+
+/* Modern Chinese Style (张爱玲) */
+.writing-style-modernCN .ProseMirror {
+  font-family: 'LXGW WenKai', 'ZCOOL XiaoWei', 'Noto Serif SC', serif;
+  font-size: 17px;
+  line-height: 1.85;
+  letter-spacing: 0.03em;
+}
+
+.writing-style-modernCN .ProseMirror p {
+  margin-bottom: 1.6em;
+}
+
+.writing-style-modernCN .ProseMirror blockquote {
+  border-left: 2px solid #d4a574;
+  font-style: italic;
+  color: #5a5852;
+}
+
+/* Minimal Style (海明威) */
+.writing-style-minimal .ProseMirror {
+  font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 20px;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+}
+
+.writing-style-minimal .ProseMirror p {
+  margin-bottom: 2em;
+}
+
+.writing-style-minimal .ProseMirror blockquote {
+  border-left-width: 3px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Romantic Style */
+.writing-style-romantic .ProseMirror {
+  font-family: 'Cormorant Garamond', 'Noto Serif SC', 'STKaiti', serif;
+  font-size: 19px;
+  line-height: 2.0;
+  letter-spacing: 0.02em;
+}
+
+.writing-style-romantic .ProseMirror p {
+  margin-bottom: 2em;
+}
+
+.writing-style-romantic .ProseMirror blockquote {
+  border-left-color: #e8b4b8;
+  font-style: italic;
+  background: rgba(232, 180, 184, 0.1);
+  padding: 1.5em;
+  border-radius: 0 8px 8px 0;
 }
 
 /* ===== Animations ===== */

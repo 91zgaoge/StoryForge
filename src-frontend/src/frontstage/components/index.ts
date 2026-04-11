@@ -6,3 +6,5 @@ export { FrontstageToolbar } from './FrontstageToolbar';
 export { AiHintOverlay } from './AiHintOverlay';
 export { default as RichTextEditor } from './RichTextEditor';
 export { ChapterOutline } from './ChapterOutline';
+export { CharacterCardPopup } from './CharacterCardPopup';
+export { WritingStyleSwitcher } from './WritingStyleSwitcher';
