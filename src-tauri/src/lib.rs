@@ -34,6 +34,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::collections::HashMap;
 
+use collab::websocket::WebSocketServer;
+
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
 static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
@@ -74,6 +76,14 @@ pub fn run() {
                 } else {
                     let _ = VECTOR_STORE.set(vector_store);
                     log::info!("Vector store initialized successfully");
+                }
+            });
+
+            // Start WebSocket server for collaborative editing
+            tauri::async_runtime::spawn(async move {
+                let ws_server = WebSocketServer::new();
+                if let Err(e) = ws_server.start(8765).await {
+                    log::error!("Failed to start WebSocket server: {}", e);
                 }
             });
 
