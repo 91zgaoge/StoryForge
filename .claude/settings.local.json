@@ -92,7 +92,9 @@
       "Bash(taskkill:*)",
       "Bash(/f/mywork/CINEMA-AI/v2-rust/target/release/storyforge.exe:*)",
       "Bash(cargo run:*)",
-      "Bash(cargo clean:*)"
+      "Bash(cargo clean:*)",
+      "Read(//c/Users/admin/AppData/Roaming/com.storyforge.app/**)",
+      "Read(//c/Users/admin/.config/**)"
     ]
   }
 }
