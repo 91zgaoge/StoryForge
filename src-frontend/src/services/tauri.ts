@@ -5,6 +5,10 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest
 } from '@/types/index';
 
+// Health Check
+export const healthCheck = () => 
+  invoke<{ status: string; timestamp: string; version: string }>('health_check');
+
 // Dashboard
 export const getDashboardState = () => 
   invoke<DashboardState>('get_state');

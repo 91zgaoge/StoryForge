@@ -1,23 +1,38 @@
-import { useEffect } from 'react';
-import { BookOpen, Users, FileText, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BookOpen, Users, FileText, Sparkles, ArrowRight, Clock, FolderOpen } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useStories } from '@/hooks/useStories';
 import { useAppStore } from '@/stores/appStore';
+import { useStories, useCreateStory } from '@/hooks/useStories';
 import { formatNumber } from '@/utils/format';
+import { formatDate } from '@/utils/format';
+import toast from 'react-hot-toast';
 
 export function Dashboard() {
-  const { data: stories = [] } = useStories();
+  const stories = useAppStore((s) => s.stories);
   const setStories = useAppStore((s) => s.setStories);
   const setCurrentUser = useAppStore((s) => s.setCurrentUser);
-  const storiesList = useAppStore((s) => s.stories);
+  const setCurrentStory = useAppStore((s) => s.setCurrentStory);
+  const setCurrentView = useAppStore((s) => s.setCurrentView);
+  const isLoading = useAppStore((s) => s.isLoading);
+  const hasHydrated = useRef(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  useEffect(() => {
-    setStories(stories);
-  }, [stories, setStories]);
+  const { data: fetchedStories = [], isLoading: isStoriesLoading } = useStories();
+  const createStory = useCreateStory();
 
-  // Initialize current user for collaboration
+  // Sync fetched stories to store
   useEffect(() => {
+    if (fetchedStories.length > 0 && stories.length === 0) {
+      setStories(fetchedStories);
+    }
+  }, [fetchedStories, stories.length, setStories]);
+
+  // Initialize current user for collaboration - only once
+  useEffect(() => {
+    if (hasHydrated.current) return;
+    hasHydrated.current = true;
+
     const userId = localStorage.getItem('user_id') || `user_${Date.now()}`;
     const userName = localStorage.getItem('user_name') || '创作者';
     localStorage.setItem('user_id', userId);
@@ -26,8 +41,8 @@ export function Dashboard() {
   }, [setCurrentUser]);
 
   // Calculate total characters and chapters across all stories
-  const totalCharacters = storiesList.reduce((sum, s) => sum + (s.character_count || 0), 0);
-  const totalChapters = storiesList.reduce((sum, s) => sum + (s.chapter_count || 0), 0);
+  const totalCharacters = stories.reduce((sum, s) => sum + (s.character_count || 0), 0);
+  const totalChapters = stories.reduce((sum, s) => sum + (s.chapter_count || 0), 0);
 
   const stats = [
     { label: '故事', value: stories.length, icon: BookOpen, color: 'text-cinema-gold' },
@@ -35,12 +50,42 @@ export function Dashboard() {
     { label: '章节', value: totalChapters, icon: FileText, color: 'text-blue-400' },
   ];
 
+  const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
+    createStory.mutate({
+      title: formData.get('title') as string,
+      description: formData.get('description') as string,
+      genre: formData.get('genre') as string,
+    }, {
+      onSuccess: (newStory) => {
+        setIsModalOpen(false);
+        form.reset();
+        // Auto-select the new story and navigate to chapters
+        setCurrentStory(newStory);
+        setCurrentView('chapters');
+        toast.success(`故事 "${newStory.title}" 创建成功！`);
+      },
+    });
+  };
+
+  const handleContinueStory = (story: typeof stories[0]) => {
+    setCurrentStory(story);
+    setCurrentView('chapters');
+  };
+
+  const recentStories = [...stories]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 3);
+
   return (
     <div className="p-8 space-y-8 animate-fade-in">
       {/* Hero */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-cinema-800 to-cinema-900 border border-cinema-700 p-8">
         <div className="absolute top-0 right-0 w-96 h-96 bg-cinema-gold/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-        
+
         <div className="relative z-10">
           <h1 className="font-display text-4xl font-bold text-white mb-2">
             欢迎回到创作工作室
@@ -49,11 +94,16 @@ export function Dashboard() {
             "每一个伟大的故事，都始于一个勇敢的开始。"
           </p>
           <div className="mt-6 flex gap-4">
-            <Button variant="primary" className="gap-2">
+            <Button variant="primary" className="gap-2" onClick={() => setIsModalOpen(true)}>
               <Sparkles className="w-4 h-4" />
               新建故事
             </Button>
-            <Button variant="secondary">打开最近项目</Button>
+            {recentStories.length > 0 && (
+              <Button variant="secondary" onClick={() => setCurrentView('stories')}>
+                <FolderOpen className="w-4 h-4 mr-2" />
+                打开故事库
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -79,6 +129,138 @@ export function Dashboard() {
           );
         })}
       </div>
+
+      {/* Recent Stories */}
+      {!isStoriesLoading && recentStories.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-xl font-semibold text-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-cinema-gold" />
+              最近编辑
+            </h2>
+            <Button variant="ghost" size="sm" onClick={() => setCurrentView('stories')}>
+              查看全部
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {recentStories.map((story) => (
+              <Card key={story.id} hover className="cursor-pointer group" onClick={() => handleContinueStory(story)}>
+                <CardContent className="p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
+                      <BookOpen className="w-5 h-5 text-cinema-gold" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-display font-semibold text-white truncate group-hover:text-cinema-gold transition-colors">
+                        {story.title}
+                      </h3>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {story.genre || '未分类'} · {story.chapter_count || 0} 章
+                      </p>
+                      <p className="text-xs text-gray-600 mt-2">
+                        更新于 {formatDate(story.updated_at)}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!isStoriesLoading && stories.length === 0 && (
+        <Card className="py-12">
+          <CardContent className="text-center">
+            <BookOpen className="w-16 h-16 text-cinema-700 mx-auto mb-4" />
+            <h3 className="font-display text-xl font-semibold text-white mb-2">
+              开始你的创作之旅
+            </h3>
+            <p className="text-gray-500 max-w-md mx-auto mb-6">
+              创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供 AI 辅助写作。
+            </p>
+            <Button variant="primary" onClick={() => setIsModalOpen(true)}>
+              <Sparkles className="w-4 h-4 mr-2" />
+              创建第一个故事
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loading State */}
+      {(isLoading || isStoriesLoading) && (
+        <div className="flex items-center justify-center py-12">
+          <div className="loading-reel" />
+        </div>
+      )}
+
+      {/* Create Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
+          <Card className="w-full max-w-md mx-4 animate-slide-up">
+            <CardContent className="p-6">
+              <h2 className="font-display text-xl font-bold text-white mb-4">新建故事</h2>
+
+              <form onSubmit={handleCreate} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">标题 *</label>
+                  <input
+                    name="title"
+                    required
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    placeholder="给你的故事起个名字"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">类型</label>
+                  <select
+                    name="genre"
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                  >
+                    <option value="">选择类型</option>
+                    <option value="科幻">科幻</option>
+                    <option value="奇幻">奇幻</option>
+                    <option value="悬疑">悬疑</option>
+                    <option value="言情">言情</option>
+                    <option value="历史">历史</option>
+                    <option value="武侠">武侠</option>
+                    <option value="现代">现代</option>
+                    <option value="其他">其他</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">描述</label>
+                  <textarea
+                    name="description"
+                    rows={3}
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                    placeholder="简要描述一下你的故事..."
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
+                    取消
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    isLoading={createStory.isPending}
+                    className="flex-1"
+                  >
+                    创建
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

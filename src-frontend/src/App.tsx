@@ -7,6 +7,9 @@ import { Chapters } from '@/pages/Chapters';
 import { Skills } from '@/pages/Skills';
 import { Mcp } from '@/pages/Mcp';
 import { Settings } from '@/pages/Settings';
+import { DataLoader } from '@/components/DataLoader';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ConnectionStatus } from '@/components/ConnectionStatus';
 import type { ViewType } from '@/types';
 
 function App() {
@@ -26,12 +29,16 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-cinema-950 film-grain">
-      <Sidebar currentView={currentView} onNavigate={setCurrentView} />
-      <main className="flex-1 overflow-auto">
-        {renderView()}
-      </main>
-    </div>
+    <ErrorBoundary>
+      <div className="flex h-screen bg-cinema-950 film-grain">
+        <DataLoader />
+        <ConnectionStatus />
+        <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+        <main className="flex-1 overflow-auto">
+          {renderView()}
+        </main>
+      </div>
+    </ErrorBoundary>
   );
 }
 

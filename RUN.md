@@ -141,7 +141,42 @@ cargo clippy -- -D warnings
 
 ### 前端端口被占用
 
-修改 `src-frontend/vite.config.ts` 中的端口配置。
+**症状**: 启动时提示 "Port 5173 is already in use"
+
+**解决方案**:
+```powershell
+# 查找占用端口的进程
+netstat -ano | findstr "5173"
+
+# 终止进程 (使用找到的 PID)
+taskkill /PID <PID> /F
+
+# 或终止所有相关进程
+taskkill /F /IM node.exe
+taskkill /F /IM storyforge.exe
+```
+
+### 无法连接本地服务端口
+
+**症状**: 应用窗口显示"无法连接到本地服务"或空白页面
+
+**原因**: Windows 上 `localhost` 解析问题
+
+**解决方案**:
+- 确保前端开发服务器已启动 (`npm run dev`)
+- 检查 `src-tauri/tauri.conf.json` 中的 `devUrl` 配置为 `http://127.0.0.1:5173`
+- 参考 [详细修复记录](docs/FIXES_2025_04_11.md)
+
+### React 无限循环错误
+
+**症状**: "Maximum update depth exceeded" 错误
+
+**原因**: 数据加载与状态更新形成循环
+
+**解决方案**:
+- 已修复：使用独立的数据加载组件
+- 限制 React Query 重试次数
+- 参考 [详细修复记录](docs/FIXES_2025_04_11.md)
 
 ### Rust 编译失败
 
@@ -162,6 +197,10 @@ cargo install tauri-cli
 # 或使用 npx
 npx @tauri-apps/cli dev
 ```
+
+### 更多问题
+
+参考 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 获取完整的故障排除指南。
 
 ## API 参考
 

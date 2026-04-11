@@ -57,9 +57,17 @@ pub fn run() {
             let app_dir = app.path().app_data_dir()
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
             std::fs::create_dir_all(&app_dir).ok();
+            
+            log::info!("App directory: {:?}", app_dir);
 
-            if let Ok(pool) = init_db(&app_dir) {
-                *DB_POOL.lock().unwrap() = Some(pool);
+            match init_db(&app_dir) {
+                Ok(pool) => {
+                    log::info!("Database initialized successfully");
+                    *DB_POOL.lock().unwrap() = Some(pool);
+                }
+                Err(e) => {
+                    log::error!("Failed to initialize database: {}", e);
+                }
             }
             let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new()));
 
@@ -82,16 +90,26 @@ pub fn run() {
 
             // Start WebSocket server for collaborative editing
             tauri::async_runtime::spawn(async move {
-                let ws_server = WebSocketServer::new();
-                if let Err(e) = ws_server.start(8765).await {
-                    log::error!("Failed to start WebSocket server: {}", e);
+                // Try different ports if 8765 is taken
+                let ports = [8765, 8766, 8767, 8768, 8769];
+                for port in ports {
+                    let ws_server = WebSocketServer::new();
+                    match ws_server.start(port).await {
+                        Ok(_) => {
+                            log::info!("WebSocket server started on port {}", port);
+                            break;
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to start WebSocket server on port {}: {}", port, e);
+                        }
+                    }
                 }
             });
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_state, list_stories, create_story, update_story, delete_story,
+            health_check, get_state, list_stories, create_story, update_story, delete_story,
             get_story_characters, create_character, update_character, delete_character,
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
             get_skills, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill,
@@ -101,6 +119,15 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
+}
+
+#[tauri::command]
+fn health_check() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "status": "ok",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 #[tauri::command]

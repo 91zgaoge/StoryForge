@@ -2,11 +2,55 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [2.0.0-alpha.2] - 2025-04-11
+
+### ✨ New Features
+- **Dashboard 增强** - 添加新建故事功能、最近编辑故事列表、空状态引导
+- **Stories 页面完善** - 添加故事选择功能、内联编辑、当前故事指示器
+- **Sidebar 改进** - 显示当前编辑故事、用户头像和状态
+- **导出功能完整实现** - 支持 Markdown/HTML/TXT/JSON/PDF/EPUB 六种格式
+- **连接状态显示** - ConnectionStatus 组件显示后端连接状态
+- **错误边界** - ErrorBoundary 组件捕获渲染错误
+
+### 🔧 Improvements
+- 完善导出功能的 MIME 类型处理
+- 添加动画样式 (fade-in, slide-up)
+- 优化用户交互流程（创建故事后自动跳转）
+- Toast 通知系统优化
+
+### 📊 完成度更新
+- 前端界面: 85% → 95%
+- 整体完成度: 93% → 95%
+
+---
+
 ## [2.0.0-alpha] - 2025-04-11
 
 ### 🎉 Highlights
 
 This is a major refactoring release that aligns the implementation with the architecture design document.
+
+### 🐛 Critical Bug Fixes (2025-04-11)
+
+#### Connection Issue Fix
+- **Fixed**: Windows 上无法连接本地服务端口的问题
+- **原因**: `localhost` 解析为 IPv6 `::1` 而服务器绑定到 IPv4 `127.0.0.1`
+- **解决**: 统一使用 `127.0.0.1`，完善 CSP 配置
+- **文件**: `src-tauri/tauri.conf.json`, `src-frontend/vite.config.ts`, `src-tauri/capabilities/main-capability.json`
+
+#### React Infinite Loop Fix
+- **Fixed**: "Maximum update depth exceeded" 错误
+- **原因**: React Query 重试与 useEffect 状态更新形成循环
+- **解决**: 
+  - 创建独立 `DataLoader` 组件分离数据加载与渲染
+  - 使用 `useRef` 确保初始化只执行一次
+  - 限制 React Query 重试次数
+- **文件**: `src/components/DataLoader.tsx`, `src/pages/Dashboard.tsx`, `src/main.tsx`
+
+#### Error Handling Enhancement
+- **Added**: `ErrorBoundary` 组件捕获渲染错误
+- **Added**: `ConnectionStatus` 组件显示连接状态
+- **文档**: 新增 `docs/FIXES_2025_04_11.md` 详细修复记录
 
 ### 🔧 Recent Improvements (2025-04-11)
 
@@ -18,11 +62,13 @@ This is a major refactoring release that aligns the implementation with the arch
 
 #### Backend
 - **Improved Embedding Algorithm** - Upgraded from character-based to hash-based TF feature extraction
-- **New Tauri Command** - `create_chapter` for chapter creation
+- **New Tauri Command** - `create_chapter` for chapter creation, `health_check` for connection testing
+- **WebSocket Server** - Multi-port support (8765-8769) to avoid port conflicts
 - **Compilation Warnings** - Cleaned up unused import warnings
 
 ### 📝 Notes
 - Frontend completion increased from 70% to 85%
+- 应用现在可以在 Windows 上正常运行
 
 ---
 

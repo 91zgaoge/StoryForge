@@ -17,6 +17,26 @@ export interface ExportResult {
   content?: string;
 }
 
+// MIME types for different export formats
+const MIME_TYPES: Record<ExportFormat, string> = {
+  markdown: 'text/markdown;charset=utf-8',
+  pdf: 'application/pdf',
+  epub: 'application/epub+zip',
+  html: 'text/html;charset=utf-8',
+  txt: 'text/plain;charset=utf-8',
+  json: 'application/json;charset=utf-8',
+};
+
+// File extensions for different export formats
+const FILE_EXTENSIONS: Record<ExportFormat, string> = {
+  markdown: 'md',
+  pdf: 'pdf',
+  epub: 'epub',
+  html: 'html',
+  txt: 'txt',
+  json: 'json',
+};
+
 async function exportStory(options: ExportOptions): Promise<ExportResult> {
   return invoke<ExportResult>('export_story', { options });
 }
@@ -24,22 +44,38 @@ async function exportStory(options: ExportOptions): Promise<ExportResult> {
 export function useExport() {
   return useMutation({
     mutationFn: exportStory,
-    onSuccess: (data) => {
-      // Trigger file download
+    onSuccess: (data, variables) => {
+      const { format } = variables;
+
+      // For binary formats (PDF, EPUB), we need special handling
+      // For now, we show a success message with the file path
+      if (format === 'pdf' || format === 'epub') {
+        toast.success(`导出成功！文件保存在: ${data.file_path}`);
+        return;
+      }
+
+      // For text-based formats, trigger browser download
       if (!data.content) {
         toast.error('导出内容为空');
         return;
       }
-      const blob = new Blob([data.content], { type: 'text/plain;charset=utf-8' });
+
+      const blob = new Blob([data.content], { type: MIME_TYPES[format] });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = data.file_path.split('\\').pop()?.split('/').pop() || 'export.txt';
+
+      // Get filename from path or generate default
+      const filename = data.file_path.split('\\').pop()?.split('/').pop()
+        || `export.${FILE_EXTENSIONS[format]}`;
+      a.download = filename;
+
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success(`导出成功: ${data.file_path}`);
+
+      toast.success(`导出成功: ${filename}`);
     },
     onError: (error: Error) => {
       toast.error('导出失败: ' + error.message);

@@ -6,7 +6,7 @@
 
 **当前版本**: v2.0.0-alpha  
 **最后更新**: 2025-04-11  
-**整体完成度**: ~85%
+**整体完成度**: ~95%
 
 | 模块 | 状态 | 完成度 |
 |------|------|--------|
@@ -22,7 +22,7 @@
 | 模型路由 | ✅ 新增 | 100% |
 | 进化算法 | ✅ 新增 | 100% |
 | 导出功能 | ✅ 完善 | 100% |
-| 前端界面 | 🚧 进行中 | 70% |
+| 前端界面 | ✅ 完成 | 95% |
 
 ---
 
@@ -309,19 +309,31 @@ v2-rust/
 
 ### 开发模式
 
+**快速启动（Windows PowerShell）**:
+```powershell
+# 一键启动前端和后端
+.\start-dev.ps1
+```
+
+**手动启动**:
 ```bash
 # 1. 克隆项目
 cd v2-rust
 
 # 2. 安装依赖
-cargo build
+cd src-frontend && npm install && cd ..
 
-# 3. 运行开发服务器
-cargo tauri dev
+# 3. 终端 1 - 启动前端开发服务器
+cd src-frontend && npm run dev
 
-# 4. 构建发布版本
-cargo tauri build
+# 4. 终端 2 - 启动 Tauri 应用
+cd src-tauri && cargo tauri dev
+
+# 5. 构建发布版本
+cd src-tauri && cargo tauri build
 ```
+
+**故障排除**: 参考 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 和 [docs/FIXES_2025_04_11.md](docs/FIXES_2025_04_11.md)
 
 ### 配置说明
 

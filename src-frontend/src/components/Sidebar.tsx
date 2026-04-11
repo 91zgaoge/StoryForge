@@ -1,8 +1,9 @@
-import { 
-  LayoutDashboard, BookOpen, Users, FileText, 
-  Wand2, Plug, Settings, Film 
+import {
+  LayoutDashboard, BookOpen, Users, FileText,
+  Wand2, Plug, Settings, Film, Sparkles
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useAppStore } from '@/stores/appStore';
 import type { ViewType } from '@/types';
 
 interface SidebarProps {
@@ -21,22 +22,30 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
 ];
 
 export function Sidebar({ currentView, onNavigate }: SidebarProps) {
+  const currentStory = useAppStore((s) => s.currentStory);
+  const currentUser = useAppStore((s) => s.currentUser);
+
   return (
     <aside className="w-20 lg:w-64 bg-cinema-900 border-r border-cinema-800 flex flex-col">
+      {/* Logo */}
       <div className="p-4 flex items-center justify-center lg:justify-start gap-3 border-b border-cinema-800">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cinema-gold to-cinema-gold-dark flex items-center justify-center">
           <Film className="w-5 h-5 text-cinema-900" />
         </div>
-        <span className="hidden lg:block font-display text-xl font-bold text-white">
-          CINEMA-AI
-        </span>
+        <div className="hidden lg:block">
+          <span className="font-display text-xl font-bold text-white block leading-tight">
+            草苔
+          </span>
+          <span className="text-xs text-gray-500">StoryForge</span>
+        </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      {/* Navigation */}
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
-          
+
           return (
             <button
               key={item.id}
@@ -48,12 +57,56 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                 !isActive && 'text-gray-400'
               )}
             >
-              <Icon className={cn('w-5 h-5', isActive && 'text-cinema-gold')} />
+              <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-cinema-gold')} />
               <span className="hidden lg:block font-medium">{item.label}</span>
             </button>
           );
         })}
       </nav>
+
+      {/* Current Story Section */}
+      <div className="p-3 border-t border-cinema-800">
+        {currentStory ? (
+          <div className="hidden lg:block">
+            <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-cinema-gold" />
+              当前编辑
+            </p>
+            <button
+              onClick={() => onNavigate('chapters')}
+              className="w-full text-left p-3 rounded-xl bg-cinema-800/50 hover:bg-cinema-800 transition-colors group"
+            >
+              <p className="font-medium text-white truncate group-hover:text-cinema-gold transition-colors">
+                {currentStory.title}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {currentStory.genre || '未分类'} · {currentStory.chapter_count || 0} 章
+              </p>
+            </button>
+          </div>
+        ) : (
+          <div className="hidden lg:block text-center py-2">
+            <p className="text-xs text-gray-600">未选择故事</p>
+          </div>
+        )}
+
+        {/* User Info */}
+        {currentUser && (
+          <div className="mt-3 pt-3 border-t border-cinema-800/50">
+            <div className="flex items-center gap-2 px-2">
+              <div className="w-8 h-8 rounded-full bg-cinema-700 flex items-center justify-center flex-shrink-0">
+                <span className="text-sm font-medium text-gray-300">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <div className="hidden lg:block flex-1 min-w-0">
+                <p className="text-sm text-white truncate">{currentUser.name}</p>
+                <p className="text-xs text-gray-500">在线</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

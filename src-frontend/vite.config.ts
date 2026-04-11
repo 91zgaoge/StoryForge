@@ -8,9 +8,16 @@ export default defineConfig(async () => ({
   server: {
     port: 5173,
     strictPort: true,
+    host: '127.0.0.1',
     watch: {
       ignored: ["**/src-tauri/**"],
     },
+    hmr: {
+      protocol: 'ws',
+      host: '127.0.0.1',
+      port: 5173,
+    },
+    cors: true,
   },
   envPrefix: ['VITE_', 'TAURI_'],
   base: './',

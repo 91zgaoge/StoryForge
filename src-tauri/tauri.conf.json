@@ -4,14 +4,15 @@
   "version": "0.1.0",
   "identifier": "com.storyforge.app",
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "cd ../src-frontend && npm run dev",
+    "beforeBuildCommand": "cd ../src-frontend && npm run build",
+    "beforeDevCommand": "",
     "frontendDist": "../src-frontend/dist",
-    "devUrl": "http://localhost:5173"
+    "devUrl": "http://127.0.0.1:5173"
   },
   "app": {
+    "withGlobalTauri": true,
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' https:;",
       "capabilities": ["main-capability"]
     },
     "windows": [{
@@ -24,7 +25,8 @@
       "resizable": true,
       "visible": true,
       "transparent": false,
-      "decorations": true
+      "decorations": true,
+      "useHttpsScheme": false
     }]
   },
   "bundle": {
