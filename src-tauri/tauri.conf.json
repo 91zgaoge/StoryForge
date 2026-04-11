@@ -15,19 +15,36 @@
       "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' https:;",
       "capabilities": ["main-capability"]
     },
-    "windows": [{
-      "label": "main",
-      "title": "StoryForge (草苔)",
-      "width": 1400,
-      "height": 900,
-      "center": true,
-      "fullscreen": false,
-      "resizable": true,
-      "visible": true,
-      "transparent": false,
-      "decorations": true,
-      "useHttpsScheme": false
-    }]
+    "windows": [
+      {
+        "label": "main",
+        "title": "StoryForge (草苔) - 幕后",
+        "width": 1400,
+        "height": 900,
+        "center": true,
+        "fullscreen": false,
+        "resizable": true,
+        "visible": true,
+        "transparent": false,
+        "decorations": true,
+        "useHttpsScheme": false
+      },
+      {
+        "label": "frontstage",
+        "title": "StoryForge - 幕前",
+        "width": 1000,
+        "height": 800,
+        "center": false,
+        "x": 50,
+        "y": 50,
+        "fullscreen": false,
+        "resizable": true,
+        "visible": false,
+        "transparent": false,
+        "decorations": true,
+        "useHttpsScheme": false
+      }
+    ]
   },
   "bundle": {
     "active": true,

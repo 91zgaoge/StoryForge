@@ -1,0 +1,459 @@
+/**
+ * FrontStage 样式
+ * 
+ * 设计理念：
+ * - 极简主义，接近纸质书阅读体验
+ * - 暖色调，保护眼睛
+ * - AI 提示如墨滴入水，自然浮现
+ */
+
+/* ===== 基础容器 ===== */
+.frontstage-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #faf8f5 0%, #f5f2ed 100%);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
+}
+
+/* 纸张纹理 */
+.frontstage-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.02;
+  pointer-events: none;
+}
+
+/* 加载动画 */
+.frontstage-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #faf8f5;
+  color: #8b7355;
+}
+
+.ink-drop {
+  width: 20px;
+  height: 20px;
+  background: #8b7355;
+  border-radius: 50%;
+  animation: inkSpread 2s ease-out infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes inkSpread {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+/* ===== 工具栏 ===== */
+.frontstage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(139, 115, 85, 0.1);
+  transition: all 0.3s ease;
+  z-index: 100;
+}
+
+.frontstage-toolbar.compact {
+  padding: 8px 16px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo-mark {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #8b7355 0%, #a0826d 100%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(139, 115, 85, 0.2);
+}
+
+.logo-icon {
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  font-family: 'Noto Serif SC', serif;
+}
+
+.chapter-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.chapter-label {
+  font-size: 11px;
+  color: #a0826d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chapter-title {
+  font-size: 14px;
+  color: #5c4a3d;
+  font-weight: 500;
+}
+
+.toolbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: #8b7355;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toolbar-btn:hover {
+  background: rgba(139, 115, 85, 0.1);
+  color: #5c4a3d;
+}
+
+.toolbar-btn .btn-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ai-generate-btn {
+  background: linear-gradient(135deg, #8b7355 0%, #a0826d 100%);
+  color: white;
+  padding: 8px 16px;
+  box-shadow: 0 2px 8px rgba(139, 115, 85, 0.3);
+}
+
+.ai-generate-btn:hover {
+  background: linear-gradient(135deg, #7a6548 0%, #8f7560 100%);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 115, 85, 0.4);
+}
+
+.close-btn:hover {
+  background: rgba(220, 53, 69, 0.1);
+  color: #dc3545;
+}
+
+/* ===== 主内容区 ===== */
+.frontstage-main {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 阅读写作区 ===== */
+.reader-writer {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 40px 60px;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.reader-writer.zen-mode {
+  max-width: 100%;
+  padding: 60px 120px;
+}
+
+.reader-writer.zen-mode .reader-writer-stats {
+  opacity: 0;
+}
+
+.reader-writer-editor {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
+  font-size: 18px;
+  line-height: 2;
+  color: #3d3229;
+  resize: none;
+  min-height: 500px;
+  padding: 20px 0;
+}
+
+.reader-writer-editor::placeholder {
+  color: #c4b5a0;
+  font-style: italic;
+}
+
+.reader-writer-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 0;
+  font-size: 12px;
+  color: #a0826d;
+  transition: opacity 0.3s ease;
+}
+
+.reader-writer-stats .divider {
+  color: #d4c4b0;
+}
+
+.zen-exit-hint {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.reader-writer.zen-mode:hover .zen-exit-hint {
+  opacity: 1;
+}
+
+/* ===== AI 提示覆盖层 ===== */
+.ai-hint-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.ai-hint-bubble {
+  position: absolute;
+  max-width: 280px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  box-shadow: 
+    0 4px 20px rgba(139, 115, 85, 0.15),
+    0 0 0 1px rgba(139, 115, 85, 0.1);
+  font-size: 13px;
+  color: #6b5b4f;
+  line-height: 1.5;
+  pointer-events: auto;
+  animation: hintAppear 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-hint-bubble.preview {
+  background: rgba(139, 115, 85, 0.05);
+  border-left: 3px solid #8b7355;
+}
+
+@keyframes hintAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ai-hint-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ai-hint-icon {
+  color: #8b7355;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.ai-hint-text {
+  flex: 1;
+}
+
+.ai-hint-glow {
+  position: absolute;
+  inset: -2px;
+  background: linear-gradient(135deg, rgba(139, 115, 85, 0.1) 0%, transparent 50%);
+  border-radius: 14px;
+  z-index: -1;
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* 环境提示 - 文思如泉涌效果 */
+.ambient-hints {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 200px;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.floating-hint {
+  position: absolute;
+  right: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #8b7355;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 12px rgba(139, 115, 85, 0.1);
+}
+
+.floating-hint.visible {
+  opacity: 0.7;
+  transform: translateX(0);
+}
+
+.floating-hint-pulse {
+  width: 6px;
+  height: 6px;
+  background: #8b7355;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.5;
+  }
+}
+
+.floating-hint-text {
+  font-style: italic;
+}
+
+/* ===== 水印 ===== */
+.frontstage-watermark {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0.1;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.frontstage-watermark span {
+  font-size: 48px;
+  font-family: 'Noto Serif SC', serif;
+  color: #8b7355;
+  font-weight: bold;
+}
+
+.frontstage-watermark small {
+  font-size: 10px;
+  color: #a0826d;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(139, 115, 85, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 115, 85, 0.3);
+}
+
+/* ===== 选中文本 ===== */
+::selection {
+  background: rgba(139, 115, 85, 0.2);
+  color: #3d3229;
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 768px) {
+  .reader-writer {
+    padding: 20px 30px;
+  }
+  
+  .reader-writer-editor {
+    font-size: 16px;
+  }
+  
+  .ambient-hints {
+    display: none;
+  }
+}

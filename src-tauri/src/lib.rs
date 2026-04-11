@@ -20,8 +20,9 @@ mod router;
 mod evolution;
 mod embeddings;
 mod utils;
+mod window;
 
-use tauri::Manager;
+use tauri::{Manager, AppHandle};
 
 use db::{DbPool, init_db, StoryRepository, CharacterRepository, ChapterRepository, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest};
 use config::AppConfig;
@@ -116,6 +117,17 @@ pub fn run() {
             connect_mcp_server, call_mcp_tool, list_mcp_tools, execute_mcp_tool,
             search_similar, embed_chapter,
             export_story,
+            // Window management commands
+            window::show_frontstage,
+            window::hide_frontstage,
+            window::toggle_frontstage,
+            window::get_window_state,
+            window::send_ai_hint,
+            window::update_frontstage_content,
+            // Backstage communication commands
+            notify_backstage_content_changed,
+            notify_backstage_generation_requested,
+            show_backstage,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -413,4 +425,32 @@ async fn export_story(options: ExportOptions, app_handle: tauri::AppHandle) -> R
         content: std::fs::read_to_string(&output_path).unwrap_or_default(),
         format: options.format,
     })
+}
+
+// ===== 幕前/幕后通信命令 =====
+
+/// 通知 backstage 内容已变更
+#[tauri::command]
+fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), String> {
+    let event = window::BackstageEvent::ContentChanged { text, chapter_id };
+    window::WindowManager::send_to_backstage(&app, event)
+}
+
+/// 通知 backstage 请求生成内容
+#[tauri::command]
+fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), String> {
+    let event = window::BackstageEvent::GenerationRequested { chapter_id, context };
+    window::WindowManager::send_to_backstage(&app, event)
+}
+
+/// 显示 backstage 窗口
+#[tauri::command]
+fn show_backstage(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Backstage window not found".to_string())
+    }
 }

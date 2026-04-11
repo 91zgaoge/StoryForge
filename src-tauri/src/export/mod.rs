@@ -344,7 +344,7 @@ fn generate_plaintext(
 
     // Chapters
     text.push_str("正文\n");
-    text.push_str("=".repeat(40));
+    text.push_str(&"=".repeat(40));
     text.push('\n');
 
     for chapter in chapters {
@@ -354,7 +354,7 @@ fn generate_plaintext(
 
         text.push('\n');
         text.push_str(&format!("{}\n", title));
-        text.push_str("-".repeat(title.len()));
+        text.push_str(&"-".repeat(title.len()));
         text.push('\n');
 
         if config.include_outline {

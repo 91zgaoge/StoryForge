@@ -1,9 +1,11 @@
 import {
   LayoutDashboard, BookOpen, Users, FileText,
-  Wand2, Plug, Settings, Film, Sparkles
+  Wand2, Plug, Settings, Film, Sparkles, MonitorPlay
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
+import { invoke } from '@tauri-apps/api/core';
+import toast from 'react-hot-toast';
 import type { ViewType } from '@/types';
 
 interface SidebarProps {
@@ -25,6 +27,16 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const currentStory = useAppStore((s) => s.currentStory);
   const currentUser = useAppStore((s) => s.currentUser);
 
+  const handleOpenFrontstage = async () => {
+    try {
+      await invoke('show_frontstage');
+      toast.success('幕前写作界面已打开');
+    } catch (error) {
+      console.error('Failed to open frontstage:', error);
+      toast.error('无法打开幕前界面');
+    }
+  };
+
   return (
     <aside className="w-20 lg:w-64 bg-cinema-900 border-r border-cinema-800 flex flex-col">
       {/* Logo */}
@@ -38,6 +50,20 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           </span>
           <span className="text-xs text-gray-500">StoryForge</span>
         </div>
+      </div>
+
+      {/* Frontstage Quick Access */}
+      <div className="p-3 border-b border-cinema-800">
+        <button
+          onClick={handleOpenFrontstage}
+          className="w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 bg-gradient-to-r from-cinema-gold/20 to-cinema-gold/5 text-cinema-gold border border-cinema-gold/30 hover:from-cinema-gold/30 hover:to-cinema-gold/10"
+        >
+          <MonitorPlay className="w-5 h-5 flex-shrink-0" />
+          <span className="hidden lg:block font-medium">开幕前写作</span>
+        </button>
+        <p className="hidden lg:block text-xs text-gray-600 mt-2 px-3">
+          极简阅读写作界面
+        </p>
       </div>
 
       {/* Navigation */}

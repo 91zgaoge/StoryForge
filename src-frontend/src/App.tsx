@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
@@ -10,10 +10,24 @@ import { Settings } from '@/pages/Settings';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
+import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import type { ViewType } from '@/types';
 
 function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
+
+  // Check if we're in frontstage mode (via URL or window label)
+  useEffect(() => {
+    const checkFrontstage = () => {
+      const url = window.location.href;
+      const isFrontstage = url.includes('frontstage') ||
+                          (window as any).__TAURI__?.window?.label === 'frontstage';
+      setIsFrontstageOpen(isFrontstage);
+    };
+
+    checkFrontstage();
+  }, []);
 
   const renderView = () => {
     switch (currentView) {
@@ -33,6 +47,10 @@ function App() {
       <div className="flex h-screen bg-cinema-950 film-grain">
         <DataLoader />
         <ConnectionStatus />
+        <FrontstageLauncher
+          isOpen={isFrontstageOpen}
+          onToggle={() => setIsFrontstageOpen(!isFrontstageOpen)}
+        />
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />
         <main className="flex-1 overflow-auto">
           {renderView()}
