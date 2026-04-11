@@ -60,10 +60,10 @@ export function useCollaboration({
     }
 
     setError(null);
-    console.log(`[Collaboration] Connecting to ws://localhost:8765`);
-    
+    console.log(`[Collaboration] Connecting to ws://127.0.0.1:8765`);
+
     try {
-      const ws = new WebSocket(`ws://localhost:8765`);
+      const ws = new WebSocket(`ws://127.0.0.1:8765`);
 
       ws.onopen = () => {
         console.log('[Collaboration] WebSocket connected');
