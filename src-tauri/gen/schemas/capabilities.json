@@ -1,1 +1,1 @@
-{"main-capability":{"identifier":"main-capability","description":"Main app capability","local":true,"windows":["main"],"permissions":["core:default","fs:default","dialog:default","shell:default","http:default"]}}
+{"main-capability":{"identifier":"main-capability","description":"Main app capability","local":true,"windows":["main"],"permissions":["core:default","fs:default","fs:allow-app-read","fs:allow-app-write","dialog:default","shell:default","http:default","http:allow-fetch"]}}

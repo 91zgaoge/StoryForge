@@ -90,7 +90,8 @@
       "Bash(taskkill /F /IM storyforge.exe)",
       "Bash(findstr 5173)",
       "Bash(taskkill:*)",
-      "Bash(/f/mywork/CINEMA-AI/v2-rust/target/release/storyforge.exe:*)"
+      "Bash(/f/mywork/CINEMA-AI/v2-rust/target/release/storyforge.exe:*)",
+      "Bash(cargo run:*)"
     ]
   }
 }
