@@ -107,6 +107,21 @@ pub fn run() {
                 }
             });
 
+            // Configure window URLs
+            if let Some(frontstage) = app.get_webview_window("frontstage") {
+                if let Err(e) = frontstage.navigate(tauri::Url::parse("http://localhost:5174/frontstage.html").unwrap_or_else(|_| tauri::Url::parse("tauri://localhost/frontstage.html").unwrap())) {
+                    log::warn!("Failed to navigate frontstage: {}", e);
+                }
+            }
+            if let Some(backstage) = app.get_webview_window("backstage") {
+                if let Err(e) = backstage.navigate(tauri::Url::parse("http://localhost:5174/index.html").unwrap_or_else(|_| tauri::Url::parse("tauri://localhost/index.html").unwrap())) {
+                    log::warn!("Failed to navigate backstage: {}", e);
+                }
+                // Hide backstage initially
+                let _ = backstage.hide();
+            }
+            log::info!("Windows initialized with custom URLs");
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

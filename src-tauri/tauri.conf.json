@@ -7,7 +7,7 @@
     "beforeBuildCommand": "cd ../src-frontend && npm run build",
     "beforeDevCommand": "",
     "frontendDist": "../src-frontend/dist",
-    "devUrl": "http://127.0.0.1:5173"
+    "devUrl": null
   },
   "app": {
     "withGlobalTauri": true,
@@ -17,8 +17,8 @@
     },
     "windows": [
       {
-        "label": "main",
-        "title": "StoryForge (草苔) - 幕后",
+        "label": "frontstage",
+        "title": "草苔 - 幕前创作",
         "width": 1400,
         "height": 900,
         "center": true,
@@ -27,22 +27,22 @@
         "visible": true,
         "transparent": false,
         "decorations": true,
-        "useHttpsScheme": false
+        "useHttpsScheme": false,
+        "url": "frontstage.html"
       },
       {
-        "label": "frontstage",
-        "title": "StoryForge - 幕前",
-        "width": 1000,
+        "label": "backstage",
+        "title": "草苔 - 幕后工作室",
+        "width": 1200,
         "height": 800,
-        "center": false,
-        "x": 50,
-        "y": 50,
+        "center": true,
         "fullscreen": false,
         "resizable": true,
         "visible": false,
         "transparent": false,
         "decorations": true,
-        "useHttpsScheme": false
+        "useHttpsScheme": false,
+        "url": "index.html"
       }
     ]
   },

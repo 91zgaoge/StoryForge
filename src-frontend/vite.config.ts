@@ -4,30 +4,6 @@ import path from 'path'
 
 export default defineConfig(async () => ({
   plugins: [react()],
-  clearScreen: false,
-  server: {
-    port: 5173,
-    strictPort: true,
-    host: '127.0.0.1',
-    watch: {
-      ignored: ["**/src-tauri/**"],
-    },
-    hmr: {
-      protocol: 'ws',
-      host: '127.0.0.1',
-      port: 5173,
-    },
-    cors: true,
-  },
-  envPrefix: ['VITE_', 'TAURI_'],
-  base: './',
-  build: {
-    target: process.env.TAURI_PLATFORM == 'windows' ? 'chrome105' : 'safari13',
-    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -38,6 +14,28 @@ export default defineConfig(async () => ({
       '@types': path.resolve(__dirname, './src/types'),
       '@utils': path.resolve(__dirname, './src/utils'),
       '@services': path.resolve(__dirname, './src/services'),
+    },
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: false,
+    cors: true,
+    hmr: {
+      protocol: 'ws',
+      host: '127.0.0.1',
+      port: 5173,
+    },
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        frontstage: path.resolve(__dirname, 'frontstage.html'),
+      },
     },
   },
 }))

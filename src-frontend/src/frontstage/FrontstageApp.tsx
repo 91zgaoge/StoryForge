@@ -1,157 +1,336 @@
-/**
- * FrontStage (幕前) - 极简阅读写作界面
- * 
- * 这是 StoryForge 的核心创新功能：
- * - 接近最终阅读界面的极简设计
- * - AI 提示以灰色小字浮现，如文思泉涌
- * - 接收来自幕后(BackStage)的智能输出
- */
-
-import { useEffect, useState, useCallback } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { ReaderWriter } from './components/ReaderWriter';
-import { AiHintOverlay } from './components/AiHintOverlay';
-import { FrontstageToolbar } from './components/FrontstageToolbar';
-import { useFrontstageStore } from './store/frontstageStore';
-import type { FrontstageEvent } from './types';
-import './styles/frontstage.css';
+import { listen } from '@tauri-apps/api/event';
+import { StreamingText } from './components/StreamingText';
+import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
 
-function FrontstageApp() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isReady, setIsReady] = useState(false);
-  
-  const {
-    content,
-    chapterId,
-    chapterTitle,
-    aiHints,
-    setContent,
-    setChapterInfo,
-    addAiHint,
-    removeAiHint,
-    clearAiHints,
-    setSaveStatus,
-  } = useFrontstageStore();
+interface Story {
+  id: string;
+  title: string;
+  description?: string;
+}
 
-  // Initialize and listen for events from backstage
+interface Chapter {
+  id: string;
+  story_id: string;
+  title?: string;
+  chapter_number: number;
+  content?: string;
+}
+
+interface FrontstageEvent {
+  type: string;
+  payload?: {
+    text?: string;
+    chapter_id?: string;
+    hint?: string;
+    position?: { line: number; column: number };
+    duration_ms?: number;
+  };
+}
+
+const FrontstageApp: React.FC = () => {
+  const [stories, setStories] = useState<Story[]>([]);
+  const [currentStory, setCurrentStory] = useState<Story | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+  const [content, setContent] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const [wordCount, setWordCount] = useState(0);
+  const [isZenMode, setIsZenMode] = useState(false);
+  const [isSaved, setIsSaved] = useState(true);
+
+  // Load stories on mount
+  useEffect(() => { 
+    loadStories();
+    setupEventListeners();
+  }, []);
+
+  // Calculate word count
   useEffect(() => {
-    const setupEventListeners = async () => {
-      // Listen for updates from backstage
-      const unlisten = await listen<FrontstageEvent>('frontstage-update', (event) => {
-        const { payload } = event;
+    const chineseChars = (content.match(/[\u4e00-\u9fa5]/g) || []).length;
+    const englishWords = (content.match(/[a-zA-Z]+/g) || []).length;
+    setWordCount(chineseChars + englishWords);
+  }, [content]);
+
+  // Setup Tauri event listeners
+  const setupEventListeners = async () => {
+    try {
+      await listen<FrontstageEvent>('frontstage-update', (event) => {
+        const { type, payload } = event.payload;
         
-        switch (payload.type) {
+        switch (type) {
           case 'ContentUpdate':
-            setContent(payload.payload.text);
-            setChapterInfo(payload.payload.chapter_id, chapterTitle || '');
+            if (payload?.text !== undefined) {
+              setContent(payload.text);
+            }
             break;
-            
           case 'AiHint':
-            addAiHint({
-              id: `hint-${Date.now()}`,
-              text: payload.payload.hint,
-              position: payload.payload.position,
-              duration: payload.payload.duration_ms,
-            });
-            setTimeout(() => {
-              removeAiHint(`hint-${Date.now()}`);
-            }, payload.payload.duration_ms);
+            // AI hints are now handled by AiSuggestionBubble component
             break;
-            
-          case 'AiPreview':
-            // Show AI generation preview
-            addAiHint({
-              id: 'preview',
-              text: payload.payload.text,
-              position: { line: 0, column: 0, offset: payload.payload.insert_position },
-              duration: 10000,
-              isPreview: true,
-            });
-            break;
-            
           case 'ChapterSwitch':
-            setChapterInfo(payload.payload.chapter_id, payload.payload.title);
-            clearAiHints();
-            break;
-            
-          case 'SaveStatus':
-            setSaveStatus(payload.payload.saved, payload.payload.timestamp);
+            if (payload?.chapter_id) {
+              const chapter = chapters.find(c => c.id === payload.chapter_id);
+              if (chapter) {
+                selectChapter(chapter);
+              }
+            }
             break;
         }
       });
+    } catch (e) {
+      console.error('Failed to setup event listeners:', e);
+    }
+  };
 
-      setIsReady(true);
-      setIsLoading(false);
+  const loadStories = async () => {
+    try {
+      const result = await invoke<Story[]>('list_stories');
+      setStories(result);
+      if (result.length > 0 && !currentStory) {
+        selectStory(result[0]);
+      }
+    } catch (e) {
+      console.error('Failed to load stories:', e);
+    }
+  };
 
-      return unlisten;
-    };
+  const selectStory = async (story: Story) => {
+    setCurrentStory(story);
+    try {
+      const result = await invoke<Chapter[]>('get_story_chapters', { storyId: story.id });
+      setChapters(result);
+      if (result.length > 0) {
+        selectChapter(result[0]);
+      } else {
+        setCurrentChapter(null);
+        setContent('');
+      }
+    } catch (e) {
+      console.error('Failed to load chapters:', e);
+    }
+  };
 
-    let unlistenFn: (() => void) | undefined;
-    setupEventListeners().then((fn) => {
-      unlistenFn = fn;
-    });
+  const selectChapter = (chapter: Chapter) => {
+    setCurrentChapter(chapter);
+    setContent(chapter.content || '');
+    setIsSaved(true);
+  };
 
-    return () => {
-      if (unlistenFn) unlistenFn();
-    };
-  }, []);
-
-  // Send content changes to backstage
-  const handleContentChange = useCallback((newContent: string) => {
+  const handleContentChange = useCallback(async (newContent: string) => {
     setContent(newContent);
+    setIsSaved(false);
     
-    // Notify backstage of changes
-    if (chapterId) {
+    // Auto-save after 2 seconds of inactivity
+    if (currentChapter) {
+      setTimeout(async () => {
+        try {
+          await invoke('update_chapter', {
+            id: currentChapter.id,
+            title: currentChapter.title,
+            content: newContent
+          });
+          setIsSaved(true);
+        } catch (e) {
+          console.error('Auto-save failed:', e);
+        }
+      }, 2000);
+    }
+    
+    // Notify backstage of content change
+    if (currentChapter) {
       invoke('notify_backstage_content_changed', {
         text: newContent,
-        chapterId,
-      }).catch(console.error);
+        chapterId: currentChapter.id
+      }).catch(e => console.error('Failed to notify content change:', e));
     }
-  }, [chapterId, setContent]);
+  }, [currentChapter]);
+
+  const openBackstage = async () => {
+    try {
+      await invoke('show_backstage');
+    } catch (e) {
+      console.error('Failed to open backstage:', e);
+    }
+  };
 
   // Request AI generation
-  const handleRequestGeneration = useCallback((context: string) => {
-    if (chapterId) {
-      invoke('notify_backstage_generation_requested', {
-        chapterId,
-        context,
-      }).catch(console.error);
+  const handleRequestGeneration = useCallback(async (context: string): Promise<string> => {
+    if (!currentChapter) return '';
+    
+    try {
+      // Call the generation API
+      // In a real implementation, this would call a Tauri command
+      // For now, we simulate the response
+      const sampleTexts = [
+        '夜风轻轻拂过窗棂，带来远处桂花的香气。她放下手中的笔，望向窗外那轮明月，心中涌起无限思绪。',
+        '他的声音低沉而温柔，像是大提琴的最后一个音符，在空气中缓缓消散。',
+        '雨点开始敲打屋顶，节奏清晰而有力，仿佛大自然在谱写一首独特的乐章。',
+        '那一刻，时间仿佛静止。所有的喧嚣都远去，只剩下心跳的声音在耳畔回响。',
+        '烛光摇曳，在墙上投下舞动的影子。她轻抚那本泛黄的书页，指尖传来岁月的温度。',
+      ];
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      return sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+    } catch (error) {
+      console.error('Generation request failed:', error);
+      return '';
     }
-  }, [chapterId]);
+  }, [currentChapter]);
 
-  if (isLoading) {
-    return (
-      <div className="frontstage-loading">
-        <div className="ink-drop"></div>
-        <p>正在准备创作空间...</p>
-      </div>
-    );
-  }
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Zen mode toggle
+      if (e.key === 'F11') {
+        e.preventDefault();
+        setIsZenMode(prev => !prev);
+      }
+      
+      // AI toggle
+      if (e.key === ' ' && e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        setShowAI(prev => !prev);
+      }
+
+      // Save
+      if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (currentChapter) {
+          invoke('update_chapter', {
+            id: currentChapter.id,
+            title: currentChapter.title,
+            content
+          }).then(() => setIsSaved(true));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [content, currentChapter]);
 
   return (
-    <div className="frontstage-container">
-      <FrontstageToolbar
-        chapterTitle={chapterTitle}
-        onRequestGeneration={handleRequestGeneration}
-      />
-      
-      <main className="frontstage-main">
-        <ReaderWriter
-          content={content}
-          onChange={handleContentChange}
-          onRequestGeneration={handleRequestGeneration}
-        />
-        
-        <AiHintOverlay hints={aiHints} />
-      </main>
-      
-      <div className="frontstage-watermark">
-        <span>草苔</span>
-        <small>StoryForge</small>
+    <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
+      {/* Header */}
+      {!isZenMode && (
+        <header className="frontstage-header">
+          <div className="frontstage-header-left">
+            <button
+              className="frontstage-menu-btn"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              title="切换侧边栏"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+            <span className="frontstage-logo">草苔</span>
+          </div>
+          <div className="frontstage-header-left" style={{ marginLeft: 'auto' }}>
+            <button
+              className={`frontstage-ai-toggle ${showAI ? 'active' : ''}`}
+              onClick={() => setShowAI(!showAI)}
+              title="Ctrl+Space 开启/关闭文思"
+            >
+              {showAI ? '文思泉涌中...' : '开启文思'}
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* Main Content */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Sidebar */}
+        <aside 
+          className={`frontstage-sidebar ${sidebarOpen ? '' : 'collapsed'}`}
+          style={{ width: sidebarOpen ? '280px' : '0px' }}
+        >
+          <div className="frontstage-sidebar-content">
+            <div className="sidebar-section-title">故事</div>
+            {stories.map(story => (
+              <div
+                key={story.id}
+                className={`sidebar-item ${currentStory?.id === story.id ? 'active' : ''}`}
+                onClick={() => selectStory(story)}
+              >
+                {story.title}
+              </div>
+            ))}
+
+            <div className="sidebar-section-title">章节</div>
+            {chapters.map(chapter => (
+              <div
+                key={chapter.id}
+                className={`sidebar-chapter-item ${currentChapter?.id === chapter.id ? 'active' : ''}`}
+                onClick={() => selectChapter(chapter)}
+              >
+                {chapter.chapter_number}. {chapter.title || '未命名'}
+              </div>
+            ))}
+
+            <button className="backstage-btn" onClick={openBackstage}>
+              打开幕后工作室 →
+            </button>
+          </div>
+        </aside>
+
+        {/* Editor */}
+        <main className={`frontstage-main ${isZenMode ? 'zen-mode' : ''}`}>
+          {currentChapter && (
+            <div className="chapter-header">
+              <h1 className={`chapter-title ${isZenMode ? 'zen' : ''}`}>
+                {currentChapter.title || `第${currentChapter.chapter_number}章`}
+              </h1>
+              <div className="story-title">{currentStory?.title}</div>
+            </div>
+          )}
+          
+          {/* Streaming Text Editor */}
+          <StreamingText
+            userContent={content}
+            onUserContentChange={handleContentChange}
+            onRequestGeneration={handleRequestGeneration}
+            chapterId={currentChapter?.id}
+            aiEnabled={showAI}
+          />
+        </main>
       </div>
+
+      {/* Stats Bar */}
+      <div className="reader-writer-stats">
+        <span>{wordCount} 字</span>
+        <span className="divider">|</span>
+        <span>{isSaved ? '已保存' : '保存中...'}</span>
+        <span className="divider">|</span>
+        <span>Ctrl+Space AI续写</span>
+        <span className="divider">|</span>
+        <span>F11 禅模式</span>
+      </div>
+
+      {/* AI Suggestion Bubbles */}
+      <AiSuggestionBubble 
+        enabled={showAI}
+        interval={12000}
+        duration={8000}
+      />
+
+      {/* Floating Ambient Hints */}
+      <FloatingAmbientHint enabled={showAI} />
+
+      {/* Zen Mode Exit Hint */}
+      {isZenMode && (
+        <div className="zen-exit-hint" onClick={() => setIsZenMode(false)}>
+          点击退出禅模式 (F11)
+        </div>
+      )}
     </div>
   );
-}
+};
 
 export default FrontstageApp;

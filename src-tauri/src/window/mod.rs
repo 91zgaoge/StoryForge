@@ -18,7 +18,7 @@ impl WindowManager {
 
     /// 获取幕后窗口
     pub fn get_backstage(app: &AppHandle) -> Option<WebviewWindow> {
-        app.get_webview_window("main")
+        app.get_webview_window("backstage")
     }
 
     /// 显示幕前窗口

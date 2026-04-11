@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use storyforge_core::ComplexityTier;
 
     #[test]
     fn test_complexity_classification() {
