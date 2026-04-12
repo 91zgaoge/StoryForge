@@ -50,6 +50,9 @@ futures-util = "0.3.32"
 # arrow-array = "52"
 # arrow-schema = "52"
 
+# ZIP file handling (配置导出)
+zip = "0.6"
+
 # Tauri plugins (v2.x)
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"

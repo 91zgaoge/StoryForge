@@ -1,5 +1,23 @@
+//! 记忆系统模块
+//! 
+//! 基于llm_wiki方法论的记忆系统实现：
+//! - 两步思维链Ingest流程
+//! - 知识图谱（带关系强度）
+//! - 四阶段查询检索管线
+//! - 多助手独立会话
+
 use crate::agents::{AgentContext, ChapterSummary, CharacterInfo};
 use crate::db::{Chapter, Character, Story};
+
+pub mod tokenizer;
+pub mod ingest;
+pub mod query;
+pub mod multi_agent;
+
+pub use tokenizer::CJKTokenizer;
+pub use ingest::{IngestPipeline, IngestContent, IngestResult, IngestBatch};
+pub use query::{QueryPipeline, QueryResult, BudgetConfig};
+pub use multi_agent::{MultiAgentSessionManager, AgentSession, AgentResponse, SessionStats};
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
 pub struct ShortTermMemory {
@@ -120,6 +138,27 @@ impl ShortTermMemory {
 }
 
 impl Default for ShortTermMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 记忆系统主结构
+pub struct MemorySystem {
+    pub tokenizer: CJKTokenizer,
+    pub short_term: ShortTermMemory,
+}
+
+impl MemorySystem {
+    pub fn new() -> Self {
+        Self {
+            tokenizer: CJKTokenizer::new(),
+            short_term: ShortTermMemory::new(),
+        }
+    }
+}
+
+impl Default for MemorySystem {
     fn default() -> Self {
         Self::new()
     }

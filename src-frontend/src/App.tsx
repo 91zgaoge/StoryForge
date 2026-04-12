@@ -3,7 +3,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
 import { Characters } from '@/pages/Characters';
-import { Chapters } from '@/pages/Chapters';
+import { Scenes } from '@/pages/Scenes';
 import { Skills } from '@/pages/Skills';
 import { Mcp } from '@/pages/Mcp';
 import { Settings } from '@/pages/Settings';
@@ -49,7 +49,7 @@ function App() {
       case 'dashboard': return <Dashboard />;
       case 'stories': return <Stories />;
       case 'characters': return <Characters />;
-      case 'chapters': return <Chapters />;
+      case 'scenes': return <Scenes />;
       case 'skills': return <Skills />;
       case 'mcp': return <Mcp />;
       case 'settings': return <Settings />;

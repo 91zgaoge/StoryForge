@@ -1,5 +1,6 @@
 // CINEMA-AI Frontend Types
 export * from './llm';
+export * from './v3';
 
 export interface User {
   id: string;
@@ -142,7 +143,7 @@ export type ViewType =
   | 'dashboard' 
   | 'stories' 
   | 'characters' 
-  | 'chapters' 
+  | 'scenes' 
   | 'skills' 
   | 'mcp' 
   | 'settings';

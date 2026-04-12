@@ -1,1 +1,24 @@
 Skills installed
+================
+
+Global Skills (~/.agents/skills/):
+- brainstorming
+- find-skills
+- skill-creator
+- react-components (Vite + React components from designs)
+- office (Office document operations)
+- obsidian-markdown (Obsidian markdown format)
+- obsidian-bases (Obsidian database patterns)
+- json-canvas (JSON Canvas format)
+- frontend-design (CINEMA-AI design system)
+- superpowers (Enhancement tools)
+- vercel-react-native-skills (React Native best practices)
+- systematic-debugging (Debug methodology)
+
+Local Skills (~/.claude/skills/):
+- shadcn-ui-design (Modern React UI with shadcn/ui)
+- react-best-practices (Vercel Labs 60+ React rules)
+- tauri-best-practices (Tauri 2.0 desktop app patterns)
+- markdown-editor (TipTap/ProseMirror rich text editor)
+
+Total: 15 skills ready for use

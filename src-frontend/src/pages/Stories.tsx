@@ -47,7 +47,7 @@ export function Stories() {
 
   const handleContinueStory = (story: Story) => {
     setCurrentStory(story);
-    setCurrentView('chapters');
+    setCurrentView('scenes');
   };
 
   const handleEditClick = (story: Story, e: React.MouseEvent) => {
@@ -125,7 +125,7 @@ export function Stories() {
               <p className="font-display font-semibold text-white">{currentStory.title}</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setCurrentView('chapters')}>
+          <Button variant="ghost" size="sm" onClick={() => setCurrentView('scenes')}>
             继续创作
             <ArrowRight className="w-4 h-4 ml-1" />
           </Button>

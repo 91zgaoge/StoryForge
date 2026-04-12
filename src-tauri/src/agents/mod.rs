@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod commands;
 pub mod service;
+pub mod novel_creation;
 
 // ==================== 核心Trait ====================
 

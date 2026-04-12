@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, BookOpen, Users, FileText,
+  LayoutDashboard, BookOpen, Users, Clapperboard,
   Wand2, Plug, Settings, Film, Sparkles, MonitorPlay
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
@@ -17,7 +17,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
   { id: 'stories', label: '故事', icon: BookOpen },
   { id: 'characters', label: '角色', icon: Users },
-  { id: 'chapters', label: '章节', icon: FileText },
+  { id: 'scenes', label: '场景', icon: Clapperboard },
   { id: 'skills', label: '技能', icon: Wand2 },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'settings', label: '设置', icon: Settings },
@@ -99,14 +99,14 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
               当前编辑
             </p>
             <button
-              onClick={() => onNavigate('chapters')}
+              onClick={() => onNavigate('scenes')}
               className="w-full text-left p-3 rounded-xl bg-cinema-800/50 hover:bg-cinema-800 transition-colors group"
             >
               <p className="font-medium text-white truncate group-hover:text-cinema-gold transition-colors">
                 {currentStory.title}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {currentStory.genre || '未分类'} · {currentStory.chapter_count || 0} 章
+                {currentStory.genre || '未分类'} · {currentStory.chapter_count || 0} 场景
               </p>
             </button>
           </div>

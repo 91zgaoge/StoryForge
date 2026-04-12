@@ -22,6 +22,7 @@ mod embeddings;
 mod utils;
 mod window;
 mod updater;
+mod commands_v3;
 
 use tauri::{Manager, AppHandle};
 
@@ -167,6 +168,28 @@ pub fn run() {
             updater::install_update,
             updater::get_current_version,
             updater::open_update_settings,
+            // V3 Architecture commands
+            commands_v3::create_scene,
+            commands_v3::get_story_scenes,
+            commands_v3::get_scene,
+            commands_v3::update_scene,
+            commands_v3::delete_scene,
+            commands_v3::reorder_scenes,
+            commands_v3::create_world_building,
+            commands_v3::get_world_building,
+            commands_v3::update_world_building,
+            commands_v3::create_writing_style,
+            commands_v3::get_writing_style,
+            commands_v3::update_writing_style,
+            commands_v3::create_studio_config,
+            commands_v3::get_studio_config,
+            commands_v3::update_studio_config,
+            commands_v3::export_studio,
+            commands_v3::import_studio,
+            commands_v3::create_entity,
+            commands_v3::get_story_entities,
+            commands_v3::create_relation,
+            commands_v3::get_entity_relations,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

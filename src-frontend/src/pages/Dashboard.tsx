@@ -46,7 +46,7 @@ export function Dashboard() {
   const stats = [
     { label: '故事', value: stories.length, icon: BookOpen, color: 'text-cinema-gold' },
     { label: '角色', value: totalCharacters, icon: Users, color: 'text-purple-400' },
-    { label: '章节', value: totalChapters, icon: FileText, color: 'text-blue-400' },
+    { label: '场景', value: totalChapters, icon: FileText, color: 'text-blue-400' },
   ];
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
@@ -64,7 +64,7 @@ export function Dashboard() {
         form.reset();
         // Auto-select the new story and navigate to chapters
         setCurrentStory(newStory);
-        setCurrentView('chapters');
+        setCurrentView('scenes');
         toast.success(`故事 "${newStory.title}" 创建成功！`);
       },
     });
@@ -72,7 +72,7 @@ export function Dashboard() {
 
   const handleContinueStory = (story: typeof stories[0]) => {
     setCurrentStory(story);
-    setCurrentView('chapters');
+    setCurrentView('scenes');
   };
 
   const recentStories = [...stories]

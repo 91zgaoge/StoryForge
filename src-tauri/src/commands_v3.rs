@@ -1,0 +1,266 @@
+//! V3 架构 Tauri 命令
+
+use crate::db::*;
+use crate::db::repositories_v3::*;
+use crate::config::StudioManager;
+use tauri::{command, AppHandle, Manager, State};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+// ==================== 场景命令 ====================
+
+#[command]
+pub async fn create_scene(
+    story_id: String,
+    sequence_number: i32,
+    title: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Scene, String> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.create(&story_id, sequence_number, title.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_story_scenes(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<Scene>, String> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.get_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_scene(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<Scene>, String> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.get_by_id(&scene_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_scene(
+    scene_id: String,
+    updates: SceneUpdate,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.update(&scene_id, &updates)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn delete_scene(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.delete(&scene_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn reorder_scenes(
+    story_id: String,
+    scene_ids: Vec<String>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    
+    for (index, scene_id) in scene_ids.iter().enumerate() {
+        repo.update_sequence(scene_id, (index + 1) as i32)
+            .map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
+}
+
+// ==================== 世界观命令 ====================
+
+#[command]
+pub async fn create_world_building(
+    story_id: String,
+    concept: String,
+    pool: State<'_, DbPool>,
+) -> Result<WorldBuilding, String> {
+    let repo = WorldBuildingRepository::new(pool.inner().clone());
+    repo.create(&story_id, &concept)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_world_building(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<WorldBuilding>, String> {
+    let repo = WorldBuildingRepository::new(pool.inner().clone());
+    repo.get_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_world_building(
+    id: String,
+    concept: Option<String>,
+    rules: Option<Vec<WorldRule>>,
+    history: Option<String>,
+    cultures: Option<Vec<Culture>>,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = WorldBuildingRepository::new(pool.inner().clone());
+    repo.update(&id, concept.as_deref(), rules.as_deref(), history.as_deref(), cultures.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 文字风格命令 ====================
+
+#[command]
+pub async fn create_writing_style(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<WritingStyle, String> {
+    let repo = WritingStyleRepository::new(pool.inner().clone());
+    repo.create(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_writing_style(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<WritingStyle>, String> {
+    let repo = WritingStyleRepository::new(pool.inner().clone());
+    repo.get_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_writing_style(
+    id: String,
+    updates: WritingStyleUpdate,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = WritingStyleRepository::new(pool.inner().clone());
+    repo.update(&id, &updates)
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 工作室配置命令 ====================
+
+#[command]
+pub async fn create_studio_config(
+    story_id: String,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<StudioConfig, String> {
+    let app_dir = app_handle.path().app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let manager = StudioManager::new(pool.inner().clone(), &app_dir);
+    manager.create_default_studio(&story_id, "")
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_studio_config(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<StudioConfig>, String> {
+    let repo = StudioConfigRepository::new(pool.inner().clone());
+    repo.get_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_studio_config(
+    id: String,
+    pen_name: Option<String>,
+    llm_config: Option<LlmStudioConfig>,
+    ui_config: Option<UiStudioConfig>,
+    agent_bots: Option<Vec<AgentBotConfig>>,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = StudioConfigRepository::new(pool.inner().clone());
+    repo.update(&id, pen_name.as_deref(), llm_config.as_ref(), ui_config.as_ref(), agent_bots.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 导入/导出命令 ====================
+
+#[command]
+pub async fn export_studio(
+    request: StudioExportRequest,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<u8>, String> {
+    let app_dir = app_handle.path().app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let manager = StudioManager::new(pool.inner().clone(), &app_dir);
+    manager.export_studio(&request)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn import_studio(
+    data: Vec<u8>,
+    options: crate::config::studio_manager::ImportOptions,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<Story, String> {
+    let app_dir = app_handle.path().app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let manager = StudioManager::new(pool.inner().clone(), &app_dir);
+    manager.import_studio(&data, &options)
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 知识图谱命令 ====================
+
+#[command]
+pub async fn create_entity(
+    story_id: String,
+    name: String,
+    entity_type: String,
+    attributes: serde_json::Value,
+    pool: State<'_, DbPool>,
+) -> Result<Entity, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    repo.create_entity(&story_id, &name, &entity_type, &attributes)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_story_entities(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<Entity>, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    repo.get_entities_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn create_relation(
+    story_id: String,
+    source_id: String,
+    target_id: String,
+    relation_type: String,
+    strength: f32,
+    pool: State<'_, DbPool>,
+) -> Result<Relation, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    repo.create_relation(&story_id, &source_id, &target_id, &relation_type, strength)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_entity_relations(
+    entity_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<Relation>, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    repo.get_relations_by_entity(&entity_id)
+        .map_err(|e| e.to_string())
+}

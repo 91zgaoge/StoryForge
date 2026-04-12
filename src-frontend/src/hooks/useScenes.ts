@@ -1,0 +1,142 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { invoke } from '@tauri-apps/api/core';
+import type { Scene, CreateSceneRequest, UpdateSceneRequest, ConflictType } from '@/types';
+
+const SCENES_KEY = 'scenes';
+
+// ==================== Queries ====================
+
+export function useScenes(storyId: string | null) {
+  return useQuery({
+    queryKey: [SCENES_KEY, storyId],
+    queryFn: async () => {
+      if (!storyId) return [];
+      return invoke<Scene[]>('get_story_scenes', { storyId });
+    },
+    enabled: !!storyId,
+  });
+}
+
+export function useScene(sceneId: string | null) {
+  return useQuery({
+    queryKey: [SCENES_KEY, 'detail', sceneId],
+    queryFn: async () => {
+      if (!sceneId) return null;
+      return invoke<Scene | null>('get_scene', { sceneId });
+    },
+    enabled: !!sceneId,
+  });
+}
+
+// ==================== Mutations ====================
+
+export function useCreateScene() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (params: {
+      storyId: string;
+      sequenceNumber: number;
+      title?: string;
+      dramaticGoal?: string;
+      externalPressure?: string;
+      conflictType?: ConflictType;
+      charactersPresent?: string[];
+      settingLocation?: string;
+      content?: string;
+    }) => {
+      return invoke<Scene>('create_scene', {
+        storyId: params.storyId,
+        sequenceNumber: params.sequenceNumber,
+        title: params.title,
+        dramaticGoal: params.dramaticGoal,
+        externalPressure: params.externalPressure,
+        conflictType: params.conflictType,
+        charactersPresent: params.charactersPresent || [],
+        settingLocation: params.settingLocation,
+        content: params.content,
+      });
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [SCENES_KEY, variables.storyId] });
+    },
+  });
+}
+
+export function useUpdateScene() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (params: {
+      sceneId: string;
+      storyId: string;
+      updates: UpdateSceneRequest;
+    }) => {
+      return invoke<number>('update_scene', {
+        sceneId: params.sceneId,
+        updates: params.updates,
+      });
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [SCENES_KEY, variables.storyId] });
+      queryClient.invalidateQueries({ queryKey: [SCENES_KEY, 'detail', variables.sceneId] });
+    },
+  });
+}
+
+export function useDeleteScene() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (params: { sceneId: string; storyId: string }) => {
+      return invoke<number>('delete_scene', { sceneId: params.sceneId });
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [SCENES_KEY, variables.storyId] });
+    },
+  });
+}
+
+export function useReorderScenes() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (params: { storyId: string; sceneIds: string[] }) => {
+      return invoke<void>('reorder_scenes', {
+        storyId: params.storyId,
+        sceneIds: params.sceneIds,
+      });
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [SCENES_KEY, variables.storyId] });
+    },
+  });
+}
+
+// ==================== Helpers ====================
+
+export function getConflictTypeLabel(type: ConflictType): string {
+  const labels: Record<ConflictType, string> = {
+    ManVsMan: '人与人',
+    ManVsSelf: '人与自我',
+    ManVsSociety: '人与社会',
+    ManVsNature: '人与自然',
+    ManVsTechnology: '人与科技',
+    ManVsFate: '人与命运',
+    ManVsSupernatural: '人与超自然',
+  };
+  return labels[type] || type;
+}
+
+export function getConflictTypeColor(type: ConflictType): string {
+  const colors: Record<ConflictType, string> = {
+    ManVsMan: '#ef4444',        // red
+    ManVsSelf: '#8b5cf6',       // purple
+    ManVsSociety: '#f59e0b',    // amber
+    ManVsNature: '#10b981',     // emerald
+    ManVsTechnology: '#3b82f6', // blue
+    ManVsFate: '#6366f1',       // indigo
+    ManVsSupernatural: '#ec4899', // pink
+  };
+  return colors[type] || '#6b7280';
+}
