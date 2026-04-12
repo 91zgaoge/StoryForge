@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ReaderWriter } from './components/ReaderWriter';
+import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { ChapterOutline } from './components/ChapterOutline';
 import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -39,9 +39,9 @@ const FrontstageApp: React.FC = () => {
   const [content, setContent] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAI, setShowAI] = useState(false);
-  const [wordCount, setWordCount] = useState(0);
-  const [isZenMode, setIsZenMode] = useState(false);
   const [isSaved, setIsSaved] = useState(true);
+  const [generatedText, setGeneratedText] = useState('');
+  const editorRef = useRef<RichTextEditorRef>(null);
 
   // 加载当前故事的角色
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
@@ -51,13 +51,6 @@ const FrontstageApp: React.FC = () => {
     loadStories();
     setupEventListeners();
   }, []);
-
-  // Calculate word count
-  useEffect(() => {
-    const chineseChars = (content.match(/[\u4e00-\u9fa5]/g) || []).length;
-    const englishWords = (content.match(/[a-zA-Z]+/g) || []).length;
-    setWordCount(chineseChars + englishWords);
-  }, [content]);
 
   // Setup Tauri event listeners
   const setupEventListeners = async () => {
@@ -166,8 +159,6 @@ const FrontstageApp: React.FC = () => {
     
     try {
       // Call the generation API
-      // In a real implementation, this would call a Tauri command
-      // For now, we simulate the response
       const sampleTexts = [
         '夜风轻轻拂过窗棂，带来远处桂花的香气。她放下手中的笔，望向窗外那轮明月，心中涌起无限思绪。',
         '他的声音低沉而温柔，像是大提琴的最后一个音符，在空气中缓缓消散。',
@@ -176,53 +167,47 @@ const FrontstageApp: React.FC = () => {
         '烛光摇曳，在墙上投下舞动的影子。她轻抚那本泛黄的书页，指尖传来岁月的温度。',
       ];
       
-      // Simulate API delay
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      return sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+      const generated = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+      setGeneratedText(generated);
+      return generated;
     } catch (error) {
       console.error('Generation request failed:', error);
       return '';
     }
   }, [currentChapter]);
 
-  // Keyboard shortcuts
+  // Accept AI generation
+  const handleAcceptGeneration = useCallback(() => {
+    if (generatedText && editorRef.current) {
+      editorRef.current.insertText(generatedText);
+      setGeneratedText('');
+    }
+  }, [generatedText]);
+
+  // Reject AI generation
+  const handleRejectGeneration = useCallback(() => {
+    setGeneratedText('');
+  }, []);
+
+  // AI toggle shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Zen mode toggle
-      if (e.key === 'F11') {
-        e.preventDefault();
-        setIsZenMode(prev => !prev);
-      }
-      
-      // AI toggle
       if (e.key === ' ' && e.ctrlKey && !e.shiftKey) {
         e.preventDefault();
         setShowAI(prev => !prev);
-      }
-
-      // Save
-      if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        if (currentChapter) {
-          invoke('update_chapter', {
-            id: currentChapter.id,
-            title: currentChapter.title,
-            content
-          }).then(() => setIsSaved(true));
-        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [content, currentChapter]);
+  }, []);
 
   return (
-    <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
+    <div className="frontstage-container">
       {/* Header */}
-      {!isZenMode && (
-        <header className="frontstage-header">
+      <header className="frontstage-header">
           <div className="frontstage-header-left">
             <button
               className="frontstage-menu-btn"
@@ -247,7 +232,6 @@ const FrontstageApp: React.FC = () => {
             </button>
           </div>
         </header>
-      )}
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -339,10 +323,10 @@ const FrontstageApp: React.FC = () => {
         </aside>
 
         {/* Editor */}
-        <main className={`frontstage-main ${isZenMode ? 'zen-mode' : ''}`}>
+        <main className="frontstage-main">
           {currentChapter && (
             <div className="chapter-header">
-              <h1 className={`chapter-title ${isZenMode ? 'zen' : ''}`}>
+              <h1 className="chapter-title">
                 {currentChapter.title || `第${currentChapter.chapter_number}章`}
               </h1>
               <div className="story-title">{currentStory?.title}</div>
@@ -350,26 +334,19 @@ const FrontstageApp: React.FC = () => {
           )}
           
           {/* Rich Text Editor */}
-          <ReaderWriter
+          <RichTextEditor
+            ref={editorRef}
             content={content}
             onChange={handleContentChange}
             onRequestGeneration={handleRequestGeneration}
             aiEnabled={showAI}
+            generatedText={generatedText}
+            onAcceptGeneration={handleAcceptGeneration}
+            onRejectGeneration={handleRejectGeneration}
             placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
             characters={characters}
           />
         </main>
-      </div>
-
-      {/* Stats Bar */}
-      <div className="reader-writer-stats">
-        <span>{wordCount} 字</span>
-        <span className="divider">|</span>
-        <span>{isSaved ? '已保存' : '保存中...'}</span>
-        <span className="divider">|</span>
-        <span>Ctrl+Space AI续写</span>
-        <span className="divider">|</span>
-        <span>F11 禅模式</span>
       </div>
 
       {/* AI Suggestion Bubbles */}
@@ -381,13 +358,6 @@ const FrontstageApp: React.FC = () => {
 
       {/* Floating Ambient Hints */}
       <FloatingAmbientHint enabled={showAI} />
-
-      {/* Zen Mode Exit Hint */}
-      {isZenMode && (
-        <div className="zen-exit-hint" onClick={() => setIsZenMode(false)}>
-          点击退出禅模式 (F11)
-        </div>
-      )}
     </div>
   );
 };

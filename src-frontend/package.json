@@ -31,6 +31,7 @@
     "@tiptap/starter-kit": "^3.22.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.487.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^18.3.20",
     "@types/react-dom": "^18.3.6",
     "@typescript-eslint/eslint-plugin": "^8.29.0",

@@ -25,6 +25,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useSettings, useModels, useExportSettings, useImportSettings } from '@/hooks/useSettings';
 import { useUpdater } from '@/hooks/useUpdater';
+import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
@@ -623,13 +624,19 @@ function GeneralSettings() {
         </CardContent>
       </Card>
 
-      {/* 其他设置 */}
+      {/* 编辑器设置 */}
       <Card>
-        <CardContent className="p-8 text-center">
-          <Settings2 className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2">通用设置</h3>
-          <p className="text-gray-500">主题、语言、自动保存等全局配置</p>
-          <p className="text-sm text-gray-600 mt-4">功能开发中...</p>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <Settings2 className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">编辑器设置</h3>
+              <p className="text-sm text-gray-500">幕前写作界面的字体、风格等配置</p>
+            </div>
+          </div>
+          <EditorSettings />
         </CardContent>
       </Card>
     </div>

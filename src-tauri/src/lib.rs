@@ -109,20 +109,14 @@ pub fn run() {
                 }
             });
 
-            // Configure window URLs
-            if let Some(frontstage) = app.get_webview_window("frontstage") {
-                if let Err(e) = frontstage.navigate(tauri::Url::parse("http://localhost:5174/frontstage.html").unwrap_or_else(|_| tauri::Url::parse("tauri://localhost/frontstage.html").unwrap())) {
-                    log::warn!("Failed to navigate frontstage: {}", e);
-                }
-            }
+            // Ensure backstage is hidden on startup
             if let Some(backstage) = app.get_webview_window("backstage") {
-                if let Err(e) = backstage.navigate(tauri::Url::parse("http://localhost:5174/index.html").unwrap_or_else(|_| tauri::Url::parse("tauri://localhost/index.html").unwrap())) {
-                    log::warn!("Failed to navigate backstage: {}", e);
-                }
-                // Hide backstage initially
                 let _ = backstage.hide();
             }
-            log::info!("Windows initialized with custom URLs");
+            // Focus frontstage
+            if let Some(frontstage) = app.get_webview_window("frontstage") {
+                let _ = frontstage.set_focus();
+            }
 
             Ok(())
         })
@@ -496,7 +490,7 @@ fn notify_backstage_generation_requested(chapter_id: String, context: String, ap
 /// 显示 backstage 窗口
 #[tauri::command]
 fn show_backstage(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window("backstage") {
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         Ok(())

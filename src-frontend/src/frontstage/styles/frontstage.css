@@ -30,7 +30,7 @@
   --font-sans: system-ui, -apple-system, sans-serif;
   
   /* Spacing */
-  --content-max-width: 720px;
+  --content-max-width: 900px;
   --line-height: 1.8;
   --paragraph-spacing: 1.5em;
   
@@ -477,7 +477,24 @@ body {
 /* ===== Rich Text Editor ===== */
 .rich-text-editor {
   width: 100%;
-  max-width: var(--content-max-width);
+  max-width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 底部工具栏样式 */
+.rich-text-editor .editor-toolbar {
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* 编辑器内容区域宽度 */
+.rich-text-editor .ProseMirror {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+  min-height: 80vh;
+  outline: none;
 }
 
 .rich-text-editor .prose {
@@ -488,66 +505,14 @@ body {
   margin-bottom: var(--paragraph-spacing);
 }
 
-/* ===== Reader Writer ===== */
-.reader-writer {
-  width: 100%;
-  max-width: var(--content-max-width);
-  position: relative;
+/* 禅模式 */
+.rich-text-editor.zen-mode .frontstage-header,
+.rich-text-editor.zen-mode .frontstage-sidebar {
+  opacity: 0;
+  pointer-events: none;
 }
 
-.reader-writer.zen-mode {
-  max-width: 900px;
-}
-
-.reader-writer-editor {
-  width: 100%;
-  min-height: 60vh;
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: var(--fs-font-size, 18px);
-  line-height: var(--fs-line-height, var(--line-height));
-  color: var(--fs-ink-color, var(--ink));
-  font-family: var(--fs-font-family, var(--font-serif));
-  resize: none;
-  text-align: justify;
-  padding: 0;
-  letter-spacing: var(--fs-letter-spacing, normal);
-}
-
-.reader-writer-editor.zen-mode {
-  font-size: calc(var(--fs-font-size, 18px) + 2px);
-}
-
-.reader-writer-editor::placeholder {
-  color: var(--stone-gray);
-  font-style: italic;
-}
-
-.reader-writer-editor:focus {
-  outline: none;
-}
-
-.reader-writer-stats {
-  position: fixed;
-  bottom: 20px;
-  right: 24px;
-  font-size: 12px;
-  color: var(--charcoal-light);
-  background-color: rgba(245, 244, 237, 0.9);
-  padding: 6px 12px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  z-index: 10;
-}
-
-.reader-writer-stats .divider {
-  color: var(--warm-sand);
-}
-
-/* ===== Zen Mode ===== */
+/* ===== Zen Mode Exit Hint ===== */
 .zen-exit-hint {
   position: fixed;
   bottom: 20px;
@@ -566,14 +531,6 @@ body {
 
 .zen-exit-hint:hover {
   opacity: 1;
-}
-
-/* Hide UI in zen mode */
-.zen-mode .frontstage-header,
-.zen-mode .frontstage-sidebar,
-.zen-mode .reader-writer-stats {
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* ===== AI Suggestion Bubble ===== */

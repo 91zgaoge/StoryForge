@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { invoke, listen } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Loader2, 
@@ -19,9 +20,8 @@ import {
   Check
 } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
+import { cn } from '@/utils/cn';
 
 export type AgentType = 'writer' | 'inspector' | 'outline_planner' | 'style_mimic' | 'plot_analyzer';
 
@@ -107,7 +107,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const { settings } = useSettings();
+  const { data: settings } = useSettings();
 
   // 监听执行事件
   useEffect(() => {
@@ -241,9 +241,9 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
       {/* 输入区域 */}
       {selectedAgent && !result && (
         <div className="px-4 pb-4 space-y-3">
-          <Textarea
+          <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
             placeholder={
               selectedAgent === 'writer' ? '输入写作要求，例如：续写主角进入古宅的场景...' :
               selectedAgent === 'inspector' ? '粘贴需要检查的内容...' :
@@ -252,7 +252,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
               '输入需要分析的情节内容...'
             }
             disabled={isExecuting}
-            className="min-h-[100px] resize-none bg-white/80 border-stone-200 focus:border-terracotta"
+            className="min-h-[100px] resize-none bg-white/80 border border-stone-200 focus:border-terracotta rounded-md p-2 w-full"
           />
 
           {/* 执行按钮 */}
@@ -398,7 +398,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
             {/* 操作按钮 */}
             <div className="p-4 border-t border-stone-200 flex gap-2">
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={handleCopy}
                 className="flex-1"

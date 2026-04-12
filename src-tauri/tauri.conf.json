@@ -5,14 +5,13 @@
   "identifier": "com.storyforge.app",
   "build": {
     "beforeBuildCommand": "cd ../src-frontend && npm run build",
-    "beforeDevCommand": "",
-    "frontendDist": "../src-frontend/dist",
-    "devUrl": null
+    "beforeDevCommand": "cd ../src-frontend && npm run dev",
+    "frontendDist": "../src-frontend/dist"
   },
   "app": {
     "withGlobalTauri": true,
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' https:;",
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com;",
       "capabilities": ["main-capability"]
     },
     "windows": [
@@ -27,7 +26,6 @@
         "visible": true,
         "transparent": false,
         "decorations": true,
-        "useHttpsScheme": false,
         "url": "frontstage.html"
       },
       {
@@ -41,7 +39,6 @@
         "visible": false,
         "transparent": false,
         "decorations": true,
-        "useHttpsScheme": false,
         "url": "index.html"
       }
     ]

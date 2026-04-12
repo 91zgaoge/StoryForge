@@ -8,8 +8,8 @@ import {
   Sparkles,
   ChevronRight
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
+import { cn } from '@/utils/cn';
 import type { UpdateInfo } from '@/hooks/useUpdater';
 
 interface UpdateNotificationProps {
@@ -103,7 +103,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({
               {/* Actions */}
               <div className="flex gap-2">
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={onCheck}
                   disabled={isInstalling}
