@@ -1,6 +1,6 @@
 # StoryForge (草苔) v2.0 项目完成状态
 
-> 最后更新: 2026-04-12（4大核心功能完成）
+> 最后更新: 2026-04-12（幕前界面重构完成）
 
 ---
 
@@ -19,13 +19,15 @@
 |---------|------|--------|------|
 | 双栏布局 | ✅ | 100% | 可折叠侧边栏 + 主编辑区 |
 | 章节大纲 | ✅ | 100% | 拖拽排序、内联编辑、增删改 |
-| TipTap编辑器 | ✅ | 100% | Markdown快捷键、浮动工具栏 |
-| 写作风格 | ✅ | 100% | 5种风格、实时预览、持久化 |
+| TipTap编辑器 | ✅ | 100% | Markdown快捷键、底部工具栏 |
+| 写作风格 | ✅ | 100% | 5种风格、后台设置、持久化 |
+| 字体设置 | ✅ | 100% | 7种预设 + 自定义字体、后台管理 |
 | 角色卡片 | ✅ | 90% | TipTap扩展、点击触发 |
 | AI提示 | ✅ | 90% | 气泡动效、LLM流式生成 |
-| 禅模式 | ✅ | 100% | F11全屏、ESC退出 |
+| 禅模式 | ✅ | 100% | F11快捷键、ESC退出 |
 | 自动保存 | ✅ | 100% | 2秒延迟、状态指示 |
 | 技能面板 | ✅ | 90% | 5种Agent类型、执行UI |
+| 底部工具栏 | ✅ | 100% | 悬停显示、纸质风格、分组设计 |
 
 ### 幕后界面 (Backstage) - 85%
 
@@ -74,13 +76,18 @@
 - ✅ 选中高亮
 - ✅ 字数统计显示
 
-#### 1.3 富文本编辑器 (ReaderWriter + RichTextEditor)
+#### 1.3 富文本编辑器 (RichTextEditor)
 - ✅ TipTap / ProseMirror 内核
-- ✅ Markdown 快捷键 (Ctrl+B/I, Ctrl+Shift+1-6)
-- ✅ 浮动工具栏（格式、历史、列表、引用）
-- ✅ 字号调节 (14-24px)
-- ✅ 行高调节 (1.5-2.5)
-- ✅ 排版设置面板
+- ✅ Markdown 快捷键 (Ctrl+B/I/U, Ctrl+Shift+1-6)
+- ✅ 底部工具栏（悬停显示、纸质风格）
+  - 历史按钮组（撤销/重做）
+  - 格式按钮组（粗体/斜体/下划线/删除线/高亮）
+  - 标题按钮组（H1/H2）
+  - 列表按钮组（有序/无序）
+  - 其他按钮组（引用/代码）
+- ✅ 字号调节 (12-32px，后台设置)
+- ✅ 行高调节 (1.2-3.0，后台设置)
+- ✅ 字体设置（7种预设 + 自定义，后台管理）
 
 #### 1.4 AI 辅助写作
 - ✅ AI 续写（Ctrl+Space，真实LLM流式生成）
@@ -96,16 +103,17 @@
   - 结果复制/应用
 - 🟡 文思泉涌开关
 
-#### 1.5 写作风格 (WritingStyleSwitcher)
+#### 1.5 写作风格 (EditorSettings)
 - ✅ 5种预设风格：
   - 现代简洁 (默认)
   - 古典深沉 (仿陀思妥耶夫斯基)
   - 现代中文 (仿张爱玲)
   - 极简主义 (仿海明威)
   - 浪漫抒情
-- ✅ 风格预览（悬停）
+- ✅ 风格预览（后台设置）
 - ✅ CSS 变量动态切换
 - ✅ localStorage 持久化
+- ✅ 移至后台设置中心统一管理
 
 #### 1.6 角色卡片 (CharacterCardPopup)
 - ✅ 角色详情展示（背景、性格、目标）
@@ -205,6 +213,12 @@
 - ✅ 设置导出（JSON 下载）
 - ✅ 设置导入（JSON 上传）
 - ✅ 版本兼容性检查
+- ✅ 编辑器设置（写作风格/字体/字号/行高）
+  - 5种预设写作风格
+  - 7种预设字体 + 自定义字体
+  - 字号调节（12-32px）
+  - 行高调节（1.2-3.0）
+  - 实时预览
 - 🟡 Agent 模型映射（界面框架）
 - 🟡 通用设置（主题/语言/自动保存）
 
@@ -335,11 +349,11 @@
 | 模块 | 完成度 | 权重 | 加权得分 |
 |------|--------|------|----------|
 | 架构基础 | 100% | 10% | 10.0 |
-| 幕前界面 | 95% | 25% | 23.75 |
-| 幕后界面 | 90% | 25% | 22.5 |
+| 幕前界面 | 96% | 25% | 24.0 |
+| 幕后界面 | 92% | 25% | 23.0 |
 | 后端系统 | 92% | 30% | 27.6 |
-| 文档/测试 | 80% | 10% | 8.0 |
-| **总计** | - | 100% | **92.35%** |
+| 文档/测试 | 85% | 10% | 8.5 |
+| **总计** | - | 100% | **93.1%** |
 
 ---
 
@@ -452,4 +466,22 @@
 #### 集成
 - `src-frontend/src/App.tsx` - 集成 UpdateNotification 组件
 - `src-frontend/src/pages/Settings.tsx` - 设置页面版本信息
+
+---
+
+## 📝 幕前界面重构文件清单（alpha.3）
+
+### 新增文件
+- `src-frontend/src/components/EditorSettings.tsx` - 编辑器设置组件（风格/字体/字号/行高）
+
+### 修改文件
+- `src-frontend/src/frontstage/FrontstageApp.tsx` - 移除 ReaderWriter 引用，集成 RichTextEditor
+- `src-frontend/src/frontstage/components/RichTextEditor.tsx` - 整合 ReaderWriter 功能，底部工具栏
+- `src-frontend/src/frontstage/components/index.ts` - 移除 ReaderWriter 和 WritingStyleSwitcher 导出
+- `src-frontend/src/frontstage/styles/frontstage.css` - 更新工具栏样式和编辑器布局
+- `src-frontend/src/pages/Settings.tsx` - 添加 EditorSettings 到通用设置
+
+### 删除文件
+- `src-frontend/src/frontstage/components/ReaderWriter.tsx` - 功能整合到 RichTextEditor
+- `src-frontend/src/frontstage/components/WritingStyleSwitcher.tsx` - 功能移至 EditorSettings
 

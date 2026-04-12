@@ -143,6 +143,143 @@
 - 开关控制
 - 版本信息
 
+---
+
+## 幕前编辑器设计 (Frontstage Editor)
+
+### 纸质平面风格
+
+#### 设计哲学
+- **主题**: 温暖纸质质感 + 文学优雅
+- **灵感**: 实体书籍、手稿纸张、Claude 界面
+- **氛围**: 沉浸、专注、护眼、温暖
+
+#### 色彩方案
+
+##### 纸质色系
+- `--parchment`: #f5f4ed - 主背景（羊皮纸）
+- `--parchment-dark`: #ebe9e0 - 次级背景
+- `--ivory`: #faf9f5 - 高亮背景
+- `--warm-sand`: #e8e6dc - 边框、分隔线
+- `--border-cream`: #f0eee6 - 细边框
+
+##### 墨水色系
+- `--ink`: #2d2c28 - 主文字
+- `--charcoal`: #4d4c48 - 次级文字
+- `--charcoal-light`: #6b6a65 - 辅助文字
+- `--stone-gray`: #87867f - 禁用文字
+
+##### 强调色
+- `--terracotta`: #c96442 - 陶土色（主要强调）
+- `--terracotta-light`: #d97b5c - 浅陶土
+- `--terracotta-dark`: #a85032 - 深陶土
+- `--gold`: #c9a86c - 金色点缀
+
+#### 字体系统
+
+##### 字体家族
+- **中文正文**: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', serif
+- **英文正文**: 'Crimson Pro', Georgia, serif
+- **现代风格**: 'Inter', 'Noto Sans SC', system-ui, sans-serif
+- **楷体风格**: 'LXGW WenKai', 'STKaiti', serif
+
+#### 底部工具栏设计
+
+##### 布局
+- 位置: 编辑器底部
+- 默认状态: 完全隐藏（opacity: 0, translateY: 100%）
+- 触发方式: 鼠标悬停编辑器区域
+- 动画: 300ms ease-out 平滑滑出
+
+##### 分组卡片设计
+```css
+.toolbar-group {
+  背景: parchment-dark/50
+  边框: 1px solid warm-sand
+  圆角: rounded-lg
+  内边距: px-2 py-1.5
+  间距: gap-1
+}
+```
+
+##### 按钮样式
+```css
+.toolbar-button {
+  背景: parchment
+  边框: 1px solid warm-sand
+  圆角: rounded
+  文字: charcoal, font-serif, text-xs
+  内边距: px-2.5 py-1.5
+  
+  悬停: {
+    边框: terracotta/50
+    背景: ivory
+    阴影: shadow-sm
+  }
+  
+  激活: {
+    背景: terracotta/10
+    边框: terracotta
+    文字: terracotta-dark
+    阴影: shadow-inner
+  }
+}
+```
+
+##### 分组标签
+- 字体: font-serif italic
+- 大小: text-[10px]
+- 颜色: stone-gray
+- 样式: 全大写 + 字间距
+- 文字: "历史"、"格式"、"标题"、"列表"、"其他"
+
+#### 编辑器区域
+
+##### 内容区
+- 最大宽度: 900px
+- 居中对齐: margin 0 auto
+- 内边距: 3rem 2rem
+- 最小高度: 80vh
+
+##### ProseMirror 样式
+- 字体: 动态 CSS 变量 (--fs-font-family)
+- 字号: 动态 CSS 变量 (--fs-font-size)
+- 行高: 动态 CSS 变量 (--fs-line-height)
+- 段落间距: 1.5em
+- 文字对齐: justify
+
+#### 动画效果
+
+##### 工具栏显示/隐藏
+```css
+.editor-toolbar {
+  transition: all 0.3s ease-out;
+  opacity: 0;
+  transform: translateY(100%);
+}
+
+.editor:hover .editor-toolbar {
+  opacity: 1;
+  transform: translateY(0);
+}
+```
+
+##### 按钮微交互
+- 悬停: 150ms ease 边框颜色变化
+- 激活: 内阴影效果
+- 禁用: 40% 透明度
+
+### 禅模式
+
+#### 触发方式
+- 快捷键: F11
+- 退出: F11 或点击底部提示
+
+#### 效果
+- 隐藏: frontstage-header, frontstage-sidebar, editor-toolbar
+- 编辑器: 全屏展开
+- 退出提示: 底部中央，半透明
+
 ### 外部连接 (MCP)
 - 服务器卡片
 - 工具标签

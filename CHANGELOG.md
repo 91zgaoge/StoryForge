@@ -2,6 +2,39 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [2.0.0-alpha.3] - 2025-04-12
+
+### ✨ New Features
+- **编辑器设置中心** - 在后台设置中统一管理编辑器配置
+  - 写作风格选择（5种预设风格）
+  - 字体家族设置（7种预设字体 + 自定义字体）
+  - 字号调节（12-32px）
+  - 行高调节（1.2-3.0）
+  - 实时预览效果
+
+### 🔧 Improvements
+- **幕前界面重构** - 移除 ReaderWriter 组件，简化架构
+- **工具栏重新设计** - 移至编辑器底部，默认隐藏
+  - 悬停时平滑滑出显示
+  - 仿 Claude 纸质平面风格
+  - 分组卡片式设计（历史/格式/标题/列表/其他）
+  - 精致按钮样式（衬线字体标签、陶土色边框）
+- **顶部栏简化** - 移除风格切换、字体设置、禅模式按钮
+  - 保留 AI 续写开关
+  - 简洁快捷键提示
+- **编辑器宽度优化** - 最大宽度 900px，内容居中
+
+### 🗑️ Removed
+- `ReaderWriter.tsx` - 功能整合到 RichTextEditor
+- `WritingStyleSwitcher.tsx` - 功能移至后台设置
+- 禅模式按钮 - 保留 F11 快捷键
+- 顶部工具栏字体设置按钮
+
+### 📁 New Files
+- `src/components/EditorSettings.tsx` - 编辑器设置组件
+
+---
+
 ## [2.0.0-alpha.2] - 2025-04-11
 
 ### ✨ New Features
