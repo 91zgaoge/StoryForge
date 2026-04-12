@@ -1,154 +1,195 @@
-# StoryForge (草苔) v2.0 开发路线图
+# StoryForge (草苔) 开发路线图
 
-## ✅ 已实施完成 (2026-04-11)
+## ✅ 已实施完成 (v3.0.0)
 
-### Phase 1: 向量数据库升级 ✅
-**状态**: 内存实现完成，前端搜索集成，待Rust升级后切换
-- [x] 向量存储架构 (LanceDB兼容API)
-- [x] 相似度搜索 (余弦相似度)
-- [x] 章节嵌入支持
-- [x] 前端向量搜索Hook (useVectorSearch)
-- [x] 智能搜索UI组件 (VectorSearch)
-- [x] 章节编辑器集成搜索面板
-- [ ] 待Rust 1.88+后启用真正的LanceDB
+### Phase 1: 基础架构重构 ✅
+**状态**: 数据库 Schema 重构完成
 
-### Phase 2: MCP Server 完善 ✅
-**状态**: 内置工具集已实现
-- [x] MCP协议处理器框架
-- [x] 内置工具集
-  - [x] 文件系统工具 (read/write/list)
-  - [x] 文本处理工具 (count/split/replace)
-  - [x] 网络搜索工具 (模拟)
-- [x] 工具注册和管理
-- [x] 超时控制
+- [x] 场景表 (scenes) 替代章节表
+- [x] 世界观表 (world_buildings)
+- [x] 知识图谱实体表 (kg_entities)
+- [x] 知识图谱关系表 (kg_relations)
+- [x] 工作室配置表 (studio_configs)
+- [x] Repository 层实现
 
-### Phase 3: 协同编辑 (OT算法) ✅
-**状态**: 前后端集成完成
-- [x] 基础OT算法 (Insert/Delete/Retain)
-- [x] 操作转换 (transform)
-- [x] 操作应用 (apply)
-- [x] WebSocket实时同步
-- [x] 光标位置同步
-- [x] 前端协作Hook (useCollaboration)
-- [x] 章节页面协作集成
-- [x] 用户管理和参与者列表
+### Phase 2: 场景化叙事架构 ✅
+**状态**: 完整实现
 
-### Phase 4: Monaco Editor 集成 ✅
-**状态**: 已集成到章节编辑页面
-- [x] Monaco Editor组件
-- [x] Markdown语法高亮
-- [x] 字体大小调整
-- [x] 全屏模式
-- [x] 保存快捷键 (Ctrl+S)
+- [x] Scene 数据模型（戏剧目标、外部压迫、冲突类型）
+- [x] SceneRepository CRUD + 重新排序
+- [x] StoryTimeline 组件（可视化、拖拽排序）
+- [x] SceneEditor 组件（三标签页编辑）
+- [x] ConflictType 枚举（6种冲突类型）
 
-### Phase 5: 导出功能 UI ✅
-**状态**: 完整的前后端导出功能
-- [x] 导出对话框
-- [x] 多格式支持 (Markdown/PDF/EPUB/HTML/TXT/JSON)
-- [x] 导出配置选项
-- [ ] 下载功能 (待前端集成)
+### Phase 3: 增强记忆系统 ✅
+**状态**: 核心功能完成
+
+- [x] CJK Bigram Tokenizer（中文二元组分词）
+- [x] Ingest Pipeline（两步思维链）
+- [x] Knowledge Graph（带权实体关系）
+- [x] Query Pipeline（四阶段检索）
+- [x] Multi-Agent Sessions（6种助手类型）
+
+### Phase 4: AI 智能生成 ✅
+**状态**: 完整实现
+
+- [x] NovelCreationAgent
+- [x] NovelCreationWizard 组件
+- [x] 卡片式选择 UI
+- [x] 首个场景自动生成
+
+### Phase 5: 工作室配置系统 ✅
+**状态**: 完整实现
+
+- [x] StudioConfig 模型
+- [x] StudioManager（导入/导出）
+- [x] ZIP 格式支持
+- [x] 默认主题配置
 
 ---
 
-## 📊 项目状态
+## 📊 v3.0 项目状态
 
-| 模块 | 完成度 |
-|------|--------|
-| Phase 1: 向量数据库 | 90% |
-| Phase 2: MCP Server | 95% |
-| Phase 3: 协同编辑 | 80% |
-| Phase 4: Monaco Editor | 100% |
-| Phase 5: 导出功能 UI | 95% |
-| **整体** | **92%** |
+| 模块 | 完成度 | 说明 |
+|------|--------|------|
+| 场景化叙事系统 | 100% | Scene 模型、StoryTimeline、SceneEditor |
+| 增强记忆系统 | 95% | Ingest/Query Pipeline、Knowledge Graph |
+| AI 智能生成 | 100% | NovelCreationAgent、创建向导 |
+| 工作室配置 | 100% | 导入/导出、主题系统 |
+| 向量存储集成 | 80% | 框架就绪，待完整集成 |
+| **整体 v3.0** | **95%** | 核心功能全部完成 |
+
+---
 
 ## 🚀 编译状态
 
 ```bash
-$ cargo build
-   Compiling storyforge v0.1.0
-   Finished dev profile [unoptimized + debuginfo] target(s)
+$ cargo check
+    Checking storyforge v0.1.0
+    Finished dev profile [unoptimized + debuginfo] target(s)
+```
+
+```bash
+$ cd src-frontend && npm run build
+  vite v6.2.5 building for production...
+  ✓ 1296 modules transformed.
+  dist/                     245.78 kB │ gzip: 62.45 kB
 ```
 
 ✅ **编译成功**
 
 ---
 
-## 🆕 最新更新 (2026-04-11)
+## 🆕 v3.0 新增依赖
 
-### 依赖全面升级 ✅
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| zip | 0.6 | 工作室配置 ZIP 导入/导出 |
 
-#### Rust 版本升级
-| 项目 | 旧版本 | 新版本 |
-|------|--------|--------|
-| rustc | 1.85.0 | **1.94.1** |
-| cargo | 1.85.0 | **1.94.1** |
+---
 
-#### Tauri 2.x 重大升级
-| 依赖 | 旧版本 | 新版本 |
-|------|--------|--------|
-| tauri | 1.8 | **2.4** |
-| tauri-build | 1.5 | **2.2** |
-| @tauri-apps/api | 1.6.0 | **2.4.0** |
+## 📋 后续路线图
 
-#### 其他 Rust 依赖升级
-| 依赖 | 旧版本 | 新版本 |
-|------|--------|--------|
-| tokio | 1.44 | **1.51** |
-| rusqlite | 0.39 | **0.39** (保持) |
-| r2d2_sqlite | 0.33 | **0.33** (保持) |
-| uuid | 1.16 | **1.16** (保持) |
-| reqwest | 0.12 | **0.12** (保持) |
-| rmcp | 0.8 | **0.8** (保持) |
-| regex | 1.11 | **1.11** (保持) |
-| notify | 8.0 | **8.0** (保持) |
+### v3.1.0 (短期计划)
 
-#### 前端依赖升级
-| 依赖 | 旧版本 | 新版本 |
-|------|--------|--------|
-| @tanstack/react-query | 5.71.0 | **5.71.0** |
-| react | 18.3.1 | **18.3.1** |
-| react-router-dom | 7.4.0 | **7.4.0** |
-| tailwindcss | 3.4.17 | **3.4.17** |
-| typescript | 5.8.3 | **5.8.3** |
-| vite | 6.2.5 | **6.2.5** |
-| zustand | 5.0.3 | **5.0.3** |
+#### 向量存储完整集成
+- [ ] LanceDB 完整集成
+- [ ] 实体向量自动更新
+- [ ] 语义搜索优化
 
-✅ 所有依赖升级后编译成功
+#### 场景版本历史
+- [ ] 场景自动版本快照
+- [ ] 版本对比功能
+- [ ] 一键回滚
 
-#### Tauri 2.x API 迁移
-- `path_resolver()` → `path()`
-- `app.path_resolver().app_data_dir()` → `app.path().app_data_dir()` (返回 Result)
-- `@tauri-apps/api` → `@tauri-apps/api/core` (invoke 导入)
-- 新增 Tauri 插件系统：`tauri-plugin-fs`, `tauri-plugin-dialog`, `tauri-plugin-shell`, `tauri-plugin-http`
-- 新增权限系统：`capabilities/main-capability.json`
+#### 知识图谱可视化
+- [ ] 实体关系图谱可视化
+- [ ] 交互式图谱浏览
+- [ ] 实体详情弹窗
 
-### 新增功能
+#### 性能优化
+- [ ] Ingest 管线性能优化
+- [ ] 查询缓存机制
+- [ ] 大数据量场景优化
 
-#### 1. 向量搜索前端集成 ✅
-- useVectorSearch Hook 实现
-- VectorSearch UI 组件
-- 章节编辑器集成搜索面板
-- 搜索结果相关度显示
+### v3.2.0 (中期计划)
 
-#### 2. 协同编辑完整集成 ✅
-- useCollaboration Hook 重构
-- 章节页面协作功能开关
-- 实时协作者列表显示
-- 用户状态管理 (localStorage持久化)
+#### 云端同步
+- [ ] 用户账户系统
+- [ ] 云存储集成
+- [ ] 多设备同步
 
-#### 3. TypeScript 类型完善 ✅
-- Chapter 类型添加 word_count
-- Story 类型添加 character_count/chapter_count
-- User 类型定义
-- AppStore 添加 currentUser 状态
+#### 协作写作增强
+- [ ] 实时协作场景编辑
+- [ ] 评论和批注系统
+- [ ] 修订模式
 
-## 📊 更新后项目状态
+#### 插件市场
+- [ ] Skills 分享平台
+- [ ] 主题市场
+- [ ] Agent 模板市场
 
-| 模块 | 完成度 |
-|------|--------|
-| Phase 1: 向量数据库 | 95% |
-| Phase 2: MCP Server | 95% |
-| Phase 3: 协同编辑 | 95% |
-| Phase 4: Monaco Editor | 100% |
-| Phase 5: 导出功能 UI | 100% |
-| **整体** | **97%** |
+#### 导出增强
+- [ ] 自定义导出模板
+- [ ] 批量导出
+- [ ] 自动发布集成
+
+### v4.0.0 (长期计划)
+
+#### 技术架构升级
+- [ ] WebAssembly 前端 (Leptos)
+- [ ] 自研小模型部署
+- [ ] 边缘计算支持
+
+#### 多人实时协作
+- [ ] OT 算法完整实现
+- [ ] 实时光标同步
+- [ ] 冲突解决机制
+
+#### 移动端支持
+- [ ] iOS 应用
+- [ ] Android 应用
+- [ ] 响应式 Web 版本
+
+#### 发布平台集成
+- [ ] 起点中文网集成
+- [ ] 晋江文学城集成
+- [ ] 自出版平台 (Amazon KDP)
+
+---
+
+## 📈 历史版本
+
+### v2.0.x (已完成)
+- [x] 双界面架构 (幕前/幕后)
+- [x] 技能系统
+- [x] MCP 支持
+- [x] 状态管理
+- [x] 模型路由
+- [x] 进化算法
+- [x] 导出功能 (PDF/EPUB)
+
+### v1.x (已完成)
+- [x] 基础架构
+- [x] LLM 集成
+- [x] 数据库设计
+- [x] 前端界面
+
+---
+
+## 🎯 优先级说明
+
+| 优先级 | 说明 |
+|--------|------|
+| P0 | 核心功能，必须完成 |
+| P1 | 重要功能，影响体验 |
+| P2 | 增强功能，锦上添花 |
+| P3 | 未来规划，长期目标 |
+
+---
+
+## 📚 相关文档
+
+- [V3 架构计划](docs/plans/ARCHITECTURE_V3_PLAN.md) - V3 详细设计
+- [CHANGELOG](CHANGELOG.md) - 版本变更记录
+- [PROJECT_STATUS](PROJECT_STATUS.md) - 详细项目状态

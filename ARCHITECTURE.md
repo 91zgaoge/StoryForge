@@ -1,13 +1,13 @@
-# StoryForge (草苔) v2.0 架构文档
+# StoryForge (草苔) v3.0 架构文档
 
-## 架构理念：幕前幕后双界面
+## 架构理念
 
-StoryForge 采用创新的**剧院式双界面架构**：
+StoryForge 采用创新的**剧院式双界面架构 + 场景化叙事 + 增强记忆系统**：
 
 - **幕前 (Frontstage)**: 沉浸式写作界面，如同登台演出
 - **幕后 (Backstage)**: 专业工作室，如同后台准备
-
-这种设计分离了"创作体验"与"管理操作"，让作者在不同场景下获得最佳体验。
+- **场景 (Scene)**: 戏剧冲突驱动的叙事单位，取代传统章节
+- **记忆 (Memory)**: 基于 llm_wiki 的知识图谱，真正的"越写越懂"
 
 ---
 
@@ -15,7 +15,7 @@ StoryForge 采用创新的**剧院式双界面架构**：
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        StoryForge (草苔) v2.0                             │
+│                        StoryForge (草苔) v3.0                             │
 │                     Tauri + React + Rust + SQLite                        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
@@ -24,11 +24,11 @@ StoryForge 采用创新的**剧院式双界面架构**：
 │  │    (沉浸式写作界面)      │        │    (专业工作室)          │         │
 │  ├─────────────────────────┤        ├─────────────────────────┤         │
 │  │                         │        │                         │         │
-│  │  • 极简阅读写作界面      │◄──────►│  • 故事/角色/章节管理     │         │
+│  │  • 极简阅读写作界面      │◄──────►│  • 故事/场景/角色管理     │         │
 │  │  • TipTap 富文本编辑器   │        │  • LLM 模型配置中心       │         │
-│  │  • 章节大纲侧边栏        │        │  • Skills 技能系统        │         │
-│  │  • AI 续写辅助          │        │  • MCP 扩展配置          │         │
-│  │  • 写作风格切换          │        │  • 协同编辑管理          │         │
+│  │  • 场景大纲侧边栏        │        │  • 技能系统               │         │
+│  │  • AI 续写辅助          │        │  • 知识图谱浏览          │         │
+│  │  • 写作风格切换          │        │  • 工作室配置管理        │         │
 │  │  • 禅模式全屏           │        │  • 数据导出/分析          │         │
 │  │  • 角色卡片弹窗          │        │                         │         │
 │  │                         │        │                         │         │
@@ -45,24 +45,39 @@ StoryForge 采用创新的**剧院式双界面架构**：
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                             │                                          │
 │  ┌──────────────────────────┴──────────────────────────────────────┐   │
-│  │                      Backend (Rust)                               │   │
+│  │                      Backend (Rust) - v3.0 Core                   │   │
 │  ├─────────────────────────────────────────────────────────────────┤   │
+│  │                                                                  │   │
+│  │  🎪 SCENE SYSTEM (场景化叙事)                                     │   │
+│  │  ┌─────────────────────────────────────────────────────────┐   │   │
+│  │  │  • Scene: 戏剧目标、外部压迫、冲突类型、角色冲突         │   │   │
+│  │  │  • StoryTimeline: 可视化场景序列、拖拽排序              │   │   │
+│  │  │  • SceneGenerator: AI 场景生成建议                      │   │   │
+│  │  └─────────────────────────────────────────────────────────┘   │   │
+│  │                                                                  │   │
+│  │  🧠 MEMORY SYSTEM (增强记忆系统)                                  │   │
+│  │  ┌─────────────────────────────────────────────────────────┐   │   │
+│  │  │  Layer 4: Multi-Agent Sessions (世界观/人物/文风助手)    │   │   │
+│  │  │  Layer 3: Knowledge Graph (带权实体关系图谱)             │   │   │
+│  │  │  Layer 2: Vector Store (CJK分词语义检索)                 │   │   │
+│  │  │  Layer 1: Raw Sources (场景正文、角色设定)               │   │   │
+│  │  └─────────────────────────────────────────────────────────┘   │   │
 │  │                                                                  │   │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │   │
 │  │  │   Agents    │  │   Skills    │  │      LLM Adapter        │ │   │
 │  │  │  ├─ Writer  │  │  ├─ Loader  │  │  ├─ OpenAI             │ │   │
-│  │  │  ├─ Inspector│ │  │  ├─ Executor│ │  ├─ Anthropic         │ │   │
+│  │  │  ├─ NovelCreation│ ├─ Executor│ │  ├─ Anthropic         │ │   │
 │  │  │  ├─ Planner │  │  ├─ Registry│  │  ├─ Ollama (本地)      │ │   │
 │  │  │  ├─ Style   │  │  └─ Builtin │  │  └─ Azure/DeepSeek...  │ │   │
 │  │  │  └─ Plot    │  │             │  │                         │ │   │
 │  │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │   │
 │  │                                                                  │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │   │
-│  │  │   Memory    │  │   Config    │  │      Collaboration      │ │   │
-│  │  │  ├─ Short   │  │  ├─ Settings│  │  ├─ WebSocket Server   │ │   │
-│  │  │  ├─ Vector  │  │  ├─ Models  │  │  ├─ OT Algorithm       │ │   │
-│  │  │  └─ Embed   │  │  └─ Export  │  │  └─ Cursor Sync        │ │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │   │
+│  │  📦 STUDIO SYSTEM (工作室配置)                                    │   │
+│  │  ┌─────────────────────────────────────────────────────────┐   │   │
+│  │  │  • StudioConfig: 每部小说独立配置                        │   │   │
+│  │  │  • Import/Export: ZIP格式导入导出                        │   │   │
+│  │  │  • Theme System: 幕前暖色/幕后暗色默认主题              │   │   │
+│  │  └─────────────────────────────────────────────────────────┘   │   │
 │  │                                                                  │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                             │                                          │
@@ -73,10 +88,13 @@ StoryForge 采用创新的**剧院式双界面架构**：
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │   │
 │  │  │   SQLite    │  │  LanceDB    │  │    File System          │ │   │
 │  │  │  (r2d2池)   │  │  (向量检索)  │  │  • 技能库               │ │   │
-│  │  │  • Stories  │  │  • 章节嵌入  │  │  • 导出文件             │ │   │
-│  │  │  • Characters│ │  • 相似搜索  │  │  • 配置文件             │ │   │
-│  │  │  • Chapters │  │             │  │                         │ │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │   │
+│  │  │  • Stories  │  │  • 场景嵌入  │  │  • 导出文件             │ │   │
+│  │  │  • Scenes   │  │  • 实体向量  │  │  • 工作室配置           │ │   │
+│  │  │  • Characters│ │  • 语义搜索  │  │                         │ │   │
+│  │  │  • KG Entities│ └─────────────┘  └─────────────────────────┘ │   │
+│  │  │  • KG Relations                                                 │
+│  │  │  • WorldBuilding                                                │
+│  │  └─────────────┘                                                  │   │
 │  │                                                                  │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
@@ -85,207 +103,335 @@ StoryForge 采用创新的**剧院式双界面架构**：
 
 ---
 
+## 核心系统详解
+
+### 🎪 场景化叙事系统 (Scene System)
+
+#### 场景模型
+```rust
+pub struct Scene {
+    pub id: String,
+    pub story_id: String,
+    pub sequence_number: i32,      // 场景序号
+    pub title: String,
+    
+    // 戏剧结构
+    pub dramatic_goal: String,      // 戏剧目标
+    pub external_pressure: String,  // 外部压迫
+    pub conflict_type: ConflictType, // 冲突类型
+    
+    // 角色参与
+    pub characters_present: Vec<String>,
+    pub character_conflicts: Vec<CharacterConflict>,
+    
+    // 内容
+    pub content: String,
+    pub setting: Setting,
+    
+    // 关联
+    pub previous_scene_id: Option<String>,
+    pub next_scene_id: Option<String>,
+}
+
+pub enum ConflictType {
+    ManVsMan,        // 人与人
+    ManVsSelf,       // 人与自我
+    ManVsSociety,    // 人与社会
+    ManVsNature,     // 人与自然
+    ManVsTechnology, // 人与科技
+    ManVsFate,       // 人与命运
+}
+```
+
+#### 场景 vs 章节
+
+| 特性 | 章节 (Chapter) | 场景 (Scene) |
+|------|----------------|--------------|
+| 驱动方式 | 时间/长度驱动 | 戏剧冲突驱动 |
+| 结构 | 线性序列 | 网络化关联 |
+| AI 理解 | 文本内容 | 戏剧目标 + 冲突 |
+|  reorder | 简单排序 | 依赖关系维护 |
+
+---
+
+### 🧠 增强记忆系统 (Memory System)
+
+基于 [karpathy/llm_wiki](https://github.com/karpathy/llm_wiki) 方法论实现。
+
+#### 四层架构
+
+```
+┌─────────────────────────────────────────┐
+│  Layer 4: Multi-Agent Sessions          │
+│  - WorldBuilding Agent (世界观助手)      │
+│  - Character Agent (人物助手)            │
+│  - WritingStyle Agent (文风助手)         │
+│  - Plot Agent (情节助手)                 │
+│  - Scene Agent (场景助手)                │
+│  - Memory Agent (记忆助手)               │
+├─────────────────────────────────────────┤
+│  Layer 3: Knowledge Graph               │
+│  - Entity (实体)                        │
+│  - Relation (关系，带 strength 0-1)      │
+│  - 关系强度动态计算                      │
+├─────────────────────────────────────────┤
+│  Layer 2: Vector Store                  │
+│  - CJK Bigram Tokenizer                 │
+│  - 语义检索                              │
+│  - 相似度搜索                            │
+├─────────────────────────────────────────┤
+│  Layer 1: Raw Sources                   │
+│  - 场景正文                              │
+│  - 角色设定                              │
+│  - 世界设定                              │
+└─────────────────────────────────────────┘
+```
+
+#### 两步思维链 Ingest
+
+```rust
+impl IngestPipeline {
+    pub async fn ingest(&self, content: &IngestContent) -> Result<(), Error> {
+        // Step 1: 分析阶段
+        let analysis = self.analyze_content(content).await?;
+        // 提取：实体、关系、事件、情感、伏笔
+        
+        // Step 2: 生成阶段
+        let knowledge = self.generate_knowledge(&analysis).await?;
+        // 生成：实体档案、关系强度、事件重要性
+        
+        // 保存
+        self.save_to_graph(&knowledge).await?;
+        self.save_to_vector_store(&knowledge).await?;
+        
+        Ok(())
+    }
+}
+```
+
+#### 四阶段查询检索
+
+```rust
+impl QueryPipeline {
+    pub async fn query(&self, query: &str) -> Result<QueryResult, Error> {
+        // Stage 1: CJK二元组分词搜索
+        let search_results = self.token_search(query).await?;
+        
+        // Stage 2: 图谱扩展（基于关系强度）
+        let graph_expansion = self.graph_expansion(&search_results).await?;
+        
+        // Stage 3: 预算控制（4K-1M tokens可配）
+        let selected = self.budget_control(
+            &search_results, 
+            &graph_expansion
+        ).await?;
+        
+        // Stage 4: 带引用编号的上下文组装
+        let context = self.assemble_context(&selected).await?;
+        
+        Ok(QueryResult { context, citations })
+    }
+}
+```
+
+---
+
+### 🤖 AI 智能生成系统
+
+#### NovelCreationAgent
+
+```rust
+pub struct NovelCreationAgent {
+    llm_adapter: Arc<dyn LlmAdapter>,
+}
+
+impl NovelCreationAgent {
+    /// 根据用户输入生成世界观选项（3个）
+    async fn generate_world_building_options(
+        &self,
+        user_input: &str,
+    ) -> Result<Vec<WorldBuilding>, Error>;
+    
+    /// 根据世界观生成角色谱选项
+    async fn generate_character_profiles(
+        &self,
+        world_building: &WorldBuilding,
+    ) -> Result<Vec<Vec<CharacterProfile>>, Error>;
+    
+    /// 生成文字风格选项
+    async fn generate_writing_styles(
+        &self,
+        genre: &str,
+        world_building: &WorldBuilding,
+    ) -> Result<Vec<WritingStyle>, Error>;
+    
+    /// 生成首个场景
+    async fn generate_first_scene(
+        &self,
+        story_context: &StoryContext,
+    ) -> Result<Scene, Error>;
+}
+```
+
+#### 引导式创建流程
+
+```
+用户输入类型 → AI生成世界观选项 → 用户选择/编辑 → 
+AI生成角色谱选项 → 用户选择/编辑 → 
+AI生成文字风格选项 → 用户选择/编辑 → 
+AI生成首个场景 → 开始创作
+```
+
+---
+
+### 📦 工作室配置系统
+
+#### 配置架构
+
+```
+~/.config/storyforge/
+├── config.json              # 全局配置
+└── studios/
+    └── {story_id}/
+        ├── studio.json          # 工作室主配置
+        ├── llm_config.json      # LLM配置
+        ├── ui_config.json       # 界面配置
+        ├── agent_bots.json      # Agent配置
+        └── ...
+```
+
+#### 导入/导出
+
+```rust
+pub struct StudioManager;
+
+impl StudioManager {
+    /// 导出工作室配置到 .storyforge ZIP
+    pub async fn export_studio(
+        &self,
+        story_id: &str,
+        output_path: &Path,
+    ) -> Result<()>;
+    
+    /// 从 .storyforge ZIP 导入工作室配置
+    pub async fn import_studio(
+        &self,
+        import_path: &Path,
+        options: ImportOptions,
+    ) -> Result<ImportResult>;
+}
+```
+
+---
+
 ## 目录结构
 
 ```
 v2-rust/
-├── src-frontend/                 # 前端代码 (React + TypeScript)
+├── src-frontend/                 # 前端代码
 │   ├── src/
 │   │   ├── main.tsx             # 幕后入口
 │   │   ├── App.tsx              # 幕后主应用
+│   │   │
 │   │   ├── frontstage/          # 幕前界面
 │   │   │   ├── main.tsx         # 幕前入口
-│   │   │   ├── FrontstageApp.tsx    # 幕前主组件
-│   │   │   ├── components/      # 幕前组件
-│   │   │   │   ├── ReaderWriter.tsx     # 阅读写作器
-│   │   │   │   ├── RichTextEditor.tsx   # TipTap编辑器
-│   │   │   │   ├── ChapterOutline.tsx   # 章节大纲
-│   │   │   │   ├── CharacterCardPopup.tsx # 角色卡片
-│   │   │   │   ├── WritingStyleSwitcher.tsx # 风格切换
-│   │   │   │   ├── AiSuggestionBubble.tsx # AI提示气泡
+│   │   │   ├── FrontstageApp.tsx
+│   │   │   ├── components/
+│   │   │   │   ├── ReaderWriter.tsx
+│   │   │   │   ├── RichTextEditor.tsx
 │   │   │   │   └── ...
-│   │   │   ├── hooks/           # 幕前专用hooks
-│   │   │   ├── config/          # 配置文件
-│   │   │   └── styles/          # 幕前样式
+│   │   │   └── styles/
 │   │   │
 │   │   ├── pages/               # 幕后页面
-│   │   │   ├── Dashboard.tsx    # 仪表盘
-│   │   │   ├── Stories.tsx      # 故事库
-│   │   │   ├── Characters.tsx   # 角色管理
-│   │   │   ├── Chapters.tsx     # 章节管理
-│   │   │   ├── Skills.tsx       # 技能管理
-│   │   │   ├── Mcp.tsx          # MCP配置
-│   │   │   └── Settings.tsx     # 设置中心
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── Stories.tsx
+│   │   │   ├── Characters.tsx
+│   │   │   ├── Scenes.tsx           # 🆕 场景管理
+│   │   │   └── Settings.tsx
 │   │   │
 │   │   ├── components/          # 共享组件
-│   │   │   ├── ui/              # UI组件库
-│   │   │   ├── Sidebar.tsx      # 侧边栏
-│   │   │   ├── Editor.tsx       # 编辑器
+│   │   │   ├── StoryTimeline.tsx    # 🆕 故事线视图
+│   │   │   ├── SceneEditor.tsx      # 🆕 场景编辑器
+│   │   │   ├── NovelCreationWizard.tsx # 🆕 创建向导
 │   │   │   └── ...
 │   │   │
-│   │   ├── hooks/               # 共享hooks
-│   │   ├── services/            # API服务
-│   │   ├── stores/              # 状态管理
-│   │   ├── types/               # 类型定义
-│   │   └── utils/               # 工具函数
+│   │   ├── hooks/               # 自定义 Hooks
+│   │   │   ├── useScenes.ts         # 🆕 场景管理
+│   │   │   ├── useWorldBuilding.ts  # 🆕 世界构建
+│   │   │   └── useStudioConfig.ts   # 🆕 工作室配置
+│   │   │
+│   │   └── types/
+│   │       └── v3.ts                # 🆕 V3类型定义
 │   │
-│   ├── index.html               # 幕后HTML
-│   ├── frontstage.html          # 幕前HTML
+│   ├── index.html
+│   ├── frontstage.html
 │   └── package.json
 │
-├── src-tauri/                   # Tauri后端 (Rust)
+├── src-tauri/                   # Tauri后端
 │   ├── src/
 │   │   ├── main.rs              # 入口
 │   │   ├── lib.rs               # 库入口
-│   │   ├── commands.rs          # 命令定义
+│   │   ├── commands.rs          # 基础命令
+│   │   ├── commands_v3.rs       # 🆕 V3命令集
+│   │   │
+│   │   ├── db/                  # 数据库层
+│   │   │   ├── connection.rs
+│   │   │   ├── models_v3.rs     # 🆕 V3数据模型
+│   │   │   └── repositories_v3.rs # 🆕 V3存储层
 │   │   │
 │   │   ├── agents/              # Agent系统
-│   │   │   ├── mod.rs           # Agent trait
-│   │   │   ├── writer.rs        # 写作Agent
-│   │   │   ├── inspector.rs     # 质检Agent
-│   │   │   ├── outline_planner.rs # 大纲规划
-│   │   │   ├── style_mimic.rs   # 风格模仿
-│   │   │   └── plot_analyzer.rs # 情节分析
+│   │   │   ├── mod.rs
+│   │   │   ├── writer.rs
+│   │   │   └── novel_creation.rs # 🆕 小说创建Agent
 │   │   │
-│   │   ├── skills/              # 技能系统
-│   │   │   ├── mod.rs           # Skill管理
-│   │   │   ├── loader.rs        # 技能加载
-│   │   │   ├── executor.rs      # 技能执行
-│   │   │   ├── registry.rs      # 技能注册
-│   │   │   └── builtin.rs       # 内置技能
-│   │   │
-│   │   ├── llm/                 # LLM集成
-│   │   │   ├── mod.rs           # 适配器接口
-│   │   │   ├── openai.rs        # OpenAI实现
-│   │   │   └── prompt.rs        # 提示词管理
+│   │   ├── memory/              # 🆕 记忆系统
+│   │   │   ├── mod.rs
+│   │   │   ├── tokenizer.rs     # CJK分词器
+│   │   │   ├── ingest.rs        # Ingest管线
+│   │   │   ├── query.rs         # 查询检索管线
+│   │   │   └── multi_agent.rs   # 多助手会话
 │   │   │
 │   │   ├── config/              # 配置管理
-│   │   │   ├── settings.rs      # 设置结构
-│   │   │   └── commands.rs      # 设置命令
+│   │   │   └── studio_manager.rs # 🆕 工作室管理
 │   │   │
-│   │   ├── db/                  # 数据库
-│   │   ├── vector/              # 向量检索
-│   │   ├── collab/              # 协同编辑
-│   │   ├── window/              # 窗口管理
-│   │   ├── export/              # 导出功能
 │   │   └── ...
 │   │
-│   ├── Cargo.toml
-│   └── tauri.conf.json
+│   └── Cargo.toml
 │
-├── src-core/                    # 核心库 (可选)
 ├── docs/                        # 文档
 └── README.md
 ```
 
 ---
 
-## 幕前幕后通信机制
-
-### 窗口管理
-```rust
-// src/window/mod.rs
-pub struct WindowManager;
-
-impl WindowManager {
-    // 发送事件到幕前
-    pub fn send_to_frontstage(app: &AppHandle, event: FrontstageEvent);
-    
-    // 发送事件到幕后
-    pub fn send_to_backstage(app: &AppHandle, event: BackstageEvent);
-    
-    // 窗口切换
-    pub fn show_frontstage(app: &AppHandle);
-    pub fn show_backstage(app: &AppHandle);
-}
-```
-
-### 事件类型
-```rust
-// 幕前事件
-pub enum FrontstageEvent {
-    ContentUpdate { text: String, chapter_id: String },
-    AiHint { hint: String, position: Position },
-    ChapterSwitch { chapter_id: String },
-}
-
-// 幕后事件
-pub enum BackstageEvent {
-    ContentChanged { text: String, chapter_id: String },
-    GenerationRequested { chapter_id: String, context: String },
-}
-```
-
----
-
 ## 数据流
 
-### 写作流程
+### 场景创建流程
 ```
-用户输入 → ReaderWriter → TipTap Editor → invoke('update_chapter') 
-→ Rust后端 → SQLite → 自动保存指示器更新
-```
-
-### AI 生成流程
-```
-Ctrl+Space → handleRequestGeneration → (模拟/LLM API) 
-→ StreamingText → 用户接受(Tab)/拒绝(Esc) → 插入内容
+用户点击"新建场景" → StoryTimeline 
+→ invoke('create_scene') 
+→ SceneRepository::create()
+→ SQLite → 返回场景ID
+→ StoryTimeline 更新列表
 ```
 
-### 设置同步流程
+### AI 场景生成流程
 ```
-Settings页面修改 → useSettings Hook → invoke('save_settings') 
-→ Rust config → config.json → 其他窗口读取
-```
-
----
-
-## 状态管理策略
-
-### 前端状态 (Zustand)
-- `appStore`: 全局应用状态 (当前视图、用户、加载状态)
-- `currentStory`: 当前选中的故事上下文
-- React Query: 服务端状态缓存
-
-### 后端状态 (Rust)
-- `DB_POOL`: SQLite 连接池 (全局单例)
-- `APP_CONFIG`: 应用配置 (延迟加载)
-- `SKILL_MANAGER`: 技能管理器 (初始化加载)
-- `VECTOR_STORE`: 向量数据库 (异步初始化)
-
----
-
-## 扩展机制
-
-### 1. Skills 技能系统
-```rust
-pub trait SkillHandler: Send + Sync {
-    fn execute(&self, context: &AgentContext, params: HashMap<...>) 
-        -> Result<SkillResult, Error>;
-}
+用户请求生成 → SceneGeneratorAgent
+→ QueryPipeline::query() 获取上下文
+→ LLM Adapter 生成场景建议
+→ 返回 3 个 SceneProposal
+→ 用户选择 → SceneRepository::create()
 ```
 
-支持三种运行时：
-- **Prompt**: 系统提示词 + 用户模板
-- **MCP**: 连接外部 MCP Server
-- **Native**: 原生 Rust 实现
-
-### 2. MCP 扩展
-```rust
-pub struct McpServerConfig {
-    pub command: String,      // 可执行文件
-    pub args: Vec<String>,    // 参数
-    pub env: HashMap<...>,    // 环境变量
-}
+### 记忆 Ingest 流程
 ```
-
-### 3. LLM 适配器
-```rust
-#[async_trait]
-pub trait LlmAdapter: Send + Sync {
-    async fn generate(&self, prompt: &str, config: &Config) -> Result<String>;
-    async fn stream_generate(&self, prompt: &str, callback: Fn) -> Result<()>;
-}
+场景保存 → IngestPipeline::ingest()
+→ Step 1: analyze_content() 提取实体关系
+→ Step 2: generate_knowledge() 生成知识
+→ KnowledgeGraph::save_entities()
+→ KnowledgeGraph::save_relations()
+→ VectorStore::store()
 ```
 
 ---
@@ -294,22 +440,22 @@ pub trait LlmAdapter: Send + Sync {
 
 ### 前端
 - **懒加载**: 幕前/幕后代码分割
-- **虚拟列表**: 章节大纲长列表优化
+- **虚拟列表**: 故事线长列表优化
 - **防抖**: 自动保存 2 秒延迟
-- **增量更新**: TipTap onUpdate 精确触发
+- **增量更新**: 精确触发重新渲染
 
 ### 后端
 - **连接池**: r2d2 SQLite 连接复用
 - **异步**: Tokio 运行时处理 I/O
 - **缓存**: 向量索引内存缓存
-- **并行**: Agent 并行执行
+- **批量处理**: Ingest 批量写入
 
 ---
 
 ## 安全考虑
 
 1. **API Key**: 本地存储，界面显示为 `***`
-2. **文件访问**: Tauri 能力限制 (capabilities)
+2. **文件访问**: Tauri 能力限制
 3. **SQL 注入**: 参数化查询
 4. **XSS**: TipTap 内容转义
 5. **CORS**: 仅允许本地请求
@@ -321,40 +467,25 @@ pub trait LlmAdapter: Send + Sync {
 ### 启动开发服务器
 ```bash
 # 前端开发
-npm run dev          # Vite dev server
+npm run dev
 
 # 后端开发
-cargo tauri dev      # Tauri dev mode
+cargo tauri dev
 
 # 完整开发
-npm run tauri dev    # 同时启动前后端
+.\start-dev.ps1
 ```
 
-### 构建生产版本
+### 数据库迁移
 ```bash
-npm run build        # 前端生产构建
-cargo build --release  # Rust 生产构建
-npm run tauri build  # 完整应用打包
+# 数据库重置（开发环境）
+cd src-tauri && cargo run --bin migrate
 ```
 
 ---
 
-## 未来演进
+## 相关文档
 
-### 短期 (v2.1)
-- Agent 核心逻辑实现
-- AI 生成对接真实 LLM
-- 角色名智能识别
-- 移动端适配
-
-### 中期 (v2.2)
-- 云端同步
-- 版本历史
-- 插件市场
-- 团队协作增强
-
-### 长期 (v3.0)
-- WASM 前端重写 (Leptos)
-- 自研小模型部署
-- 多人实时协作
-- 跨平台移动端
+- [V3 架构计划](docs/plans/ARCHITECTURE_V3_PLAN.md) - V3 详细设计文档
+- [功能清单](docs/FEATURES.md) - 完整功能列表
+- [更新日志](CHANGELOG.md) - 版本变更记录

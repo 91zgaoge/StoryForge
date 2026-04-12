@@ -2,6 +2,162 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [3.0.0] - 2025-04-12 - 重大架构调整
+
+### 🎪 Scene-Based Narrative Architecture (场景化叙事架构)
+
+**核心变更：从"章节"到"场景"**
+
+- **Scene Model** - 戏剧冲突驱动的叙事单位
+  - `dramatic_goal` - 明确的戏剧目标
+  - `external_pressure` - 外部压迫因素
+  - `conflict_type` - 6种标准冲突类型枚举
+  - `character_conflicts` - 角色间冲突关系
+  - `setting` - 场景设置（地点/时间/氛围）
+
+- **StoryTimeline Component** - 可视化场景序列
+  - 拖拽排序 (@dnd-kit)
+  - 场景卡片展示
+  - 戏剧目标预览
+  - 冲突类型标签
+
+- **SceneEditor Component** - 三标签页场景编辑器
+  - 基础信息：标题、设置、在场角色
+  - 戏剧结构：目标、压迫、冲突类型
+  - 内容编辑：富文本编辑器
+
+- **Database Schema** - 新增场景表
+  - `scenes` 表替代 chapters 作为主叙事单位
+  - 保留 `chapters` 表用于兼容性
+  - 新增 `world_buildings`, `settings`, `writing_styles` 表
+
+### 🧠 Enhanced Memory System (增强记忆系统)
+
+基于 [karpathy/llm_wiki](https://github.com/karpathy/llm_wiki) 方法论实现
+
+- **CJK Tokenizer** - 中文二元组分词器
+  - 针对中日韩文字优化
+  - Bigram 分词算法
+  - Unicode CJK 范围检测
+
+- **Ingest Pipeline** - 两步思维链内容摄取
+  - Step 1: `analyze_content()` - LLM 分析实体、关系、事件
+  - Step 2: `generate_knowledge()` - 生成结构化知识
+  - 自动提取：实体、关系、事件、情感、伏笔
+
+- **Knowledge Graph** - 带权知识图谱
+  - `kg_entities` 表 - 实体存储
+  - `kg_relations` 表 - 关系存储带 `strength` 字段
+  - 关系强度动态计算（基于证据数量和时间衰减）
+  - 优先级排序检索
+
+- **Query Pipeline** - 四阶段查询检索
+  - Stage 1: CJK 分词搜索
+  - Stage 2: 图谱扩展（基于关系强度）
+  - Stage 3: 预算控制（4K-1M tokens 可配置）
+  - Stage 4: 带引用编号的上下文组装
+
+- **Multi-Agent Sessions** - 多助手独立会话
+  - WorldBuilding Agent - 世界观助手
+  - Character Agent - 人物助手
+  - WritingStyle Agent - 文风助手
+  - Plot Agent - 情节助手
+  - Scene Agent - 场景助手
+  - Memory Agent - 记忆助手
+  - 独立 Wiki 引用追踪
+  - 对话保存到 Wiki 功能
+
+### 🤖 AI-Powered Novel Creation (AI 智能生成)
+
+- **NovelCreationAgent** - 小说创建专用 Agent
+  - `generate_world_building_options()` - 生成世界观选项
+  - `generate_character_profiles()` - 生成角色谱
+  - `generate_writing_styles()` - 生成文字风格
+  - `generate_next_scene()` - 生成下一个场景建议
+
+- **NovelCreationWizard Component** - 引导式创建向导
+  - 4 步引导流程：类型 → 世界观 → 角色 → 文风
+  - 灰色提示词："小说类型：玄幻...商战...或随便定"
+  - 卡片式选择界面
+  - 双击编辑功能
+  - 首个场景自动生成
+
+### 📦 Studio Configuration System (工作室配置系统)
+
+- **StudioConfig Model** - 每部小说独立配置
+  - `story_metadata` - 故事元数据
+  - `llm_config` - LLM 配置
+  - `ui_config` - 界面主题配置
+  - `agent_bots` - Agent 配置
+
+- **StudioManager** - 配置管理器
+  - `export_studio()` - ZIP 格式导出
+  - `import_studio()` - 选择性导入
+  - 冲突检测和处理
+
+- **Default Themes**
+  - 幕前：温暖纸张主题 (#f5f4ed)
+  - 幕后：暗色影院主题
+
+### 📁 New Files
+
+#### Rust Backend
+```
+src-tauri/src/
+├── commands_v3.rs                    # V3 Tauri 命令集（24个新命令）
+├── db/
+│   ├── models_v3.rs                  # V3 数据模型
+│   └── repositories_v3.rs            # V3 存储层
+├── agents/
+│   └── novel_creation.rs             # 小说创建 Agent
+├── memory/
+│   ├── mod.rs
+│   ├── tokenizer.rs                  # CJK 分词器
+│   ├── ingest.rs                     # Ingest 管线
+│   ├── query.rs                      # 查询检索管线
+│   └── multi_agent.rs                # 多助手会话
+└── config/
+    └── studio_manager.rs             # 工作室配置管理
+```
+
+#### Frontend
+```
+src-frontend/src/
+├── components/
+│   ├── StoryTimeline.tsx             # 故事线视图
+│   ├── SceneEditor.tsx               # 场景编辑器
+│   └── NovelCreationWizard.tsx       # 创建向导
+├── hooks/
+│   ├── useScenes.ts                  # 场景管理 Hook
+│   ├── useWorldBuilding.ts           # 世界构建 Hook
+│   └── useStudioConfig.ts            # 工作室配置 Hook
+├── pages/
+│   └── Scenes.tsx                    # 场景管理页面
+└── types/
+    └── v3.ts                         # V3 TypeScript 类型
+```
+
+### 🔧 Dependencies Added
+
+- `zip = "0.6"` - ZIP 压缩（工作室配置导入/导出）
+
+### 🔄 Database Migration
+
+**新增表：**
+- `scenes` - 场景表（主叙事单位）
+- `world_buildings` - 世界观表
+- `world_rules` - 世界规则表
+- `settings` - 场景设置表
+- `writing_styles` - 文字风格表
+- `kg_entities` - 知识图谱实体表
+- `kg_relations` - 知识图谱关系表
+- `studio_configs` - 工作室配置表
+
+**保留表：**
+- `chapters` - 用于向后兼容
+
+---
+
 ## [2.0.0-alpha.3] - 2025-04-12
 
 ### ✨ New Features
@@ -29,9 +185,6 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `WritingStyleSwitcher.tsx` - 功能移至后台设置
 - 禅模式按钮 - 保留 F11 快捷键
 - 顶部工具栏字体设置按钮
-
-### 📁 New Files
-- `src/components/EditorSettings.tsx` - 编辑器设置组件
 
 ---
 
@@ -262,3 +415,7 @@ All 5 planned features have been implemented:
 - 🔄 Change
 - 🗑️ Removal
 - ⚠️ Deprecation
+- 🎪 Scene System
+- 🧠 Memory System
+- 🤖 AI Generation
+- 📦 Studio System
