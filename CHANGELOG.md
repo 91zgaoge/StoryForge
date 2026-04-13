@@ -2,7 +2,14 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [3.1.2] - 2026-04-13 - 设置页增强与浏览器开发环境修复
+## [3.1.2] - 2026-04-13 - 设置页增强、浏览器开发环境修复与全新应用图标
+
+### 🎨 全新应用图标
+
+- 从 [iconbuddy.com](https://iconbuddy.com) 引入 **Lucide `feather`** 作为 StoryForge 品牌图标
+- 设计理念：羽毛笔象征创作与文学，金色羽毛配合深色背景，优雅且富有辨识度
+- 使用 `cargo tauri icon` 重新生成全平台图标包（Windows .ico / macOS .icns / iOS / Android / UWP）
+- 前端 favicon 同步替换为 `feather.svg`
 
 ### 🔧 幕后设置页修复
 

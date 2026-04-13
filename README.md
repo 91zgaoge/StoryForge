@@ -105,6 +105,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: ~99%
 
+> 🪶 品牌图标：Lucide `feather`（羽毛笔）—— 来自 [iconbuddy.com](https://iconbuddy.com)，象征创作与文学
+
 | 模块 | 状态 | 完成度 |
 |------|------|--------|
 | 核心架构 | ✅ 稳定 | 100% |
