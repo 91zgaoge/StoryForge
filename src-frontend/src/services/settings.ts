@@ -12,9 +12,99 @@ import type {
   SettingsExport 
 } from '@/types/llm';
 
-// 获取完整设置
+// 浏览器开发环境 fallback：三个真实本地模型
+const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
+  {
+    id: 'Qwen3.5-27B-Uncensored-Q4_K_M',
+    name: 'Qwen 3.5 语言模型',
+    description: '本地语言模型，用于文本生成和对话',
+    provider: 'custom',
+    model: 'Qwen3.5-27B-Uncensored-Q4_K_M',
+    api_key: '',
+    api_base: 'http://10.62.239.13:17098/v1',
+    timeout_seconds: 120,
+    is_default: true,
+    enabled: true,
+    type: 'chat',
+    temperature: 0.8,
+    max_tokens: 8192,
+    capabilities: ['chat', 'completion', 'long_context'],
+  },
+  {
+    id: 'Gemma-4-31B-it-Q6_K',
+    name: 'Gemma 4 多模态',
+    description: '本地多模态模型，支持图文理解',
+    provider: 'custom',
+    model: 'Gemma-4-31B-it-Q6_K',
+    api_key: '',
+    api_base: 'http://10.62.239.13:17099/v1',
+    timeout_seconds: 120,
+    is_default: false,
+    enabled: true,
+    type: 'multimodal',
+    temperature: 0.7,
+    max_tokens: 8192,
+    supports_vision: true,
+    supports_audio: false,
+    capabilities: ['chat', 'vision', 'long_context'],
+  },
+  {
+    id: 'bge-m3',
+    name: 'BGE-M3 Embedding',
+    description: '文本嵌入模型，用于语义搜索和向量化',
+    provider: 'custom',
+    model: 'bge-m3',
+    api_key: '76e0e2bc84c45374999a1d5e66962544c09cc00ae42ad25cd6a2a07a9d7fe330',
+    api_base: 'http://10.62.239.13:8089',
+    timeout_seconds: 120,
+    is_default: true,
+    enabled: true,
+    type: 'embedding',
+    dimensions: 1024,
+    max_input_tokens: 8192,
+  },
+];
+
+// 浏览器开发环境 fallback 设置
+const BROWSER_FALLBACK_SETTINGS: AppSettings = {
+  version: '0.1.0',
+  updated_at: new Date().toISOString(),
+  models: {
+    chat: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'chat') as any,
+    embedding: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'embedding') as any,
+    multimodal: BROWSER_FALLBACK_MODELS.filter(m => m.type === 'multimodal') as any,
+    image: [],
+  },
+  active_models: {
+    chat: 'Qwen3.5-27B-Uncensored-Q4_K_M',
+    embedding: 'bge-m3',
+    multimodal: 'Gemma-4-31B-it-Q6_K',
+  },
+  agent_mappings: [],
+  general: {
+    theme: 'dark',
+    language: 'zh-CN',
+    auto_save: true,
+    auto_save_interval: 30,
+    font_size: 16,
+    line_height: 1.6,
+  },
+  privacy: {
+    share_usage_data: false,
+    store_api_keys_securely: true,
+  },
+};
+
 export async function getSettings(): Promise<AppSettings> {
-  return invoke<AppSettings>('get_settings');
+  try {
+    return await invoke<AppSettings>('get_settings');
+  } catch (e) {
+    const isTauri = !!(window as any).__TAURI__;
+    if (!isTauri) {
+      return BROWSER_FALLBACK_SETTINGS;
+    }
+    throw e;
+  }
 }
 
 // 保存设置
@@ -34,7 +124,16 @@ export async function importSettings(data: SettingsExport): Promise<void> {
 
 // 获取所有模型配置
 export async function getModels(): Promise<ModelConfig[]> {
-  return invoke<ModelConfig[]>('get_models');
+  try {
+    return await invoke<ModelConfig[]>('get_models');
+  } catch (e) {
+    const isTauri = !!(window as any).__TAURI__;
+    if (!isTauri) {
+      console.log('[Browser Fallback] Using local real models');
+      return BROWSER_FALLBACK_MODELS;
+    }
+    throw e;
+  }
 }
 
 // 创建模型配置
@@ -67,9 +166,43 @@ export async function updateAgentMapping(mapping: AgentModelMapping): Promise<vo
   return invoke('update_agent_mapping', { mapping });
 }
 
+// 浏览器环境下简单的连接探测
+async function browserTestModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
+  const model = BROWSER_FALLBACK_MODELS.find(m => m.id === modelId);
+  if (!model) {
+    return { success: false, latency: 0, error: '未知模型' };
+  }
+  if (!model.api_base) {
+    return { success: false, latency: 0, error: '未配置 API Base' };
+  }
+  const start = performance.now();
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    // 尝试 GET 探测，任何 HTTP 响应（包括 CORS 预检失败前的网络到达）都视为可通
+    await fetch(model.api_base, { method: 'GET', signal: controller.signal });
+    clearTimeout(timeout);
+    return { success: true, latency: Math.round(performance.now() - start) };
+  } catch (e: any) {
+    const latency = Math.round(performance.now() - start);
+    if (e.name === 'AbortError') {
+      return { success: false, latency, error: '连接超时' };
+    }
+    return { success: false, latency, error: e.message || '连接失败' };
+  }
+}
+
 // 测试模型连接
 export async function testModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
-  return invoke('test_model_connection', { modelId });
+  try {
+    return await invoke('test_model_connection', { modelId });
+  } catch (e) {
+    const isTauri = !!(window as any).__TAURI__;
+    if (!isTauri) {
+      return browserTestModelConnection(modelId);
+    }
+    throw e;
+  }
 }
 
 // 获取模型提供商列表
@@ -83,7 +216,7 @@ export function getModelProviders(): Array<{ id: string; name: string; requiresA
     { id: 'qwen', name: '通义千问', requiresApiKey: true, supports: ['chat', 'multimodal'] },
     { id: 'moonshot', name: 'Moonshot', requiresApiKey: true, supports: ['chat'] },
     { id: 'zhipu', name: '智谱AI', requiresApiKey: true, supports: ['chat', 'multimodal'] },
-    { id: 'custom', name: 'Custom', requiresApiKey: false, supports: ['chat', 'embedding'] },
+    { id: 'custom', name: 'Custom', requiresApiKey: false, supports: ['chat', 'embedding', 'multimodal'] },
   ];
 }
 

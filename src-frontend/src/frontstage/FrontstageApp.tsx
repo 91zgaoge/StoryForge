@@ -158,6 +158,11 @@ const FrontstageApp: React.FC = () => {
       await invoke('show_backstage');
     } catch (e) {
       console.error('Failed to open backstage:', e);
+      // 浏览器开发环境 fallback：直接在新标签页打开幕后界面
+      const isTauri = !!(window as any).__TAURI__;
+      if (!isTauri) {
+        window.open('http://127.0.0.1:5173/index.html', '_blank');
+      }
     }
   };
 

@@ -1,11 +1,21 @@
 # StoryForge (草苔) v3.1 项目完成状态
 
-> 最后更新: 2026-04-13（v3.1.1 Waza 设计原则落地 + CI 图标修复完成）
+> 最后更新: 2026-04-13（v3.1.2 设置页连接状态 + 浏览器 dev fallback 完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v3.1.2 新增功能（2026-04-13）
+
+#### 🔧 幕后设置页增强 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| 编辑 API Key 输入框 | ✅ | 100% | custom 提供商编辑时正确显示 API Key 字段 |
+| 模型连接状态灯 | ✅ | 100% | 卡片级实时探测，绿/红/加载三种状态 |
+| 浏览器 dev fallback | ✅ | 100% | Vite 浏览器模式下硬编码本地模型回退 |
 
 ### v3.1.1 新增功能（2026-04-13）
 
@@ -41,8 +51,8 @@
 | `rust-check` (Windows) | ✅ | GitHub Actions 通过 |
 | `rust-check` (macOS) | ✅ | GitHub Actions 通过 |
 | `tauri-build` Windows | ✅ | GitHub Actions 通过 |
-| `tauri-build` macOS | 🔄 | 图标修复后重新验证中 |
-| `tauri-build` Ubuntu | 🔄 | 图标修复后重新验证中 |
+| `tauri-build` macOS | ✅ | GitHub Actions 通过 |
+| `tauri-build` Ubuntu | ✅ | GitHub Actions 通过 |
 
 ### v3.1.0 核心功能
 

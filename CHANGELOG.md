@@ -2,6 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [3.1.2] - 2026-04-13 - 设置页增强与浏览器开发环境修复
+
+### 🔧 幕后设置页修复
+
+- **编辑模型模态框修复**
+  - 修复 `custom` 提供商在编辑时缺少 API Key 输入框的问题
+  - 现在 `custom` 类型模型始终显示 API Key 字段，兼容本地无密钥与有密钥模型
+
+- **模型连接状态指示灯**
+  - 模型卡片右上角新增实时连接状态检测
+  - **检测中**：灰色加载动画
+  - **已连接 (xxms)**：绿色圆点 + 延迟显示
+  - **连接失败**：红色圆点（hover 查看错误详情）
+  - 浏览器开发环境下通过 `fetch` 探测 `api_base` 可用性（5 秒超时）
+
+### 🌐 浏览器开发环境兼容
+
+- **Vite dev server 模型回退**
+  - `getModels()` / `getSettings()` / `testModelConnection()` 在浏览器环境下自动回退到本地硬编码模型
+  -  backstage 设置页在 `npm run dev` 浏览器模式下不再显示「暂无模型配置」
+  - 同步更新 `docs/images/backstage-preview.png`
+
+---
+
 ## [3.1.1] - 2026-04-13 - 幕前界面重构、Waza 设计与 CI 修复
 
 ### 🎭 幕前界面重构（Waza 设计原则落地）

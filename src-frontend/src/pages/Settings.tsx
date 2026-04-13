@@ -14,7 +14,7 @@
  * - 设置导出/导入
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Settings2, Key, Globe, Database, 
   Plus, Trash2, Edit2, Download, Upload,
@@ -29,7 +29,7 @@ import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
-import { getModelProviders, getProviderDefaultModels } from '@/services/settings';
+import { getModelProviders, getProviderDefaultModels, testModelConnection } from '@/services/settings';
 
 type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'general';
 
@@ -44,6 +44,36 @@ export function Settings() {
   const importSettings = useImportSettings();
   
   const isLoading = settingsLoading || modelsLoading;
+  
+  // 模型连接状态
+  const [connectionStatus, setConnectionStatus] = useState<Record<string, { loading: boolean; success?: boolean; latency?: number; error?: string }>>({});
+  
+  useEffect(() => {
+    if (!models.length) return;
+    
+    const testConnections = async () => {
+      const initial: Record<string, { loading: boolean }> = {};
+      models.forEach(m => { initial[m.id] = { loading: true }; });
+      setConnectionStatus(initial);
+      
+      for (const model of models) {
+        try {
+          const result = await testModelConnection(model.id);
+          setConnectionStatus(prev => ({
+            ...prev,
+            [model.id]: { loading: false, success: result.success, latency: result.latency, error: result.error }
+          }));
+        } catch (e) {
+          setConnectionStatus(prev => ({
+            ...prev,
+            [model.id]: { loading: false, success: false, error: '测试失败' }
+          }));
+        }
+      }
+    };
+    
+    testConnections();
+  }, [models]);
   
   // 按类型过滤模型
   const filteredModels = models.filter(m => m.type === activeTab);
@@ -130,6 +160,7 @@ export function Settings() {
             <ModelList 
               type="chat" 
               models={filteredModels}
+              connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
             />
@@ -138,6 +169,7 @@ export function Settings() {
             <ModelList 
               type="embedding" 
               models={filteredModels}
+              connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
             />
@@ -146,6 +178,7 @@ export function Settings() {
             <ModelList 
               type="multimodal" 
               models={filteredModels}
+              connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
             />
@@ -154,6 +187,7 @@ export function Settings() {
             <ModelList 
               type="image" 
               models={filteredModels}
+              connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
             />
@@ -205,11 +239,13 @@ function TabButton({ active, onClick, icon, label }: {
 function ModelList({ 
   type, 
   models,
+  connectionStatus,
   onAdd,
   onEdit,
 }: { 
   type: ModelType;
   models: ModelConfig[];
+  connectionStatus: Record<string, { loading: boolean; success?: boolean; latency?: number; error?: string }>;
   onAdd: () => void;
   onEdit: (model: ModelConfig) => void;
 }) {
@@ -246,6 +282,7 @@ function ModelList({
             <ModelCard 
               key={model.id} 
               model={model} 
+              connectionStatus={connectionStatus[model.id]}
               onEdit={() => onEdit(model)}
             />
           ))}
@@ -256,9 +293,14 @@ function ModelList({
 }
 
 // 模型卡片组件
-function ModelCard({ model, onEdit }: { model: ModelConfig; onEdit: () => void }) {
+function ModelCard({ model, connectionStatus, onEdit }: { 
+  model: ModelConfig; 
+  connectionStatus?: { loading: boolean; success?: boolean; latency?: number; error?: string };
+  onEdit: () => void;
+}) {
   const isDefault = model.is_default;
-  const requiresApiKey = model.provider !== 'ollama';
+  const providerMeta = getModelProviders().find(p => p.id === model.provider);
+  const requiresApiKey = providerMeta?.requiresApiKey ?? true;
   const hasApiKey = model.api_key && model.api_key !== '***' && model.api_key.length > 0;
   
   return (
@@ -300,7 +342,25 @@ function ModelCard({ model, onEdit }: { model: ModelConfig; onEdit: () => void }
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {connectionStatus && connectionStatus.loading && (
+              <span className="flex items-center gap-1.5 text-gray-400 text-sm">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                检测中
+              </span>
+            )}
+            {connectionStatus && !connectionStatus.loading && connectionStatus.success && (
+              <span className="flex items-center gap-1.5 text-green-400 text-sm" title={`延迟 ${connectionStatus.latency}ms`}>
+                <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                已连接 ({connectionStatus.latency}ms)
+              </span>
+            )}
+            {connectionStatus && !connectionStatus.loading && !connectionStatus.success && (
+              <span className="flex items-center gap-1.5 text-red-400 text-sm" title={connectionStatus.error}>
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                连接失败
+              </span>
+            )}
             {requiresApiKey && !hasApiKey && (
               <span className="flex items-center gap-1 text-amber-400 text-sm">
                 <Key className="w-4 h-4" />
@@ -368,6 +428,7 @@ function ModelModal({
   const providers = getModelProviders().filter(p => p.supports.includes(type));
   const defaultModels = getProviderDefaultModels(provider);
   const requiresApiKey = providers.find(p => p.id === provider)?.requiresApiKey ?? true;
+  const showApiKeyField = requiresApiKey || provider === 'custom';
   
   const onSubmit = (data: any) => {
     console.log('Submit:', data);
@@ -430,7 +491,7 @@ function ModelModal({
             <div className="space-y-4">
               <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">API配置</h3>
               
-              {requiresApiKey && (
+              {showApiKeyField && (
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">API Key</label>
                   <input
