@@ -1,4 +1,4 @@
-# StoryForge (草苔) v3.0 架构文档
+# StoryForge (草苔) v3.1 架构文档
 
 ## 架构理念
 
@@ -324,6 +324,115 @@ impl StudioManager {
 
 ---
 
+### 📜 场景版本系统 (Phase 3.x)
+
+**版本管理架构**
+
+```
+┌─────────────────────────────────────────┐
+│         Scene Version System            │
+├─────────────────────────────────────────┤
+│                                         │
+│  SceneVersionRepository                 │
+│  ├─ create_version()     # 创建快照     │
+│  ├─ get_versions()       # 获取历史     │
+│  ├─ get_version()        # 获取特定版本 │
+│  └─ delete_version()     # 删除版本     │
+│                                         │
+│  SceneVersionService                    │
+│  ├─ compare_versions()   # 版本对比     │
+│  ├─ restore_version()    # 恢复版本     │
+│  ├─ get_version_chain()  # 版本链       │
+│  └─ get_version_stats()  # 统计信息     │
+│                                         │
+│  VersionTimeline (React)                │
+│  ├─ VersionCard          # 版本卡片     │
+│  ├─ DiffViewer           # 差异查看     │
+│  └─ ConfidenceIndicator  # 置信度指示   │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**版本模型**
+```rust
+pub struct SceneVersion {
+    pub id: String,
+    pub scene_id: String,
+    pub version_number: i32,        // 版本号 (v1, v2, ...)
+    
+    // 内容快照
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub dramatic_goal: Option<String>,
+    pub conflict_type: Option<ConflictType>,
+    
+    // 版本元数据
+    pub word_count: i32,
+    pub change_summary: String,
+    pub created_by: CreatorType,    // user/ai/system
+    pub confidence_score: Option<f32>,
+    
+    // 版本链
+    pub previous_version_id: Option<String>,
+    pub superseded_by: Option<String>,
+}
+```
+
+### 🔍 混合搜索系统 (Phase 1.3)
+
+**RRF 融合排序**
+```
+┌─────────────────────────────────────────┐
+│          Hybrid Search                  │
+├─────────────────────────────────────────┤
+│                                         │
+│  Query: "主角与反派的冲突"               │
+│                                         │
+│  ┌─────────────┐    ┌─────────────┐    │
+│  │ BM25 Search │    │Vector Search│    │
+│  │  (CJK分词)  │    │(余弦相似度) │    │
+│  └──────┬──────┘    └──────┬──────┘    │
+│         │                   │           │
+│         ▼                   ▼           │
+│  ┌─────────────────────────────────┐   │
+│  │    RRF Fusion (k=60)            │   │
+│  │    score = Σ(1/(k+r))           │   │
+│  └─────────────────────────────────┘   │
+│                    │                    │
+│                    ▼                    │
+│         ┌──────────────────┐            │
+│         │  Hybrid Results  │            │
+│         └──────────────────┘            │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+### 🧠 记忆保留系统 (Phase 1.4)
+
+**艾宾浩斯遗忘曲线**
+```
+R(t) = R₀ × e^(-λt) + Σ(强化奖励)
+
+其中:
+- R₀: 初始置信度
+- λ: 衰减率 (架构级 0.01, 默认 0.05, 瞬态 0.1)
+- t: 距离上次访问的天数
+- Σ(强化): 每次访问增加的奖励
+```
+
+**优先级分级**
+```rust
+pub enum PriorityLevel {
+    Critical,    // > 0.8  - 必须保留
+    High,        // 0.6-0.8 - 优先保留
+    Medium,      // 0.4-0.6 - 正常保留
+    Low,         // 0.2-0.4 - 可压缩
+    Forgotten,   // < 0.2  - 可归档
+}
+```
+
+---
+
 ## 目录结构
 
 ```
@@ -389,7 +498,13 @@ v2-rust/
 │   │   │   ├── tokenizer.rs     # CJK分词器
 │   │   │   ├── ingest.rs        # Ingest管线
 │   │   │   ├── query.rs         # 查询检索管线
-│   │   │   └── multi_agent.rs   # 多助手会话
+│   │   │   ├── multi_agent.rs   # 多助手会话
+│   │   │   ├── hybrid_search.rs # 🆕 混合搜索 (Phase 1.3)
+│   │   │   └── retention.rs     # 🆕 记忆保留 (Phase 1.4)
+│   │   │
+│   │   ├── versions/            # 🆕 版本管理 (Phase 3.x)
+│   │   │   ├── mod.rs
+│   │   │   └── service.rs       # 版本服务
 │   │   │
 │   │   ├── config/              # 配置管理
 │   │   │   └── studio_manager.rs # 🆕 工作室管理

@@ -2,6 +2,78 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [3.1.0] - 2025-04-13 - 智能记忆与版本管理
+
+### 🔍 Hybrid Search (混合搜索)
+
+**Phase 1.3 Implementation**
+
+- **BM25 Search** (`memory/hybrid_search.rs`)
+  - CJK Bigram tokenizer for Chinese text
+  - Inverted index with TF-IDF scoring
+  - Configurable k1 and b parameters
+
+- **Hybrid Search Engine**
+  - BM25 + Vector similarity fusion
+  - RRF (Reciprocal Rank Fusion) ranking
+  - Configurable weights (default: BM25 40%, Vector 60%)
+
+- **Entity Hybrid Search**
+  - Name matching + vector similarity
+  - Cosine similarity calculation
+  - Priority scoring for entity retrieval
+
+### 📜 Scene Version Management (场景版本管理)
+
+**Phase 3.x Implementation**
+
+- **SceneVersionRepository** (`db/repositories_v3.rs`)
+  - `create_version()` - Snapshot current scene state
+  - `get_versions()` - List version history
+  - `get_version()` - Get specific version
+  - `delete_version()` - Remove version
+
+- **SceneVersionService** (`versions/service.rs`)
+  - `compare_versions()` - Line-level diff with word count delta
+  - `restore_version()` - Restore to any historical version
+  - `get_version_chain()` - Version chain with branch structure
+  - `get_version_stats()` - Edit distribution, avg confidence
+
+- **Frontend Components**
+  - `VersionTimeline.tsx` - Vertical timeline with selection
+  - `ConfidenceIndicator.tsx` - Circular/bar progress indicator
+  - `DiffViewer.tsx` - Side-by-side diff view
+  - `useSceneVersions.ts` - React Query hooks
+
+### 🧠 Memory Retention Management (记忆保留管理)
+
+**Phase 1.4 Implementation**
+
+- **RetentionManager** (`memory/retention.rs`)
+  - Ebbinghaus forgetting curve: R(t) = R₀ × e^(-λt)
+  - Three decay rates: Architecture (λ=0.01), Default (λ=0.05), Transient (λ=0.1)
+  - Reinforcement bonus on access
+
+- **Priority Levels**
+  - Critical (>0.8) - Must retain
+  - High (0.6-0.8) - Priority retain
+  - Medium (0.4-0.6) - Normal retain
+  - Low (0.2-0.4) - Compressible
+  - Forgotten (<0.2) - Archivable
+
+- **Features**
+  - Retention score calculation
+  - Forgetting time prediction
+  - Context window optimization
+  - Retention report generation
+
+### 🔧 Technical Improvements
+
+- LanceDB-compatible vector storage (memory-based fallback)
+- Entity embedding generation (384-dim)
+- Confidence score tracking for versions
+- Version supersession chain support
+
 ## [3.0.0] - 2025-04-12 - 重大架构调整
 
 ### 🎪 Scene-Based Narrative Architecture (场景化叙事架构)

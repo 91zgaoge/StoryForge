@@ -1,6 +1,7 @@
-# StoryForge (草苔) v3.0 项目完成状态
+# StoryForge (草苔) v3.1 项目完成状态
 
-> 最后更新: 2025-04-12（v3.0 重大架构调整完成）
+> 最后更新: 2025-04-13（v3.1 智能记忆与版本管理完成）
+> GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
@@ -51,6 +52,38 @@
 | 默认主题 | ✅ | 100% | 幕前暖色/幕后暗色 |
 | Tauri 命令 | ✅ | 100% | 2 个配置管理命令 |
 
+#### 📜 场景版本系统 (100%) - v3.1.0
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| SceneVersionRepository | ✅ | 100% | 版本CRUD、版本链管理 |
+| SceneVersionService | ✅ | 100% | 比较、恢复、统计 |
+| VersionTimeline 组件 | ✅ | 100% | 垂直时间线、版本选择 |
+| DiffViewer 组件 | ✅ | 100% | 行级差异对比 |
+| ConfidenceIndicator | ✅ | 100% | 圆形/条形置信度指示 |
+| useSceneVersions hooks | ✅ | 100% | React Query封装 |
+| Tauri 命令 | ✅ | 100% | 7个版本管理命令 |
+
+#### 🔍 混合搜索系统 (100%) - v3.1.0
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| Bm25Search | ✅ | 100% | CJK二元组分词、TF-IDF |
+| HybridSearch | ✅ | 100% | RRF融合排序 |
+| EntityHybridSearch | ✅ | 100% | 名称+向量混合 |
+| LanceVectorStore | ✅ | 100% | LanceDB兼容API |
+| 实体嵌入 | ✅ | 100% | 384维嵌入生成 |
+
+#### 🧠 记忆保留系统 (100%) - v3.1.0
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| RetentionManager | ✅ | 100% | 遗忘曲线计算 |
+| 优先级分级 | ✅ | 100% | 五级优先级 |
+| 遗忘预测 | ✅ | 100% | 遗忘时间预测 |
+| 保留报告 | ✅ | 100% | 自动报告生成 |
+| 上下文优化 | ✅ | 100% | 预算控制选择 |
+
 ---
 
 ### 架构基础 (100%)
@@ -81,6 +114,8 @@
 - `memory/ingest.rs` - Ingest 管线实现
 - `memory/query.rs` - Query 管线实现
 - `memory/multi_agent.rs` - 多助手会话管理
+- `memory/hybrid_search.rs` - 🆕 混合搜索 (v3.1.0)
+- `memory/retention.rs` - 🆕 记忆保留 (v3.1.0)
 
 #### AI 生成
 - `agents/novel_creation.rs` - NovelCreationAgent
@@ -94,11 +129,15 @@
 - `components/StoryTimeline.tsx` - 故事线视图
 - `components/SceneEditor.tsx` - 场景编辑器
 - `components/NovelCreationWizard.tsx` - 创建向导
+- `components/VersionTimeline.tsx` - 🆕 版本时间线 (v3.1.0)
+- `components/DiffViewer.tsx` - 🆕 差异查看器 (v3.1.0)
+- `components/ConfidenceIndicator.tsx` - 🆕 置信度指示器 (v3.1.0)
 
 #### Hooks
 - `hooks/useScenes.ts` - 场景管理
 - `hooks/useWorldBuilding.ts` - 世界构建
 - `hooks/useStudioConfig.ts` - 工作室配置
+- `hooks/useSceneVersions.ts` - 🆕 版本管理 (v3.1.0)
 
 #### 页面
 - `pages/Scenes.tsx` - 场景管理页面
@@ -138,20 +177,20 @@
 
 ## 🎯 待完善功能
 
-### v3.0.x 补丁版本
+### v3.2.x 计划
 
 #### P1 - 重要功能
-1. **向量存储完整集成**
-   - 位置: `src-tauri/src/memory/vector.rs`
+1. **向量存储持久化**
+   - 位置: `src-tauri/src/vector/lancedb_store.rs`
    - 说明: LanceDB 完整集成，实体向量自动更新
 
 2. **知识图谱可视化**
    - 位置: `src-frontend/src/components/KnowledgeGraph/`
    - 说明: 实体关系图谱可视化组件
 
-3. **场景版本历史**
-   - 位置: `src-tauri/src/versions/`, `src-frontend/src/components/SceneHistory/`
-   - 说明: 场景自动快照和版本回滚
+3. **自动归档系统**
+   - 位置: `src-tauri/src/memory/retention.rs`
+   - 说明: 基于遗忘曲线的自动归档建议
 
 #### P2 - 增强功能
 4. **Ingest 管线性能优化**
@@ -167,17 +206,24 @@
 
 ## 🐛 已知问题
 
-### v3.0 已知问题
+### v3.1 已知问题
 
-1. **向量存储**
-   - 描述: VectorStore 使用内存实现，待 LanceDB 完整集成
+1. **向量存储持久化**
+   - 描述: LanceVectorStore 使用内存+文件存储，待完整 LanceDB 集成
    - 影响: 大规模数据性能
-   - 解决: v3.1.0 计划
+   - 解决: v3.2.0 计划（需要 Rust 1.91+）
 
 2. **编译警告**
-   - 描述: 约 162 个非阻塞性警告
+   - 描述: 约 189 个非阻塞性警告（主要是未使用代码）
    - 影响: 无功能影响
    - 解决: 后续清理
+
+### v3.0 已知问题（已解决）
+
+1. ✅ **向量存储框架** - v3.1.0 已完成 LanceDB-compatible API
+2. ✅ **场景版本历史** - v3.1.0 已完成版本管理
+3. ✅ **Tauri 文件锁** - 已解决
+4. ✅ **Agent 上下文构建** - 已解决
 
 ### 历史已知问题 (已解决)
 
@@ -199,6 +245,39 @@
 ---
 
 ## 📝 提交信息
+
+### v3.1.0 (2025-04-13)
+
+```
+commit 490206e
+Author: StoryForge Team
+Date: 2025-04-13
+
+feat: Phase 3.x - Scene Version Management & Phase 1.x - Hybrid Search
+
+Backend (Rust):
+- SceneVersionRepository: CRUD for scene version history
+- SceneVersionService: version comparison, restore, chain management
+- HybridSearch: BM25 + Vector fusion with RRF ranking
+- RetentionManager: Ebbinghaus forgetting curve for memory priority
+- Tauri commands for version management (7 endpoints)
+
+Frontend (React/TypeScript):
+- VersionTimeline: vertical timeline with version selection
+- ConfidenceIndicator: circular/bar progress for confidence scores
+- DiffViewer: line-by-line diff with side-by-side view
+- useSceneVersions: React Query hooks for version operations
+
+Features:
+- Version history with confidence scores
+- Version comparison with word delta
+- Restore to any version with new version record
+- Hybrid search: BM25 text + vector similarity
+- Memory retention with forgetting curve (R(t) = R₀ × e^(-λt))
+- Priority levels: Critical/High/Medium/Low/Forgotten
+```
+
+### v3.0.0 (2025-04-12)
 
 ```
 commit 66a63ef
