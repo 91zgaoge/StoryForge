@@ -1,11 +1,73 @@
 # StoryForge (草苔) v3.1 项目完成状态
 
-> 最后更新: 2025-04-13（v3.1 智能记忆与版本管理完成）
+> 最后更新: 2026-04-13（v3.1.1 幕前界面重构与本地模型配置完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v3.1.1 新增功能（2026-04-13）
+
+#### 🎭 幕前界面重构 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| 精简侧边栏 | ✅ | 100% | 仅保留"幕后"按钮，120px 极简宽度 |
+| 顶部动态状态栏 | ✅ | 100% | 字数、字号、快捷键、保存状态 |
+| 底部 LLM 对话栏 | ✅ | 100% | 悬停显示，集成模型状态灯 |
+| 模型切换 | ✅ | 100% | 对话/多模态模式切换 |
+| 流式对话 | ✅ | 100% | Enter 发送，Shift+Enter 换行 |
+
+#### 🤖 本地模型配置 (100%)
+
+| 模型 | 类型 | 状态 | 备注 |
+|------|------|------|------|
+| Gemma-4-31B-it-Q6_K | 多模态 | ✅ | http://10.62.239.13:17099/v1 |
+| Qwen3.5-27B-Uncensored | 语言 | ✅ | http://10.62.239.13:17098/v1 |
+| bge-m3 | Embedding | ✅ | http://10.62.239.13:8089 |
+
+#### 🖥️ Tauri 本地构建 (100%)
+
+| 目标 | 状态 | 说明 |
+|------|------|------|
+| Release 编译 | ✅ | Rust 后端编译通过（189 warnings，非阻塞） |
+| MSI 安装包 | ✅ | `StoryForge_0.1.0_x64_en-US.msi` (12.3 MB) |
+| NSIS 安装包 | ✅ | `StoryForge_0.1.0_x64-setup.exe` (8.1 MB) |
+
+### v3.1.0 核心功能
+
+#### 📜 场景版本系统 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| SceneVersionRepository | ✅ | 100% | 版本CRUD、版本链管理 |
+| SceneVersionService | ✅ | 100% | 比较、恢复、统计 |
+| VersionTimeline 组件 | ✅ | 100% | 垂直时间线、版本选择 |
+| DiffViewer 组件 | ✅ | 100% | 行级差异对比 |
+| ConfidenceIndicator | ✅ | 100% | 圆形/条形置信度指示 |
+| useSceneVersions hooks | ✅ | 100% | React Query封装 |
+| Tauri 命令 | ✅ | 100% | 7个版本管理命令 |
+
+#### 🔍 混合搜索系统 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| Bm25Search | ✅ | 100% | CJK二元组分词、TF-IDF |
+| HybridSearch | ✅ | 100% | RRF融合排序 |
+| EntityHybridSearch | ✅ | 100% | 名称+向量混合 |
+| LanceVectorStore | ✅ | 100% | LanceDB兼容API |
+| 实体嵌入 | ✅ | 100% | 384维嵌入生成 |
+
+#### 🧠 记忆保留系统 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| RetentionManager | ✅ | 100% | 遗忘曲线计算 |
+| 优先级分级 | ✅ | 100% | 五级优先级 |
+| 遗忘预测 | ✅ | 100% | 遗忘时间预测 |
+| 保留报告 | ✅ | 100% | 自动报告生成 |
+| 上下文优化 | ✅ | 100% | 预算控制选择 |
 
 ### v3.0 核心功能
 
@@ -52,38 +114,6 @@
 | 默认主题 | ✅ | 100% | 幕前暖色/幕后暗色 |
 | Tauri 命令 | ✅ | 100% | 2 个配置管理命令 |
 
-#### 📜 场景版本系统 (100%) - v3.1.0
-
-| 功能模块 | 状态 | 完成度 | 备注 |
-|---------|------|--------|------|
-| SceneVersionRepository | ✅ | 100% | 版本CRUD、版本链管理 |
-| SceneVersionService | ✅ | 100% | 比较、恢复、统计 |
-| VersionTimeline 组件 | ✅ | 100% | 垂直时间线、版本选择 |
-| DiffViewer 组件 | ✅ | 100% | 行级差异对比 |
-| ConfidenceIndicator | ✅ | 100% | 圆形/条形置信度指示 |
-| useSceneVersions hooks | ✅ | 100% | React Query封装 |
-| Tauri 命令 | ✅ | 100% | 7个版本管理命令 |
-
-#### 🔍 混合搜索系统 (100%) - v3.1.0
-
-| 功能模块 | 状态 | 完成度 | 备注 |
-|---------|------|--------|------|
-| Bm25Search | ✅ | 100% | CJK二元组分词、TF-IDF |
-| HybridSearch | ✅ | 100% | RRF融合排序 |
-| EntityHybridSearch | ✅ | 100% | 名称+向量混合 |
-| LanceVectorStore | ✅ | 100% | LanceDB兼容API |
-| 实体嵌入 | ✅ | 100% | 384维嵌入生成 |
-
-#### 🧠 记忆保留系统 (100%) - v3.1.0
-
-| 功能模块 | 状态 | 完成度 | 备注 |
-|---------|------|--------|------|
-| RetentionManager | ✅ | 100% | 遗忘曲线计算 |
-| 优先级分级 | ✅ | 100% | 五级优先级 |
-| 遗忘预测 | ✅ | 100% | 遗忘时间预测 |
-| 保留报告 | ✅ | 100% | 自动报告生成 |
-| 上下文优化 | ✅ | 100% | 预算控制选择 |
-
 ---
 
 ### 架构基础 (100%)
@@ -97,81 +127,35 @@
 
 ---
 
-## 📊 v3.0 新增文件清单
-
-### Rust 后端 (src-tauri/src/)
-
-#### V3 命令集
-- `commands_v3.rs` - 24 个新 Tauri 命令
-
-#### V3 数据层
-- `db/models_v3.rs` - Scene/WorldBuilding/KnowledgeGraph 等模型
-- `db/repositories_v3.rs` - V3 Repository 实现
-
-#### 记忆系统 (src/memory/)
-- `memory/mod.rs` - 模块导出
-- `memory/tokenizer.rs` - CJK Bigram 分词器
-- `memory/ingest.rs` - Ingest 管线实现
-- `memory/query.rs` - Query 管线实现
-- `memory/multi_agent.rs` - 多助手会话管理
-- `memory/hybrid_search.rs` - 🆕 混合搜索 (v3.1.0)
-- `memory/retention.rs` - 🆕 记忆保留 (v3.1.0)
-
-#### AI 生成
-- `agents/novel_creation.rs` - NovelCreationAgent
-
-#### 工作室配置
-- `config/studio_manager.rs` - StudioManager
+## 📊 v3.1.1 新增文件清单
 
 ### 前端 (src-frontend/src/)
 
-#### 组件
-- `components/StoryTimeline.tsx` - 故事线视图
-- `components/SceneEditor.tsx` - 场景编辑器
-- `components/NovelCreationWizard.tsx` - 创建向导
-- `components/VersionTimeline.tsx` - 🆕 版本时间线 (v3.1.0)
-- `components/DiffViewer.tsx` - 🆕 差异查看器 (v3.1.0)
-- `components/ConfidenceIndicator.tsx` - 🆕 置信度指示器 (v3.1.0)
+- `config/models.ts` - 本地三模型配置
+- `hooks/useModel.ts` - 模型状态管理与对话 Hook
+- `services/modelService.ts` - 模型 HTTP API 服务层
 
-#### Hooks
-- `hooks/useScenes.ts` - 场景管理
-- `hooks/useWorldBuilding.ts` - 世界构建
-- `hooks/useStudioConfig.ts` - 工作室配置
-- `hooks/useSceneVersions.ts` - 🆕 版本管理 (v3.1.0)
+### 截图 (e2e/screenshots/)
 
-#### 页面
-- `pages/Scenes.tsx` - 场景管理页面
-
-#### 类型
-- `types/v3.ts` - V3 TypeScript 类型定义
+- 幕前界面各状态截图（侧边栏、对话栏、模型状态等）
 
 ---
 
 ## 📈 整体完成度
 
-### v3.0 模块完成度
+### v3.1 模块完成度
 
 | 模块 | 完成度 | 权重 | 加权得分 |
 |------|--------|------|----------|
-| 场景化叙事系统 | 100% | 25% | 25.0 |
-| 增强记忆系统 | 95% | 25% | 23.75 |
-| AI 智能生成 | 100% | 20% | 20.0 |
-| 工作室配置 | 100% | 15% | 15.0 |
-| 前端界面 | 95% | 10% | 9.5 |
+| 场景化叙事系统 | 100% | 20% | 20.0 |
+| 增强记忆系统 | 95% | 20% | 19.0 |
+| AI 智能生成 | 100% | 15% | 15.0 |
+| 工作室配置 | 100% | 10% | 10.0 |
+| 幕前界面 | 100% | 15% | 15.0 |
+| 本地模型集成 | 100% | 10% | 10.0 |
 | 后端架构 | 100% | 5% | 5.0 |
-| **v3.0 总计** | - | 100% | **98.25%** |
-
-### 综合项目完成度 (v2.0 + v3.0)
-
-| 模块 | 完成度 | 权重 | 加权得分 |
-|------|--------|------|----------|
-| 架构基础 | 100% | 10% | 10.0 |
-| 幕前界面 | 96% | 15% | 14.4 |
-| 幕后界面 | 95% | 15% | 14.25 |
-| v2.0 后端系统 | 92% | 15% | 13.8 |
-| **v3.0 新功能** | **98%** | **30%** | **29.4** |
-| 文档/测试 | 90% | 10% | 9.0 |
-| **综合总计** | - | 100% | **95.85%** |
+| 桌面构建打包 | 100% | 5% | 5.0 |
+| **v3.1 总计** | - | 100% | **99.0%** |
 
 ---
 
@@ -206,30 +190,16 @@
 
 ## 🐛 已知问题
 
-### v3.1 已知问题
-
-1. **向量存储持久化**
-   - 描述: LanceVectorStore 使用内存+文件存储，待完整 LanceDB 集成
-   - 影响: 大规模数据性能
-   - 解决: v3.2.0 计划（需要 Rust 1.91+）
-
-2. **编译警告**
+### v3.1.1 已知问题
+1. **编译警告**
    - 描述: 约 189 个非阻塞性警告（主要是未使用代码）
    - 影响: 无功能影响
    - 解决: 后续清理
 
-### v3.0 已知问题（已解决）
+### v3.1 已知问题（已解决）
 
-1. ✅ **向量存储框架** - v3.1.0 已完成 LanceDB-compatible API
-2. ✅ **场景版本历史** - v3.1.0 已完成版本管理
-3. ✅ **Tauri 文件锁** - 已解决
-4. ✅ **Agent 上下文构建** - 已解决
-
-### 历史已知问题 (已解决)
-
-1. ✅ **Tauri 文件锁** - 已解决
-2. ✅ **Agent 上下文构建** - 已解决
-3. ✅ **流式生成事件** - 已解决
+1. ✅ **Windows 下 Tauri beforeBuildCommand 路径问题** - v3.1.1 已修复
+2. ✅ **Tauri 文件锁阻塞** - v3.1.1 已解决并构建成功
 
 ---
 
@@ -237,62 +207,6 @@
 
 - [README.md](../README.md) - 项目简介
 - [ARCHITECTURE.md](../ARCHITECTURE.md) - 架构文档
-- [docs/FEATURES.md](FEATURES.md) - 详细功能清单
 - [ROADMAP.md](../ROADMAP.md) - 开发路线图
 - [CHANGELOG.md](../CHANGELOG.md) - 更新日志
 - [docs/plans/ARCHITECTURE_V3_PLAN.md](plans/ARCHITECTURE_V3_PLAN.md) - V3 详细设计
-
----
-
-## 📝 提交信息
-
-### v3.1.0 (2025-04-13)
-
-```
-commit 490206e
-Author: StoryForge Team
-Date: 2025-04-13
-
-feat: Phase 3.x - Scene Version Management & Phase 1.x - Hybrid Search
-
-Backend (Rust):
-- SceneVersionRepository: CRUD for scene version history
-- SceneVersionService: version comparison, restore, chain management
-- HybridSearch: BM25 + Vector fusion with RRF ranking
-- RetentionManager: Ebbinghaus forgetting curve for memory priority
-- Tauri commands for version management (7 endpoints)
-
-Frontend (React/TypeScript):
-- VersionTimeline: vertical timeline with version selection
-- ConfidenceIndicator: circular/bar progress for confidence scores
-- DiffViewer: line-by-line diff with side-by-side view
-- useSceneVersions: React Query hooks for version operations
-
-Features:
-- Version history with confidence scores
-- Version comparison with word delta
-- Restore to any version with new version record
-- Hybrid search: BM25 text + vector similarity
-- Memory retention with forgetting curve (R(t) = R₀ × e^(-λt))
-- Priority levels: Critical/High/Medium/Low/Forgotten
-```
-
-### v3.0.0 (2025-04-12)
-
-```
-commit 66a63ef
-Author: StoryForge Team
-Date: 2025-04-12
-
-feat: v3.0重大架构调整 - 场景化叙事、AI生成、记忆系统
-
-- 新增场景化架构：场景取代章节，支持戏剧目标、外部压迫、冲突类型
-- 新增AI智能生成：引导式创建向导，卡片式世界观/角色/文风选择
-- 新增记忆系统：基于llm_wiki方法论的两步思维链Ingest、四阶段查询检索、多助手会话
-- 新增工作室配置系统：每部小说独立配置，支持导入/导出
-- 新增CJK分词器、知识图谱、向量检索管线
-- 完整前端UI：故事线视图、场景编辑器、创建向导
-- 新增24个Tauri命令支持V3功能
-
-33 files changed, 7255 insertions(+), 32 deletions(-)
-```

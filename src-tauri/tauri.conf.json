@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.storyforge.app",
   "build": {
-    "beforeBuildCommand": "cd ../src-frontend && npm run build",
+    "beforeBuildCommand": "npm run --prefix src-frontend build",
     "beforeDevCommand": "cd ../src-frontend && npm run dev",
     "frontendDist": "../src-frontend/dist"
   },

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
-import { ChapterOutline } from './components/ChapterOutline';
 import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
 import { useCharacters } from '@/hooks/useCharacters';
 
@@ -41,6 +40,9 @@ const FrontstageApp: React.FC = () => {
   const [showAI, setShowAI] = useState(false);
   const [isSaved, setIsSaved] = useState(true);
   const [generatedText, setGeneratedText] = useState('');
+  const [wordCount, setWordCount] = useState(0);
+  const [fontSize, setFontSize] = useState(18);
+  const [isZenMode, setIsZenMode] = useState(false);
   const editorRef = useRef<RichTextEditorRef>(null);
 
   // 加载当前故事的角色
@@ -120,6 +122,12 @@ const FrontstageApp: React.FC = () => {
     setContent(newContent);
     setIsSaved(false);
     
+    // Update word count
+    const text = newContent.replace(/<[^>]*>/g, '');
+    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+    setWordCount(chineseChars + englishWords);
+    
     // Auto-save after 2 seconds of inactivity
     if (currentChapter) {
       setTimeout(async () => {
@@ -198,17 +206,30 @@ const FrontstageApp: React.FC = () => {
         e.preventDefault();
         setShowAI(prev => !prev);
       }
+      if (e.key === 'F11') {
+        e.preventDefault();
+        setIsZenMode(prev => !prev);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Calculate total story word count
+  const totalWordCount = chapters.reduce((sum, c) => {
+    const text = c.content || '';
+    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+    return sum + chineseChars + englishWords;
+  }, 0);
+
   return (
-    <div className="frontstage-container">
+    <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
       {/* Header */}
       <header className="frontstage-header">
-          <div className="frontstage-header-left">
+        <div className="frontstage-header-left">
+          {!isZenMode && (
             <button
               className="frontstage-menu-btn"
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -220,107 +241,68 @@ const FrontstageApp: React.FC = () => {
                 <line x1="3" y1="18" x2="21" y2="18" />
               </svg>
             </button>
-            <span className="frontstage-logo">草苔</span>
+          )}
+          <span className="frontstage-logo">草苔</span>
+          
+          {/* 动态状态信息 */}
+          <div className="frontstage-status-bar">
+            <span className="status-item" title="当前章节字数">
+              {wordCount} 字
+            </span>
+            <span className="status-separator">·</span>
+            <span className="status-item" title="全文字数">
+              共 {totalWordCount} 字
+            </span>
+            <span className="status-separator">·</span>
+            <span className="status-item" title="字体大小">
+              {fontSize}px
+            </span>
+            <span className="status-separator">·</span>
+            <span className="status-item" title="快捷键提示">
+              Ctrl+Space 文思 · F11 禅模式
+            </span>
+            {!isSaved && (
+              <>
+                <span className="status-separator">·</span>
+                <span className="status-item saving">保存中...</span>
+              </>
+            )}
           </div>
-          <div className="frontstage-header-left" style={{ marginLeft: 'auto' }}>
-            <button
-              className={`frontstage-ai-toggle ${showAI ? 'active' : ''}`}
-              onClick={() => setShowAI(!showAI)}
-              title="Ctrl+Space 开启/关闭文思"
-            >
-              {showAI ? '文思泉涌中...' : '开启文思'}
-            </button>
-          </div>
-        </header>
+        </div>
+        
+        <div className="frontstage-header-right">
+          <button
+            className={`frontstage-ai-toggle ${showAI ? 'active' : ''}`}
+            onClick={() => setShowAI(!showAI)}
+            title="Ctrl+Space 开启/关闭文思"
+          >
+            {showAI ? '文思泉涌中...' : '开启文思'}
+          </button>
+        </div>
+      </header>
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar with Chapter Outline */}
-        <aside 
-          className={`frontstage-sidebar ${sidebarOpen ? '' : 'collapsed'}`}
-          style={{ width: sidebarOpen ? '320px' : '0px' }}
-        >
-          <div className="frontstage-sidebar-content h-full flex flex-col">
-            {/* 故事选择 */}
-            <div className="px-4 py-3 border-b border-[var(--warm-sand)]">
-              <label className="text-xs text-[var(--stone-gray)] uppercase tracking-wider">当前故事</label>
-              <select
-                value={currentStory?.id || ''}
-                onChange={(e) => {
-                  const story = stories.find(s => s.id === e.target.value);
-                  if (story) selectStory(story);
-                }}
-                className="w-full mt-1 px-3 py-2 bg-[var(--parchment)] border border-[var(--warm-sand)] rounded-lg text-[var(--charcoal)] text-sm focus:outline-none focus:border-[var(--terracotta)]"
-              >
-                {stories.map(story => (
-                  <option key={story.id} value={story.id}>{story.title}</option>
-                ))}
-              </select>
+        {/* Sidebar - 仅保留幕后按钮 */}
+        {!isZenMode && (
+          <aside 
+            className={`frontstage-sidebar ${sidebarOpen ? '' : 'collapsed'}`}
+            style={{ width: sidebarOpen ? '120px' : '0px' }}
+          >
+            <div className="frontstage-sidebar-content h-full flex flex-col">
+              {/* 仅保留幕后按钮 */}
+              <div className="p-4 mt-auto">
+                <button 
+                  className="backstage-btn-minimal" 
+                  onClick={openBackstage}
+                  title="打开幕后工作室"
+                >
+                  幕后
+                </button>
+              </div>
             </div>
-
-            {/* 章节大纲 */}
-            <div className="flex-1 overflow-hidden">
-              <ChapterOutline
-                items={chapters.map((c, index) => ({
-                  id: c.id,
-                  level: 0,
-                  title: c.title || `第${c.chapter_number}章`,
-                  wordCount: c.content ? Math.floor(c.content.length / 2) : 0,
-                }))}
-                selectedId={currentChapter?.id}
-                onReorder={(newItems) => {
-                  // TODO: 实现章节重新排序
-                  console.log('Reordered:', newItems);
-                }}
-                onSelect={(id) => {
-                  const chapter = chapters.find(c => c.id === id);
-                  if (chapter) selectChapter(chapter);
-                }}
-                onEdit={(id, title) => {
-                  const chapter = chapters.find(c => c.id === id);
-                  if (chapter) {
-                    invoke('update_chapter', {
-                      id: chapter.id,
-                      title,
-                      content: chapter.content,
-                    }).then(() => {
-                      loadStories();
-                    });
-                  }
-                }}
-                onDelete={(id) => {
-                  if (confirm('确定要删除这个章节吗？')) {
-                    invoke('delete_chapter', { id }).then(() => {
-                      loadStories();
-                    });
-                  }
-                }}
-                onAdd={() => {
-                  if (currentStory) {
-                    const nextNumber = chapters.length + 1;
-                    invoke('create_chapter', {
-                      storyId: currentStory.id,
-                      chapterNumber: nextNumber,
-                      title: `第${nextNumber}章`,
-                    }).then(() => {
-                      loadStories();
-                    });
-                  }
-                }}
-              />
-            </div>
-
-            {/* 底部按钮 */}
-            <div className="p-4 border-t border-[var(--warm-sand)]">
-              <button 
-                className="backstage-btn" 
-                onClick={openBackstage}
-              >
-                打开幕后工作室 →
-              </button>
-            </div>
-          </div>
-        </aside>
+          </aside>
+        )}
 
         {/* Editor */}
         <main className="frontstage-main">
@@ -338,13 +320,16 @@ const FrontstageApp: React.FC = () => {
             ref={editorRef}
             content={content}
             onChange={handleContentChange}
-            onRequestGeneration={handleRequestGeneration}
             aiEnabled={showAI}
             generatedText={generatedText}
             onAcceptGeneration={handleAcceptGeneration}
             onRejectGeneration={handleRejectGeneration}
             placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
             characters={characters}
+            fontSize={fontSize}
+            onFontSizeChange={setFontSize}
+            isZenMode={isZenMode}
+            onZenModeChange={setIsZenMode}
           />
         </main>
       </div>
@@ -358,6 +343,19 @@ const FrontstageApp: React.FC = () => {
 
       {/* Floating Ambient Hints */}
       <FloatingAmbientHint enabled={showAI} />
+
+      {/* 禅模式退出提示 */}
+      {isZenMode && (
+        <button
+          onClick={() => setIsZenMode(false)}
+          className="zen-mode-exit"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+          </svg>
+          退出禅模式 (F11)
+        </button>
+      )}
     </div>
   );
 };

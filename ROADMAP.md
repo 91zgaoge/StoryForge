@@ -1,6 +1,6 @@
 # StoryForge (草苔) 开发路线图
 
-## ✅ 已实施完成 (v3.1.0)
+## ✅ 已实施完成 (v3.1.1)
 
 ### Phase 1: 基础架构重构 ✅
 **状态**: 数据库 Schema 重构完成
@@ -73,9 +73,19 @@
 - [x] 保留报告生成
 - [x] 上下文窗口优化
 
+### Phase 9: 幕前界面重构与本地模型 ✅ (v3.1.1)
+**状态**: 完整实现
+
+- [x] 精简侧边栏（仅保留"幕后"按钮）
+- [x] 顶部动态状态栏
+- [x] 底部 LLM 对话栏（悬停显示、模型状态灯）
+- [x] 流式对话交互（Enter 发送 / Shift+Enter 换行）
+- [x] 本地三模型配置（Gemma / Qwen3.5 / bge-m3）
+- [x] Tauri Windows 构建与打包（MSI + NSIS）
+
 ---
 
-## 📊 v3.0 项目状态
+## 📊 v3.1 项目状态
 
 | 模块 | 完成度 | 说明 |
 |------|--------|------|
@@ -86,38 +96,45 @@
 | 混合搜索 | 100% | BM25 + Vector RRF融合 |
 | 场景版本 | 100% | 版本历史、对比、恢复 |
 | 记忆保留 | 100% | 遗忘曲线、优先级管理 |
-| **整体 v3.1** | **98%** | 核心功能全部完成 |
+| 幕前界面 | 100% | 精简侧边栏、对话栏、状态栏 |
+| 本地模型配置 | 100% | 三模型集成 |
+| Tauri 构建 | 100% | MSI + NSIS 安装包 |
+| **整体 v3.1** | **99%** | 核心功能全部完成 |
 
 ---
 
 ## 🚀 编译状态
 
 ```bash
-$ cargo check
-    Checking storyforge v0.1.0
-    Finished dev profile [unoptimized + debuginfo] target(s)
+$ cd src-frontend && npm run build
+    vite v6.4.2 building for production...
+    ✓ 2156 modules transformed.
+    dist/                     655.75 kB │ gzip: 216.60 kB
 ```
 
 ```bash
-$ cd src-frontend && npm run build
-  vite v6.2.5 building for production...
-  ✓ 1296 modules transformed.
-  dist/                     245.78 kB │ gzip: 62.45 kB
+$ cd src-tauri && cargo tauri build
+    Compiling storyforge v0.1.0
+    Finished release profile [optimized] target(s) in 8m 08s
+       Built application at: target/release/storyforge.exe
+    Finished 2 bundles at:
+        target/release/bundle/msi/StoryForge_0.1.0_x64_en-US.msi
+        target/release/bundle/nsis/StoryForge_0.1.0_x64-setup.exe
 ```
 
-✅ **编译成功**
+✅ **编译成功** | ✅ **打包成功**
 
 ---
 
-## 🆕 v3.0 新增依赖
+## 🆕 v3.1.1 新增依赖
 
 | 依赖 | 版本 | 用途 |
 |------|------|------|
-| zip | 0.6 | 工作室配置 ZIP 导入/导出 |
+| @tiptap/react | ^3.22.3 | 幕前富文本编辑器 |
+| @tiptap/starter-kit | ^3.22.3 | TipTap 基础扩展 |
+| @tiptap/extension-placeholder | ^3.22.3 | 占位符扩展 |
 
 ---
-
-## 📋 后续路线图
 
 ## 📋 后续路线图
 
@@ -145,7 +162,7 @@ $ cd src-frontend && npm run build
 - [ ] 修订模式
 - [ ] 变更追踪
 
-### v3.2.0 (中期计划)
+### v3.3.0 (中期计划)
 
 #### 云端同步
 - [ ] 用户账户系统
@@ -192,6 +209,22 @@ $ cd src-frontend && npm run build
 ---
 
 ## 📈 历史版本
+
+### v3.1.1 (2026-04-13)
+- [x] 幕前界面重构
+- [x] 本地三模型配置
+- [x] Tauri Windows 构建打包
+
+### v3.1.0 (2025-04-13)
+- [x] 混合搜索
+- [x] 场景版本管理
+- [x] 记忆保留曲线
+
+### v3.0.0 (2025-04-12)
+- [x] 场景化叙事架构
+- [x] 增强记忆系统
+- [x] AI 智能生成
+- [x] 工作室配置
 
 ### v2.0.x (已完成)
 - [x] 双界面架构 (幕前/幕后)
