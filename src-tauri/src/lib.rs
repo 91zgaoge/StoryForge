@@ -23,6 +23,7 @@ mod utils;
 mod window;
 mod updater;
 mod commands_v3;
+mod intent;
 
 use tauri::{Manager, AppHandle};
 
@@ -139,6 +140,7 @@ pub fn run() {
             // Backstage communication commands
             notify_backstage_content_changed,
             notify_backstage_generation_requested,
+            notify_frontstage_content_changed,
             show_backstage,
             // Settings commands
             config::get_settings,
@@ -158,6 +160,8 @@ pub fn run() {
             llm::commands::llm_generate_stream,
             llm::commands::llm_test_connection,
             llm::commands::llm_cancel_generation,
+            // Intent commands
+            parse_intent,
             // Agent commands
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
@@ -400,6 +404,13 @@ async fn embed_chapter(chapter_id: String, content: String) -> Result<(), String
     store.add_record(record).await.map_err(|e| e.to_string())
 }
 
+// Intent Parser Command
+#[tauri::command]
+async fn parse_intent(user_input: String, app_handle: AppHandle) -> Result<intent::Intent, String> {
+    let parser = intent::IntentParser::new(app_handle);
+    parser.parse(&user_input).await
+}
+
 #[tauri::command]
 async fn list_mcp_tools() -> Result<Vec<mcp::McpTool>, String> {
     let config = mcp::McpServerConfig {
@@ -522,6 +533,13 @@ fn notify_backstage_content_changed(text: String, chapter_id: String, app: AppHa
 fn notify_backstage_generation_requested(chapter_id: String, context: String, app: AppHandle) -> Result<(), String> {
     let event = window::BackstageEvent::GenerationRequested { chapter_id, context };
     window::WindowManager::send_to_backstage(&app, event)
+}
+
+/// 通知 frontstage 内容已变更
+#[tauri::command]
+fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), String> {
+    let event = window::FrontstageEvent::ContentUpdate { text, chapter_id };
+    window::WindowManager::send_to_frontstage(&app, event)
 }
 
 /// 显示 backstage 窗口

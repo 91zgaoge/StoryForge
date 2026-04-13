@@ -28,8 +28,32 @@ import {
 } from '@/components/EditorSettings';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { useModel } from '@/hooks/useModel';
+import { useIntent } from '@/hooks/useIntent';
 import { ChatMessage } from '@/services/modelService';
 import { ModelConfig } from '@/config/models';
+import type { IntentType, FeedbackType } from '@/types/index';
+
+const INTENT_LABELS: Record<IntentType, string> = {
+  text_generate: '续写生成',
+  text_rewrite: '文本改写',
+  plot_suggest: '情节建议',
+  character_check: '角色检查',
+  world_consistency: '世界观检查',
+  style_shift: '文风切换',
+  memory_ingest: '知识摄取',
+  visual_generate: '视觉生成',
+  scene_reorder: '场景调整',
+  outline_expand: '大纲扩展',
+  unknown: '自由对话',
+};
+
+const FEEDBACK_LABELS: Record<FeedbackType, string> = {
+  direct_apply: '直接应用',
+  suggestion_card: '建议卡片',
+  diff_preview: '差异预览',
+  system_notice: '系统通知',
+  visual_highlight: '高亮提示',
+};
 
 interface RichTextEditorProps {
   content: string;
@@ -73,7 +97,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
     const [showToolbar, setShowToolbar] = useState(false);
     const [chatInput, setChatInput] = useState('');
-    const [chatHistory, setChatHistory] = useState<Array<{type: 'user' | 'ai', content: string}>>([]);
+    const [chatHistory, setChatHistory] = useState<Array<{type: 'user' | 'ai', content: string, intentLabel?: string}>>([]);
     const [isAiThinking, setIsAiThinking] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [showModelTooltip, setShowModelTooltip] = useState(false);
@@ -81,6 +105,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     
     // 使用模型管理Hook
     const { currentModel, status, chat } = useModel();
+    // 使用意图解析Hook
+    const { parseIntent, buildMessages, isParsing: isParsingIntent } = useIntent();
     
     // 角色卡片弹窗状态
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -156,9 +182,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       return () => editorElement.removeEventListener('click', handleClick);
     }, [editor, characters]);
 
-    // 发送消息
+    // 发送消息（意图感知）
     const handleSendMessage = useCallback(async () => {
-      if (!chatInput.trim() || isAiThinking) return;
+      if (!chatInput.trim() || isAiThinking || isParsingIntent) return;
       
       const userMessage = chatInput.trim();
       setChatHistory(prev => [...prev, { type: 'user', content: userMessage }]);
@@ -167,21 +193,30 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setStreamingContent('');
       
       try {
-        const messages: ChatMessage[] = [
-          {
-            role: 'system',
-            content: '你是一位专业的写作助手，擅长帮助作者改进文章、提供创作灵感和续写建议。请用中文回答，语言要优美、富有文学性。'
-          },
-          ...chatHistory.map(h => ({
-            role: (h.type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-            content: h.content
-          })),
-          { role: 'user' as const, content: userMessage }
-        ];
+        // Step 1: 解析意图
+        const intent = await parseIntent(userMessage);
+        const intentLabel = intent 
+          ? `${INTENT_LABELS[intent.intent_type] || '自由对话'} · ${FEEDBACK_LABELS[intent.feedback_type] || '建议卡片'}`
+          : undefined;
+        
+        // Step 2: 根据意图构建消息
+        const messages = intent
+          ? buildMessages(intent, chatHistory, userMessage, editor?.getText())
+          : [
+              {
+                role: 'system',
+                content: '你是一位专业的写作助手，擅长帮助作者改进文章、提供创作灵感和续写建议。请用中文回答，语言要优美、富有文学性。'
+              },
+              ...chatHistory.map(h => ({
+                role: (h.type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+                content: h.content
+              })),
+              { role: 'user' as const, content: userMessage }
+            ];
 
         let aiResponse = '';
         
-        await chat(messages, {
+        await chat(messages as ChatMessage[], {
           stream: true,
           onStream: (chunk) => {
             aiResponse += chunk;
@@ -189,7 +224,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
         });
 
-        setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse }]);
+        setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse, intentLabel }]);
       } catch (error) {
         console.error('Chat error:', error);
         setChatHistory(prev => [...prev, { 
@@ -200,7 +235,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         setIsAiThinking(false);
         setStreamingContent('');
       }
-    }, [chatInput, chatHistory, chat, isAiThinking]);
+    }, [chatInput, chatHistory, chat, isAiThinking, isParsingIntent, parseIntent, buildMessages, editor]);
 
     // 获取状态图标
     const getStatusIcon = () => {
@@ -336,6 +371,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                         : 'bg-[var(--warm-sand)] mr-auto rounded-bl-md'
                     )}
                   >
+                    {msg.type === 'ai' && msg.intentLabel && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--terracotta)]/10 text-[var(--terracotta)] mb-1.5">
+                        <Sparkles className="w-3 h-3" />
+                        {msg.intentLabel}
+                      </span>
+                    )}
                     <p className="text-[var(--charcoal)] leading-relaxed">{msg.content}</p>
                   </div>
                 ))}
@@ -344,7 +385,15 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     <p className="text-[var(--charcoal)] leading-relaxed">{streamingContent}</p>
                   </div>
                 )}
-                {isAiThinking && !streamingContent && (
+                {isParsingIntent && (
+                  <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
+                    <div className="flex items-center gap-2 text-[var(--stone-gray)]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span className="text-xs">解析意图中...</span>
+                    </div>
+                  </div>
+                )}
+                {isAiThinking && !streamingContent && !isParsingIntent && (
                   <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 bg-[var(--stone-gray)] rounded-full animate-bounce" />
@@ -422,7 +471,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     placeholder="在此驾驭智能文思"
                     className="chat-textarea"
                     rows={isExpanded ? 2 : 1}
-                    disabled={status === 'disconnected'}
+                    disabled={status === 'disconnected' || isParsingIntent}
                   />
                 </div>
 
@@ -430,13 +479,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 <div className="chat-input-right">
                   <button
                     onClick={handleSendMessage}
-                    disabled={!chatInput.trim() || isAiThinking || status === 'disconnected'}
+                    disabled={!chatInput.trim() || isAiThinking || isParsingIntent || status === 'disconnected'}
                     className={cn(
                       'chat-send-btn',
-                      chatInput.trim() && !isAiThinking && status === 'connected' && 'active'
+                      chatInput.trim() && !isAiThinking && !isParsingIntent && status === 'connected' && 'active'
                     )}
                   >
-                    {isAiThinking ? (
+                    {isAiThinking || isParsingIntent ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Send className="w-4 h-4" />

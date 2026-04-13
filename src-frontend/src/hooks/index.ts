@@ -16,6 +16,7 @@ export { useCollaboration } from './useCollaboration';
 export { useExport } from './useExport';
 export { useMcpTools } from './useMcpTools';
 export { useVectorSearch } from './useVectorSearch';
+export { useIntent } from './useIntent';
 export { 
   useSettings, 
   useSaveSettings, 

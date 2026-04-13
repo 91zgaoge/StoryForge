@@ -2,7 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { 
   Story, Character, Chapter, Skill, McpServer, McpTool,
   DashboardState, CreateStoryRequest, CreateCharacterRequest, 
-  UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest
+  UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
+  Intent, IntentParseRequest
 } from '@/types/index';
 
 // Health Check
@@ -97,3 +98,7 @@ export const getConfig = () =>
 
 export const updateConfig = (config: { llm: LlmConfig }) => 
   invoke<void>('update_config', config);
+
+// Intent Engine
+export const parseIntent = (req: IntentParseRequest) =>
+  invoke<Intent>('parse_intent', { user_input: req.user_input });

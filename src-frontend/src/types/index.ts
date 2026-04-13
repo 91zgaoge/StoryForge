@@ -147,3 +147,53 @@ export type ViewType =
   | 'skills' 
   | 'mcp' 
   | 'settings';
+
+// ===== Intent Engine Types =====
+
+export type IntentType =
+  | 'text_generate'
+  | 'text_rewrite'
+  | 'plot_suggest'
+  | 'character_check'
+  | 'world_consistency'
+  | 'style_shift'
+  | 'memory_ingest'
+  | 'visual_generate'
+  | 'scene_reorder'
+  | 'outline_expand'
+  | 'unknown';
+
+export type ExecutionMode = 'serial' | 'parallel';
+
+export type FeedbackType =
+  | 'direct_apply'
+  | 'suggestion_card'
+  | 'diff_preview'
+  | 'system_notice'
+  | 'visual_highlight';
+
+export interface IntentTarget {
+  target_type?: string | null;
+  id?: string | null;
+  name?: string | null;
+}
+
+export interface Intent {
+  intent_type: IntentType;
+  target: IntentTarget;
+  constraints: string[];
+  required_agents: string[];
+  execution_mode: ExecutionMode;
+  feedback_type: FeedbackType;
+}
+
+export interface IntentParseRequest {
+  user_input: string;
+}
+
+export interface IntentExecutionResult {
+  success: boolean;
+  intent_type: IntentType;
+  content?: string;
+  error?: string;
+}
