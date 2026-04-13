@@ -9,6 +9,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+  actions: read
+  checks: read
+
 jobs:
   # Rust backend checks
   rust-check:
