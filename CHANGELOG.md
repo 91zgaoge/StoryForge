@@ -2,13 +2,30 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [3.1.1] - 2026-04-13 - 幕前界面重构与本地模型配置
+## [3.1.1] - 2026-04-13 - 幕前界面重构、Waza 设计与 CI 修复
 
-### 🎭 幕前界面重构
+### 🎭 幕前界面重构（Waza 设计原则落地）
 
 - **精简侧边栏**
   - 侧边栏宽度缩减至 120px，仅保留"幕后"切换按钮
   - 去除冗余图标和文字，追求极简禅意
+  - 修复按钮溢出侧边栏宽度的布局问题
+
+- **颜色系统重构（OKLCH）**
+  - 所有 Hex/HSL 颜色替换为 OKLCH，建立感知均匀的 60-30-10 视觉权重
+  - 主背景：`oklch(96.5% 0.008 95)`（暖纸张色）
+  - 强调色：`oklch(58% 0.13 45)`（赤陶色）
+  - 去除装饰性纸张噪点纹理，背景更纯净
+
+- **字体系统升级**
+  - 移除 Waza 反感的 Crimson Pro / Cormorant Garamond / Inter
+  - 正文字体统一为「霞鹜文楷 (LXGW WenKai) + 思源宋体」
+  - 无衬线回退：`SF Pro Display / Segoe UI / PingFang SC`
+
+- **微交互与排版**
+  - 所有按钮增加 `active:scale-95` 触感反馈
+  - 全面清除 `transition: all` 反模式，改为精确属性过渡
+  - Blockquote 从左边框模板改为「背景色块 + 大引号装饰」
 
 - **顶部动态状态栏**
   - 字数统计、字体大小、快捷键提示、保存状态集中展示
@@ -17,7 +34,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **底部 LLM 对话栏**
   - 默认隐藏，鼠标悬停底部区域时优雅浮现
   - 集成模型状态指示灯（绿/黄/红三色 + 呼吸动画）
-  - 支持 💬 对话 / 🖼️ 多模态 模式切换
+  - 去除对话/多模态模式切换图标，保持输入框极简
   - 占位文案："在此驾驭智能文思"
   - Enter 发送，Shift+Enter 换行，支持流式对话输出
 
@@ -35,11 +52,13 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 用途：Embedding 向量嵌入
   - 状态：已配置，带 API Key
 
-### 🖥️ Tauri 本地构建修复
+### 🖥️ Tauri 本地构建与 CI 修复
 
 - 修复 `tauri.conf.json` 中 `beforeBuildCommand` 在 Windows 下的路径兼容性问题
 - 成功构建 Release 版本并打包 Windows 安装程序
 - 生成 MSI (12.3 MB) 和 NSIS (8.1 MB) 两种安装包
+- 修复 GitHub Actions 跨平台构建缺少 `icons/icon.icns` 的问题
+- `rust-check` 三平台（Ubuntu / Windows / macOS）全部通过
 
 ---
 

@@ -77,11 +77,15 @@
 **状态**: 完整实现
 
 - [x] 精简侧边栏（仅保留"幕后"按钮）
+- [x] OKLCH 颜色系统重构（去除 AI 感模板色）
+- [x] LXGW WenKai 字体替换（去除 Crimson/Inter）
+- [x] Blockquote 与微交互重设计（Waza 原则）
 - [x] 顶部动态状态栏
-- [x] 底部 LLM 对话栏（悬停显示、模型状态灯）
+- [x] 底部 LLM 对话栏（悬停显示、模型状态灯、去除模式切换图标）
 - [x] 流式对话交互（Enter 发送 / Shift+Enter 换行）
 - [x] 本地三模型配置（Gemma / Qwen3.5 / bge-m3）
 - [x] Tauri Windows 构建与打包（MSI + NSIS）
+- [x] GitHub Actions CI 图标修复（macOS / Ubuntu）
 
 ---
 
@@ -110,6 +114,15 @@ $ cd src-frontend && npm run build
     vite v6.4.2 building for production...
     ✓ 2156 modules transformed.
     dist/                     655.75 kB │ gzip: 216.60 kB
+```
+
+```bash
+$ cd src-tauri && cargo tauri build
+    Finished release profile [optimized] target(s) in 8m 04s
+       Built application at: target/release/storyforge.exe
+    Finished 3 bundles at:
+        target/release/bundle/msi/StoryForge_0.1.0_x64_en-US.msi
+        target/release/bundle/nsis/StoryForge_0.1.0_x64-setup.exe
 ```
 
 ```bash
@@ -211,9 +224,11 @@ $ cd src-tauri && cargo tauri build
 ## 📈 历史版本
 
 ### v3.1.1 (2026-04-13)
-- [x] 幕前界面重构
+- [x] 幕前界面重构（Waza 设计原则）
+- [x] OKLCH 颜色系统 / LXGW WenKai 字体
 - [x] 本地三模型配置
 - [x] Tauri Windows 构建打包
+- [x] GitHub Actions CI 跨平台修复
 
 ### v3.1.0 (2025-04-13)
 - [x] 混合搜索

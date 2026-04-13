@@ -1,6 +1,6 @@
 # StoryForge (草苔) v3.1 项目完成状态
 
-> 最后更新: 2026-04-13（v3.1.1 幕前界面重构与本地模型配置完成）
+> 最后更新: 2026-04-13（v3.1.1 Waza 设计原则落地 + CI 图标修复完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -14,9 +14,12 @@
 | 功能模块 | 状态 | 完成度 | 备注 |
 |---------|------|--------|------|
 | 精简侧边栏 | ✅ | 100% | 仅保留"幕后"按钮，120px 极简宽度 |
+| OKLCH 颜色系统 | ✅ | 100% | 全站 OKLCH 色值，60-30-10 视觉权重 |
+| LXGW WenKai 字体 | ✅ | 100% | 移除 Crimson/Inter，统一霞鹜文楷 |
+| Blockquote 重设计 | ✅ | 100% | 背景色块 + 引号装饰，去左边框模板 |
+| 微交互规范 | ✅ | 100% | 全按钮 `active:scale-95`，清除 `transition: all` |
 | 顶部动态状态栏 | ✅ | 100% | 字数、字号、快捷键、保存状态 |
-| 底部 LLM 对话栏 | ✅ | 100% | 悬停显示，集成模型状态灯 |
-| 模型切换 | ✅ | 100% | 对话/多模态模式切换 |
+| 底部 LLM 对话栏 | ✅ | 100% | 悬停显示，集成模型状态灯，去除模式切换图标 |
 | 流式对话 | ✅ | 100% | Enter 发送，Shift+Enter 换行 |
 
 #### 🤖 本地模型配置 (100%)
@@ -27,13 +30,19 @@
 | Qwen3.5-27B-Uncensored | 语言 | ✅ | http://10.62.239.13:17098/v1 |
 | bge-m3 | Embedding | ✅ | http://10.62.239.13:8089 |
 
-#### 🖥️ Tauri 本地构建 (100%)
+#### 🖥️ Tauri 构建与 CI (100%)
 
 | 目标 | 状态 | 说明 |
 |------|------|------|
 | Release 编译 | ✅ | Rust 后端编译通过（189 warnings，非阻塞） |
 | MSI 安装包 | ✅ | `StoryForge_0.1.0_x64_en-US.msi` (12.3 MB) |
 | NSIS 安装包 | ✅ | `StoryForge_0.1.0_x64-setup.exe` (8.1 MB) |
+| `rust-check` (Ubuntu) | ✅ | GitHub Actions 通过 |
+| `rust-check` (Windows) | ✅ | GitHub Actions 通过 |
+| `rust-check` (macOS) | ✅ | GitHub Actions 通过 |
+| `tauri-build` Windows | ✅ | GitHub Actions 通过 |
+| `tauri-build` macOS | 🔄 | 图标修复后重新验证中 |
+| `tauri-build` Ubuntu | 🔄 | 图标修复后重新验证中 |
 
 ### v3.1.0 核心功能
 
@@ -200,6 +209,7 @@
 
 1. ✅ **Windows 下 Tauri beforeBuildCommand 路径问题** - v3.1.1 已修复
 2. ✅ **Tauri 文件锁阻塞** - v3.1.1 已解决并构建成功
+3. ✅ **GitHub Actions macOS/Ubuntu 缺少 `icon.icns`** - v3.1.1 已修复并推送
 
 ---
 
