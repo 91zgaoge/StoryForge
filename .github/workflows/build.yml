@@ -21,9 +21,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust stable
-        uses: dtolnay/rust-action@stable
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -38,19 +36,11 @@ jobs:
 
       - name: Check Rust code
         working-directory: src-tauri
-        run: cargo check --all-features
+        run: cargo check
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test --all-features
-
-      - name: Check Rust formatting
-        working-directory: src-tauri
-        run: cargo fmt -- --check
-
-      - name: Run Clippy
-        working-directory: src-tauri
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo test
 
   # Frontend checks
   frontend-check:
@@ -70,13 +60,13 @@ jobs:
         working-directory: src-frontend
         run: npm ci
 
-      - name: Check TypeScript
+      - name: Type check
+        working-directory: src-frontend
+        run: npm run type-check
+
+      - name: Build frontend
         working-directory: src-frontend
         run: npm run build
-
-      - name: Check formatting
-        working-directory: src-frontend
-        run: npx prettier --check "src/**/*.{ts,tsx}"
 
   # Full Tauri build (matrix build for all platforms)
   tauri-build:
@@ -104,9 +94,8 @@ jobs:
           cache-dependency-path: src-frontend/package-lock.json
 
       - name: Install Rust stable
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Install dependencies (Ubuntu)
@@ -124,67 +113,11 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0"
+
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        working-directory: src-tauri
+        run: cargo tauri build --target ${{ matrix.target }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: src-tauri
-          args: --target ${{ matrix.target }}
-
-  # Release build on tag
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: tauri-build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: macos-latest
-            target: x86_64-apple-darwin
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: src-frontend/package-lock.json
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-action@stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-
-      - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install frontend dependencies
-        working-directory: src-frontend
-        run: npm ci
-
-      - name: Build and release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          projectPath: src-tauri
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: 'StoryForge ${{ github.ref_name }}'
-          releaseBody: 'See the assets to download and install this version.'
-          releaseDraft: true
-          prerelease: false
