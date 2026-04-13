@@ -5,6 +5,20 @@ use std::path::Path;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
+#[cfg(test)]
+pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
+    let manager = SqliteConnectionManager::memory();
+    let pool = Pool::builder()
+        .max_size(1)
+        .build(manager)?;
+    
+    let mut conn = pool.get()?;
+    create_tables(&mut conn)?;
+    create_v3_tables(&mut conn)?;
+    
+    Ok(pool)
+}
+
 pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     let db_path = app_dir.join("cinema_ai.db");
     let manager = SqliteConnectionManager::file(&db_path);

@@ -9,12 +9,13 @@
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 
 static EMBEDDING_INITIALIZED: OnceCell<bool> = OnceCell::new();
 static mut VOCAB: Option<HashMap<String, usize>> = None;
+static EMBEDDING_INIT: Once = Once::new();
 
 /// Embedding 缓存
 static EMBEDDING_CACHE: OnceCell<Mutex<EmbeddingCache>> = OnceCell::new();
@@ -124,17 +125,14 @@ pub struct CacheStats {
 
 /// 初始化嵌入模型
 pub fn init_embedding_model() -> Result<(), Box<dyn std::error::Error>> {
-    EMBEDDING_INITIALIZED.set(true)
-        .map_err(|_| "Already initialized")?;
-
-    unsafe {
-        VOCAB = Some(HashMap::new());
-    }
-
-    // 初始化缓存
-    let _ = EMBEDDING_CACHE.set(Mutex::new(EmbeddingCache::new(10000)));
-
-    log::info!("Embedding module initialized (384-dim feature vectors with cache)");
+    EMBEDDING_INIT.call_once(|| {
+        let _ = EMBEDDING_INITIALIZED.set(true);
+        unsafe {
+            VOCAB = Some(HashMap::new());
+        }
+        let _ = EMBEDDING_CACHE.set(Mutex::new(EmbeddingCache::new(10000)));
+        log::info!("Embedding module initialized (384-dim feature vectors with cache)");
+    });
     Ok(())
 }
 
