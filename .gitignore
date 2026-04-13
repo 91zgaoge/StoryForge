@@ -30,3 +30,7 @@ Thumbs.db
 exports/
 vector_db/
 config.json
+
+# Temporary directories
+*_temp/
+*.tmp

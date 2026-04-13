@@ -356,3 +356,101 @@ export interface NovelCreationProgress {
   message: string;
   progress: number; // 0-100
 }
+
+// ==================== 场景版本类型 (Phase 3.x) ====================
+
+export type CreatorType = 'user' | 'ai' | 'system';
+
+export interface SceneVersion {
+  id: string;
+  scene_id: string;
+  version_number: number;
+  
+  // 内容快照
+  title?: string;
+  content?: string;
+  dramatic_goal?: string;
+  external_pressure?: string;
+  conflict_type?: ConflictType;
+  characters_present: string[];
+  character_conflicts: CharacterConflict[];
+  setting_location?: string;
+  setting_time?: string;
+  setting_atmosphere?: string;
+  
+  // 版本元数据
+  word_count: number;
+  change_summary: string;
+  created_by: CreatorType;
+  model_used?: string;
+  confidence_score?: number;
+  
+  // 版本链
+  previous_version_id?: string;
+  superseded_by?: string;
+  
+  created_at: string;
+}
+
+export interface VersionDiff {
+  from_version: number;
+  to_version: number;
+  content_diff?: TextDiff;
+  title_changed: boolean;
+  setting_changed: boolean;
+  characters_changed: boolean;
+  dramatic_goal_changed: boolean;
+  word_count_delta: number;
+  confidence_delta: number;
+}
+
+export interface TextDiff {
+  added_lines: string[];
+  removed_lines: string[];
+  unchanged_percentage: number;
+}
+
+export interface VersionChainNode {
+  version: SceneVersion;
+  children: string[];
+  depth: number;
+}
+
+export interface VersionStats {
+  total_versions: number;
+  avg_confidence: number;
+  best_version_id?: string;
+  best_version_number?: number;
+  user_edits: number;
+  ai_edits: number;
+  system_edits: number;
+  total_word_delta: number;
+  first_version_at?: string;
+  last_version_at?: string;
+}
+
+// ==================== 保留/遗忘曲线类型 (Phase 1.4) ====================
+
+export type PriorityLevel = 'critical' | 'high' | 'medium' | 'low' | 'forgotten';
+
+export interface RetentionScore {
+  entity_id: string;
+  entity_name: string;
+  base_score: number;
+  decayed_score: number;
+  reinforced_score: number;
+  final_priority: number;
+  priority_level: PriorityLevel;
+  days_since_last_access: number;
+  access_count: number;
+  estimated_retention_days: number;
+}
+
+export interface RetentionReport {
+  total_entities: number;
+  avg_priority: number;
+  level_distribution: Record<string, number>;
+  critical_entities: string[];
+  forgotten_entities: string[];
+  recommended_action: string;
+}

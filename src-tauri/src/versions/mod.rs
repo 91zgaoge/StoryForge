@@ -1,7 +1,15 @@
+//! 版本管理模块
+//! 
+//! 提供场景版本历史、比较和恢复功能
+
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
+pub mod service;
+pub use service::*;
+
+// 旧版本兼容结构 - 将在未来版本中移除
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChapterVersion {
     pub id: String,

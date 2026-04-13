@@ -1,14 +1,23 @@
 //! Text Embedding Module
 //!
-//! Provides text embedding using local feature extraction.
-//! TODO: Upgrade to fastembed or onnxruntime for real embeddings.
+//! 增强版嵌入服务，支持：
+//! - 批量文本嵌入
+//! - 实体嵌入（名称+描述+属性拼接）
+//! - Embedding 缓存
+//! - 多模型支持（预留接口）
 
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 
 static EMBEDDING_INITIALIZED: OnceCell<bool> = OnceCell::new();
 static mut VOCAB: Option<HashMap<String, usize>> = None;
+
+/// Embedding 缓存
+static EMBEDDING_CACHE: OnceCell<Mutex<EmbeddingCache>> = OnceCell::new();
 
 /// Embedding representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +26,100 @@ pub struct Embedding {
     pub vector: Vec<f32>,
     pub dimensions: usize,
     pub model: String,
+}
+
+/// 实体嵌入请求
+#[derive(Debug, Clone)]
+pub struct EntityEmbeddingRequest {
+    pub entity_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub entity_type: String,
+    pub attributes: HashMap<String, serde_json::Value>,
+}
+
+/// 嵌入缓存
+pub struct EmbeddingCache {
+    cache: HashMap<u64, Vec<f32>>,
+    max_size: usize,
+    hits: u64,
+    misses: u64,
+}
+
+impl EmbeddingCache {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            cache: HashMap::with_capacity(max_size),
+            max_size,
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// 计算文本哈希
+    fn hash_text(text: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// 获取缓存的嵌入
+    pub fn get(&mut self, text: &str) -> Option<Vec<f32>> {
+        let hash = Self::hash_text(text);
+        if let Some(embedding) = self.cache.get(&hash) {
+            self.hits += 1;
+            Some(embedding.clone())
+        } else {
+            self.misses += 1;
+            None
+        }
+    }
+
+    /// 设置缓存
+    pub fn set(&mut self, text: &str, embedding: Vec<f32>) {
+        // 如果缓存已满，清除最旧的 10%
+        if self.cache.len() >= self.max_size {
+            let to_remove: Vec<u64> = self.cache.keys().take(self.max_size / 10).cloned().collect();
+            for key in to_remove {
+                self.cache.remove(&key);
+            }
+        }
+        
+        let hash = Self::hash_text(text);
+        self.cache.insert(hash, embedding);
+    }
+
+    /// 获取缓存统计
+    pub fn stats(&self) -> CacheStats {
+        CacheStats {
+            size: self.cache.len(),
+            max_size: self.max_size,
+            hits: self.hits,
+            misses: self.misses,
+            hit_rate: if self.hits + self.misses > 0 {
+                self.hits as f32 / (self.hits + self.misses) as f32
+            } else {
+                0.0
+            },
+        }
+    }
+
+    /// 清除缓存
+    pub fn clear(&mut self) {
+        self.cache.clear();
+        self.hits = 0;
+        self.misses = 0;
+    }
+}
+
+/// 缓存统计
+#[derive(Debug, Clone, Serialize)]
+pub struct CacheStats {
+    pub size: usize,
+    pub max_size: usize,
+    pub hits: u64,
+    pub misses: u64,
+    pub hit_rate: f32,
 }
 
 /// 初始化嵌入模型
@@ -28,7 +131,10 @@ pub fn init_embedding_model() -> Result<(), Box<dyn std::error::Error>> {
         VOCAB = Some(HashMap::new());
     }
 
-    log::info!("Embedding module initialized (384-dim feature vectors)");
+    // 初始化缓存
+    let _ = EMBEDDING_CACHE.set(Mutex::new(EmbeddingCache::new(10000)));
+
+    log::info!("Embedding module initialized (384-dim feature vectors with cache)");
     Ok(())
 }
 
@@ -69,6 +175,13 @@ fn tokenize(text: &str) -> Vec<String> {
 
 /// 基于词频的嵌入 (改进版TF特征)
 pub fn embed_text(text: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    // 先检查缓存
+    if let Ok(mut cache) = EMBEDDING_CACHE.get().unwrap().lock() {
+        if let Some(cached) = cache.get(text) {
+            return Ok(cached);
+        }
+    }
+
     const DIM: usize = 384;
     let mut features = vec![0.0f32; DIM];
 
@@ -111,6 +224,11 @@ pub fn embed_text(text: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
         }
     }
 
+    // 存入缓存
+    if let Ok(mut cache) = EMBEDDING_CACHE.get().unwrap().lock() {
+        cache.set(text, features.clone());
+    }
+
     Ok(features)
 }
 
@@ -132,6 +250,49 @@ pub fn embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>, Box<dyn std::err
     texts.iter().map(|t| embed_text(t)).collect()
 }
 
+
+
+/// 生成实体嵌入
+/// 将实体名称、描述、类型、属性拼接成文本后生成嵌入
+pub fn embed_entity(request: &EntityEmbeddingRequest) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    // 构建实体文本表示
+    let mut text_parts = vec![format!("Name: {}", request.name)];
+    
+    // 添加类型信息
+    text_parts.push(format!("Type: {}", request.entity_type));
+    
+    // 添加描述
+    if let Some(desc) = &request.description {
+        if !desc.is_empty() {
+            text_parts.push(format!("Description: {}", desc));
+        }
+    }
+    
+    // 添加属性
+    if !request.attributes.is_empty() {
+        let attrs_text: Vec<String> = request.attributes
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k, v))
+            .collect();
+        text_parts.push(format!("Attributes: {}", attrs_text.join(", ")));
+    }
+    
+    let full_text = text_parts.join(". ");
+    embed_text(&full_text)
+}
+
+/// 批量生成实体嵌入
+pub fn embed_entities(requests: Vec<EntityEmbeddingRequest>) -> Result<HashMap<String, Vec<f32>>, Box<dyn std::error::Error>> {
+    let mut results = HashMap::new();
+    for request in requests {
+        let embedding = embed_entity(&request)?;
+        results.insert(request.entity_id.clone(), embedding);
+    }
+    Ok(results)
+}
+
+
+
 /// 计算余弦相似度
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let min_len = a.len().min(b.len());
@@ -144,23 +305,120 @@ pub fn embedding_dim() -> usize {
     384
 }
 
+/// 获取缓存统计
+pub fn get_cache_stats() -> Option<CacheStats> {
+    EMBEDDING_CACHE.get()
+        .and_then(|cache| cache.lock().ok())
+        .map(|c| c.stats())
+}
+
+/// 清除嵌入缓存
+pub fn clear_cache() {
+    if let Some(cache) = EMBEDDING_CACHE.get() {
+        if let Ok(mut c) = cache.lock() {
+            c.clear();
+            log::info!("Embedding cache cleared");
+        }
+    }
+}
+
+/// 场景嵌入请求
+#[derive(Debug, Clone)]
+pub struct SceneEmbeddingRequest {
+    pub scene_id: String,
+    pub title: Option<String>,
+    pub content: String,
+    pub dramatic_goal: Option<String>,
+    pub characters_present: Vec<String>,
+    pub setting: Option<String>,
+}
+
+/// 生成场景嵌入
+pub fn embed_scene(request: &SceneEmbeddingRequest) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    let mut text_parts = Vec::new();
+    
+    // 标题
+    if let Some(title) = &request.title {
+        text_parts.push(format!("Scene: {}", title));
+    }
+    
+    // 戏剧目标
+    if let Some(goal) = &request.dramatic_goal {
+        text_parts.push(format!("Goal: {}", goal));
+    }
+    
+    // 在场角色
+    if !request.characters_present.is_empty() {
+        text_parts.push(format!("Characters: {}", request.characters_present.join(", ")));
+    }
+    
+    // 场景设置
+    if let Some(setting) = &request.setting {
+        text_parts.push(format!("Setting: {}", setting));
+    }
+    
+    // 内容摘要（取前500字符）
+    let content_preview: String = request.content.chars().take(500).collect();
+    text_parts.push(format!("Content: {}", content_preview));
+    
+    let full_text = text_parts.join(". ");
+    embed_text(&full_text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_embed_text() {
+        init_embedding_model().ok();
+        
         let vec1 = embed_text("Hello world").unwrap();
         let vec2 = embed_text("Hello world").unwrap();
         let vec3 = embed_text("Goodbye world").unwrap();
 
         assert_eq!(vec1.len(), 384);
 
-        // Same text should produce same embedding
+        // Same text should produce same embedding (from cache)
         assert!(cosine_similarity(&vec1, &vec2) > 0.99);
 
         // Different text should have lower similarity
         let sim = cosine_similarity(&vec1, &vec3);
         assert!(sim < 0.9);
+    }
+
+    #[test]
+    fn test_embed_entity() {
+        init_embedding_model().ok();
+        
+        let mut attrs = HashMap::new();
+        attrs.insert("age".to_string(), serde_json::json!(25));
+        attrs.insert("profession".to_string(), serde_json::json!("wizard"));
+        
+        let request = EntityEmbeddingRequest {
+            entity_id: "char_001".to_string(),
+            name: "Gandalf".to_string(),
+            description: Some("A powerful wizard".to_string()),
+            entity_type: "Character".to_string(),
+            attributes: attrs,
+        };
+        
+        let embedding = embed_entity(&request).unwrap();
+        assert_eq!(embedding.len(), 384);
+    }
+
+    #[test]
+    fn test_cache() {
+        init_embedding_model().ok();
+        
+        // 第一次嵌入（缓存未命中）
+        let _ = embed_text("Cache test text");
+        
+        // 第二次嵌入（缓存命中）
+        let _ = embed_text("Cache test text");
+        
+        let stats = get_cache_stats().unwrap();
+        assert!(stats.hits >= 1);
+        assert!(stats.misses >= 1);
     }
 }

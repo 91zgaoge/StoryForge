@@ -120,10 +120,11 @@ pub async fn update_world_building(
 #[command]
 pub async fn create_writing_style(
     story_id: String,
+    name: Option<String>,
     pool: State<'_, DbPool>,
 ) -> Result<WritingStyle, String> {
     let repo = WritingStyleRepository::new(pool.inner().clone());
-    repo.create(&story_id)
+    repo.create(&story_id, name.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -262,5 +263,100 @@ pub async fn get_entity_relations(
 ) -> Result<Vec<Relation>, String> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     repo.get_relations_by_entity(&entity_id)
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 场景版本命令 ====================
+
+use crate::db::models_v3::{SceneVersion, CreatorType};
+use crate::db::repositories_v3::SceneVersionRepository;
+use crate::versions::service::{SceneVersionService, VersionDiff, VersionStats, RestoreResult};
+
+#[command]
+pub async fn get_scene_versions(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<SceneVersion>, String> {
+    let repo = SceneVersionRepository::new(pool.inner().clone());
+    repo.get_versions(&scene_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_scene_version(
+    version_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<SceneVersion>, String> {
+    let repo = SceneVersionRepository::new(pool.inner().clone());
+    repo.get_version(&version_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn create_scene_version(
+    scene_id: String,
+    change_summary: String,
+    created_by: String,
+    confidence_score: Option<f32>,
+    pool: State<'_, DbPool>,
+) -> Result<SceneVersion, String> {
+    let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+    let version_repo = SceneVersionRepository::new(pool.inner().clone());
+    
+    let scene = scene_repo.get_by_id(&scene_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Scene not found")?;
+    
+    let creator = match created_by.as_str() {
+        "user" => CreatorType::User,
+        "ai" => CreatorType::Ai,
+        _ => CreatorType::System,
+    };
+    
+    version_repo.create_version(&scene, &change_summary, creator, None, confidence_score)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn compare_scene_versions(
+    from_version_id: String,
+    to_version_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<VersionDiff, String> {
+    let service = SceneVersionService::new(pool.inner().clone());
+    service.compare_versions(&from_version_id, &to_version_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn restore_scene_version(
+    scene_id: String,
+    version_id: String,
+    restored_by: String,
+    pool: State<'_, DbPool>,
+) -> Result<SceneVersion, String> {
+    let service = SceneVersionService::new(pool.inner().clone());
+    let result = service.restore_version(&scene_id, &version_id, &restored_by)
+        .map_err(|e| e.to_string())?;
+    Ok(result.new_version)
+}
+
+#[command]
+pub async fn get_scene_version_stats(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<VersionStats, String> {
+    let service = SceneVersionService::new(pool.inner().clone());
+    service.get_version_stats(&scene_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn delete_scene_version(
+    version_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneVersionRepository::new(pool.inner().clone());
+    repo.delete_version(&version_id)
         .map_err(|e| e.to_string())
 }

@@ -6,9 +6,11 @@
 
 use crate::llm::LlmService;
 use crate::db::models_v3::{Entity, EntityType, Relation, RelationType};
+use crate::embeddings::{embed_entity, EntityEmbeddingRequest};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use chrono::Local;
+use std::collections::HashMap;
 
 /// Ingest管道
 pub struct IngestPipeline {
@@ -273,20 +275,56 @@ impl IngestPipeline {
         Ok(knowledge)
     }
 
-    /// 转换为数据库实体模型
+    /// 转换为数据库实体模型，并生成嵌入向量
     fn convert_entities(&self, profiles: &[EntityProfile], content: &IngestContent) -> Vec<Entity> {
         profiles.iter().map(|profile| {
+            // 生成实体嵌入
+            let embedding = self.generate_entity_embedding(profile);
+            
             Entity {
                 id: uuid::Uuid::new_v4().to_string(),
                 story_id: content.story_id.clone(),
                 name: profile.name.clone(),
                 entity_type: profile.entity_type.clone(),
                 attributes: profile.attributes.clone(),
-                embedding: None, // 后续通过Embedding服务生成
+                embedding,
                 first_seen: Local::now(),
                 last_updated: Local::now(),
+                confidence_score: None,
+                access_count: 0,
+                last_accessed: None,
             }
         }).collect()
+    }
+    
+    /// 为单个实体生成嵌入向量
+    fn generate_entity_embedding(&self, profile: &EntityProfile) -> Option<Vec<f32>> {
+        // 将 serde_json::Value 转换为 HashMap
+        let attributes: HashMap<String, serde_json::Value> = match &profile.attributes {
+            serde_json::Value::Object(map) => {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            }
+            _ => HashMap::new(),
+        };
+        
+        let request = EntityEmbeddingRequest {
+            entity_id: profile.name.clone(), // 临时ID
+            name: profile.name.clone(),
+            description: Some(profile.description.clone()),
+            entity_type: profile.entity_type.to_string(),
+            attributes,
+        };
+        
+        match embed_entity(&request) {
+            Ok(embedding) => {
+                log::debug!("Generated embedding for entity: {}", profile.name);
+                Some(embedding)
+            }
+            Err(e) => {
+                log::warn!("Failed to generate embedding for entity {}: {}", profile.name, e);
+                None
+            }
+        }
     }
 
     /// 转换为数据库关系模型
@@ -301,6 +339,7 @@ impl IngestPipeline {
                 strength: profile.strength,
                 evidence: vec![content.source.clone()],
                 first_seen: Local::now(),
+                confidence_score: None,
             }
         }).collect()
     }

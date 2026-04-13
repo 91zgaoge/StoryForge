@@ -1,15 +1,12 @@
 //! Vector Store Module
 //!
-//! LanceDB implementation for persistent vector storage.
+//! LanceDB-compatible API with memory-based storage.
 //! Note: Using memory-based storage until Rust is upgraded to 1.88+
+//! Persistence will be added using bincode once dependencies are resolved.
 
-// use lancedb::{connect, Table, TableRef};
-// use arrow_array::{Float32Array, Int32Array, StringArray, RecordBatch};
-// use arrow_schema::{DataType, Field, Schema};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// 向量记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +34,7 @@ pub struct SearchResult {
 /// LanceDB 向量存储 (内存实现，API与LanceDB兼容)
 pub struct LanceVectorStore {
     _db_path: String,
-    storage: Arc<Mutex<HashMap<String, Vec<VectorRecord>>>>,
+    storage: Arc<Mutex<HashMap<String, Vec<VectorRecord>>>>, // chapter_id -> records
 }
 
 impl LanceVectorStore {
@@ -53,13 +50,20 @@ impl LanceVectorStore {
         Ok(())
     }
 
-    pub async fn add_record(
-        &self,
-        record: VectorRecord,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    /// Upsert a record (update if exists, insert if not)
+    pub async fn upsert(&self, record: VectorRecord) -> Result<(), Box<dyn std::error::Error>> {
         let mut storage = self.storage.lock().unwrap();
-        storage.entry(record.chapter_id.clone()).or_insert_with(Vec::new).push(record);
+        let records = storage.entry(record.chapter_id.clone()).or_insert_with(Vec::new);
+        
+        // Remove existing record with same id if present
+        records.retain(|r| r.id != record.id);
+        records.push(record);
+        
         Ok(())
+    }
+
+    pub async fn add_record(&self, record: VectorRecord) -> Result<(), Box<dyn std::error::Error>> {
+        self.upsert(record).await
     }
 
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
@@ -77,17 +81,16 @@ impl LanceVectorStore {
     pub async fn search(
         &self,
         story_id: &str,
-        query: &str,
+        query_embedding: Vec<f32>,
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
-        let query_vec = crate::embeddings::embed_text(query)?;
         let storage = self.storage.lock().unwrap();
         let mut results = Vec::new();
 
         for records in storage.values() {
             for record in records {
                 if record.story_id == story_id {
-                    let score = Self::cosine_similarity(&query_vec, &record.embedding);
+                    let score = Self::cosine_similarity(&query_embedding, &record.embedding);
                     if score > 0.1 {
                         results.push(SearchResult {
                             id: record.id.clone(),
@@ -107,12 +110,20 @@ impl LanceVectorStore {
         Ok(results)
     }
 
-    pub async fn delete_chapter(
-        &self,
-        chapter_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn delete(&self, _id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: Implement delete
+        Ok(())
+    }
+
+    pub async fn delete_chapter(&self, chapter_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut storage = self.storage.lock().unwrap();
         storage.remove(chapter_id);
         Ok(())
+    }
+
+    pub async fn count(&self) -> Result<usize, Box<dyn std::error::Error>> {
+        let storage = self.storage.lock().unwrap();
+        let count: usize = storage.values().map(|v| v.len()).sum();
+        Ok(count)
     }
 }

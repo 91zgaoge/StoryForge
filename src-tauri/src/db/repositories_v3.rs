@@ -3,6 +3,7 @@
 use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture};
 use super::{Setting, LocationType, SensoryDetails, WritingStyle, StudioConfig};
 use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
+use super::{SceneVersion, CreatorType};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use serde::{Serialize, Deserialize};
@@ -51,6 +52,7 @@ impl SceneRepository {
             cost: None,
             created_at: now,
             updated_at: now,
+            confidence_score: None,
         })
     }
 
@@ -59,7 +61,7 @@ impl SceneRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at 
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score
              FROM scenes WHERE story_id = ?1 ORDER BY sequence_number"
         )?;
 
@@ -75,6 +77,7 @@ impl SceneRepository {
             
             let created_str: String = row.get(17)?;
             let updated_str: String = row.get(18)?;
+            let confidence_score: Option<f32> = row.get(19)?;
             
             Ok(Scene {
                 id: row.get(0)?,
@@ -96,6 +99,7 @@ impl SceneRepository {
                 cost: row.get(16)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -107,7 +111,7 @@ impl SceneRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at 
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score
              FROM scenes WHERE id = ?1"
         )?;
 
@@ -123,6 +127,7 @@ impl SceneRepository {
             
             let created_str: String = row.get(17)?;
             let updated_str: String = row.get(18)?;
+            let confidence_score: Option<f32> = row.get(19)?;
             
             Ok(Scene {
                 id: row.get(0)?,
@@ -144,6 +149,7 @@ impl SceneRepository {
                 cost: row.get(16)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score,
             })
         }).optional()?;
 
@@ -168,7 +174,8 @@ impl SceneRepository {
                 setting_atmosphere = COALESCE(?11, setting_atmosphere),
                 previous_scene_id = COALESCE(?12, previous_scene_id),
                 next_scene_id = COALESCE(?13, next_scene_id),
-                updated_at = ?14
+                confidence_score = COALESCE(?14, confidence_score),
+                updated_at = ?15
              WHERE id = ?1",
             params![
                 id,
@@ -184,6 +191,7 @@ impl SceneRepository {
                 updates.setting_atmosphere,
                 updates.previous_scene_id,
                 updates.next_scene_id,
+                updates.confidence_score,
                 now
             ],
         )?;
@@ -221,6 +229,220 @@ pub struct SceneUpdate {
     pub setting_atmosphere: Option<String>,
     pub previous_scene_id: Option<String>,
     pub next_scene_id: Option<String>,
+    pub confidence_score: Option<f32>,
+}
+
+// ==================== Scene Version Repository (新增) ====================
+
+pub struct SceneVersionRepository {
+    pool: DbPool,
+}
+
+impl SceneVersionRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    /// 创建场景版本快照
+    pub fn create_version(&self, scene: &Scene, change_summary: &str, created_by: CreatorType,
+                          model_used: Option<&str>, confidence_score: Option<f32>) -> Result<SceneVersion, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+        
+        // 获取当前版本号
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let version_number: i32 = conn.query_row(
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM scene_versions WHERE scene_id = ?1",
+            [&scene.id],
+            |row| row.get(0)
+        )?;
+        
+        // 获取上一个版本ID
+        let previous_version_id: Option<String> = conn.query_row(
+            "SELECT id FROM scene_versions WHERE scene_id = ?1 ORDER BY version_number DESC LIMIT 1",
+            [&scene.id],
+            |row| row.get(0)
+        ).ok();
+        
+        let word_count = scene.content.as_ref().map(|c| c.len() as i32).unwrap_or(0);
+        
+        conn.execute(
+            "INSERT INTO scene_versions (id, scene_id, version_number, title, content, dramatic_goal, 
+             external_pressure, conflict_type, characters_present, character_conflicts,
+             setting_location, setting_time, setting_atmosphere, word_count, change_summary,
+             created_by, model_used, confidence_score, previous_version_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![
+                &id, &scene.id, version_number, scene.title, scene.content, scene.dramatic_goal,
+                scene.external_pressure, scene.conflict_type.as_ref().map(|c| c.to_string()),
+                serde_json::to_string(&scene.characters_present).unwrap(),
+                serde_json::to_string(&scene.character_conflicts).unwrap(),
+                scene.setting_location, scene.setting_time, scene.setting_atmosphere,
+                word_count, change_summary, created_by.to_string(), model_used, confidence_score,
+                previous_version_id, now.to_rfc3339()
+            ],
+        )?;
+        
+        // 标记上一个版本为被取代
+        if let Some(prev_id) = &previous_version_id {
+            conn.execute(
+                "UPDATE scene_versions SET superseded_by = ?1 WHERE id = ?2",
+                params![&id, prev_id],
+            )?;
+        }
+        
+        let version = SceneVersion {
+            id,
+            scene_id: scene.id.clone(),
+            version_number,
+            title: scene.title.clone(),
+            content: scene.content.clone(),
+            dramatic_goal: scene.dramatic_goal.clone(),
+            external_pressure: scene.external_pressure.clone(),
+            conflict_type: scene.conflict_type.clone(),
+            characters_present: scene.characters_present.clone(),
+            character_conflicts: scene.character_conflicts.clone(),
+            setting_location: scene.setting_location.clone(),
+            setting_time: scene.setting_time.clone(),
+            setting_atmosphere: scene.setting_atmosphere.clone(),
+            word_count,
+            change_summary: change_summary.to_string(),
+            created_by,
+            model_used: model_used.map(|s| s.to_string()),
+            confidence_score,
+            previous_version_id,
+            superseded_by: None,
+            created_at: now,
+        };
+        
+        Ok(version)
+    }
+
+    /// 获取场景的所有版本
+    pub fn get_versions(&self, scene_id: &str) -> Result<Vec<SceneVersion>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, scene_id, version_number, title, content, dramatic_goal, external_pressure,
+                    conflict_type, characters_present, character_conflicts, setting_location, setting_time,
+                    setting_atmosphere, word_count, change_summary, created_by, model_used, confidence_score,
+                    previous_version_id, superseded_by, created_at
+             FROM scene_versions WHERE scene_id = ?1 ORDER BY version_number DESC"
+        )?;
+        
+        let versions = stmt.query_map([scene_id], |row| {
+            let conflict_type_str: Option<String> = row.get(7)?;
+            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+            
+            let chars_json: String = row.get(8)?;
+            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
+            
+            let conflicts_json: String = row.get(9)?;
+            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
+            
+            let created_by_str: String = row.get(15)?;
+            let created_by = created_by_str.parse().unwrap_or(CreatorType::System);
+            
+            let created_str: String = row.get(20)?;
+            
+            Ok(SceneVersion {
+                id: row.get(0)?,
+                scene_id: row.get(1)?,
+                version_number: row.get(2)?,
+                title: row.get(3)?,
+                content: row.get(4)?,
+                dramatic_goal: row.get(5)?,
+                external_pressure: row.get(6)?,
+                conflict_type,
+                characters_present,
+                character_conflicts,
+                setting_location: row.get(10)?,
+                setting_time: row.get(11)?,
+                setting_atmosphere: row.get(12)?,
+                word_count: row.get(13)?,
+                change_summary: row.get(14)?,
+                created_by,
+                model_used: row.get(16)?,
+                confidence_score: row.get(17)?,
+                previous_version_id: row.get(18)?,
+                superseded_by: row.get(19)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+        
+        Ok(versions)
+    }
+
+    /// 获取特定版本
+    pub fn get_version(&self, version_id: &str) -> Result<Option<SceneVersion>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, scene_id, version_number, title, content, dramatic_goal, external_pressure,
+                    conflict_type, characters_present, character_conflicts, setting_location, setting_time,
+                    setting_atmosphere, word_count, change_summary, created_by, model_used, confidence_score,
+                    previous_version_id, superseded_by, created_at
+             FROM scene_versions WHERE id = ?1"
+        )?;
+        
+        let version = stmt.query_row([version_id], |row| {
+            let conflict_type_str: Option<String> = row.get(7)?;
+            let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
+            
+            let chars_json: String = row.get(8)?;
+            let characters_present: Vec<String> = serde_json::from_str(&chars_json).unwrap_or_default();
+            
+            let conflicts_json: String = row.get(9)?;
+            let character_conflicts: Vec<CharacterConflict> = serde_json::from_str(&conflicts_json).unwrap_or_default();
+            
+            let created_by_str: String = row.get(15)?;
+            let created_by = created_by_str.parse().unwrap_or(CreatorType::System);
+            
+            let created_str: String = row.get(20)?;
+            
+            Ok(SceneVersion {
+                id: row.get(0)?,
+                scene_id: row.get(1)?,
+                version_number: row.get(2)?,
+                title: row.get(3)?,
+                content: row.get(4)?,
+                dramatic_goal: row.get(5)?,
+                external_pressure: row.get(6)?,
+                conflict_type,
+                characters_present,
+                character_conflicts,
+                setting_location: row.get(10)?,
+                setting_time: row.get(11)?,
+                setting_atmosphere: row.get(12)?,
+                word_count: row.get(13)?,
+                change_summary: row.get(14)?,
+                created_by,
+                model_used: row.get(16)?,
+                confidence_score: row.get(17)?,
+                previous_version_id: row.get(18)?,
+                superseded_by: row.get(19)?,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+        
+        Ok(version)
+    }
+
+    /// 删除版本
+    pub fn delete_version(&self, version_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count = conn.execute("DELETE FROM scene_versions WHERE id = ?1", [version_id])?;
+        Ok(count)
+    }
+
+    /// 获取场景版本数量
+    pub fn get_version_count(&self, scene_id: &str) -> Result<i32, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM scene_versions WHERE scene_id = ?1",
+            [scene_id],
+            |row| row.get(0)
+        )?;
+        Ok(count)
+    }
 }
 
 // ==================== WorldBuilding Repository ====================
@@ -241,8 +463,8 @@ impl WorldBuildingRepository {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
             "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7)",
-            params![&id, story_id, concept, "[]", "[]", now.to_rfc3339(), now.to_rfc3339()],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![&id, story_id, concept, "[]", "", "[]", now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
         Ok(WorldBuilding {
@@ -264,7 +486,7 @@ impl WorldBuildingRepository {
              FROM world_buildings WHERE story_id = ?1"
         )?;
 
-        let result = stmt.query_row([story_id], |row| {
+        let wb = stmt.query_row([story_id], |row| {
             let rules_json: String = row.get(3)?;
             let rules: Vec<WorldRule> = serde_json::from_str(&rules_json).unwrap_or_default();
             
@@ -286,7 +508,7 @@ impl WorldBuildingRepository {
             })
         }).optional()?;
 
-        Ok(result)
+        Ok(wb)
     }
 
     pub fn update(&self, id: &str, concept: Option<&str>, rules: Option<&[WorldRule]>, 
@@ -326,21 +548,22 @@ impl WritingStyleRepository {
         Self { pool }
     }
 
-    pub fn create(&self, story_id: &str) -> Result<WritingStyle, rusqlite::Error> {
+    pub fn create(&self, story_id: &str, name: Option<&str>) -> Result<WritingStyle, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO writing_styles (id, story_id, custom_rules, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![&id, story_id, "[]", now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO writing_styles (id, story_id, name, description, tone, pacing, 
+             vocabulary_level, sentence_structure, custom_rules, created_at, updated_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![&id, story_id, name, "", "", "", "", "", "[]", now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
         Ok(WritingStyle {
             id,
             story_id: story_id.to_string(),
-            name: None,
+            name: name.map(|s| s.to_string()),
             description: None,
             tone: None,
             pacing: None,
@@ -360,7 +583,7 @@ impl WritingStyleRepository {
              FROM writing_styles WHERE story_id = ?1"
         )?;
 
-        let result = stmt.query_row([story_id], |row| {
+        let style = stmt.query_row([story_id], |row| {
             let rules_json: String = row.get(8)?;
             let custom_rules: Vec<String> = serde_json::from_str(&rules_json).unwrap_or_default();
             
@@ -382,7 +605,7 @@ impl WritingStyleRepository {
             })
         }).optional()?;
 
-        Ok(result)
+        Ok(style)
     }
 
     pub fn update(&self, id: &str, updates: &WritingStyleUpdate) -> Result<usize, rusqlite::Error> {
@@ -438,37 +661,57 @@ impl StudioConfigRepository {
         Self { pool }
     }
 
+    /// 创建默认配置 (兼容旧接口)
     pub fn create(&self, story_id: &str) -> Result<StudioConfig, rusqlite::Error> {
+        self.create_default(story_id, "新建工作室")
+    }
+
+    pub fn create_default(&self, story_id: &str, title: &str) -> Result<StudioConfig, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         
-        let llm_config = LlmStudioConfig::default();
-        let ui_config = UiStudioConfig::default();
+        let llm_config = LlmStudioConfig {
+            default_provider: "openai".to_string(),
+            default_model: "gpt-4".to_string(),
+            generation_temperature: 0.7,
+            max_tokens: 4096,
+            profiles: vec![],
+        };
+        
+        let ui_config = UiStudioConfig {
+            frontstage_font_size: 18,
+            frontstage_font_family: "Noto Serif SC".to_string(),
+            frontstage_line_height: 1.8,
+            frontstage_paper_color: "#f5f4ed".to_string(),
+            frontstage_text_color: "#2c2c2c".to_string(),
+            backstage_theme: "dark".to_string(),
+            backstage_accent_color: "#6366f1".to_string(),
+        };
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO studio_configs (id, story_id, llm_config, ui_config, agent_bots, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO studio_configs (id, story_id, pen_name, llm_config, ui_config, 
+             agent_bots, frontstage_theme, backstage_theme, created_at, updated_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
-                &id, 
-                story_id, 
+                &id, story_id, title,
                 serde_json::to_string(&llm_config).unwrap(),
                 serde_json::to_string(&ui_config).unwrap(),
                 "[]",
-                now.to_rfc3339(), 
-                now.to_rfc3339()
+                "paper", "dark",
+                now.to_rfc3339(), now.to_rfc3339()
             ],
         )?;
         
         Ok(StudioConfig {
             id,
             story_id: story_id.to_string(),
-            pen_name: None,
+            pen_name: Some(title.to_string()),
             llm_config,
             ui_config,
             agent_bots: vec![],
-            frontstage_theme: None,
-            backstage_theme: None,
+            frontstage_theme: Some("paper".to_string()),
+            backstage_theme: Some("dark".to_string()),
             created_at: now,
             updated_at: now,
         })
@@ -482,7 +725,7 @@ impl StudioConfigRepository {
              FROM studio_configs WHERE story_id = ?1"
         )?;
 
-        let result = stmt.query_row([story_id], |row| {
+        let config = stmt.query_row([story_id], |row| {
             let llm_json: String = row.get(3)?;
             let llm_config: LlmStudioConfig = serde_json::from_str(&llm_json).unwrap_or_default();
             
@@ -509,35 +752,38 @@ impl StudioConfigRepository {
             })
         }).optional()?;
 
-        Ok(result)
+        Ok(config)
     }
 
-    pub fn update(&self, id: &str, pen_name: Option<&str>, llm_config: Option<&LlmStudioConfig>,
-                  ui_config: Option<&UiStudioConfig>, agent_bots: Option<&[AgentBotConfig]>) -> Result<usize, rusqlite::Error> {
+    /// 更新配置 (兼容旧接口)
+    pub fn update(&self, id: &str, _pen_name: Option<&str>, 
+                  llm_config: Option<&LlmStudioConfig>,
+                  ui_config: Option<&UiStudioConfig>,
+                  agent_bots: Option<&[AgentBotConfig]>) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         
         let count = conn.execute(
             "UPDATE studio_configs SET 
-                pen_name = COALESCE(?2, pen_name),
-                llm_config = COALESCE(?3, llm_config),
-                ui_config = COALESCE(?4, ui_config),
-                agent_bots = COALESCE(?5, agent_bots),
-                updated_at = ?6
+                llm_config = COALESCE(?2, llm_config),
+                ui_config = COALESCE(?3, ui_config),
+                agent_bots = COALESCE(?4, agent_bots),
+                updated_at = ?5
              WHERE id = ?1",
             params![
                 id,
-                pen_name,
                 llm_config.map(|c| serde_json::to_string(c).unwrap()),
                 ui_config.map(|c| serde_json::to_string(c).unwrap()),
-                agent_bots.map(|b| serde_json::to_string(b).unwrap()),
+                agent_bots.map(|b| serde_json::to_string(&b.to_vec()).unwrap()),
                 now
             ],
         )?;
         Ok(count)
     }
 
-    pub fn update_themes(&self, id: &str, frontstage: Option<&str>, backstage: Option<&str>) -> Result<usize, rusqlite::Error> {
+    /// 更新主题
+    pub fn update_themes(&self, id: &str, frontstage_theme: Option<&str>, 
+                         backstage_theme: Option<&str>) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
         
@@ -547,13 +793,23 @@ impl StudioConfigRepository {
                 backstage_theme = COALESCE(?3, backstage_theme),
                 updated_at = ?4
              WHERE id = ?1",
-            params![id, frontstage, backstage, now],
+            params![id, frontstage_theme, backstage_theme, now],
         )?;
         Ok(count)
     }
 }
 
-// ==================== Knowledge Graph Repository ====================
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct StudioConfigUpdate {
+    pub pen_name: Option<String>,
+    pub llm_config: Option<LlmStudioConfig>,
+    pub ui_config: Option<UiStudioConfig>,
+    pub agent_bots: Option<Vec<AgentBotConfig>>,
+    pub frontstage_theme: Option<String>,
+    pub backstage_theme: Option<String>,
+}
+
+// ==================== KnowledgeGraph Repository ====================
 
 pub struct KnowledgeGraphRepository {
     pool: DbPool,
@@ -564,8 +820,8 @@ impl KnowledgeGraphRepository {
         Self { pool }
     }
 
-    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, 
-                         attributes: &serde_json::Value) -> Result<Entity, rusqlite::Error> {
+    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value) 
+        -> Result<Entity, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
         
@@ -585,13 +841,17 @@ impl KnowledgeGraphRepository {
             embedding: None,
             first_seen: now,
             last_updated: now,
+            confidence_score: None,
+            access_count: 0,
+            last_accessed: None,
         })
     }
 
     pub fn get_entities_by_story(&self, story_id: &str) -> Result<Vec<Entity>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated 
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+                    confidence_score, access_count, last_accessed
              FROM kg_entities WHERE story_id = ?1"
         )?;
 
@@ -604,6 +864,7 @@ impl KnowledgeGraphRepository {
             
             let first_str: String = row.get(6)?;
             let updated_str: String = row.get(7)?;
+            let last_accessed: Option<String> = row.get(10)?;
             
             Ok(Entity {
                 id: row.get(0)?,
@@ -614,6 +875,9 @@ impl KnowledgeGraphRepository {
                 embedding: None, // TODO: 处理BLOB
                 first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
                 last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score: row.get(8)?,
+                access_count: row.get(9)?,
+                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -641,13 +905,14 @@ impl KnowledgeGraphRepository {
             strength,
             evidence: vec![],
             first_seen: now,
+            confidence_score: None,
         })
     }
 
     pub fn get_relations_by_entity(&self, entity_id: &str) -> Result<Vec<Relation>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen 
+            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen, confidence_score
              FROM kg_relations WHERE source_id = ?1 OR target_id = ?1"
         )?;
 
@@ -669,6 +934,7 @@ impl KnowledgeGraphRepository {
                 strength: row.get(5)?,
                 evidence,
                 first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score: row.get(8)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 

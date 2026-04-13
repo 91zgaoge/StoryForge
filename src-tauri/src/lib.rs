@@ -190,6 +190,14 @@ pub fn run() {
             commands_v3::get_story_entities,
             commands_v3::create_relation,
             commands_v3::get_entity_relations,
+            // Scene version commands
+            commands_v3::get_scene_versions,
+            commands_v3::get_scene_version,
+            commands_v3::create_scene_version,
+            commands_v3::compare_scene_versions,
+            commands_v3::restore_scene_version,
+            commands_v3::get_scene_version_stats,
+            commands_v3::delete_scene_version,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -357,8 +365,14 @@ static VECTOR_STORE: OnceCell<LanceVectorStore> = OnceCell::new();
 
 #[tauri::command]
 async fn search_similar(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {
+    use embeddings::embed_text;
+    
     let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
-    store.search(&story_id, &query, top_k.unwrap_or(5))
+    
+    // 生成查询向量
+    let query_embedding = embed_text(&query).map_err(|e| e.to_string())?;
+    
+    store.search(&story_id, query_embedding, top_k.unwrap_or(5))
         .await
         .map_err(|e| e.to_string())
 }

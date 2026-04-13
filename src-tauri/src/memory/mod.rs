@@ -13,11 +13,15 @@ pub mod tokenizer;
 pub mod ingest;
 pub mod query;
 pub mod multi_agent;
+pub mod hybrid_search;
+pub mod retention;
 
 pub use tokenizer::CJKTokenizer;
 pub use ingest::{IngestPipeline, IngestContent, IngestResult, IngestBatch};
 pub use query::{QueryPipeline, QueryResult, BudgetConfig};
 pub use multi_agent::{MultiAgentSessionManager, AgentSession, AgentResponse, SessionStats};
+pub use hybrid_search::{HybridSearch, HybridSearchConfig, HybridSearchResult, Bm25Search, EntityHybridSearch};
+pub use retention::{RetentionManager, RetentionScore, RetentionReport, PriorityLevel};
 
 /// 短期记忆管理器 - 维护 Agent 执行所需的上下文
 pub struct ShortTermMemory {
