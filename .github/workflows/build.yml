@@ -114,10 +114,9 @@ jobs:
           workspaces: src-tauri
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0"
+        run: cargo install tauri-cli --version "^2.0" --locked
 
       - name: Build Tauri app
-        working-directory: src-tauri
         run: cargo tauri build --target ${{ matrix.target }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

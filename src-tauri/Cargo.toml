@@ -28,7 +28,7 @@ rand = "0.8"
 tokio-util = { version = "0.7", features = ["io"] }
 serde_yaml = "0.9"
 walkdir = "2"
-notify = { version = "8.0", default-features = false, features = ["macos_fsevent"] }
+notify = "8.0"
 
 # MCP (Model Context Protocol)
 rmcp = { version = "0.8", features = ["server", "client"] }
