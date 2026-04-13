@@ -34,6 +34,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **版本控制** - 场景历史，随时回溯
 - **数据导出** - 支持 PDF、EPUB、Markdown 等多种格式
 
+![幕后界面预览](docs/images/backstage-preview.png)
+
 ### 🔄 双窗口无缝协作
 
 | 功能 | 幕前 | 幕后 |
