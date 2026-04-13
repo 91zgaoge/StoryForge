@@ -91,30 +91,36 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
     
     let mut models: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
     
-    // 转换LLM配置
-    let chat_models: Vec<serde_json::Value> = config
-        .llm_profiles
-        .values()
-        .map(|p| {
-            serde_json::json!({
-                "id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "provider": p.provider,
-                "model": p.model,
-                "type": "chat",
-                "temperature": p.temperature,
-                "max_tokens": p.max_tokens,
-                "timeout_seconds": p.timeout_seconds,
-                "is_default": p.is_default,
-                "capabilities": p.capabilities,
-                "enabled": true,
-                "api_key": if p.api_key.is_empty() { None } else { Some("***") },
-                "api_base": p.api_base,
-            })
-        })
-        .collect();
+    // 转换LLM配置：含 Vision 能力的放入 multimodal，其余放入 chat
+    let mut chat_models: Vec<serde_json::Value> = vec![];
+    let mut multimodal_models: Vec<serde_json::Value> = vec![];
+    
+    for p in config.llm_profiles.values() {
+        let is_multimodal = p.capabilities.contains(&super::settings::ModelCapability::Vision);
+        let model_json = serde_json::json!({
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "provider": p.provider,
+            "model": p.model,
+            "type": if is_multimodal { "multimodal" } else { "chat" },
+            "temperature": p.temperature,
+            "max_tokens": p.max_tokens,
+            "timeout_seconds": p.timeout_seconds,
+            "is_default": p.is_default,
+            "capabilities": p.capabilities,
+            "enabled": true,
+            "api_key": if p.api_key.is_empty() { None } else { Some("***") },
+            "api_base": p.api_base,
+        });
+        if is_multimodal {
+            multimodal_models.push(model_json);
+        } else {
+            chat_models.push(model_json);
+        }
+    }
     models.insert("chat".to_string(), chat_models);
+    models.insert("multimodal".to_string(), multimodal_models);
     
     // 转换Embedding配置
     let embedding_models: Vec<serde_json::Value> = config
@@ -139,8 +145,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
         .collect();
     models.insert("embedding".to_string(), embedding_models);
     
-    // 空的多模态和图像模型（待实现）
-    models.insert("multimodal".to_string(), vec![]);
+    // 图像模型暂空
     models.insert("image".to_string(), vec![]);
     
     let active_models = vec![
@@ -290,6 +295,7 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 "ollama" => LlmProvider::Ollama,
                 "deepseek" => LlmProvider::DeepSeek,
                 "qwen" => LlmProvider::Qwen,
+                "custom" => LlmProvider::Custom,
                 _ => LlmProvider::OpenAI,
             };
             
@@ -315,6 +321,7 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
                 "azure" => EmbeddingProvider::Azure,
                 "ollama" => EmbeddingProvider::Ollama,
                 "local" => EmbeddingProvider::Local,
+                "custom" => EmbeddingProvider::Custom,
                 _ => EmbeddingProvider::OpenAI,
             };
             
@@ -333,9 +340,56 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
             
             app_config.add_embedding_profile(profile).map_err(|e| e.to_string())?;
         }
-        _ => {
-            // TODO: 实现多模态和图像模型
-            return Err("该模型类型暂未实现".to_string());
+        ModelType::Multimodal => {
+            let provider = match config.provider.as_str() {
+                "anthropic" => LlmProvider::Anthropic,
+                "azure" => LlmProvider::Azure,
+                "ollama" => LlmProvider::Ollama,
+                "deepseek" => LlmProvider::DeepSeek,
+                "qwen" => LlmProvider::Qwen,
+                "custom" => LlmProvider::Custom,
+                _ => LlmProvider::OpenAI,
+            };
+            
+            let mut capabilities = config
+                .capabilities
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|c| match c.as_str() {
+                    "chat" => Some(ModelCapability::Chat),
+                    "completion" => Some(ModelCapability::Completion),
+                    "function_calling" => Some(ModelCapability::FunctionCalling),
+                    "json_mode" => Some(ModelCapability::JsonMode),
+                    "vision" => Some(ModelCapability::Vision),
+                    "long_context" => Some(ModelCapability::LongContext),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            
+            if !capabilities.contains(&ModelCapability::Vision) {
+                capabilities.push(ModelCapability::Vision);
+            }
+            
+            let profile = LlmProfile {
+                id: model_id.clone(),
+                name: config.name,
+                description: config.description,
+                provider,
+                model: config.model,
+                api_key: config.api_key.unwrap_or_default(),
+                api_base: config.api_base,
+                max_tokens: config.max_tokens.unwrap_or(2000),
+                temperature: config.temperature.unwrap_or(0.7),
+                timeout_seconds: 120,
+                is_default: config.is_default.unwrap_or(false),
+                capabilities,
+            };
+            
+            app_config.add_llm_profile(profile).map_err(|e| e.to_string())?;
+        }
+        ModelType::Image => {
+            // TODO: 实现图像生成模型
+            return Err("图像生成模型暂未实现".to_string());
         }
     }
     

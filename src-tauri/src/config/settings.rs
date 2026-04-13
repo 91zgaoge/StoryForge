@@ -132,55 +132,76 @@ impl Default for AppConfig {
         let mut llm_profiles = HashMap::new();
         let mut embedding_profiles = HashMap::new();
 
-        // 默认LLM配置
-        let default_llm = LlmProfile {
-            id: "default-openai".to_string(),
-            name: "OpenAI GPT-3.5".to_string(),
-            description: Some("默认OpenAI配置".to_string()),
-            provider: LlmProvider::OpenAI,
-            model: "gpt-3.5-turbo".to_string(),
+        // 1. 语言模型 - Qwen3.5-27B-Uncensored-Q4_K_M
+        let qwen35 = LlmProfile {
+            id: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
+            name: "Qwen 3.5 语言模型".to_string(),
+            description: Some("本地语言模型，用于文本生成和对话".to_string()),
+            provider: LlmProvider::Custom,
+            model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
             api_key: "".to_string(),
-            api_base: None,
-            max_tokens: 2000,
-            temperature: 0.7,
+            api_base: Some("http://10.62.239.13:17098/v1".to_string()),
+            max_tokens: 8192,
+            temperature: 0.8,
             timeout_seconds: 120,
             is_default: true,
             capabilities: vec![
                 ModelCapability::Chat,
-                ModelCapability::FunctionCalling,
-                ModelCapability::JsonMode,
+                ModelCapability::Completion,
+                ModelCapability::LongContext,
             ],
         };
-        llm_profiles.insert(default_llm.id.clone(), default_llm);
+        llm_profiles.insert(qwen35.id.clone(), qwen35);
 
-        // 默认嵌入配置（本地TF-IDF）
-        let default_embedding = EmbeddingProfile {
-            id: "default-local".to_string(),
-            name: "本地TF-IDF".to_string(),
-            description: Some("本地向量计算，无需API密钥".to_string()),
-            provider: EmbeddingProvider::Local,
-            model: "tfidf-local".to_string(),
+        // 2. 多模态模型 - Gemma-4-31B-it-Q6_K
+        let gemma4 = LlmProfile {
+            id: "Gemma-4-31B-it-Q6_K".to_string(),
+            name: "Gemma 4 多模态".to_string(),
+            description: Some("本地多模态模型，支持图文理解".to_string()),
+            provider: LlmProvider::Custom,
+            model: "Gemma-4-31B-it-Q6_K".to_string(),
             api_key: "".to_string(),
-            api_base: None,
-            dimensions: 0, // 动态
+            api_base: Some("http://10.62.239.13:17099/v1".to_string()),
+            max_tokens: 8192,
+            temperature: 0.7,
+            timeout_seconds: 120,
+            is_default: false,
+            capabilities: vec![
+                ModelCapability::Chat,
+                ModelCapability::Vision,
+                ModelCapability::LongContext,
+            ],
+        };
+        llm_profiles.insert(gemma4.id.clone(), gemma4);
+
+        // 3. Embedding 嵌入模型 - bge-m3
+        let bge_m3 = EmbeddingProfile {
+            id: "bge-m3".to_string(),
+            name: "BGE-M3 Embedding".to_string(),
+            description: Some("文本嵌入模型，用于语义搜索和向量化".to_string()),
+            provider: EmbeddingProvider::Custom,
+            model: "bge-m3".to_string(),
+            api_key: "76e0e2bc84c45374999a1d5e66962544c09cc00ae42ad25cd6a2a07a9d7fe330".to_string(),
+            api_base: Some("http://10.62.239.13:8089".to_string()),
+            dimensions: 1024,
             max_input_tokens: 8192,
             is_default: true,
         };
-        embedding_profiles.insert(default_embedding.id.clone(), default_embedding);
+        embedding_profiles.insert(bge_m3.id.clone(), bge_m3);
 
         Self {
             llm: LlmConfig {
-                provider: "openai".to_string(),
+                provider: "custom".to_string(),
                 api_key: "".to_string(),
-                model: "gpt-3.5-turbo".to_string(),
-                api_base: None,
-                max_tokens: 2000,
-                temperature: 0.7,
+                model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
+                api_base: Some("http://10.62.239.13:17098/v1".to_string()),
+                max_tokens: 8192,
+                temperature: 0.8,
             },
             llm_profiles,
             embedding_profiles,
-            active_llm_profile: Some("default-openai".to_string()),
-            active_embedding_profile: Some("default-local".to_string()),
+            active_llm_profile: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+            active_embedding_profile: Some("bge-m3".to_string()),
         }
     }
 }
@@ -188,7 +209,7 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load(config_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let config_path = config_dir.join("config.json");
-        if config_path.exists() {
+        let mut config = if config_path.exists() {
             let content = fs::read_to_string(config_path)?;
             let mut config: AppConfig = serde_json::from_str(&content)?;
 
@@ -197,10 +218,91 @@ impl AppConfig {
                 config.migrate_legacy_config();
             }
 
-            Ok(config)
+            config
         } else {
-            Ok(AppConfig::default())
+            AppConfig::default()
+        };
+
+        // 自动补充真实本地模型（如果缺失）
+        let mut needs_save = false;
+
+        // 补充 Qwen3.5 语言模型
+        if !config.llm_profiles.contains_key("Qwen3.5-27B-Uncensored-Q4_K_M") {
+            let qwen35 = LlmProfile {
+                id: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
+                name: "Qwen 3.5 语言模型".to_string(),
+                description: Some("本地语言模型，用于文本生成和对话".to_string()),
+                provider: LlmProvider::Custom,
+                model: "Qwen3.5-27B-Uncensored-Q4_K_M".to_string(),
+                api_key: "".to_string(),
+                api_base: Some("http://10.62.239.13:17098/v1".to_string()),
+                max_tokens: 8192,
+                temperature: 0.8,
+                timeout_seconds: 120,
+                is_default: config.llm_profiles.values().all(|p| !p.is_default),
+                capabilities: vec![
+                    ModelCapability::Chat,
+                    ModelCapability::Completion,
+                    ModelCapability::LongContext,
+                ],
+            };
+            config.llm_profiles.insert(qwen35.id.clone(), qwen35);
+            if config.active_llm_profile.is_none() {
+                config.active_llm_profile = Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string());
+            }
+            needs_save = true;
         }
+
+        // 补充 Gemma-4 多模态模型
+        if !config.llm_profiles.contains_key("Gemma-4-31B-it-Q6_K") {
+            let gemma4 = LlmProfile {
+                id: "Gemma-4-31B-it-Q6_K".to_string(),
+                name: "Gemma 4 多模态".to_string(),
+                description: Some("本地多模态模型，支持图文理解".to_string()),
+                provider: LlmProvider::Custom,
+                model: "Gemma-4-31B-it-Q6_K".to_string(),
+                api_key: "".to_string(),
+                api_base: Some("http://10.62.239.13:17099/v1".to_string()),
+                max_tokens: 8192,
+                temperature: 0.7,
+                timeout_seconds: 120,
+                is_default: false,
+                capabilities: vec![
+                    ModelCapability::Chat,
+                    ModelCapability::Vision,
+                    ModelCapability::LongContext,
+                ],
+            };
+            config.llm_profiles.insert(gemma4.id.clone(), gemma4);
+            needs_save = true;
+        }
+
+        // 补充 bge-m3 嵌入模型
+        if !config.embedding_profiles.contains_key("bge-m3") {
+            let bge_m3 = EmbeddingProfile {
+                id: "bge-m3".to_string(),
+                name: "BGE-M3 Embedding".to_string(),
+                description: Some("文本嵌入模型，用于语义搜索和向量化".to_string()),
+                provider: EmbeddingProvider::Custom,
+                model: "bge-m3".to_string(),
+                api_key: "76e0e2bc84c45374999a1d5e66962544c09cc00ae42ad25cd6a2a07a9d7fe330".to_string(),
+                api_base: Some("http://10.62.239.13:8089".to_string()),
+                dimensions: 1024,
+                max_input_tokens: 8192,
+                is_default: config.embedding_profiles.values().all(|p| !p.is_default),
+            };
+            config.embedding_profiles.insert(bge_m3.id.clone(), bge_m3);
+            if config.active_embedding_profile.is_none() {
+                config.active_embedding_profile = Some("bge-m3".to_string());
+            }
+            needs_save = true;
+        }
+
+        if needs_save {
+            config.save(config_dir)?;
+        }
+
+        Ok(config)
     }
 
     pub fn save(&self, config_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
