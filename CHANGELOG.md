@@ -83,6 +83,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 生成 MSI (12.3 MB) 和 NSIS (8.1 MB) 两种安装包
 - 修复 GitHub Actions 跨平台构建缺少 `icons/icon.icns` 的问题
 - `rust-check` 三平台（Ubuntu / Windows / macOS）全部通过
+- **自动发布 Nightly Release**：每次推送到 master 自动构建并发布三平台安装包到 GitHub Releases
 
 ---
 
