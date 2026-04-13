@@ -26,7 +26,7 @@ export default {
       },
       fontFamily: {
         display: ['Cinzel', 'serif'],
-        body: ['Crimson Pro', 'Georgia', 'serif'],
+        body: ["'LXGW WenKai'", "'Noto Serif SC'", "'PingFang SC'", "'Microsoft YaHei'", 'Georgia', 'serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
       animation: {

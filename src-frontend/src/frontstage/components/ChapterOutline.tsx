@@ -163,7 +163,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
               onDragOver={(e) => handleDragOver(e, item.id)}
               onDrop={(e) => handleDrop(e, item.id)}
               className={cn(
-                'group relative flex items-center py-2 px-3 mx-2 rounded-lg cursor-pointer transition-all',
+                'group relative flex items-center py-2 px-3 mx-2 rounded-lg cursor-pointer transition-colors duration-200',
                 'hover:bg-[var(--warm-sand)]',
                 selectedId === item.id && 'bg-[var(--terracotta)]/10',
                 draggedId === item.id && 'opacity-50',
@@ -235,7 +235,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
                     e.stopPropagation();
                     handleEditStart(item);
                   }}
-                  className="p-1 rounded hover:bg-[var(--warm-sand)] text-[var(--stone-gray)] hover:text-[var(--charcoal)]"
+                  className="p-1 rounded hover:bg-[var(--warm-sand)] text-[var(--stone-gray)] hover:text-[var(--charcoal)] active:scale-90"
                   title="编辑"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
@@ -245,7 +245,7 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
                     e.stopPropagation();
                     onDelete(item.id);
                   }}
-                  className="p-1 rounded hover:bg-red-100 text-[var(--stone-gray)] hover:text-red-500"
+                  className="p-1 rounded hover:bg-red-100 text-[var(--stone-gray)] hover:text-red-500 active:scale-90"
                   title="删除"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

@@ -12,14 +12,12 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
 import { 
-  Send, 
+  Send,
   ChevronUp,
   Sparkles,
   CheckCircle2,
   AlertCircle,
-  Loader2,
-  MessageSquare,
-  Image as ImageIcon
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { Character } from '@/types/index';
@@ -82,7 +80,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [streamingContent, setStreamingContent] = useState('');
     
     // 使用模型管理Hook
-    const { currentModel, status, availableModels, switchModel, chat } = useModel();
+    const { currentModel, status, chat } = useModel();
     
     // 角色卡片弹窗状态
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -289,19 +287,23 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
         {/* AI 生成预览 */}
         {generatedText && (
-          <div className="mx-8 my-4 p-4 bg-[var(--terracotta)]/5 border-l-4 border-[var(--terracotta)] rounded-r-lg">
-            <p className="text-sm text-[var(--stone-gray)] italic mb-2">AI 建议续写：</p>
+          <div className="mx-8 my-4 p-4 bg-[var(--parchment-dark)] rounded-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-[var(--terracotta)]/30" />
+            <p className="text-sm text-[var(--stone-gray)] italic mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-[var(--terracotta)]" />
+              AI 建议续写
+            </p>
             <p className="text-[var(--charcoal)] leading-relaxed">{generatedText}</p>
             <div className="flex items-center gap-2 mt-3 text-sm">
               <button
                 onClick={onAcceptGeneration}
-                className="px-3 py-1 bg-[var(--terracotta)] text-white rounded hover:bg-[var(--terracotta-dark)]"
+                className="px-3 py-1.5 bg-[var(--terracotta)] text-white rounded-lg hover:bg-[var(--terracotta-dark)] active:scale-95 transition-colors duration-200"
               >
                 Tab 接受
               </button>
               <button
                 onClick={onRejectGeneration}
-                className="px-3 py-1 text-[var(--stone-gray)] hover:text-[var(--charcoal)]"
+                className="px-3 py-1.5 text-[var(--stone-gray)] hover:text-[var(--charcoal)] hover:bg-[var(--warm-sand)] rounded-lg active:scale-95 transition-colors duration-200"
               >
                 Esc 拒绝
               </button>
@@ -317,7 +319,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               'bg-[var(--parchment)]/95 backdrop-blur-sm',
               'px-6 pb-5 pt-3',
               'border-t border-[var(--warm-sand)]',
-              'transition-all duration-300 ease-out',
+              'transition-opacity duration-300 ease-out transition-transform duration-300 ease-out',
               showToolbar || isExpanded || chatInput ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'
             )}
           >
@@ -424,34 +426,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   />
                 </div>
 
-                {/* 右侧：发送按钮 + 模型切换 */}
+                {/* 右侧：发送按钮 */}
                 <div className="chat-input-right">
-                  {/* 模型切换按钮 */}
-                  {availableModels.length > 1 && (
-                    <div className="model-switch-group">
-                      {availableModels.map((model) => (
-                        <button
-                          key={model.id}
-                          onClick={() => switchModel(model.id === currentModel.id ? 
-                            availableModels.find(m => m.id !== currentModel.id)?.id || model.id 
-                            : model.id
-                          )}
-                          className={cn(
-                            'model-switch-btn',
-                            currentModel.id === model.id && 'active'
-                          )}
-                          title={model.name}
-                        >
-                          {model.type === 'multimodal' ? (
-                            <ImageIcon className="w-3 h-3" />
-                          ) : (
-                            <MessageSquare className="w-3 h-3" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
                   <button
                     onClick={handleSendMessage}
                     disabled={!chatInput.trim() || isAiThinking || status === 'disconnected'}

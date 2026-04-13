@@ -289,17 +289,14 @@ const FrontstageApp: React.FC = () => {
             className={`frontstage-sidebar ${sidebarOpen ? '' : 'collapsed'}`}
             style={{ width: sidebarOpen ? '120px' : '0px' }}
           >
-            <div className="frontstage-sidebar-content h-full flex flex-col">
-              {/* 仅保留幕后按钮 */}
-              <div className="p-4 mt-auto">
-                <button 
-                  className="backstage-btn-minimal" 
-                  onClick={openBackstage}
-                  title="打开幕后工作室"
-                >
-                  幕后
-                </button>
-              </div>
+            <div className="frontstage-sidebar-content h-full flex flex-col justify-end p-3">
+              <button 
+                className="backstage-btn-minimal" 
+                onClick={openBackstage}
+                title="打开幕后工作室"
+              >
+                幕后
+              </button>
             </div>
           </aside>
         )}

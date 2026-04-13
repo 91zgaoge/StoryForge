@@ -41,13 +41,10 @@ export interface CustomFont {
 
 // 预设字体列表
 const PRESET_FONTS: CustomFont[] = [
-  { id: 'crimson', name: 'Crimson Pro', family: "'Crimson Pro', Georgia, serif", source: 'google' },
-  { id: 'noto-serif', name: '思源宋体', family: "'Noto Serif SC', 'Source Han Serif CN', serif", source: 'google' },
-  { id: 'lxgw', name: '霞鹜文楷', family: "'LXGW WenKai', serif", source: 'google' },
-  { id: 'inter', name: 'Inter', family: "'Inter', system-ui, sans-serif", source: 'google' },
-  { id: 'cormorant', name: 'Cormorant Garamond', family: "'Cormorant Garamond', serif", source: 'google' },
+  { id: 'lxgw', name: '霞鹜文楷', family: "'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', serif", source: 'google' },
+  { id: 'noto-serif', name: '思源宋体', family: "'Noto Serif SC', 'Source Han Serif CN', 'LXGW WenKai', serif", source: 'google' },
   { id: 'system-serif', name: '系统宋体', family: "Georgia, 'STSong', 'SimSun', serif", source: 'system' },
-  { id: 'system-sans', name: '系统黑体', family: "system-ui, -apple-system, sans-serif", source: 'system' },
+  { id: 'system-sans', name: '系统黑体', family: "'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif", source: 'system' },
 ];
 
 const STORAGE_KEY = 'storyforge-editor-config';

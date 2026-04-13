@@ -9,25 +9,29 @@
 
 /* ===== CSS Variables ===== */
 :root {
-  /* Claude Design System Colors */
-  --parchment: #f5f4ed;
-  --parchment-dark: #ebe9e0;
-  --ivory: #faf9f5;
-  --terracotta: #c96442;
-  --terracotta-light: #d97b5c;
-  --terracotta-dark: #a85032;
-  --charcoal: #4d4c48;
-  --charcoal-light: #6b6a65;
-  --olive-gray: #5e5d59;
-  --stone-gray: #87867f;
-  --warm-sand: #e8e6dc;
-  --border-cream: #f0eee6;
-  --ink: #2d2c28;
-  --gold: #c9a86c;
+  /* OKLCH Color System - 60-30-10 Visual Weight */
+  /* 60% - Primary background (paper) */
+  --parchment: oklch(96.5% 0.008 95);
+  /* 30% - Secondary surfaces (headers, sidebars, borders) */
+  --parchment-dark: oklch(93.5% 0.01 95);
+  --warm-sand: oklch(91% 0.012 95);
+  --border-cream: oklch(94% 0.01 95);
+  /* 10% - Accent (terracotta) */
+  --terracotta: oklch(58% 0.13 45);
+  --terracotta-light: oklch(64% 0.14 45);
+  --terracotta-dark: oklch(52% 0.12 45);
+  /* Typography neutrals */
+  --charcoal: oklch(38% 0.015 85);
+  --charcoal-light: oklch(48% 0.012 85);
+  --olive-gray: oklch(52% 0.01 85);
+  --stone-gray: oklch(58% 0.008 85);
+  --ink: oklch(25% 0.015 85);
+  --ivory: oklch(98% 0.005 95);
+  --gold: oklch(72% 0.1 85);
   
   /* Typography */
-  --font-serif: 'Crimson Pro', 'Noto Serif SC', Georgia, 'STSong', 'SimSun', serif;
-  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-serif: 'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', 'Microsoft YaHei', Georgia, 'STSong', 'SimSun', serif;
+  --font-sans: 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
   
   /* Spacing */
   --content-max-width: 900px;
@@ -82,17 +86,18 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--terracotta);
+  background: var(--stone-gray);
   border-radius: 4px;
+  opacity: 0.5;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--terracotta-dark);
+  background: var(--charcoal-light);
 }
 
 /* Selection */
 ::selection {
-  background: rgba(201, 100, 66, 0.2);
+  background: oklch(58% 0.13 45 / 0.15);
   color: var(--ink);
 }
 
@@ -107,25 +112,7 @@ body {
   position: relative;
 }
 
-/* Paper texture overlay */
-.frontstage-container::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: 
-    repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0, 0, 0, 0.01) 2px,
-      rgba(0, 0, 0, 0.01) 4px
-    );
-  pointer-events: none;
-  z-index: 0;
-}
+/* Clean background — no decorative textures per Waza */
 
 /* ===== TipTap ProseMirror Editor Styles ===== */
 .ProseMirror {
@@ -134,7 +121,7 @@ body {
   color: var(--fs-ink-color, var(--charcoal));
   line-height: var(--fs-line-height, var(--line-height));
   letter-spacing: var(--fs-letter-spacing, normal);
-  transition: all 0.3s ease;
+  transition: color 0.3s ease, font-size 0.3s ease, line-height 0.3s ease, letter-spacing 0.3s ease;
 }
 
 .ProseMirror p {
@@ -174,11 +161,25 @@ body {
 }
 
 .ProseMirror blockquote {
-  border-left: 4px solid var(--fs-accent-color, var(--terracotta));
-  padding-left: 1em;
+  position: relative;
+  padding: 1em 1.25em 1em 2.25em;
   margin: 1.5em 0;
   color: var(--olive-gray);
   font-style: italic;
+  background: var(--parchment-dark);
+  border-radius: 6px;
+}
+
+.ProseMirror blockquote::before {
+  content: '"';
+  position: absolute;
+  top: 0.15em;
+  left: 0.35em;
+  font-size: 2em;
+  line-height: 1;
+  color: var(--fs-accent-color, var(--terracotta));
+  opacity: 0.4;
+  font-family: Georgia, serif;
 }
 
 .ProseMirror ul,
@@ -239,7 +240,7 @@ body {
 }
 
 .ProseMirror mark {
-  background: rgba(201, 100, 66, 0.2);
+  background: oklch(58% 0.13 45 / 0.15);
   padding: 0.1em 0.2em;
   border-radius: 2px;
 }
@@ -261,7 +262,7 @@ body {
 
 /* Selected text */
 .ProseMirror ::selection {
-  background: rgba(201, 100, 66, 0.3);
+  background: oklch(58% 0.13 45 / 0.2);
 }
 
 /* Gap cursor */
@@ -326,11 +327,15 @@ body {
   padding: 8px;
   border-radius: 4px;
   color: var(--charcoal);
-  transition: background-color var(--transition-fast);
+  transition: background-color var(--transition-fast), transform 0.1s ease;
 }
 
 .frontstage-menu-btn:hover {
   background-color: var(--warm-sand);
+}
+
+.frontstage-menu-btn:active {
+  transform: scale(0.95);
 }
 
 .frontstage-ai-toggle {
@@ -341,14 +346,18 @@ body {
   border-radius: 20px;
   cursor: pointer;
   font-size: 13px;
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-normal), color var(--transition-normal), border-color var(--transition-normal), transform 0.15s ease;
   font-family: var(--font-serif);
 }
 
 .frontstage-ai-toggle:hover,
 .frontstage-ai-toggle.active {
   background: var(--terracotta);
-  color: #fff;
+  color: oklch(100% 0 0);
+}
+
+.frontstage-ai-toggle:active {
+  transform: scale(0.95);
 }
 
 /* ===== Header Status Bar ===== */
@@ -406,8 +415,8 @@ body {
 }
 
 .frontstage-sidebar-content {
-  width: 280px;
-  padding: 20px;
+  width: 100%;
+  padding: 16px;
   opacity: 1;
   transition: opacity var(--transition-fast) 0.1s;
 }
@@ -432,8 +441,7 @@ body {
   cursor: pointer;
   margin-bottom: 6px;
   font-size: 14px;
-  transition: all var(--transition-fast);
-  border-left: 3px solid transparent;
+  transition: background-color var(--transition-fast), color var(--transition-fast), transform 0.1s ease;
 }
 
 .sidebar-item:hover {
@@ -442,7 +450,11 @@ body {
 
 .sidebar-item.active {
   background-color: var(--warm-sand);
-  border-left-color: var(--terracotta);
+  box-shadow: inset 2px 0 0 0 var(--terracotta);
+}
+
+.sidebar-item:active {
+  transform: scale(0.98);
 }
 
 .sidebar-chapter-item {
@@ -452,7 +464,7 @@ body {
   margin-bottom: 4px;
   font-size: 13px;
   color: var(--charcoal-light);
-  transition: all var(--transition-fast);
+  transition: color var(--transition-fast), transform 0.1s ease;
 }
 
 .sidebar-chapter-item:hover,
@@ -460,22 +472,30 @@ body {
   color: var(--terracotta);
 }
 
+.sidebar-chapter-item:active {
+  transform: scale(0.98);
+}
+
 .backstage-btn {
   margin-top: 40px;
   padding: 12px 16px;
   background-color: var(--terracotta);
-  color: #fff;
+  color: oklch(100% 0 0);
   border-radius: 6px;
   cursor: pointer;
   text-align: center;
   font-size: 14px;
-  transition: background-color var(--transition-fast);
+  transition: background-color var(--transition-fast), transform 0.1s ease;
   border: none;
   width: 100%;
 }
 
 .backstage-btn:hover {
   background-color: var(--terracotta-dark);
+}
+
+.backstage-btn:active {
+  transform: scale(0.97);
 }
 
 /* 简化版幕后按钮 */
@@ -489,14 +509,18 @@ body {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform 0.1s ease;
   font-family: var(--font-serif);
   letter-spacing: 0.1em;
 }
 
 .backstage-btn-minimal:hover {
   background: var(--terracotta);
-  color: #fff;
+  color: oklch(100% 0 0);
+}
+
+.backstage-btn-minimal:active {
+  transform: scale(0.95);
 }
 
 /* ===== Chat Toolbar - 对话栏样式（v2 重构版） ===== */
@@ -548,18 +572,18 @@ body {
   border: 1px solid var(--warm-sand);
   border-radius: 24px;
   padding: 8px 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .chat-input-container:hover {
   border-color: var(--terracotta-light);
-  box-shadow: 0 4px 12px rgba(201, 100, 66, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 .chat-input-container:focus-within {
   border-color: var(--terracotta);
-  box-shadow: 0 4px 16px rgba(201, 100, 66, 0.12);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
 }
 
 .chat-input-container.expanded {
@@ -587,12 +611,16 @@ body {
   border-radius: 50%;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
 }
 
 .chat-toggle-btn:hover {
   background: var(--warm-sand);
   color: var(--charcoal);
+}
+
+.chat-toggle-btn:active {
+  transform: scale(0.92);
 }
 
 /* 模型状态指示器 */
@@ -611,32 +639,32 @@ body {
   height: 8px;
   border-radius: 50%;
   background-color: var(--stone-gray);
-  transition: all 0.3s ease;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .model-status-dot.status-connected {
-  background-color: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+  background-color: oklch(65% 0.22 145);
+  box-shadow: 0 0 6px oklch(65% 0.22 145 / 0.5);
 }
 
 .model-status-dot.status-disconnected {
-  background-color: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+  background-color: oklch(60% 0.22 25);
+  box-shadow: 0 0 6px oklch(60% 0.22 25 / 0.5);
 }
 
 .model-status-dot.status-connecting {
-  background-color: #eab308;
+  background-color: oklch(75% 0.16 95);
   animation: status-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes status-pulse {
   0%, 100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7);
+    box-shadow: 0 0 0 0 oklch(75% 0.16 95 / 0.7);
   }
   50% {
     opacity: 0.6;
-    box-shadow: 0 0 0 5px rgba(234, 179, 8, 0);
+    box-shadow: 0 0 0 5px oklch(75% 0.16 95 / 0);
   }
 }
 
@@ -774,18 +802,22 @@ body {
   border-radius: 50%;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
 }
 
 .model-switch-btn:hover {
   color: var(--charcoal);
-  background: rgba(255, 255, 255, 0.5);
+  background: oklch(100% 0 0 / 0.5);
 }
 
 .model-switch-btn.active {
   background: white;
   color: var(--terracotta);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.model-switch-btn:active {
+  transform: scale(0.9);
 }
 
 /* 发送按钮 */
@@ -801,13 +833,16 @@ body {
   border-radius: 50%;
   color: var(--stone-gray);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
 }
 
 .chat-send-btn:hover:not(:disabled) {
   background: var(--terracotta);
   color: white;
-  transform: scale(1.05);
+}
+
+.chat-send-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 .chat-send-btn.active {
@@ -948,7 +983,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.9);
+  background: oklch(100% 0 0 / 0.9);
   backdrop-filter: blur(8px);
   border-radius: 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
@@ -956,14 +991,18 @@ body {
   color: var(--stone-gray);
   border: 1px solid var(--warm-sand);
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: box-shadow var(--transition-normal), transform var(--transition-normal), color var(--transition-normal), background-color var(--transition-normal);
   z-index: 1000;
 }
 
 .zen-mode-exit:hover {
   color: var(--charcoal);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.1);
   transform: translateX(-50%) translateY(-2px);
+}
+
+.zen-mode-exit:active {
+  transform: translateX(-50%) scale(0.97);
 }
 
 /* ===== Zen Mode Exit Hint ===== */
@@ -974,7 +1013,7 @@ body {
   transform: translateX(-50%);
   font-size: 12px;
   color: var(--stone-gray);
-  background-color: rgba(245, 244, 237, 0.9);
+  background-color: oklch(96.5% 0.008 95 / 0.9);
   padding: 8px 16px;
   border-radius: 20px;
   cursor: pointer;
@@ -1006,13 +1045,13 @@ body {
   gap: 10px;
   max-width: 220px;
   padding: 12px 16px;
-  background-color: rgba(250, 249, 245, 0.95);
+  background-color: oklch(98% 0.005 95 / 0.95);
   border: 1px solid var(--border-cream);
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
   opacity: 0;
   transform: translateY(10px) scale(0.95);
-  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
   pointer-events: auto;
 }
 
@@ -1041,7 +1080,7 @@ body {
   position: absolute;
   width: 100%;
   height: 100%;
-  background-color: rgba(201, 100, 66, 0.2);
+  background-color: oklch(58% 0.13 45 / 0.2);
   border-radius: 50%;
   animation: suggestion-pulse 2s ease-in-out infinite;
 }
@@ -1105,21 +1144,21 @@ body {
 
 /* ===== Character Name Highlight ===== */
 .character-name-highlight {
-  background: linear-gradient(180deg, transparent 60%, rgba(201, 100, 66, 0.2) 60%);
+  background: linear-gradient(180deg, transparent 60%, oklch(58% 0.13 45 / 0.15) 60%);
   cursor: pointer;
   transition: background 0.2s ease;
   border-radius: 2px;
 }
 
 .character-name-highlight:hover {
-  background: linear-gradient(180deg, transparent 60%, rgba(201, 100, 66, 0.4) 60%);
+  background: linear-gradient(180deg, transparent 60%, oklch(58% 0.13 45 / 0.3) 60%);
 }
 
 /* ===== Writing Styles ===== */
 
 /* Classical Style (陀思妥耶夫斯基) */
 .writing-style-classical .ProseMirror {
-  font-family: 'Noto Serif SC', 'Source Han Serif CN', 'SimSun', serif;
+  font-family: 'Noto Serif SC', 'LXGW WenKai', 'Source Han Serif CN', 'SimSun', serif;
   font-size: 16px;
   line-height: 1.9;
   letter-spacing: 0.02em;
@@ -1131,11 +1170,15 @@ body {
 }
 
 .writing-style-classical .ProseMirror blockquote {
-  border-left-color: #8b4513;
   font-style: italic;
   margin: 2em 0;
-  padding: 1em 1.5em;
-  background: rgba(139, 69, 19, 0.05);
+  padding: 1em 1.25em 1em 2.25em;
+  background: oklch(48% 0.13 55 / 0.06);
+  border-radius: 6px;
+}
+
+.writing-style-classical .ProseMirror blockquote::before {
+  color: oklch(48% 0.13 55);
 }
 
 /* Modern Chinese Style (张爱玲) */
@@ -1151,14 +1194,19 @@ body {
 }
 
 .writing-style-modernCN .ProseMirror blockquote {
-  border-left: 2px solid #d4a574;
   font-style: italic;
-  color: #5a5852;
+  color: oklch(48% 0.01 85);
+  background: oklch(72% 0.1 75 / 0.12);
+  border-radius: 6px;
+}
+
+.writing-style-modernCN .ProseMirror blockquote::before {
+  color: oklch(72% 0.1 75);
 }
 
 /* Minimal Style (海明威) */
 .writing-style-minimal .ProseMirror {
-  font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+  font-family: 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   font-size: 20px;
   line-height: 1.6;
   letter-spacing: 0.01em;
@@ -1169,14 +1217,20 @@ body {
 }
 
 .writing-style-minimal .ProseMirror blockquote {
-  border-left-width: 3px;
   font-style: normal;
   font-weight: 500;
+  background: oklch(0% 0 0 / 0.04);
+  border-radius: 4px;
+}
+
+.writing-style-minimal .ProseMirror blockquote::before {
+  color: var(--charcoal);
+  opacity: 0.25;
 }
 
 /* Romantic Style */
 .writing-style-romantic .ProseMirror {
-  font-family: 'Cormorant Garamond', 'Noto Serif SC', 'STKaiti', serif;
+  font-family: 'LXGW WenKai', 'Noto Serif SC', 'STKaiti', 'KaiTi', serif;
   font-size: 19px;
   line-height: 2.0;
   letter-spacing: 0.02em;
@@ -1187,11 +1241,15 @@ body {
 }
 
 .writing-style-romantic .ProseMirror blockquote {
-  border-left-color: #e8b4b8;
   font-style: italic;
-  background: rgba(232, 180, 184, 0.1);
-  padding: 1.5em;
-  border-radius: 0 8px 8px 0;
+  background: oklch(78% 0.08 15 / 0.12);
+  padding: 1.25em 1.25em 1.25em 2.5em;
+  border-radius: 8px;
+}
+
+.writing-style-romantic .ProseMirror blockquote::before {
+  color: oklch(65% 0.1 15);
+  opacity: 0.5;
 }
 
 /* ===== Animations ===== */

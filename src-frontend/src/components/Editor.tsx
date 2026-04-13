@@ -91,7 +91,7 @@ export function MonacoEditor({
           options={{
             readOnly,
             fontSize,
-            fontFamily: "'Crimson Pro', 'Noto Serif SC', serif",
+            fontFamily: "'LXGW WenKai', 'Noto Serif SC', 'PingFang SC', serif",
             lineNumbers: 'on',
             wordWrap: 'on',
             minimap: { enabled: false },
