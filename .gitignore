@@ -8,6 +8,7 @@ node_modules/
 dist/
 build/
 *.log
+npm-debug.log*
 
 # Tauri
 src-tauri/target/
@@ -34,3 +35,11 @@ config.json
 # Temporary directories
 *_temp/
 *.tmp
+
+# Playwright test artifacts
+playwright-report/
+test-results/
+*.webm
+
+# Test screenshots (keep in repo but ignore new ones)
+# e2e/screenshots/*.png

@@ -3,7 +3,7 @@ export { Button } from './ui/Button';
 export { Card, CardContent } from './ui/Card';
 export { ConnectionStatus } from './ConnectionStatus';
 export { DataLoader } from './DataLoader';
-export { Editor } from './Editor';
+export { MonacoEditor as Editor } from './Editor';
 export { EditorSettings } from './EditorSettings';
 export { ErrorBoundary } from './ErrorBoundary';
 export { ExportDialog } from './ExportDialog';

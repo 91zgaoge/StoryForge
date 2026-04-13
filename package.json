@@ -1,0 +1,35 @@
+{
+  "name": "v2-rust",
+  "version": "1.0.0",
+  "description": "> 🌿 越写越懂的创作系统 - AI 辅助小说创作桌面应用",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:debug": "npx playwright test --debug",
+    "test:report": "npx playwright show-report",
+    "screenshot": "node scripts/test-helper.js screenshot",
+    "screenshot:front": "node scripts/test-helper.js shot:front",
+    "screenshot:back": "node scripts/test-helper.js shot:back",
+    "test:clean": "node scripts/test-helper.js clean",
+    "test:help": "node scripts/test-helper.js help"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/91zgaoge/storyforge.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/91zgaoge/storyforge/issues"
+  },
+  "homepage": "https://github.com/91zgaoge/storyforge#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}

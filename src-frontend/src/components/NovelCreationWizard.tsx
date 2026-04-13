@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import type { 
   WorldBuilding, 
-  CharacterProfile, 
+  CharacterProfileOption, 
   WritingStyle,
   ConflictType 
 } from '@/types';
@@ -32,7 +32,7 @@ type WizardStep =
 interface NovelCreationWizardProps {
   onComplete: (data: {
     worldBuilding: WorldBuilding;
-    characters: CharacterProfile[];
+    characters: CharacterProfileOption[];
     writingStyle: WritingStyle;
   }) => void;
   onCancel: () => void;
@@ -189,13 +189,11 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       },
       characters: characterData.map((c, i) => ({
         id: `char_${i}`,
-        story_id: '',
         name: c.name,
         personality: c.personality,
         background: c.background,
         goals: c.goals,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        voice_style: '沉稳内敛', // 默认声音风格
       })),
       writingStyle: {
         id: '',
