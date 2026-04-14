@@ -219,6 +219,11 @@ export interface Entity {
   embedding?: number[];
   first_seen: string;
   last_updated: string;
+  confidence_score?: number;
+  access_count: number;
+  last_accessed?: string;
+  is_archived: boolean;
+  archived_at?: string;
 }
 
 export type RelationType = 
@@ -458,6 +463,12 @@ export interface RetentionReport {
   critical_entities: string[];
   forgotten_entities: string[];
   recommended_action: string;
+}
+
+export interface ArchiveResult {
+  archived_count: number;
+  archived_entities: string[];
+  story_id: string;
 }
 
 export interface RetentionScore {

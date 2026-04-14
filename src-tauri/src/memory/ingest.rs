@@ -293,6 +293,8 @@ impl IngestPipeline {
                 confidence_score: None,
                 access_count: 0,
                 last_accessed: None,
+                is_archived: false,
+                archived_at: None,
             }
         }).collect()
     }

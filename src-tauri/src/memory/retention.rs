@@ -378,6 +378,14 @@ pub struct RetentionReport {
     pub recommended_action: String,
 }
 
+/// 归档结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchiveResult {
+    pub archived_count: usize,
+    pub archived_entities: Vec<String>,
+    pub story_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,6 +408,8 @@ mod tests {
             } else {
                 None
             },
+            is_archived: false,
+            archived_at: None,
         }
     }
 

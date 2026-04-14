@@ -21,17 +21,28 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 新增 backstage 「知识图谱」页面和 Sidebar 导航入口
   - 自动绑定当前选中的故事，空状态引导用户先选择故事
 
-### 🧠 记忆健康与自动归档建议
+### 🧠 记忆健康与自动归档系统
 
 - **后端保留报告 API**
   - `get_retention_report`：基于 Ebbinghaus 遗忘曲线计算实体保留状态
   - 复用已有的 `RetentionManager`，按实体类型应用不同衰减配置
 
+- **自动归档工作流**
+  - `kg_entities` 表新增 `is_archived` 和 `archived_at` 字段
+  - `archive_forgotten_entities`：一键归档所有遗忘状态实体
+  - `restore_archived_entity`：从归档状态恢复指定实体
+  - `get_archived_entities`：查询故事的已归档实体列表
+  - 数据库迁移脚本自动补全旧表缺失的保留/归档字段
+
 - **记忆健康面板**（集成在知识图谱页面）
   - 汇总卡片：总实体数、平均优先级、系统健康状态
-  - 自动归档建议：根据遗忘比例生成动态推荐文案
+  - 自动归档建议：根据遗忘比例生成动态推荐文案，支持一键执行
   - 优先级分布可视化：关键/高/中/低/已遗忘五级进度条
   - 关键实体列表和待归档实体列表
+
+- **已归档页签**
+  - 知识图谱页面新增「已归档」标签页
+  - 展示所有已归档实体，支持逐条恢复
 
 ### 🤖 Agent 模型映射与路由
 
@@ -65,6 +76,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `text_generate` / `text_rewrite` 继续走流式输出路径
   - `plot_suggest` / `character_check` / `world_consistency` 等走 Agent 调度路径
   - 聊天消息显示意图标签（如 "情节建议 · 建议卡片"）
+
+### 🛠️ 技能工坊 (Skills) 后端连通
+
+- **前端类型对齐**
+  - `Skill` 接口扩展为完整 `SkillInfo` 结构，包含 `parameters`、`hooks`、`runtime_type` 等字段
+
+- **真实数据接入**
+  - `Skills.tsx` 从 mock 数据改为调用 `getSkills()` 拉取后端技能列表
+  - 支持按分类筛选（全部 / 写作 / 分析 / 角色 / 情节 / 风格等）
+
+- **技能操作**
+  - 启用/禁用开关调用 `enable_skill` / `disable_skill`
+  - 执行按钮支持 Prompt 技能运行，自动弹出必填参数输入框
+  - 非内置技能显示卸载按钮，调用 `uninstall_skill`
 
 ## [3.1.2] - 2026-04-13 - 设置页增强、浏览器开发环境修复与全新应用图标
 

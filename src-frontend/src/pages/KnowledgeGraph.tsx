@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { KnowledgeGraphView } from '@/components/KnowledgeGraph';
-import { getStoryGraph, getRetentionReport } from '@/services/tauri';
+import { getStoryGraph, getRetentionReport, archiveForgottenEntities, getArchivedEntities, restoreArchivedEntity } from '@/services/tauri';
 import { useAppStore } from '@/stores/appStore';
-import type { StoryGraph, RetentionReport } from '@/types/v3';
-import { Network, RefreshCw, Activity, AlertTriangle, CheckCircle, Brain, Archive } from 'lucide-react';
+import type { StoryGraph, RetentionReport, Entity } from '@/types/v3';
+import { Network, RefreshCw, Activity, AlertTriangle, CheckCircle, Brain, Archive, RotateCcw, PackageOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type TabType = 'graph' | 'memory';
+type TabType = 'graph' | 'memory' | 'archived';
 
 const LEVEL_COLORS: Record<string, string> = {
   critical: 'bg-red-500',
@@ -24,12 +24,24 @@ const LEVEL_LABELS: Record<string, string> = {
   forgotten: '已遗忘',
 };
 
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  Character: '角色',
+  Location: '地点',
+  Item: '物品',
+  Organization: '组织',
+  Concept: '概念',
+  Event: '事件',
+};
+
 export const KnowledgeGraph: React.FC = () => {
   const currentStory = useAppStore((s) => s.currentStory);
   const [activeTab, setActiveTab] = useState<TabType>('graph');
   const [graphData, setGraphData] = useState<StoryGraph | null>(null);
   const [report, setReport] = useState<RetentionReport | null>(null);
+  const [archivedEntities, setArchivedEntities] = useState<Entity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [isRestoringId, setIsRestoringId] = useState<string | null>(null);
 
   const loadData = async () => {
     if (!currentStory) return;
@@ -49,9 +61,53 @@ export const KnowledgeGraph: React.FC = () => {
     }
   };
 
+  const loadArchived = async () => {
+    if (!currentStory) return;
+    setIsLoading(true);
+    try {
+      const entities = await getArchivedEntities(currentStory.id);
+      setArchivedEntities(entities);
+    } catch (error) {
+      console.error('Failed to load archived entities:', error);
+      toast.error('加载归档实体失败');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadArchived();
   }, [currentStory?.id]);
+
+  const handleArchiveForgotten = async () => {
+    if (!currentStory) return;
+    setIsArchiving(true);
+    try {
+      const result = await archiveForgottenEntities(currentStory.id);
+      toast.success(`已归档 ${result.archived_count} 个遗忘实体`);
+      await Promise.all([loadData(), loadArchived()]);
+    } catch (error) {
+      console.error('Failed to archive forgotten entities:', error);
+      toast.error('归档失败');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  const handleRestore = async (entity: Entity) => {
+    setIsRestoringId(entity.id);
+    try {
+      await restoreArchivedEntity(entity.id);
+      toast.success(`「${entity.name}」已恢复`);
+      await Promise.all([loadData(), loadArchived()]);
+    } catch (error) {
+      console.error('Failed to restore entity:', error);
+      toast.error('恢复失败');
+    } finally {
+      setIsRestoringId(null);
+    }
+  };
 
   if (!currentStory) {
     return (
@@ -105,13 +161,29 @@ export const KnowledgeGraph: React.FC = () => {
             </div>
           </div>
 
-          {/* Recommendation */}
+          {/* Recommendation + Archive Action */}
           <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-5">
-            <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-              <Archive className="w-5 h-5 text-cinema-gold" />
-              自动归档建议
-            </h3>
-            <p className="text-gray-300 leading-relaxed">{report.recommended_action}</p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+                  <Archive className="w-5 h-5 text-cinema-gold" />
+                  自动归档建议
+                </h3>
+                <p className="text-gray-300 leading-relaxed">{report.recommended_action}</p>
+              </div>
+              {hasForgotten && (
+                <button
+                  onClick={handleArchiveForgotten}
+                  disabled={isArchiving}
+                  className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/20 hover:bg-cinema-gold/20 transition-colors disabled:opacity-50"
+                >
+                  <Archive className={cn('w-4 h-4', isArchiving && 'animate-pulse')} />
+                  <span className="text-sm font-medium">
+                    {isArchiving ? '归档中...' : `归档 ${report.forgotten_entities.length} 个遗忘实体`}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Priority Distribution */}
@@ -192,6 +264,69 @@ export const KnowledgeGraph: React.FC = () => {
     );
   };
 
+  const renderArchived = () => {
+    if (isLoading && archivedEntities.length === 0) {
+      return (
+        <div className="h-full flex items-center justify-center text-gray-500">
+          <RefreshCw className="w-8 h-8 animate-spin mr-2" />
+          加载中...
+        </div>
+      );
+    }
+
+    if (archivedEntities.length === 0) {
+      return (
+        <div className="h-full flex flex-col items-center justify-center text-gray-500">
+          <PackageOpen className="w-16 h-16 mb-4 text-cinema-700" />
+          <p className="text-lg">暂无归档实体</p>
+          <p className="text-sm text-gray-600 mt-2">在记忆健康页签中可以一键归档遗忘实体</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-y-auto p-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-cinema-800 flex items-center justify-between">
+              <h3 className="font-semibold text-white">
+                已归档实体 <span className="text-gray-500 text-sm font-normal">({archivedEntities.length})</span>
+              </h3>
+            </div>
+            <div className="divide-y divide-cinema-800">
+              {archivedEntities.map((entity) => (
+                <div
+                  key={entity.id}
+                  className="px-5 py-4 flex items-center justify-between hover:bg-cinema-800/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-cinema-800 flex items-center justify-center text-xs font-medium text-gray-400">
+                      {ENTITY_TYPE_LABELS[entity.entity_type] ?? entity.entity_type}
+                    </div>
+                    <div>
+                      <p className="font-medium text-white">{entity.name}</p>
+                      <p className="text-xs text-gray-500">
+                        归档于 {entity.archived_at ? new Date(entity.archived_at).toLocaleString() : '未知时间'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRestore(entity)}
+                    disabled={isRestoringId === entity.id}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-cinema-800 text-gray-300 hover:text-white hover:bg-cinema-700 transition-colors disabled:opacity-50 text-sm"
+                  >
+                    <RotateCcw className={cn('w-4 h-4', isRestoringId === entity.id && 'animate-spin')} />
+                    {isRestoringId === entity.id ? '恢复中...' : '恢复'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -226,9 +361,21 @@ export const KnowledgeGraph: React.FC = () => {
             >
               记忆健康
             </button>
+            <button
+              onClick={() => setActiveTab('archived')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                activeTab === 'archived' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+              )}
+            >
+              已归档
+            </button>
           </div>
           <button
-            onClick={loadData}
+            onClick={() => {
+              loadData();
+              if (activeTab === 'archived') loadArchived();
+            }}
             disabled={isLoading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cinema-800 hover:bg-cinema-700 text-gray-300 transition-colors disabled:opacity-50"
           >
@@ -240,7 +387,7 @@ export const KnowledgeGraph: React.FC = () => {
 
       {/* Content */}
       <div className="flex-1 relative">
-        {isLoading && !graphData ? (
+        {isLoading && !graphData && activeTab !== 'archived' ? (
           <div className="h-full flex items-center justify-center text-gray-500">
             <div className="text-center">
               <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3 text-cinema-gold" />
@@ -254,8 +401,10 @@ export const KnowledgeGraph: React.FC = () => {
               relations={graphData.relations}
             />
           ) : null
-        ) : (
+        ) : activeTab === 'memory' ? (
           renderMemoryHealth()
+        ) : (
+          renderArchived()
         )}
       </div>
     </div>

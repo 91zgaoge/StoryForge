@@ -322,6 +322,10 @@ pub struct Entity {
     pub access_count: i32,
     // 最后访问时间
     pub last_accessed: Option<DateTime<Local>>,
+    
+    // 归档状态
+    pub is_archived: bool,
+    pub archived_at: Option<DateTime<Local>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

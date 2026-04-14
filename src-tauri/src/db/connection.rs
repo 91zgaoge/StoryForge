@@ -30,6 +30,7 @@ pub fn init_db(app_dir: &Path) -> Result<DbPool, Box<dyn std::error::Error>> {
     let mut conn = pool.get()?;
     create_tables(&mut conn)?;
     create_v3_tables(&mut conn)?;
+    run_migrations(&mut conn)?;
     
     Ok(pool)
 }
@@ -232,6 +233,7 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         
         CREATE INDEX IF NOT EXISTS idx_kg_entities_story ON kg_entities(story_id);
         CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(entity_type);
+        CREATE INDEX IF NOT EXISTS idx_kg_entities_archived ON kg_entities(is_archived);
         CREATE INDEX IF NOT EXISTS idx_kg_relations_story ON kg_relations(story_id);
         CREATE INDEX IF NOT EXISTS idx_kg_relations_source ON kg_relations(source_id);
         CREATE INDEX IF NOT EXISTS idx_kg_relations_target ON kg_relations(target_id);
@@ -240,5 +242,51 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         CREATE INDEX IF NOT EXISTS idx_studio_configs_story ON studio_configs(story_id);
         "#
     )?;
+    Ok(())
+}
+
+/// 数据库迁移
+fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    // Migration 1: 添加实体归档字段 (v3.2.0)
+    let columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(kg_entities)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+    
+    if !columns.iter().any(|c| c == "is_archived") {
+        conn.execute(
+            "ALTER TABLE kg_entities ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !columns.iter().any(|c| c == "archived_at") {
+        conn.execute(
+            "ALTER TABLE kg_entities ADD COLUMN archived_at TEXT",
+            [],
+        )?;
+    }
+    
+    // Migration 2: 添加实体保留字段 (v3.1.0 - 如果缺失)
+    if !columns.iter().any(|c| c == "confidence_score") {
+        conn.execute(
+            "ALTER TABLE kg_entities ADD COLUMN confidence_score REAL",
+            [],
+        )?;
+    }
+    if !columns.iter().any(|c| c == "access_count") {
+        conn.execute(
+            "ALTER TABLE kg_entities ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !columns.iter().any(|c| c == "last_accessed") {
+        conn.execute(
+            "ALTER TABLE kg_entities ADD COLUMN last_accessed TEXT",
+            [],
+        )?;
+    }
+    
     Ok(())
 }

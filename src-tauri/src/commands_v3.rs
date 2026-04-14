@@ -5,6 +5,7 @@ use crate::db::repositories_v3::*;
 use crate::config::StudioManager;
 use crate::memory::retention::RetentionManager;
 use tauri::{command, AppHandle, Manager, State};
+use chrono::Local;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -297,6 +298,56 @@ pub async fn get_retention_report(
     
     let manager = RetentionManager::new();
     Ok(manager.generate_retention_report(&entities))
+}
+
+#[command]
+pub async fn archive_forgotten_entities(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<crate::memory::retention::ArchiveResult, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    let entities = repo.get_entities_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+    
+    let manager = RetentionManager::new();
+    let forgotten = manager.get_forgotten_entities(&entities);
+    
+    let mut archived = Vec::new();
+    for (entity, _) in &forgotten {
+        repo.archive_entity(&entity.id)
+            .map_err(|e| e.to_string())?;
+        archived.push(entity.name.clone());
+    }
+    
+    Ok(crate::memory::retention::ArchiveResult {
+        archived_count: archived.len(),
+        archived_entities: archived,
+        story_id,
+    })
+}
+
+#[command]
+pub async fn restore_archived_entity(
+    entity_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Entity, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    repo.restore_entity(&entity_id)
+        .map_err(|e| e.to_string())?;
+    
+    repo.get_entity_by_id(&entity_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Entity not found".to_string())
+}
+
+#[command]
+pub async fn get_archived_entities(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<Entity>, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    repo.get_archived_entities(&story_id)
+        .map_err(|e| e.to_string())
 }
 
 // ==================== 场景版本命令 ====================

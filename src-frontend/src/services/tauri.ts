@@ -5,7 +5,7 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
   Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
-import type { StoryGraph, Entity, Relation, RetentionReport } from '@/types/v3';
+import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult } from '@/types/v3';
 
 // Health Check
 export const healthCheck = () => 
@@ -113,6 +113,15 @@ export const getStoryGraph = (storyId: string) =>
 
 export const getRetentionReport = (storyId: string) =>
   invoke<RetentionReport>('get_retention_report', { story_id: storyId });
+
+export const archiveForgottenEntities = (storyId: string) =>
+  invoke<ArchiveResult>('archive_forgotten_entities', { story_id: storyId });
+
+export const restoreArchivedEntity = (entityId: string) =>
+  invoke<Entity>('restore_archived_entity', { entity_id: entityId });
+
+export const getArchivedEntities = (storyId: string) =>
+  invoke<Entity[]>('get_archived_entities', { story_id: storyId });
 
 export const createEntity = (storyId: string, name: string, entityType: string, attributes: Record<string, unknown>) =>
   invoke<Entity>('create_entity', { story_id: storyId, name, entity_type: entityType, attributes });

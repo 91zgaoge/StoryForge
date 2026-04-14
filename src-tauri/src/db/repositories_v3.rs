@@ -827,8 +827,8 @@ impl KnowledgeGraphRepository {
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, first_seen, last_updated) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, first_seen, last_updated, is_archived) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
             params![&id, story_id, name, entity_type, attributes.to_string(), now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
@@ -844,6 +844,8 @@ impl KnowledgeGraphRepository {
             confidence_score: None,
             access_count: 0,
             last_accessed: None,
+            is_archived: false,
+            archived_at: None,
         })
     }
 
@@ -851,8 +853,8 @@ impl KnowledgeGraphRepository {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
-                    confidence_score, access_count, last_accessed
-             FROM kg_entities WHERE story_id = ?1"
+                    confidence_score, access_count, last_accessed, is_archived, archived_at
+             FROM kg_entities WHERE story_id = ?1 AND is_archived = 0"
         )?;
 
         let entities = stmt.query_map([story_id], |row| {
@@ -865,6 +867,8 @@ impl KnowledgeGraphRepository {
             let first_str: String = row.get(6)?;
             let updated_str: String = row.get(7)?;
             let last_accessed: Option<String> = row.get(10)?;
+            let is_archived: i32 = row.get(11)?;
+            let archived_at: Option<String> = row.get(12)?;
             
             Ok(Entity {
                 id: row.get(0)?,
@@ -878,10 +882,71 @@ impl KnowledgeGraphRepository {
                 confidence_score: row.get(8)?,
                 access_count: row.get(9)?,
                 last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                is_archived: is_archived != 0,
+                archived_at: archived_at.and_then(|s| s.parse().ok()),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
         Ok(entities)
+    }
+    
+    pub fn get_archived_entities(&self, story_id: &str) -> Result<Vec<Entity>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+                    confidence_score, access_count, last_accessed, is_archived, archived_at
+             FROM kg_entities WHERE story_id = ?1 AND is_archived = 1"
+        )?;
+
+        let entities = stmt.query_map([story_id], |row| {
+            let type_str: String = row.get(3)?;
+            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
+            
+            let attrs_json: String = row.get(4)?;
+            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
+            
+            let first_str: String = row.get(6)?;
+            let updated_str: String = row.get(7)?;
+            let last_accessed: Option<String> = row.get(10)?;
+            let is_archived: i32 = row.get(11)?;
+            let archived_at: Option<String> = row.get(12)?;
+            
+            Ok(Entity {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                entity_type,
+                attributes,
+                embedding: None,
+                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score: row.get(8)?,
+                access_count: row.get(9)?,
+                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                is_archived: is_archived != 0,
+                archived_at: archived_at.and_then(|s| s.parse().ok()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(entities)
+    }
+    
+    pub fn archive_entity(&self, entity_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE kg_entities SET is_archived = 1, archived_at = ?2, last_updated = ?2 WHERE id = ?1",
+            params![entity_id, now],
+        )
+    }
+    
+    pub fn restore_entity(&self, entity_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE kg_entities SET is_archived = 0, archived_at = NULL, last_updated = ?2 WHERE id = ?1",
+            params![entity_id, now],
+        )
     }
 
     pub fn create_relation(&self, story_id: &str, source_id: &str, target_id: &str, 
@@ -971,5 +1036,44 @@ impl KnowledgeGraphRepository {
         })?.collect::<Result<Vec<_>, _>>()?;
 
         Ok(relations)
+    }
+    
+    pub fn get_entity_by_id(&self, entity_id: &str) -> Result<Option<Entity>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+                    confidence_score, access_count, last_accessed, is_archived, archived_at
+             FROM kg_entities WHERE id = ?1"
+        )?;
+
+        let entity = stmt.query_row([entity_id], |row| {
+            let type_str: String = row.get(3)?;
+            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
+            let attrs_json: String = row.get(4)?;
+            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
+            let first_str: String = row.get(6)?;
+            let updated_str: String = row.get(7)?;
+            let last_accessed: Option<String> = row.get(10)?;
+            let is_archived: i32 = row.get(11)?;
+            let archived_at: Option<String> = row.get(12)?;
+            
+            Ok(Entity {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                entity_type,
+                attributes,
+                embedding: None,
+                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score: row.get(8)?,
+                access_count: row.get(9)?,
+                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                is_archived: is_archived != 0,
+                archived_at: archived_at.and_then(|s| s.parse().ok()),
+            })
+        }).optional()?;
+
+        Ok(entity)
     }
 }
