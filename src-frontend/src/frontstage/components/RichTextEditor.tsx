@@ -626,7 +626,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         const toPos = editor?.state.doc.textBetween(0, selectedRange.to).length ?? fromPos;
         
         const thread = await createCommentThreadMutation.mutateAsync({
-          versionId: '',
           anchorType: 'TextRange',
           chapterId,
           fromPos,

@@ -27,7 +27,7 @@ export function useCreateCommentThread() {
   const queryClient = useQueryClient();
 
   return useMutation<CommentThread, Error, {
-    versionId: string;
+    versionId?: string;
     anchorType: 'TextRange' | 'SceneLevel';
     sceneId?: string;
     chapterId?: string;
@@ -37,7 +37,7 @@ export function useCreateCommentThread() {
   }>({
     mutationFn: ({ versionId, anchorType, sceneId, chapterId, fromPos, toPos, selectedText }) =>
       invoke<CommentThread>('create_comment_thread', {
-        version_id: versionId,
+        version_id: versionId ?? null,
         anchor_type: anchorType,
         scene_id: sceneId ?? null,
         chapter_id: chapterId ?? null,
