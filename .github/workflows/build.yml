@@ -97,11 +97,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            args: --target x86_64-unknown-linux-gnu
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc
           - os: macos-latest
-            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v4
@@ -133,48 +133,23 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0" --locked
-
-      - name: Build Tauri app
-        run: cargo tauri build --target ${{ matrix.target }}
+      - name: Build Tauri app (PR)
+        if: github.event_name == 'pull_request'
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
         with:
-          name: tauri-bundle-${{ matrix.target }}
-          path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
-          if-no-files-found: ignore
+          args: ${{ matrix.args }}
 
-  # Publish release with all platform artifacts
-  publish-release:
-    needs: [tauri-build]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Build Tauri app and release
+        if: github.event_name == 'push'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path: artifacts
-          pattern: tauri-bundle-*
-
-      - name: Create/Update Nightly Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v3.1.2-nightly
-          name: StoryForge v3.1.2 Nightly
-          body: |
+          tagName: v3.1.2-nightly
+          releaseName: 'StoryForge v3.1.2 Nightly'
+          releaseBody: |
             🌿 StoryForge (草苔) 最新构建版本
 
             此版本为自动构建产物，包含三个平台的安装包：
@@ -184,8 +159,6 @@ jobs:
 
             构建时间: ${{ github.event.head_commit.timestamp }}
             提交: ${{ github.sha }}
-          files: artifacts/**/*
+          releaseDraft: false
           prerelease: true
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          args: ${{ matrix.args }}
