@@ -2,7 +2,24 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [Unreleased] - 意图引擎与 Agent 调度
+## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化
+
+### 🕸️ 知识图谱可视化
+
+- **后端图数据 API**
+  - `get_relations_by_story`：按故事 ID 批量查询关系
+  - `get_story_graph`：一次性返回完整知识图谱（实体 + 关系）
+
+- **交互式图谱视图** (`src-frontend/src/components/KnowledgeGraph/`)
+  - 基于 **ReactFlow** 实现可缩放、可拖拽的力导向图谱
+  - 节点按实体类型着色（角色/地点/物品/组织/概念/事件）
+  - 关系边按强度显示不同粗细和透明度，高强度边带动画效果
+  - 左上角图例面板显示统计信息
+  - 点击节点展开右侧详情面板，展示属性和关联关系
+
+- **页面集成**
+  - 新增 backstage 「知识图谱」页面和 Sidebar 导航入口
+  - 自动绑定当前选中的故事，空状态引导用户先选择故事
 
 ### 🧠 意图解析引擎 (Intent Engine)
 
