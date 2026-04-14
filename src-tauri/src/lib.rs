@@ -196,6 +196,7 @@ pub fn run() {
             commands_v3::create_relation,
             commands_v3::get_entity_relations,
             commands_v3::get_story_graph,
+            commands_v3::get_retention_report,
             // Scene version commands
             commands_v3::get_scene_versions,
             commands_v3::get_scene_version,

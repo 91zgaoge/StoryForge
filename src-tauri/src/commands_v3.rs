@@ -3,6 +3,7 @@
 use crate::db::*;
 use crate::db::repositories_v3::*;
 use crate::config::StudioManager;
+use crate::memory::retention::RetentionManager;
 use tauri::{command, AppHandle, Manager, State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -283,6 +284,19 @@ pub async fn get_story_graph(
     let relations = repo.get_relations_by_story(&story_id)
         .map_err(|e| e.to_string())?;
     Ok(StoryGraph { entities, relations })
+}
+
+#[command]
+pub async fn get_retention_report(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<crate::memory::retention::RetentionReport, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    let entities = repo.get_entities_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+    
+    let manager = RetentionManager::new();
+    Ok(manager.generate_retention_report(&entities))
 }
 
 // ==================== 场景版本命令 ====================

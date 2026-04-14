@@ -459,3 +459,16 @@ export interface RetentionReport {
   forgotten_entities: string[];
   recommended_action: string;
 }
+
+export interface RetentionScore {
+  entity_id: string;
+  entity_name: string;
+  base_score: number;
+  decayed_score: number;
+  reinforced_score: number;
+  final_priority: number;
+  priority_level: PriorityLevel;
+  days_since_last_access: number;
+  access_count: number;
+  estimated_retention_days: number;
+}
