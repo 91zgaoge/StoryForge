@@ -220,6 +220,20 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 
+        -- 场景批注表
+        CREATE TABLE IF NOT EXISTS scene_annotations (
+            id TEXT PRIMARY KEY,
+            scene_id TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            annotation_type TEXT NOT NULL DEFAULT 'note',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+            FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+        );
+
         -- 创建索引
         CREATE INDEX IF NOT EXISTS idx_scenes_story ON scenes(story_id);
         CREATE INDEX IF NOT EXISTS idx_scenes_sequence ON scenes(story_id, sequence_number);
@@ -240,6 +254,9 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         CREATE INDEX IF NOT EXISTS idx_kg_relations_type ON kg_relations(relation_type);
         
         CREATE INDEX IF NOT EXISTS idx_studio_configs_story ON studio_configs(story_id);
+        CREATE INDEX IF NOT EXISTS idx_scene_annotations_scene ON scene_annotations(scene_id);
+        CREATE INDEX IF NOT EXISTS idx_scene_annotations_story ON scene_annotations(story_id);
+        CREATE INDEX IF NOT EXISTS idx_scene_annotations_resolved ON scene_annotations(resolved_at);
         "#
     )?;
     Ok(())
@@ -284,6 +301,40 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     if !columns.iter().any(|c| c == "last_accessed") {
         conn.execute(
             "ALTER TABLE kg_entities ADD COLUMN last_accessed TEXT",
+            [],
+        )?;
+    }
+
+    // Migration 3: 创建场景批注表 (v3.2.0)
+    let annotation_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_annotations'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if annotation_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE scene_annotations (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                story_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                annotation_type TEXT NOT NULL DEFAULT 'note',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                resolved_at TEXT,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_annotations_scene ON scene_annotations(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_annotations_story ON scene_annotations(story_id)",
             [],
         )?;
     }

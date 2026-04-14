@@ -200,6 +200,14 @@ pub fn run() {
             commands_v3::archive_forgotten_entities,
             commands_v3::restore_archived_entity,
             commands_v3::get_archived_entities,
+            // Scene annotations
+            commands_v3::create_scene_annotation,
+            commands_v3::get_scene_annotations,
+            commands_v3::get_story_unresolved_annotations,
+            commands_v3::update_scene_annotation,
+            commands_v3::resolve_scene_annotation,
+            commands_v3::unresolve_scene_annotation,
+            commands_v3::delete_scene_annotation,
             // Novel creation wizard commands
             commands_v3::generate_world_building_options,
             commands_v3::generate_character_profiles,

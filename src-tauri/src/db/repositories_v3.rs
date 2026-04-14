@@ -3,7 +3,7 @@
 use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture};
 use super::{Setting, LocationType, SensoryDetails, WritingStyle, StudioConfig};
 use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
-use super::{SceneVersion, CreatorType};
+use super::{SceneVersion, CreatorType, SceneAnnotation, AnnotationType};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use serde::{Serialize, Deserialize};
@@ -820,16 +820,19 @@ impl KnowledgeGraphRepository {
         Self { pool }
     }
 
-    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value) 
+    pub fn create_entity(&self, story_id: &str, name: &str, entity_type: &str, attributes: &serde_json::Value, embedding: Option<Vec<f32>>) 
         -> Result<Entity, rusqlite::Error> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now();
+        let embedding_blob = embedding.as_ref().map(|vec| {
+            vec.iter().flat_map(|&f| f.to_le_bytes().to_vec()).collect::<Vec<u8>>()
+        });
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, first_seen, last_updated, is_archived) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
-            params![&id, story_id, name, entity_type, attributes.to_string(), now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO kg_entities (id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated, is_archived) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)",
+            params![&id, story_id, name, entity_type, attributes.to_string(), embedding_blob, now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
         Ok(Entity {
@@ -838,7 +841,7 @@ impl KnowledgeGraphRepository {
             name: name.to_string(),
             entity_type: entity_type.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?,
             attributes: attributes.clone(),
-            embedding: None,
+            embedding,
             first_seen: now,
             last_updated: now,
             confidence_score: None,
@@ -864,6 +867,13 @@ impl KnowledgeGraphRepository {
             let attrs_json: String = row.get(4)?;
             let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
             
+            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+            let embedding = embedding_blob.map(|bytes| {
+                bytes.chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
+                    .collect()
+            });
+            
             let first_str: String = row.get(6)?;
             let updated_str: String = row.get(7)?;
             let last_accessed: Option<String> = row.get(10)?;
@@ -876,7 +886,7 @@ impl KnowledgeGraphRepository {
                 name: row.get(2)?,
                 entity_type,
                 attributes,
-                embedding: None, // TODO: 处理BLOB
+                embedding,
                 first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
                 last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 confidence_score: row.get(8)?,
@@ -905,6 +915,13 @@ impl KnowledgeGraphRepository {
             let attrs_json: String = row.get(4)?;
             let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
             
+            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+            let embedding = embedding_blob.map(|bytes| {
+                bytes.chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
+                    .collect()
+            });
+            
             let first_str: String = row.get(6)?;
             let updated_str: String = row.get(7)?;
             let last_accessed: Option<String> = row.get(10)?;
@@ -917,7 +934,7 @@ impl KnowledgeGraphRepository {
                 name: row.get(2)?,
                 entity_type,
                 attributes,
-                embedding: None,
+                embedding,
                 first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
                 last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 confidence_score: row.get(8)?,
@@ -1051,6 +1068,13 @@ impl KnowledgeGraphRepository {
             let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
             let attrs_json: String = row.get(4)?;
             let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
+            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+            let embedding = embedding_blob.map(|bytes| {
+                bytes.chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
+                    .collect()
+            });
+            
             let first_str: String = row.get(6)?;
             let updated_str: String = row.get(7)?;
             let last_accessed: Option<String> = row.get(10)?;
@@ -1063,7 +1087,7 @@ impl KnowledgeGraphRepository {
                 name: row.get(2)?,
                 entity_type,
                 attributes,
-                embedding: None,
+                embedding,
                 first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
                 last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 confidence_score: row.get(8)?,
@@ -1075,5 +1099,139 @@ impl KnowledgeGraphRepository {
         }).optional()?;
 
         Ok(entity)
+    }
+}
+
+// ==================== 场景批注 Repository ====================
+
+pub struct SceneAnnotationRepository {
+    pool: DbPool,
+}
+
+impl SceneAnnotationRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create_annotation(
+        &self,
+        scene_id: &str,
+        story_id: &str,
+        content: &str,
+        annotation_type: &str,
+    ) -> Result<SceneAnnotation, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO scene_annotations (id, scene_id, story_id, content, annotation_type, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![&id, scene_id, story_id, content, annotation_type, now.to_rfc3339(), now.to_rfc3339()],
+        )?;
+
+        Ok(SceneAnnotation {
+            id,
+            scene_id: scene_id.to_string(),
+            story_id: story_id.to_string(),
+            content: content.to_string(),
+            annotation_type: annotation_type.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?,
+            created_at: now,
+            updated_at: now,
+            resolved_at: None,
+        })
+    }
+
+    pub fn get_annotations_by_scene(&self, scene_id: &str) -> Result<Vec<SceneAnnotation>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, scene_id, story_id, content, annotation_type, created_at, updated_at, resolved_at
+             FROM scene_annotations WHERE scene_id = ?1 ORDER BY created_at DESC"
+        )?;
+
+        let annotations = stmt.query_map([scene_id], |row| {
+            let type_str: String = row.get(4)?;
+            let annotation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?;
+            let created_str: String = row.get(5)?;
+            let updated_str: String = row.get(6)?;
+            let resolved_str: Option<String> = row.get(7)?;
+
+            Ok(SceneAnnotation {
+                id: row.get(0)?,
+                scene_id: row.get(1)?,
+                story_id: row.get(2)?,
+                content: row.get(3)?,
+                annotation_type,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                resolved_at: resolved_str.and_then(|s| s.parse().ok()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(annotations)
+    }
+
+    pub fn get_unresolved_annotations_by_story(&self, story_id: &str) -> Result<Vec<SceneAnnotation>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, scene_id, story_id, content, annotation_type, created_at, updated_at, resolved_at
+             FROM scene_annotations WHERE story_id = ?1 AND resolved_at IS NULL ORDER BY created_at DESC"
+        )?;
+
+        let annotations = stmt.query_map([story_id], |row| {
+            let type_str: String = row.get(4)?;
+            let annotation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid annotation type".to_string()))?;
+            let created_str: String = row.get(5)?;
+            let updated_str: String = row.get(6)?;
+            let resolved_str: Option<String> = row.get(7)?;
+
+            Ok(SceneAnnotation {
+                id: row.get(0)?,
+                scene_id: row.get(1)?,
+                story_id: row.get(2)?,
+                content: row.get(3)?,
+                annotation_type,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                resolved_at: resolved_str.and_then(|s| s.parse().ok()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(annotations)
+    }
+
+    pub fn update_annotation(&self, annotation_id: &str, content: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE scene_annotations SET content = ?2, updated_at = ?3 WHERE id = ?1",
+            params![annotation_id, content, now],
+        )
+    }
+
+    pub fn resolve_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE scene_annotations SET resolved_at = ?2, updated_at = ?3 WHERE id = ?1",
+            params![annotation_id, now, now],
+        )
+    }
+
+    pub fn unresolve_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE scene_annotations SET resolved_at = NULL, updated_at = ?2 WHERE id = ?1",
+            params![annotation_id, now],
+        )
+    }
+
+    pub fn delete_annotation(&self, annotation_id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM scene_annotations WHERE id = ?1",
+            params![annotation_id],
+        )
     }
 }

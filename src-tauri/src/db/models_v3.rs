@@ -191,6 +191,55 @@ impl std::str::FromStr for CreatorType {
     }
 }
 
+// ==================== 场景批注模型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneAnnotation {
+    pub id: String,
+    pub scene_id: String,
+    pub story_id: String,
+    pub content: String,
+    pub annotation_type: AnnotationType,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+    pub resolved_at: Option<DateTime<Local>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AnnotationType {
+    Note,    // 普通笔记
+    Todo,    // 待办事项
+    Warning, // 警告/注意
+    Idea,    // 灵感/想法
+}
+
+impl std::fmt::Display for AnnotationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            AnnotationType::Note => "note",
+            AnnotationType::Todo => "todo",
+            AnnotationType::Warning => "warning",
+            AnnotationType::Idea => "idea",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for AnnotationType {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "note" => Ok(AnnotationType::Note),
+            "todo" => Ok(AnnotationType::Todo),
+            "warning" => Ok(AnnotationType::Warning),
+            "idea" => Ok(AnnotationType::Idea),
+            _ => Err(format!("Unknown annotation type: {}", s)),
+        }
+    }
+}
+
 // ==================== 世界观模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

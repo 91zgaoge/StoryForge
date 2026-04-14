@@ -71,9 +71,9 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v3.1.0
+- **版本**: v3.2.0-in-progress
 - **GitHub**: https://github.com/91zgaoge/StoryForge
-- **技术栈**: Tauri 2.4 + Rust 1.85 + React 18 + TypeScript + SQLite
+- **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite
 
 ### 双界面架构
 

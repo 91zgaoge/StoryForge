@@ -200,6 +200,21 @@ export interface StudioConfig {
   updated_at: string;
 }
 
+// ==================== 场景批注类型 ====================
+
+export type AnnotationType = 'note' | 'todo' | 'warning' | 'idea';
+
+export interface SceneAnnotation {
+  id: string;
+  scene_id: string;
+  story_id: string;
+  content: string;
+  annotation_type: AnnotationType;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+}
+
 // ==================== 知识图谱类型 ====================
 
 export type EntityType = 

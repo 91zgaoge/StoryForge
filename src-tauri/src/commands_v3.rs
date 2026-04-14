@@ -234,7 +234,7 @@ pub async fn create_entity(
     pool: State<'_, DbPool>,
 ) -> Result<Entity, String> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
-    repo.create_entity(&story_id, &name, &entity_type, &attributes)
+    repo.create_entity(&story_id, &name, &entity_type, &attributes, None)
         .map_err(|e| e.to_string())
 }
 
@@ -269,6 +269,82 @@ pub async fn get_entity_relations(
 ) -> Result<Vec<Relation>, String> {
     let repo = KnowledgeGraphRepository::new(pool.inner().clone());
     repo.get_relations_by_entity(&entity_id)
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 场景批注命令 ====================
+
+#[command]
+pub async fn create_scene_annotation(
+    scene_id: String,
+    story_id: String,
+    content: String,
+    annotation_type: String,
+    pool: State<'_, DbPool>,
+) -> Result<SceneAnnotation, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.create_annotation(&scene_id, &story_id, &content, &annotation_type)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_scene_annotations(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<SceneAnnotation>, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.get_annotations_by_scene(&scene_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_story_unresolved_annotations(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<SceneAnnotation>, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.get_unresolved_annotations_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_scene_annotation(
+    annotation_id: String,
+    content: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.update_annotation(&annotation_id, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn resolve_scene_annotation(
+    annotation_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.resolve_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn unresolve_scene_annotation(
+    annotation_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.unresolve_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn delete_scene_annotation(
+    annotation_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = SceneAnnotationRepository::new(pool.inner().clone());
+    repo.delete_annotation(&annotation_id)
         .map_err(|e| e.to_string())
 }
 
@@ -540,7 +616,7 @@ pub async fn create_story_with_wizard(
     let mut saved_relations = 0usize;
     
     for entity in &ingest_result.entities {
-        kg_repo.create_entity(&story_id, &entity.name, &entity.entity_type.to_string(), &entity.attributes)
+        kg_repo.create_entity(&story_id, &entity.name, &entity.entity_type.to_string(), &entity.attributes, entity.embedding.clone())
             .map_err(|e| e.to_string())?;
         saved_entities += 1;
     }

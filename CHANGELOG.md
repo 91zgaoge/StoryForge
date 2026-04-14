@@ -2,7 +2,7 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档
+## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档 + 场景批注 + LLM 流式升级
 
 ### 🕸️ 知识图谱可视化
 
@@ -76,6 +76,48 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `text_generate` / `text_rewrite` 继续走流式输出路径
   - `plot_suggest` / `character_check` / `world_consistency` 等走 Agent 调度路径
   - 聊天消息显示意图标签（如 "情节建议 · 建议卡片"）
+
+### 📝 场景批注系统
+
+- **数据库与后端 API**
+  - 新增 `scene_annotations` 表，支持场景级批注/笔记/待办
+  - 7 个 Tauri 命令：`create_scene_annotation`、`get_scene_annotations`、`get_story_unresolved_annotations`、`update_scene_annotation`、`resolve_scene_annotation`、`unresolve_scene_annotation`、`delete_scene_annotation`
+  - 批注类型：`note` / `todo` / `warning` / `idea`
+  - 支持标记「已解决」与恢复未解决状态
+
+- **前端集成**
+  - `SceneEditor` 新增「批注」标签页
+  - 支持新建批注（带类型选择）、编辑、解决/恢复、删除
+  - 已解决批注显示划线与降透明度
+  - React Query Hook：`useSceneAnnotations`、`useStoryUnresolvedAnnotations`
+
+### 🧠 实体嵌入持久化修复
+
+- `kg_entities.embedding` BLOB 读写修复
+  - `create_entity` 现在接受并持久化 `Option<Vec<f32>>` 嵌入向量
+  - 所有查询方法（`get_entities_by_story`、`get_archived_entities`、`get_entity_by_id`）正确反序列化 BLOB 为 `Vec<f32>`
+  - 小说创建向导的自动 Ingest 结果中的实体嵌入现已正确保存到数据库
+
+### 🌊 LLM 真实 SSE 流式输出
+
+- **适配器架构升级**
+  - `LlmAdapter` trait 新增 `generate_stream` 方法，统一流式接口
+  - `OpenAiAdapter` 实现真实 SSE 流式调用（`stream=true`）
+  - 新增 `AnthropicAdapter`：支持同步与 SSE 流式生成
+  - 新增 `OllamaAdapter`：支持同步与 NDJSON 流式生成
+
+- **服务层接入**
+  - `LlmService::generate_stream` 从模拟文本改为调用真实适配器流式 API
+  - 通过 `tokio::sync::mpsc` channel 消费 chunk，实时推送 `llm-stream-chunk-{request_id}` 事件到前端
+  - 前端事件格式保持不变，无需修改即可接入真实流式生成
+
+### 🕸️ 知识图谱交互增强
+
+- `KnowledgeGraphView` 新增搜索与筛选面板
+  - 实时按名称搜索节点
+  - 按实体类型（6 种）快速过滤，支持全选/清空
+  - 双击节点聚焦并平滑动画居中
+  - 图例面板同步显示可见/隐藏节点统计
 
 ### 💾 SQLite 向量存储持久化
 

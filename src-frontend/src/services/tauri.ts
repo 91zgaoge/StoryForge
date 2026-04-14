@@ -5,7 +5,7 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
   Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
-import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal } from '@/types/v3';
+import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
 
 // Health Check
@@ -153,3 +153,25 @@ export const createStoryWithWizard = (params: {
 
 export const createRelation = (storyId: string, sourceId: string, targetId: string, relationType: string, strength: number) =>
   invoke<Relation>('create_relation', { story_id: storyId, source_id: sourceId, target_id: targetId, relation_type: relationType, strength });
+
+// Scene Annotations
+export const createSceneAnnotation = (params: { scene_id: string; story_id: string; content: string; annotation_type: string }) =>
+  invoke<SceneAnnotation>('create_scene_annotation', params);
+
+export const getSceneAnnotations = (sceneId: string) =>
+  invoke<SceneAnnotation[]>('get_scene_annotations', { scene_id: sceneId });
+
+export const getStoryUnresolvedAnnotations = (storyId: string) =>
+  invoke<SceneAnnotation[]>('get_story_unresolved_annotations', { story_id: storyId });
+
+export const updateSceneAnnotation = (annotationId: string, content: string) =>
+  invoke<number>('update_scene_annotation', { annotation_id: annotationId, content });
+
+export const resolveSceneAnnotation = (annotationId: string) =>
+  invoke<number>('resolve_scene_annotation', { annotation_id: annotationId });
+
+export const unresolveSceneAnnotation = (annotationId: string) =>
+  invoke<number>('unresolve_scene_annotation', { annotation_id: annotationId });
+
+export const deleteSceneAnnotation = (annotationId: string) =>
+  invoke<number>('delete_scene_annotation', { annotation_id: annotationId });
