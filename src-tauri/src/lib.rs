@@ -248,6 +248,13 @@ pub fn run() {
             commands_v3::get_pending_changes,
             commands_v3::accept_all_changes,
             commands_v3::reject_all_changes,
+            // Comment threads (revision mode)
+            commands_v3::create_comment_thread,
+            commands_v3::add_comment_message,
+            commands_v3::get_comment_threads,
+            commands_v3::resolve_comment_thread,
+            commands_v3::reopen_comment_thread,
+            commands_v3::delete_comment_thread,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

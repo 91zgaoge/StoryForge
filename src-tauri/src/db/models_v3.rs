@@ -821,3 +821,75 @@ impl ChangeTrack {
         }
     }
 }
+
+
+// ==================== 评论线程模型 (修订模式) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentThread {
+    pub id: String,
+    pub scene_id: Option<String>,
+    pub chapter_id: Option<String>,
+    pub version_id: Option<String>,
+    pub anchor_type: AnchorType,
+    pub from_pos: Option<i32>,
+    pub to_pos: Option<i32>,
+    pub selected_text: Option<String>,
+    pub status: ThreadStatus,
+    pub created_at: DateTime<Local>,
+    pub resolved_at: Option<DateTime<Local>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentMessage {
+    pub id: String,
+    pub thread_id: String,
+    pub author_id: String,
+    pub author_name: Option<String>,
+    pub content: String,
+    pub created_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AnchorType {
+    TextRange,
+    SceneLevel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThreadStatus {
+    Open,
+    Resolved,
+}
+
+impl CommentThread {
+    pub fn new(
+        version_id: Option<String>,
+        anchor_type: AnchorType,
+        scene_id: Option<String>,
+        chapter_id: Option<String>,
+        from_pos: Option<i32>,
+        to_pos: Option<i32>,
+        selected_text: Option<String>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            version_id,
+            anchor_type,
+            scene_id,
+            chapter_id,
+            from_pos,
+            to_pos,
+            selected_text,
+            status: ThreadStatus::Open,
+            created_at: Local::now(),
+            resolved_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentThreadWithMessages {
+    pub thread: CommentThread,
+    pub messages: Vec<CommentMessage>,
+}

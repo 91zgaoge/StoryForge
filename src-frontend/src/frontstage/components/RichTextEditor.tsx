@@ -47,9 +47,11 @@ import toast from 'react-hot-toast';
 import { generateParagraphCommentaries } from '@/services/tauri';
 import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
+import { CommentAnchorMark } from '@/frontstage/extensions/CommentAnchor';
 import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnnotation, TEXT_ANNOTATION_TYPE_COLORS, TEXT_ANNOTATION_TYPE_LABELS } from '@/hooks/useTextAnnotations';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
-import type { TextAnnotation, ChangeTrack } from '@/types/v3';
+import { useCommentThreads, useCreateCommentThread, useAddCommentMessage, useResolveCommentThread, useDeleteCommentThread } from '@/hooks/useCommentThreads';
+import type { TextAnnotation, ChangeTrack, CommentThreadWithMessages } from '@/types/v3';
 
 const INTENT_LABELS: Record<IntentType, string> = {
   text_generate: '续写生成',
@@ -133,6 +135,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [annotationType, setAnnotationType] = useState<TextAnnotation['annotation_type']>('note');
     const [annotationPopupPos, setAnnotationPopupPos] = useState({ x: 0, y: 0 });
     const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
+    const [popupMode, setPopupMode] = useState<'annotation' | 'comment'>('annotation');
+    
+    // 评论线程状态
+    const [showCommentPanel, setShowCommentPanel] = useState(false);
+    const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null);
+    const [newCommentContent, setNewCommentContent] = useState('');
+    const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
     
     // 使用模型管理Hook
     const { currentModel, status, chat } = useModel();
@@ -143,6 +152,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const { data: textAnnotations = [] } = useTextAnnotationsByChapter(chapterId || null);
     const createAnnotationMutation = useCreateTextAnnotation();
     const deleteAnnotationMutation = useDeleteTextAnnotation();
+    
+    // 评论线程数据
+    const { data: commentThreads = [] } = useCommentThreads(undefined, chapterId || undefined);
+    const createCommentThreadMutation = useCreateCommentThread();
+    const addCommentMessageMutation = useAddCommentMessage();
+    const resolveCommentThreadMutation = useResolveCommentThread();
+    const deleteCommentThreadMutation = useDeleteCommentThread();
     
     // 修订模式状态
     const [isRevisionMode, setIsRevisionMode] = useState(false);
@@ -173,6 +189,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         TextAnnotationMark,
         TrackInsertMark,
         TrackDeleteMark,
+        CommentAnchorMark,
       ],
       content,
       onUpdate: ({ editor }) => {
@@ -602,6 +619,60 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     };
 
+    const handleCreateCommentThread = async () => {
+      if (!selectedRange || !chapterId) return;
+      try {
+        const fromPos = editor?.state.doc.textBetween(0, selectedRange.from).length ?? 0;
+        const toPos = editor?.state.doc.textBetween(0, selectedRange.to).length ?? fromPos;
+        
+        const thread = await createCommentThreadMutation.mutateAsync({
+          versionId: '',
+          anchorType: 'TextRange',
+          chapterId,
+          fromPos,
+          toPos,
+          selectedText: selectedRange.text,
+        });
+        
+        await addCommentMessageMutation.mutateAsync({
+          threadId: thread.id,
+          content: annotationContent,
+          chapterId,
+        });
+        
+        // 应用评论锚点高亮
+        editor?.chain().focus().setTextSelection({ from: selectedRange.from, to: selectedRange.to }).setMark('commentAnchor', { threadId: thread.id }).setTextSelection(selectedRange.to).run();
+        
+        setAnnotationContent('');
+        setSelectedRange(null);
+        setPopupMode('annotation');
+        toast.success('评论已添加');
+      } catch (error) {
+        console.error('Failed to create comment thread:', error);
+        toast.error('添加评论失败');
+      }
+    };
+
+    const handleDeleteCommentThread = async (threadId: string) => {
+      try {
+        await deleteCommentThreadMutation.mutateAsync({ threadId, chapterId });
+        toast.success('评论已删除');
+      } catch (error) {
+        console.error('Failed to delete comment thread:', error);
+        toast.error('删除评论失败');
+      }
+    };
+
+    const handleResolveCommentThread = async (threadId: string) => {
+      try {
+        await resolveCommentThreadMutation.mutateAsync({ threadId, chapterId });
+        toast.success('评论已解决');
+      } catch (error) {
+        console.error('Failed to resolve comment thread:', error);
+        toast.error('操作失败');
+      }
+    };
+
     // 辅助函数：查找第一个不同字符的位置
     const findFirstDiff = (a: string, b: string): number => {
       let i = 0;
@@ -750,7 +821,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           
           <EditorContent editor={editor} />
           
-          {/* 文本批注选区浮动按钮 */}
+          {/* 文本批注/评论选区浮动按钮 */}
           {selectedRange && (
             <div
               className="absolute z-50 -translate-x-1/2 -translate-y-full"
@@ -758,39 +829,79 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             >
               <div className="bg-cinema-900 border border-cinema-700 rounded-lg shadow-xl p-3 w-64 mb-2">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-gray-400">添加批注</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setPopupMode('annotation')}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
+                        popupMode === 'annotation' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                      )}
+                    >
+                      批注
+                    </button>
+                    <button
+                      onClick={() => setPopupMode('comment')}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
+                        popupMode === 'comment' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+                      )}
+                    >
+                      评论
+                    </button>
+                  </div>
                   <button onClick={() => setSelectedRange(null)} className="text-gray-500 hover:text-white">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
-                <div className="flex gap-1 mb-2">
-                  {(['note', 'todo', 'warning', 'idea'] as const).map((t) => (
+                {popupMode === 'annotation' ? (
+                  <>
+                    <div className="flex gap-1 mb-2">
+                      {(['note', 'todo', 'warning', 'idea'] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setAnnotationType(t)}
+                          className={cn(
+                            'px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
+                            annotationType === t ? 'bg-cinema-700 text-white' : 'bg-cinema-800 text-gray-400 hover:text-white'
+                          )}
+                        >
+                          {TEXT_ANNOTATION_TYPE_LABELS[t]}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      value={annotationContent}
+                      onChange={(e) => setAnnotationContent(e.target.value)}
+                      placeholder="输入批注内容..."
+                      className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-xs text-white placeholder-gray-500 focus:border-cinema-gold focus:outline-none resize-none"
+                      rows={2}
+                    />
                     <button
-                      key={t}
-                      onClick={() => setAnnotationType(t)}
-                      className={cn(
-                        'px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
-                        annotationType === t ? 'bg-cinema-700 text-white' : 'bg-cinema-800 text-gray-400 hover:text-white'
-                      )}
+                      onClick={handleCreateAnnotation}
+                      disabled={!annotationContent.trim() || createAnnotationMutation.isPending}
+                      className="w-full mt-2 py-1.5 rounded bg-cinema-gold/10 text-cinema-gold text-xs font-medium hover:bg-cinema-gold/20 disabled:opacity-50 transition-colors"
                     >
-                      {TEXT_ANNOTATION_TYPE_LABELS[t]}
+                      {createAnnotationMutation.isPending ? '保存中...' : '保存批注'}
                     </button>
-                  ))}
-                </div>
-                <textarea
-                  value={annotationContent}
-                  onChange={(e) => setAnnotationContent(e.target.value)}
-                  placeholder="输入批注内容..."
-                  className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-xs text-white placeholder-gray-500 focus:border-cinema-gold focus:outline-none resize-none"
-                  rows={2}
-                />
-                <button
-                  onClick={handleCreateAnnotation}
-                  disabled={!annotationContent.trim() || createAnnotationMutation.isPending}
-                  className="w-full mt-2 py-1.5 rounded bg-cinema-gold/10 text-cinema-gold text-xs font-medium hover:bg-cinema-gold/20 disabled:opacity-50 transition-colors"
-                >
-                  {createAnnotationMutation.isPending ? '保存中...' : '保存批注'}
-                </button>
+                  </>
+                ) : (
+                  <>
+                    <textarea
+                      value={annotationContent}
+                      onChange={(e) => setAnnotationContent(e.target.value)}
+                      placeholder="输入评论内容..."
+                      className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-xs text-white placeholder-gray-500 focus:border-cinema-gold focus:outline-none resize-none"
+                      rows={2}
+                    />
+                    <button
+                      onClick={handleCreateCommentThread}
+                      disabled={!annotationContent.trim() || createCommentThreadMutation.isPending}
+                      className="w-full mt-2 py-1.5 rounded bg-yellow-500/10 text-yellow-400 text-xs font-medium hover:bg-yellow-500/20 disabled:opacity-50 transition-colors"
+                    >
+                      {createCommentThreadMutation.isPending ? '保存中...' : '发起评论'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -878,6 +989,113 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                             <Check className="w-3 h-3" />
                             已解决
                           </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 评论线程面板 */}
+            {showCommentPanel && (
+              <div className="comment-panel mb-3 max-h-48 overflow-y-auto bg-cinema-900/50 border border-cinema-800 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-white flex items-center gap-1.5">
+                    <MessageSquarePlus className="w-4 h-4 text-yellow-400" />
+                    评论线程
+                    <span className="text-xs text-gray-500 font-normal">({commentThreads.length})</span>
+                  </span>
+                  <button onClick={() => setShowCommentPanel(false)} className="text-gray-500 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {commentThreads.length === 0 ? (
+                  <p className="text-xs text-gray-500">暂无评论。在编辑器中选中文本，切换到「评论」标签即可添加。</p>
+                ) : (
+                  <div className="space-y-3">
+                    {commentThreads.map((item: CommentThreadWithMessages) => (
+                      <div
+                        key={item.thread.id}
+                        className={cn(
+                          'text-xs p-2 rounded-lg border transition-colors',
+                          hoveredThreadId === item.thread.id ? 'bg-cinema-800 border-cinema-700' : 'bg-cinema-900 border-cinema-800'
+                        )}
+                        onMouseEnter={() => setHoveredThreadId(item.thread.id)}
+                        onMouseLeave={() => setHoveredThreadId(null)}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-[10px] text-gray-400">
+                            {item.thread.selected_text ? `「${item.thread.selected_text.slice(0, 20)}${item.thread.selected_text.length > 20 ? '...' : ''}」` : '场景评论'}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            {item.thread.status === 'Open' ? (
+                              <button
+                                onClick={() => handleResolveCommentThread(item.thread.id)}
+                                className="text-gray-500 hover:text-green-400"
+                                title="解决"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-green-500">已解决</span>
+                            )}
+                            <button
+                              onClick={() => handleDeleteCommentThread(item.thread.id)}
+                              className="text-gray-500 hover:text-red-400"
+                              title="删除"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          {item.messages.map((msg) => (
+                            <div key={msg.id} className="text-gray-300">
+                              <span className="text-[10px] text-gray-500">{msg.author_id}</span>
+                              <p className="leading-relaxed">{msg.content}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {item.thread.status === 'Open' && (
+                          <div className="flex gap-1.5 mt-2">
+                            <input
+                              type="text"
+                              value={activeCommentThreadId === item.thread.id ? newCommentContent : ''}
+                              onChange={(e) => {
+                                setActiveCommentThreadId(item.thread.id);
+                                setNewCommentContent(e.target.value);
+                              }}
+                              placeholder="回复..."
+                              className="flex-1 px-2 py-1 bg-cinema-800 border border-cinema-700 rounded text-xs text-white placeholder-gray-500 focus:border-cinema-gold focus:outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newCommentContent.trim()) {
+                                  addCommentMessageMutation.mutate({
+                                    threadId: item.thread.id,
+                                    content: newCommentContent,
+                                    chapterId,
+                                  });
+                                  setNewCommentContent('');
+                                }
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                if (newCommentContent.trim()) {
+                                  addCommentMessageMutation.mutate({
+                                    threadId: item.thread.id,
+                                    content: newCommentContent,
+                                    chapterId,
+                                  });
+                                  setNewCommentContent('');
+                                }
+                              }}
+                              disabled={!newCommentContent.trim() || addCommentMessageMutation.isPending}
+                              className="px-2 py-1 rounded bg-yellow-500/10 text-yellow-400 text-xs hover:bg-yellow-500/20 disabled:opacity-50 transition-colors"
+                            >
+                              回复
+                            </button>
+                          </div>
                         )}
                       </div>
                     ))}
@@ -1034,6 +1252,17 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     )}
                   >
                     <StickyNote className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setShowCommentPanel(!showCommentPanel)}
+                    title="评论线程"
+                    className={cn(
+                      'p-2 rounded-full transition-colors duration-200',
+                      'text-[var(--stone-gray)] hover:text-yellow-400 hover:bg-yellow-500/10',
+                      showCommentPanel && 'text-yellow-400 bg-yellow-500/10'
+                    )}
+                  >
+                    <MessageSquarePlus className="w-4 h-4" />
                   </button>
                   <button
                     onClick={handleGenerateCommentary}

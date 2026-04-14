@@ -282,10 +282,42 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (version_id) REFERENCES scene_versions(id)
         );
 
+        -- 评论线程表
+        CREATE TABLE IF NOT EXISTS comment_threads (
+            id TEXT PRIMARY KEY,
+            scene_id TEXT,
+            chapter_id TEXT,
+            version_id TEXT,
+            anchor_type TEXT NOT NULL,
+            from_pos INTEGER,
+            to_pos INTEGER,
+            selected_text TEXT,
+            status TEXT NOT NULL DEFAULT 'Open',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+            FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+            FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+        );
+
+        -- 评论消息表
+        CREATE TABLE IF NOT EXISTS comment_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            author_id TEXT NOT NULL,
+            author_name TEXT,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (thread_id) REFERENCES comment_threads(id) ON DELETE CASCADE
+        );
+
         -- 创建索引
         CREATE INDEX IF NOT EXISTS idx_change_tracks_scene ON change_tracks(scene_id);
         CREATE INDEX IF NOT EXISTS idx_change_tracks_chapter ON change_tracks(chapter_id);
         CREATE INDEX IF NOT EXISTS idx_change_tracks_status ON change_tracks(status);
+        CREATE INDEX IF NOT EXISTS idx_comment_threads_scene ON comment_threads(scene_id);
+        CREATE INDEX IF NOT EXISTS idx_comment_threads_chapter ON comment_threads(chapter_id);
+        CREATE INDEX IF NOT EXISTS idx_comment_messages_thread ON comment_messages(thread_id);
         CREATE INDEX IF NOT EXISTS idx_scenes_story ON scenes(story_id);
         CREATE INDEX IF NOT EXISTS idx_scenes_sequence ON scenes(story_id, sequence_number);
         CREATE INDEX IF NOT EXISTS idx_scenes_prev ON scenes(previous_scene_id);
@@ -496,6 +528,60 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_change_tracks_chapter ON change_tracks(chapter_id)",
+            [],
+        )?;
+    }
+
+    // Migration 6: 创建评论线程表 (v3.3.0)
+    let comment_thread_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_threads'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if comment_thread_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE comment_threads (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT,
+                chapter_id TEXT,
+                version_id TEXT,
+                anchor_type TEXT NOT NULL,
+                from_pos INTEGER,
+                to_pos INTEGER,
+                selected_text TEXT,
+                status TEXT NOT NULL DEFAULT 'Open',
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+                FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_comment_threads_scene ON comment_threads(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_comment_threads_chapter ON comment_threads(chapter_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE comment_messages (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                author_id TEXT NOT NULL,
+                author_name TEXT,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (thread_id) REFERENCES comment_threads(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_comment_messages_thread ON comment_messages(thread_id)",
             [],
         )?;
     }

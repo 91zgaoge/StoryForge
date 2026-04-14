@@ -567,6 +567,37 @@ export interface ChangeTrack {
   resolved_at?: string;
 }
 
+export type AnchorType = 'TextRange' | 'SceneLevel';
+export type ThreadStatus = 'Open' | 'Resolved';
+
+export interface CommentThread {
+  id: string;
+  scene_id?: string;
+  chapter_id?: string;
+  version_id?: string;
+  anchor_type: AnchorType;
+  from_pos?: number;
+  to_pos?: number;
+  selected_text?: string;
+  status: ThreadStatus;
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface CommentMessage {
+  id: string;
+  thread_id: string;
+  author_id: string;
+  author_name?: string;
+  content: string;
+  created_at: string;
+}
+
+export interface CommentThreadWithMessages {
+  thread: CommentThread;
+  messages: CommentMessage[];
+}
+
 export interface RetentionScore {
   entity_id: string;
   entity_name: string;

@@ -1224,3 +1224,122 @@ pub async fn reject_all_changes(
         Err("Either scene_id or chapter_id must be provided".to_string())
     }
 }
+
+
+// ==================== 评论线程命令 (修订模式) ====================
+
+#[command]
+pub async fn create_comment_thread(
+    version_id: Option<String>,
+    anchor_type: String,
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    from_pos: Option<i32>,
+    to_pos: Option<i32>,
+    selected_text: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<crate::db::models_v3::CommentThread, String> {
+    use crate::db::models_v3::{CommentThread, AnchorType};
+    use crate::db::repositories_v3::CommentThreadRepository;
+
+    let at = match anchor_type.as_str() {
+        "SceneLevel" => AnchorType::SceneLevel,
+        _ => AnchorType::TextRange,
+    };
+
+    let thread = CommentThread::new(
+        version_id,
+        at,
+        scene_id,
+        chapter_id,
+        from_pos,
+        to_pos,
+        selected_text,
+    );
+
+    let repo = CommentThreadRepository::new(pool.inner().clone());
+    repo.create_thread(&thread)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn add_comment_message(
+    thread_id: String,
+    content: String,
+    author_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<crate::db::models_v3::CommentMessage, String> {
+    use crate::db::models_v3::CommentMessage;
+    use crate::db::repositories_v3::CommentThreadRepository;
+    use chrono::Local;
+    use uuid::Uuid;
+
+    let message = CommentMessage {
+        id: Uuid::new_v4().to_string(),
+        thread_id,
+        author_id: author_id.unwrap_or_else(|| "user".to_string()),
+        author_name: None,
+        content,
+        created_at: Local::now(),
+    };
+
+    let repo = CommentThreadRepository::new(pool.inner().clone());
+    repo.add_message(&message)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_comment_threads(
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::models_v3::CommentThreadWithMessages>, String> {
+    use crate::db::repositories_v3::CommentThreadRepository;
+
+    let repo = CommentThreadRepository::new(pool.inner().clone());
+    if let Some(sid) = scene_id {
+        repo.get_threads_by_scene(&sid)
+            .map_err(|e| e.to_string())
+    } else if let Some(cid) = chapter_id {
+        repo.get_threads_by_chapter(&cid)
+            .map_err(|e| e.to_string())
+    } else {
+        Err("Either scene_id or chapter_id must be provided".to_string())
+    }
+}
+
+#[command]
+pub async fn resolve_comment_thread(
+    thread_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::repositories_v3::CommentThreadRepository;
+
+    let repo = CommentThreadRepository::new(pool.inner().clone());
+    repo.resolve_thread(&thread_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn reopen_comment_thread(
+    thread_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::repositories_v3::CommentThreadRepository;
+
+    let repo = CommentThreadRepository::new(pool.inner().clone());
+    repo.reopen_thread(&thread_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn delete_comment_thread(
+    thread_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::repositories_v3::CommentThreadRepository;
+
+    let repo = CommentThreadRepository::new(pool.inner().clone());
+    repo.delete_thread(&thread_id)
+        .map_err(|e| e.to_string())
+}
