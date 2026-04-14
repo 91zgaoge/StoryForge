@@ -3,8 +3,6 @@
 use super::settings::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 use tauri::{command, AppHandle, Manager};
 
 /// 模型类型

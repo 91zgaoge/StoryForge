@@ -6,8 +6,7 @@
 //! Stage 4: 带引用编号的上下文组装
 
 use super::tokenizer::CJKTokenizer;
-use crate::db::models_v3::{Entity, Relation};
-use std::sync::Arc;
+use crate::db::models_v3::Entity;
 
 /// 查询管道
 pub struct QueryPipeline {

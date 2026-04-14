@@ -2,10 +2,10 @@
 //!
 //! Tauri commands for agent execution
 
-use super::service::{AgentEvent, AgentService, AgentStage, AgentTask, AgentType};
+use super::service::{AgentService, AgentTask, AgentType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::{command, AppHandle, Emitter, Manager, State};
+use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 /// 执行Agent请求

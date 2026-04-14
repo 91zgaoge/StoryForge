@@ -7,7 +7,6 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 pub mod service;
-pub use service::*;
 
 // 旧版本兼容结构 - 将在未来版本中移除
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,7 +4,7 @@
 //! 支持任务分解、执行、结果整合
 
 use super::{Agent, AgentContext, AgentResult};
-use crate::config::settings::{AppConfig, LlmProvider, AgentMapping};
+use crate::config::settings::AppConfig;
 use crate::llm::service::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -2,9 +2,9 @@
 //!
 //! 提供给前端调用的LLM相关命令
 
-use super::service::{init_llm_service, GenerationComplete, GenerationError, LlmService, StreamChunk};
+use super::service::{init_llm_service, LlmService};
 use serde::{Deserialize, Serialize};
-use tauri::{command, AppHandle, Emitter, Manager};
+use tauri::{command, AppHandle};
 
 /// 生成请求
 #[derive(Debug, Deserialize)]

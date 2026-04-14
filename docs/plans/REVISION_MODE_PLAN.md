@@ -1,7 +1,7 @@
 # StoryForge 修订模式与变更追踪架构计划
 
 > **版本**: v3.3.0 规划
-> **状态**: 设计阶段
+> **状态**: Phase 1/2/3 已完成，性能优化待续
 > **目标**: 实现专业级修订模式（Track Changes）+ 评论批注线程 + 版本差异追踪
 
 ---
@@ -321,22 +321,22 @@ CREATE INDEX idx_comment_messages_thread ON comment_messages(thread_id);
 ## 7. 实施阶段
 
 ### Phase 1: 变更追踪核心（2 周）
-- [ ] 创建 `ChangeTrack` 数据模型 + 数据库表
-- [ ] 创建 `TrackChanges` TipTap Mark 扩展（insert/delete）
-- [ ] 实现 `track_change` / `accept_change` / `reject_change` 命令
-- [ ] 在 `RichTextEditor` 中集成修订模式开关
+- [x] 创建 `ChangeTrack` 数据模型 + 数据库表
+- [x] 创建 `TrackChanges` TipTap Mark 扩展（insert/delete）
+- [x] 实现 `track_change` / `accept_change` / `reject_change` 命令
+- [x] 在 `RichTextEditor` 中集成修订模式开关
 
 ### Phase 2: 评论线程（1.5 周）
-- [ ] 创建 `CommentThread` / `CommentMessage` 模型 + 表
-- [ ] 创建 `CommentAnchor` TipTap Mark 扩展
-- [ ] 实现评论线程后端 API
-- [ ] 实现 `CommentThreadPanel` 右侧边栏
+- [x] 创建 `CommentThread` / `CommentMessage` 模型 + 表
+- [x] 创建 `CommentAnchor` TipTap Mark 扩展
+- [x] 实现评论线程后端 API
+- [x] 实现 `CommentThreadPanel` 右侧边栏
 - [ ] 将现有 `TextAnnotation` 数据迁移到 `CommentThread`（可选）
 
 ### Phase 3: 版本集成与优化（1 周）
-- [ ] 在保存场景版本时自动生成 `ChangeTrack`（通过 Diff）
-- [ ] 在 `VersionTimeline` 中展示该版本的变更统计
-- [ ] 接受/拒绝变更后自动创建新版本快照
+- [x] 在保存场景版本时自动生成 `ChangeTrack`（通过 Diff）
+- [x] 在 `VersionTimeline` 中展示该版本的变更统计
+- [x] 接受/拒绝变更后自动创建新版本快照
 - [ ] 解决大规模文档下的性能优化（虚拟渲染变更标记）
 
 ---

@@ -1,9 +1,9 @@
 //! V3 架构 Repository 层
 
 use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture};
-use super::{Setting, LocationType, SensoryDetails, WritingStyle, StudioConfig};
+use super::{WritingStyle, StudioConfig};
 use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
-use super::{SceneVersion, CreatorType, SceneAnnotation, AnnotationType, TextAnnotation, StorySummary, ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage, CommentThreadWithMessages, AnchorType, ThreadStatus};
+use super::{SceneVersion, CreatorType, SceneAnnotation, TextAnnotation, StorySummary, ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage, CommentThreadWithMessages, AnchorType, ThreadStatus};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use serde::{Serialize, Deserialize};

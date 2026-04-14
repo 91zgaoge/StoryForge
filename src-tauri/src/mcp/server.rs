@@ -2,7 +2,7 @@ use super::types::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncBufReadExt;
 use tokio::process::{Child, Command};
 
 pub trait McpToolHandler: Send + Sync {

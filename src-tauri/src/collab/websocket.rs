@@ -191,7 +191,7 @@ async fn handle_collab_message(
                 let _ = sender.send(ack);
             }
         }
-        CollabMessage::Operation { operation, .. } => {
+        CollabMessage::Operation {  .. } => {
             // Broadcast operation to all clients
             // TODO: Get session from context
         }

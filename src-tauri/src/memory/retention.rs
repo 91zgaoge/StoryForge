@@ -3,7 +3,7 @@
 //! 基于 Ebbinghaus 遗忘曲线理论的记忆优先级管理
 //! R(t) = R₀ × e^(-λt) + Σ(强化奖励)
 
-use crate::db::models_v3::{Entity, RetentionConfig, RetentionPriority};
+use crate::db::models_v3::{Entity, RetentionConfig};
 use chrono::{DateTime, Duration, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

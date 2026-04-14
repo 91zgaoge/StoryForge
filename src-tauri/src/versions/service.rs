@@ -2,7 +2,7 @@
 //! 
 //! 提供版本比较、恢复和版本链管理功能
 
-use crate::db::models_v3::{Scene, SceneVersion};
+use crate::db::models_v3::SceneVersion;
 use crate::db::repositories_v3::{SceneRepository, SceneVersionRepository};
 use crate::db::DbPool;
 use chrono::Local;
