@@ -18,7 +18,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Quote
+  Quote,
+  MessageSquarePlus,
+  X,
+  StickyNote,
+  Check,
+  Trash2
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { Character } from '@/types/index';
@@ -34,7 +39,11 @@ import { ChatMessage } from '@/services/modelService';
 import { ModelConfig } from '@/config/models';
 import type { IntentType, FeedbackType } from '@/types/index';
 import type { ParagraphCommentary } from '@/types/v3';
+import toast from 'react-hot-toast';
 import { generateParagraphCommentaries } from '@/services/tauri';
+import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
+import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnnotation, TEXT_ANNOTATION_TYPE_COLORS, TEXT_ANNOTATION_TYPE_LABELS } from '@/hooks/useTextAnnotations';
+import type { TextAnnotation } from '@/types/v3';
 
 const INTENT_LABELS: Record<IntentType, string> = {
   text_generate: '续写生成',
@@ -73,6 +82,7 @@ interface RichTextEditorProps {
   isZenMode?: boolean;
   onZenModeChange?: (zen: boolean) => void;
   storyId?: string;
+  chapterId?: string;
 }
 
 export interface RichTextEditorRef {
@@ -97,6 +107,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     isZenMode = false,
     onZenModeChange,
     storyId,
+    chapterId,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -109,10 +120,23 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [streamingContent, setStreamingContent] = useState('');
     const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
     
+    // 文本批注状态
+    const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
+    const [selectedRange, setSelectedRange] = useState<{ from: number; to: number; text: string } | null>(null);
+    const [annotationContent, setAnnotationContent] = useState('');
+    const [annotationType, setAnnotationType] = useState<TextAnnotation['annotation_type']>('note');
+    const [annotationPopupPos, setAnnotationPopupPos] = useState({ x: 0, y: 0 });
+    const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
+    
     // 使用模型管理Hook
     const { currentModel, status, chat } = useModel();
     // 使用意图解析Hook
     const { parseIntent, executeIntent, buildMessages, isParsing: isParsingIntent, isExecuting: isExecutingIntent } = useIntent();
+    
+    // 文本批注数据
+    const { data: textAnnotations = [] } = useTextAnnotationsByChapter(chapterId || null);
+    const createAnnotationMutation = useCreateTextAnnotation();
+    const deleteAnnotationMutation = useDeleteTextAnnotation();
     
     // 角色卡片弹窗状态
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -130,6 +154,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         Placeholder.configure({ placeholder }),
         Underline,
         Highlight.configure({ multicolor: true }),
+        TextAnnotationMark,
       ],
       content,
       onUpdate: ({ editor }) => {
@@ -138,6 +163,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       editorProps: {
         attributes: {
           class: 'prose prose-lg focus:outline-none',
+        },
+        handleDOMEvents: {
+          mousedown: () => {
+            setSelectedRange(null);
+            return false;
+          },
         },
       },
     });
@@ -157,6 +188,92 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editor.commands.setContent(content);
       }
     }, [content, editor]);
+
+    // 文本批注：选区变化时显示添加按钮
+    useEffect(() => {
+      if (!editor) return;
+
+      const handleSelectionUpdate = () => {
+        const { selection } = editor.state;
+        if (selection.empty) {
+          setSelectedRange(null);
+          return;
+        }
+        const text = editor.state.doc.textBetween(selection.from, selection.to, '\n');
+        if (!text.trim()) {
+          setSelectedRange(null);
+          return;
+        }
+        
+        // 获取选区在视口中的位置
+        const domSel = window.getSelection();
+        if (domSel && domSel.rangeCount > 0) {
+          const rect = domSel.getRangeAt(0).getBoundingClientRect();
+          const containerRect = containerRef.current?.getBoundingClientRect();
+          if (containerRect) {
+            setAnnotationPopupPos({
+              x: rect.left - containerRect.left + rect.width / 2,
+              y: rect.top - containerRect.top - 8,
+            });
+          }
+        }
+        
+        setSelectedRange({ from: selection.from, to: selection.to, text: text.trim() });
+      };
+
+      editor.on('selectionUpdate', handleSelectionUpdate);
+      return () => {
+        editor.off('selectionUpdate', handleSelectionUpdate);
+      };
+    }, [editor]);
+
+    // 文本批注：加载后应用高亮标记
+    useEffect(() => {
+      if (!editor || !textAnnotations.length || !chapterId) return;
+      
+      // 清除旧标记并重新应用
+      editor.commands.unsetTextAnnotation();
+      
+      for (const annotation of textAnnotations) {
+        const { from_pos, to_pos, annotation_type, id } = annotation;
+        // 将纯文本位置映射回 ProseMirror 位置
+        // 由于精确映射复杂，这里使用文本搜索策略在文档中查找
+        const docText = editor.state.doc.textContent;
+        // 优先使用原始位置附近的文本
+        const searchText = docText.slice(from_pos, to_pos);
+        if (!searchText) continue;
+        
+        let foundIndex = docText.indexOf(searchText);
+        if (foundIndex === -1) continue;
+        
+        // 从文本偏移映射到 ProseMirror 位置
+        // 使用 editor.state.doc.resolve 不太适合从字符偏移转换
+        // 简单做法：通过 nodesBetween 找到对应文本节点
+        let startPos = -1;
+        let endPos = -1;
+        let currentOffset = 0;
+        
+        editor.state.doc.descendants((node, pos) => {
+          if (!node.isText) return;
+          const text = node.text || '';
+          const nodeStart = currentOffset;
+          const nodeEnd = currentOffset + text.length;
+          
+          if (startPos === -1 && nodeEnd > foundIndex) {
+            startPos = pos + (foundIndex - nodeStart);
+          }
+          if (endPos === -1 && nodeEnd >= foundIndex + searchText.length) {
+            endPos = pos + (foundIndex + searchText.length - nodeStart);
+          }
+          currentOffset += text.length;
+        });
+        
+        if (startPos !== -1 && endPos !== -1) {
+          editor.commands.setTextAnnotation({ type: annotation_type, annotationId: id });
+          editor.chain().focus().setTextSelection({ from: startPos, to: endPos }).setMark('textAnnotation', { type: annotation_type, annotationId: id }).setTextSelection(endPos).run();
+        }
+      }
+    }, [editor, textAnnotations, chapterId]);
 
     // 处理角色名点击 - 自动扩展选区到完整词
     useEffect(() => {
@@ -380,6 +497,44 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [editor, storyId]);
 
+    // 创建文本批注
+    const handleCreateAnnotation = async () => {
+      if (!selectedRange || !chapterId || !storyId) return;
+      try {
+        const fromPos = editor?.state.doc.textBetween(0, selectedRange.from).length ?? 0;
+        const toPos = editor?.state.doc.textBetween(0, selectedRange.to).length ?? fromPos;
+        
+        await createAnnotationMutation.mutateAsync({
+          story_id: storyId,
+          chapter_id: chapterId,
+          content: annotationContent,
+          annotation_type: annotationType,
+          from_pos: fromPos,
+          to_pos: toPos,
+        });
+        
+        // 应用临时高亮
+        editor?.chain().focus().setTextSelection({ from: selectedRange.from, to: selectedRange.to }).setMark('textAnnotation', { type: annotationType, annotationId: 'temp' }).setTextSelection(selectedRange.to).run();
+        
+        setAnnotationContent('');
+        setSelectedRange(null);
+        toast.success('批注已添加');
+      } catch (error) {
+        console.error('Failed to create annotation:', error);
+        toast.error('添加批注失败');
+      }
+    };
+
+    const handleDeleteAnnotation = async (annotation: TextAnnotation) => {
+      try {
+        await deleteAnnotationMutation.mutateAsync(annotation.id);
+        toast.success('批注已删除');
+      } catch (error) {
+        console.error('Failed to delete annotation:', error);
+        toast.error('删除批注失败');
+      }
+    };
+
     // 获取状态图标
     const getStatusIcon = () => {
       switch (status) {
@@ -459,8 +614,53 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         }}
       >
         {/* 编辑器内容区 */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto relative">
           <EditorContent editor={editor} />
+          
+          {/* 文本批注选区浮动按钮 */}
+          {selectedRange && (
+            <div
+              className="absolute z-50 -translate-x-1/2 -translate-y-full"
+              style={{ left: annotationPopupPos.x, top: annotationPopupPos.y }}
+            >
+              <div className="bg-cinema-900 border border-cinema-700 rounded-lg shadow-xl p-3 w-64 mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">添加批注</span>
+                  <button onClick={() => setSelectedRange(null)} className="text-gray-500 hover:text-white">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <div className="flex gap-1 mb-2">
+                  {(['note', 'todo', 'warning', 'idea'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setAnnotationType(t)}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[10px] font-medium transition-colors',
+                        annotationType === t ? 'bg-cinema-700 text-white' : 'bg-cinema-800 text-gray-400 hover:text-white'
+                      )}
+                    >
+                      {TEXT_ANNOTATION_TYPE_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={annotationContent}
+                  onChange={(e) => setAnnotationContent(e.target.value)}
+                  placeholder="输入批注内容..."
+                  className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-xs text-white placeholder-gray-500 focus:border-cinema-gold focus:outline-none resize-none"
+                  rows={2}
+                />
+                <button
+                  onClick={handleCreateAnnotation}
+                  disabled={!annotationContent.trim() || createAnnotationMutation.isPending}
+                  className="w-full mt-2 py-1.5 rounded bg-cinema-gold/10 text-cinema-gold text-xs font-medium hover:bg-cinema-gold/20 disabled:opacity-50 transition-colors"
+                >
+                  {createAnnotationMutation.isPending ? '保存中...' : '保存批注'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI 生成预览 */}
@@ -501,6 +701,58 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               showToolbar || isExpanded || chatInput ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'
             )}
           >
+            {/* 批注面板 */}
+            {showAnnotationPanel && (
+              <div className="annotation-panel mb-3 max-h-40 overflow-y-auto bg-cinema-900/50 border border-cinema-800 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-white flex items-center gap-1.5">
+                    <StickyNote className="w-4 h-4 text-cinema-gold" />
+                    文本批注
+                    <span className="text-xs text-gray-500 font-normal">({textAnnotations.length})</span>
+                  </span>
+                  <button onClick={() => setShowAnnotationPanel(false)} className="text-gray-500 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                {textAnnotations.length === 0 ? (
+                  <p className="text-xs text-gray-500">暂无批注。在编辑器中选中文本即可添加。</p>
+                ) : (
+                  <div className="space-y-2">
+                    {textAnnotations.map((annotation) => (
+                      <div
+                        key={annotation.id}
+                        className={cn(
+                          'text-xs p-2 rounded-lg border transition-colors',
+                          hoveredAnnotationId === annotation.id ? 'bg-cinema-800 border-cinema-700' : 'bg-cinema-900 border-cinema-800'
+                        )}
+                        onMouseEnter={() => setHoveredAnnotationId(annotation.id)}
+                        onMouseLeave={() => setHoveredAnnotationId(null)}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium text-white', TEXT_ANNOTATION_TYPE_COLORS[annotation.annotation_type])}>
+                            {TEXT_ANNOTATION_TYPE_LABELS[annotation.annotation_type]}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteAnnotation(annotation)}
+                            className="text-gray-500 hover:text-red-400"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <p className="text-gray-300 line-clamp-2">{annotation.content}</p>
+                        {annotation.resolved_at && (
+                          <span className="flex items-center gap-1 text-[10px] text-green-500 mt-1">
+                            <Check className="w-3 h-3" />
+                            已解决
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 对话历史 - 仅在展开时显示 */}
             {isExpanded && (chatHistory.length > 0 || streamingContent) && (
               <div className="chat-history mb-3 max-h-40 overflow-y-auto space-y-2 px-1">
@@ -626,8 +878,19 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   />
                 </div>
 
-                {/* 右侧：评点按钮 + 发送按钮 */}
+                {/* 右侧：批注按钮 + 评点按钮 + 发送按钮 */}
                 <div className="chat-input-right flex items-center gap-1.5">
+                  <button
+                    onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
+                    title="文本批注"
+                    className={cn(
+                      'p-2 rounded-full transition-colors duration-200',
+                      'text-[var(--stone-gray)] hover:text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10',
+                      showAnnotationPanel && 'text-[var(--terracotta)] bg-[var(--terracotta)]/10'
+                    )}
+                  >
+                    <StickyNote className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={handleGenerateCommentary}
                     disabled={isGeneratingCommentary || !storyId || status === 'disconnected'}

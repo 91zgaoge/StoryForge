@@ -333,6 +333,7 @@ const FrontstageApp: React.FC = () => {
             isZenMode={isZenMode}
             onZenModeChange={setIsZenMode}
             storyId={currentStory?.id}
+            chapterId={currentChapter?.id}
           />
         </main>
       </div>
