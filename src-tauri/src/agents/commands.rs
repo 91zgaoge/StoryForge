@@ -1,12 +1,19 @@
 //! Agent Commands
 //!
 //! Tauri commands for agent execution
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 use super::service::{AgentService, AgentTask, AgentType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
 use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
+
+static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// 执行Agent请求
 #[derive(Debug, Deserialize)]
@@ -68,10 +75,10 @@ pub async fn agent_execute_stream(
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let task_id = Uuid::new_v4().to_string();
-    
+
     // 构建上下文
     let context = build_agent_context(&app_handle, &request).await?;
-    
+
     let task = AgentTask {
         id: task_id.clone(),
         agent_type: request.agent_type.clone(),
@@ -79,12 +86,12 @@ pub async fn agent_execute_stream(
         input: request.input.clone(),
         parameters: request.parameters.unwrap_or_default(),
     };
-    
+
     // 在后台执行
     let service = AgentService::new(app_handle.clone());
     let task_id_clone = task_id.clone();
-    
-    tokio::spawn(async move {
+
+    let handle = tokio::spawn(async move {
         match service.execute_task(task).await {
             Ok(result) => {
                 let _ = app_handle.emit(&format!("agent-complete-{}", task_id_clone), result);
@@ -93,22 +100,31 @@ pub async fn agent_execute_stream(
                 let _ = app_handle.emit(&format!("agent-error-{}", task_id_clone), e);
             }
         }
+        // 完成后清理句柄
+        let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
     });
-    
+
+    TASK_HANDLES.lock().unwrap().insert(task_id.clone(), handle.abort_handle());
+
     Ok(task_id)
 }
 
 /// 取消Agent任务
 #[command]
 pub async fn agent_cancel_task(task_id: String) -> Result<(), String> {
-    // TODO: 实现任务取消机制
-    log::info!("[Agent] Cancelling task: {}", task_id);
+    let mut handles = TASK_HANDLES.lock().unwrap();
+    if let Some(handle) = handles.remove(&task_id) {
+        handle.abort();
+        log::info!("[Agent] Task {} aborted", task_id);
+    } else {
+        log::info!("[Agent] No active task found for {} to cancel", task_id);
+    }
     Ok(())
 }
 
 /// 获取Agent执行状态
 #[command]
-pub fn agent_get_status(task_id: String) -> String {
+pub fn agent_get_status(_task_id: String) -> String {
     // TODO: 实现状态跟踪
     format!("running")
 }

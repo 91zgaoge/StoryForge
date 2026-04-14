@@ -162,8 +162,8 @@ $ cd src-tauri && cargo tauri build
 - [x] SQLite 向量存储持久化（已替代 JSON-memory fallback）
 - [ ] LanceDB 持久化存储（ blocked：Arrow 依赖与当前工具链冲突）
 - [x] 实体向量持久化（`kg_entities.embedding` BLOB 读写修复）
-- [ ] 实体向量自动更新（属性变更时重新生成嵌入）
-- [ ] 语义搜索优化
+- [x] 实体向量自动更新（属性变更时重新生成嵌入）
+- [x] 语义搜索优化
 - [ ] 向量索引性能优化
 
 #### 知识图谱可视化
@@ -176,8 +176,8 @@ $ cd src-tauri && cargo tauri build
 - [x] 自动归档系统（一键归档 + 恢复 + 已归档浏览）
 - [x] 创建向导自动 Ingest
 - [x] 实体嵌入持久化
-- [ ] 知识蒸馏
-- [ ] 记忆压缩
+- [x] 知识蒸馏
+- [x] 记忆压缩
 
 #### 协作功能
 - [x] 评论和批注系统

@@ -43,7 +43,7 @@ impl ShortTermMemory {
         chapters: &[Chapter],
         characters: &[Character],
         target_chapter_number: u32,
-        outline: &str,
+        _outline: &str,
     ) -> AgentContext {
         // 构建章节摘要（最近 N 章）
         let mut previous_chapters: Vec<ChapterSummary> = chapters

@@ -2,6 +2,7 @@
 //!
 //! SQLite-backed vector storage with LanceDB-compatible API.
 //! Replaces the previous JSON-memory fallback with true persistent storage.
+#![allow(dead_code)]
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};

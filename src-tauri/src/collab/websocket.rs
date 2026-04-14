@@ -1,4 +1,5 @@
 //! WebSocket Server for Collaborative Editing
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -170,7 +171,7 @@ async fn handle_connection(
 
 async fn handle_collab_message(
     msg: CollabMessage,
-    user_id: &str,
+    _user_id: &str,
     sessions: &Arc<RwLock<HashMap<String, Arc<CollabSession>>>>,
     sender: &mpsc::UnboundedSender<CollabMessage>,
 ) {
@@ -195,7 +196,7 @@ async fn handle_collab_message(
             // Broadcast operation to all clients
             // TODO: Get session from context
         }
-        CollabMessage::Cursor { user_id, position } => {
+        CollabMessage::Cursor { user_id: _, position: _ } => {
             // Broadcast cursor position
         }
         _ => {}

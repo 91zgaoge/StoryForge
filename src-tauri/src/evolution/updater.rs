@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -96,7 +97,7 @@ impl SkillUpdater {
     pub fn generate_character_updates(
         &self,
         analysis: &super::analyzer::AnalysisReport,
-        current_skills: &HashMap<String, crate::skills::Skill>,
+        _current_skills: &HashMap<String, crate::skills::Skill>,
     ) -> Vec<SkillUpdate> {
         let mut updates = Vec::new();
 

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use super::embedding::*;

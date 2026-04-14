@@ -17,7 +17,8 @@ import {
   Wand2,
   RotateCcw,
   Copy,
-  Check
+  Check,
+  OctagonX
 } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { Button } from '@/components/ui/Button';
@@ -106,27 +107,64 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [taskId, setTaskId] = useState<string | null>(null);
 
   const { data: settings } = useSettings();
 
   // 监听执行事件
   useEffect(() => {
-    if (!isExecuting) return;
+    if (!taskId) return;
 
     const unlisteners: (() => void)[] = [];
 
-    // 监听进度事件
     const setupListeners = async () => {
-      // 这里假设后端会发送事件，实际实现需要根据后端调整
-      // 暂用轮询方式获取结果
+      const eventUnlisten = await listen<{
+        task_id: string;
+        agent_type: string;
+        stage: string;
+        message: string;
+        progress: number;
+      }>(`agent-event-${taskId}`, (event) => {
+        const payload = event.payload;
+        const stageMap: Record<string, ExecutionProgress['stage']> = {
+          started: 'started',
+          thinking: 'thinking',
+          generating: 'generating',
+          reviewing: 'reviewing',
+          completed: 'completed',
+          failed: 'failed',
+        };
+        setProgress({
+          stage: stageMap[payload.stage] || 'started',
+          message: payload.message,
+          progress: payload.progress,
+        });
+      });
+      unlisteners.push(eventUnlisten);
+
+      const completeUnlisten = await listen<ExecutionResult>(`agent-complete-${taskId}`, (event) => {
+        setResult(event.payload);
+        setProgress({ stage: 'completed', message: '执行完成', progress: 1 });
+        setIsExecuting(false);
+        setTaskId(null);
+      });
+      unlisteners.push(completeUnlisten);
+
+      const errorUnlisten = await listen<string>(`agent-error-${taskId}`, (event) => {
+        setError(event.payload);
+        setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
+        setIsExecuting(false);
+        setTaskId(null);
+      });
+      unlisteners.push(errorUnlisten);
     };
 
     setupListeners();
 
     return () => {
-      unlisteners.forEach(u => u());
+      unlisteners.forEach((u) => u());
     };
-  }, [isExecuting]);
+  }, [taskId]);
 
   const handleExecute = useCallback(async () => {
     if (!selectedAgent || !input.trim()) return;
@@ -137,24 +175,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
     setError(null);
 
     try {
-      // 模拟进度更新
-      const stages: ExecutionProgress[] = [
-        { stage: 'thinking', message: '分析任务上下文...', progress: 0.2 },
-        { stage: 'generating', message: 'AI生成内容中...', progress: 0.5 },
-        { stage: 'reviewing', message: '检查生成结果...', progress: 0.8 },
-      ];
-
-      for (const stage of stages) {
-        setProgress(stage);
-        await new Promise(r => setTimeout(r, 800));
-      }
-
-      // 调用后端执行
-      const response = await invoke<{
-        task_id: string;
-        result?: ExecutionResult;
-        error?: string;
-      }>('agent_execute', {
+      const id = await invoke<string>('agent_execute_stream', {
         request: {
           agent_type: selectedAgent,
           story_id: storyId,
@@ -163,22 +184,27 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
           parameters: {},
         },
       });
-
-      if (response.error) {
-        throw new Error(response.error);
-      }
-
-      if (response.result) {
-        setResult(response.result);
-        setProgress({ stage: 'completed', message: '执行完成', progress: 1 });
-      }
+      setTaskId(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : '执行失败');
       setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
-    } finally {
       setIsExecuting(false);
+      setTaskId(null);
     }
   }, [selectedAgent, input, storyId, chapterNumber, currentContent]);
+
+  const handleCancel = useCallback(async () => {
+    if (!taskId) return;
+    try {
+      await invoke('agent_cancel_task', { taskId });
+    } catch (err) {
+      // ignore cancel errors
+    } finally {
+      setIsExecuting(false);
+      setTaskId(null);
+      setProgress({ stage: 'failed', message: '已取消', progress: 0 });
+    }
+  }, [taskId]);
 
   const handleCopy = useCallback(() => {
     if (result?.content) {
@@ -256,23 +282,34 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
           />
 
           {/* 执行按钮 */}
-          <Button
-            onClick={handleExecute}
-            disabled={!input.trim() || isExecuting}
-            className="w-full bg-terracotta hover:bg-terracotta/90 text-white"
-          >
-            {isExecuting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                {progress?.message || '执行中...'}
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 mr-2" />
-                执行
-              </>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleExecute}
+              disabled={!input.trim() || isExecuting}
+              className="flex-1 bg-terracotta hover:bg-terracotta/90 text-white"
+            >
+              {isExecuting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {progress?.message || '执行中...'}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  执行
+                </>
+              )}
+            </Button>
+            {isExecuting && (
+              <Button
+                variant="secondary"
+                onClick={handleCancel}
+                className="px-3"
+              >
+                <OctagonX className="w-4 h-4" />
+              </Button>
             )}
-          </Button>
+          </div>
         </div>
       )}
 

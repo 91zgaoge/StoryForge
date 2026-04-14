@@ -305,7 +305,7 @@ impl IntentExecutor {
     }
 
     /// 构建 Agent 执行上下文
-    fn build_context(story_id: &str, intent: &Intent) -> AgentContext {
+    fn build_context(story_id: &str, _intent: &Intent) -> AgentContext {
         AgentContext {
             story_id: story_id.to_string(),
             story_title: "未命名作品".to_string(),

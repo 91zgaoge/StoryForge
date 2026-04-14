@@ -13,7 +13,8 @@ import {
   X,
   Plus,
   Minus,
-  Edit3
+  Edit3,
+  Network
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -22,6 +23,7 @@ import type { SceneVersion, CreatorType, VersionStats, ChangeTrack } from '@/typ
 import { 
   useSceneVersions, 
   useVersionStats,
+  useVersionChain,
   useRestoreSceneVersion,
   useDeleteSceneVersion,
   getCreatorTypeLabel,
@@ -343,9 +345,11 @@ export function VersionTimeline({
   const [selectionMode, setSelectionMode] = useState<'none' | 'single' | 'compare'>('none');
   const [selectedVersion, setSelectedVersion] = useState<SceneVersion | null>(null);
   const [compareVersions, setCompareVersions] = useState<SceneVersion[]>([]);
+  const [viewMode, setViewMode] = useState<'timeline' | 'chain'>('timeline');
 
   const { data: versions = [], isLoading, error } = useSceneVersions(sceneId);
   const { data: stats } = useVersionStats(sceneId);
+  const { data: chainNodes = [] } = useVersionChain(sceneId);
   const restoreMutation = useRestoreSceneVersion();
   const deleteMutation = useDeleteSceneVersion();
 
@@ -431,35 +435,57 @@ export function VersionTimeline({
           <span className="text-sm text-gray-500">({versions.length})</span>
         </div>
         
-        {selectionMode === 'compare' ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-400">
-              已选 {compareVersions.length}/2
-            </span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-cinema-800 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('timeline')}
+              className={cn(
+                'px-2 py-1 rounded text-xs font-medium transition-colors',
+                viewMode === 'timeline' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+              )}
+            >
+              时间线
+            </button>
+            <button
+              onClick={() => setViewMode('chain')}
+              className={cn(
+                'px-2 py-1 rounded text-xs font-medium transition-colors',
+                viewMode === 'chain' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+              )}
+            >
+              版本链
+            </button>
+          </div>
+          {selectionMode === 'compare' ? (
+            <>
+              <span className="text-sm text-gray-400">
+                已选 {compareVersions.length}/2
+              </span>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={compareVersions.length !== 2}
+                onClick={handleCompare}
+              >
+                <GitCompare className="w-4 h-4 mr-1" />
+                对比
+              </Button>
+              <Button variant="ghost" size="sm" onClick={cancelCompare}>
+                <X className="w-4 h-4" />
+              </Button>
+            </>
+          ) : (
             <Button
-              variant="primary"
+              variant="secondary"
               size="sm"
-              disabled={compareVersions.length !== 2}
-              onClick={handleCompare}
+              onClick={() => setSelectionMode('compare')}
+              disabled={versions.length < 2}
             >
               <GitCompare className="w-4 h-4 mr-1" />
-              对比
+              版本对比
             </Button>
-            <Button variant="ghost" size="sm" onClick={cancelCompare}>
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setSelectionMode('compare')}
-            disabled={versions.length < 2}
-          >
-            <GitCompare className="w-4 h-4 mr-1" />
-            版本对比
-          </Button>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Stats Panel */}
@@ -467,27 +493,76 @@ export function VersionTimeline({
         <VersionStatsPanel stats={stats} />
       </div>
 
-      {/* Timeline */}
+      {/* Timeline / Chain View */}
       <div className="flex-1 overflow-auto space-y-1 relative">
-        {/* Timeline vertical line */}
-        <div className="absolute left-9 top-4 bottom-4 w-px bg-cinema-700/50" />
-        
-        {sortedVersions.map((version, index) => (
-          <VersionItem
-            key={version.id}
-            version={version}
-            previousVersion={sortedVersions[index + 1]}
-            isSelected={selectedVersion?.id === version.id && selectionMode !== 'compare'}
-            isCompareSelected={compareVersions.some(v => v.id === version.id)}
-            selectionMode={selectionMode}
-            onSelect={() => handleSelect(version)}
-            onToggleCompare={() => handleToggleCompare(version)}
-            onRestore={() => handleRestore(version)}
-            onDelete={() => handleDelete(version)}
-          />
-        ))}
+        {viewMode === 'timeline' ? (
+          <>
+            {/* Timeline vertical line */}
+            <div className="absolute left-9 top-4 bottom-4 w-px bg-cinema-700/50" />
+            
+            {sortedVersions.map((version, index) => (
+              <VersionItem
+                key={version.id}
+                version={version}
+                previousVersion={sortedVersions[index + 1]}
+                isSelected={selectedVersion?.id === version.id && selectionMode !== 'compare'}
+                isCompareSelected={compareVersions.some(v => v.id === version.id)}
+                selectionMode={selectionMode}
+                onSelect={() => handleSelect(version)}
+                onToggleCompare={() => handleToggleCompare(version)}
+                onRestore={() => handleRestore(version)}
+                onDelete={() => handleDelete(version)}
+              />
+            ))}
+          </>
+        ) : (
+          <div className="space-y-1">
+            {chainNodes.map((node) => (
+              <div
+                key={node.version.id}
+                className={cn(
+                  'flex items-center gap-3 p-3 rounded-xl border transition-colors cursor-pointer',
+                  selectedVersion?.id === node.version.id && selectionMode !== 'compare'
+                    ? 'bg-cinema-gold/10 border-cinema-gold/50'
+                    : 'bg-cinema-800/50 border-cinema-700/50 hover:bg-cinema-800'
+                )}
+                style={{ marginLeft: `${node.depth * 24}px` }}
+                onClick={() => handleSelect(node.version)}
+              >
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-cinema-700 text-gray-300 flex items-center justify-center text-sm font-bold">
+                  {formatVersionNumber(node.version.version_number)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <CreatorBadge type={node.version.created_by} />
+                    <span className="text-xs text-gray-500">
+                      {new Date(node.version.created_at).toLocaleString('zh-CN', {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-300 line-clamp-1 mt-0.5">
+                    {node.version.change_summary || '无变更说明'}
+                  </p>
+                </div>
+                {node.children.length > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-cinema-700 text-gray-400">
+                    {node.children.length} 分支
+                  </span>
+                )}
+              </div>
+            ))}
+            {chainNodes.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <Network className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>暂无版本链数据</p>
+              </div>
+            )}
+          </div>
+        )}
 
-        {versions.length === 0 && (
+        {versions.length === 0 && viewMode === 'timeline' && (
           <div className="text-center py-8 text-gray-500">
             <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>暂无版本历史</p>

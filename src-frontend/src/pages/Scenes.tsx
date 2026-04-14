@@ -327,6 +327,8 @@ export function Scenes() {
                       newContent={compareVersions[1].content || ''}
                       oldLabel={`${compareVersions[0].change_summary || '旧版本'} (v${compareVersions[0].version_number})`}
                       newLabel={`${compareVersions[1].change_summary || '新版本'} (v${compareVersions[1].version_number})`}
+                      fromVersionId={compareVersions[0].id}
+                      toVersionId={compareVersions[1].id}
                       className="h-full"
                     />
                   </div>

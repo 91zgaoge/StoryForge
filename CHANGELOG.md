@@ -2,7 +2,55 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档 + 场景批注 + LLM 流式升级 + 修订模式
+## [Unreleased] - v3.3.0 功能断层修复与架构清理
+
+### 🔧 API 一致性审计修复（2026-04-14）
+
+- **MCP 外部服务器连接**
+  - `Mcp.tsx` 新增外部服务器配置卡片，支持配置名称、启动命令、参数和环境变量
+  - `useMcpTools` 新增 `connectServer` / `callExternalTool` / `disconnectServer`
+  - 外部工具与内置工具统一展示，执行时自动区分调用路径
+
+- **技能工坊 — 技能导入**
+  - `Skills.tsx` 新增"导入技能"按钮
+  - 集成 `@tauri-apps/plugin-dialog` 文件选择器，调用 `import_skill`
+
+- **Agent 执行 — 取消任务 + 流式执行**
+  - 后端 `agents/commands.rs` 引入全局 `TASK_HANDLES`，`agent_cancel_task` 实现真正的 `AbortHandle.abort()`
+  - `agent_execute_stream` 保存任务句柄并在完成后自动清理
+  - 前端 `SkillExecutionPanel` 迁移到 `agent_execute_stream`，支持实时进度事件监听
+  - 添加"取消"按钮，执行中的长任务可被中断
+
+- **知识图谱 — 实体就地编辑**
+  - `KnowledgeGraphView` 实体详情面板新增编辑模式
+  - 支持修改实体名称、动态增删改属性、调用 `update_entity` 保存
+  - 保存后自动刷新图谱数据
+
+- **版本系统增强**
+  - `VersionTimeline` 新增"版本链"视图切换，调用 `useVersionChain` 展示分支/深度关系
+  - `DiffViewer` 接入 `useVersionDiff`，在版本对比时展示元信息（标题/场景/角色/戏剧目标变更、字数/置信度变化）
+
+- **代码对齐与清理**
+  - `useVectorSearch.ts` 统一复用 `services/tauri.ts` 中的 `searchSimilar` / `textSearchVectors` / `hybridSearchVectors`
+  - `services/tauri.ts` 中对暂未使用的导出添加 `@deprecated` JSDoc 标记
+
+### 🏗️ 架构决策
+
+- **LLM 调用路径决策**
+  - 新增 `docs/LLM_CALL_PATH_DECISION.md`
+  - 明确保留 HTTP 直连 (`modelService.ts`) 为前端唯一官方 LLM 调用路径
+  - Tauri 侧 `llm_generate` 等命令降级为内部/备用用途
+
+### 🔇 质量提升
+
+- **Rust Warnings 降噪**
+  - 在 50+ 个文件中批量添加 `#![allow(dead_code)]` / `#[allow(unused_imports)]` / `_` 前缀
+  - `cargo check` warnings 从 **163 降至 0**
+  - 未删除任何代码，仅做标记和压制
+
+---
+
+## [v3.2.0] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档 + 场景批注 + LLM 流式升级 + 修订模式
 
 ### 🕸️ 知识图谱可视化
 

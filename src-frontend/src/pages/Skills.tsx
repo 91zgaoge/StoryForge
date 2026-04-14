@@ -1,8 +1,10 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Wand2, Play, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { Wand2, Play, Trash2, Loader2, AlertCircle, Upload } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { getSkills, enableSkill, disableSkill, uninstallSkill, executeSkill } from '@/services/tauri';
+import { getSkills, enableSkill, disableSkill, uninstallSkill, executeSkill, importSkill } from '@/services/tauri';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { Skill, SkillCategory } from '@/types';
 
 const categories: { id: SkillCategory | 'all'; label: string; color: string }[] = [
@@ -38,6 +40,7 @@ export function Skills() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
   const [executionResult, setExecutionResult] = useState<{ skillName: string; result: unknown } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -112,13 +115,41 @@ export function Skills() {
     }
   }, [fetchSkills]);
 
+  const handleImport = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [
+          { name: 'Skill Files', extensions: ['json', 'yaml', 'yml', 'toml'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (!selected) return;
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setIsImporting(true);
+      await importSkill(path);
+      toast.success('技能导入成功');
+      await fetchSkills();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsImporting(false);
+    }
+  }, [fetchSkills]);
+
   const isBuiltin = (skill: Skill) => skill.path === 'builtin';
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-white">技能工坊</h1>
-        <p className="text-gray-400">管理和配置AI辅助技能</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-white">技能工坊</h1>
+          <p className="text-gray-400">管理和配置AI辅助技能</p>
+        </div>
+        <Button variant="primary" onClick={handleImport} isLoading={isImporting}>
+          <Upload className="w-4 h-4" />
+          导入技能
+        </Button>
       </div>
 
       {error && (

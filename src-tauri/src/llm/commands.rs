@@ -1,6 +1,7 @@
 //! LLM Tauri Commands
 //!
 //! 提供给前端调用的LLM相关命令
+#![allow(dead_code)]
 
 use super::service::{init_llm_service, LlmService};
 use serde::{Deserialize, Serialize};

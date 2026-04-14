@@ -8,6 +8,7 @@
 //! - OutlinePlanner: 大纲规划师 - 设计故事结构
 //! - StyleMimic: 风格模仿师 - 分析和模仿文风
 //! - PlotAnalyzer: 情节分析师 - 分析情节复杂度
+#![allow(dead_code)]
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -81,7 +82,7 @@ pub struct AgentResult {
 
 impl AgentContext {
     /// 创建最小上下文（用于测试）
-    pub fn minimal(story_id: String, input: String) -> Self {
+    pub fn minimal(story_id: String, _input: String) -> Self {
         Self {
             story_id,
             story_title: "未命名作品".to_string(),

@@ -1,4 +1,5 @@
 //! V3 架构 Repository 层
+#![allow(dead_code)]
 
 use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, WorldRule, Culture};
 use super::{WritingStyle, StudioConfig};

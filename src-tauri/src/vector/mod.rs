@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub mod lancedb_store;
 
 use serde::{Deserialize, Serialize};

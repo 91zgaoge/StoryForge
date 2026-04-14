@@ -2,6 +2,7 @@
 //!
 //! 将长篇内容、实体档案、历史版本压缩为高层记忆摘要
 //! 用于上下文窗口优化和长期记忆保留
+#![allow(dead_code)]
 
 use super::{Agent, AgentContext, AgentResult};
 use crate::llm::service::LlmService;
@@ -101,7 +102,7 @@ impl MemoryCompressorAgent {
     /// 批量压缩内容
     pub async fn compress_batch(
         &self,
-        context: &AgentContext,
+        _context: &AgentContext,
         request: &BatchCompressionRequest,
     ) -> Result<Vec<AgentResult>, Box<dyn std::error::Error>> {
         use futures::future::join_all;

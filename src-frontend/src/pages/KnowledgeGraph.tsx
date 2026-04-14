@@ -520,6 +520,9 @@ export const KnowledgeGraph: React.FC = () => {
             <KnowledgeGraphView
               entities={graphData.entities}
               relations={graphData.relations}
+              onEntityUpdate={() => {
+                loadData();
+              }}
             />
           ) : null
         ) : activeTab === 'memory' ? (

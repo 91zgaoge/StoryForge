@@ -2,6 +2,7 @@
 //!
 //! 将知识图谱中的实体与关系蒸馏为高层故事摘要和世界设定
 //! 用于快速回顾故事世界观、人物关系与核心情节
+#![allow(dead_code)]
 
 use super::{Agent, AgentContext, AgentResult};
 use crate::llm::service::LlmService;

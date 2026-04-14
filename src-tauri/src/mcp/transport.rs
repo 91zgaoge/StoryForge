@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::types::*;
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

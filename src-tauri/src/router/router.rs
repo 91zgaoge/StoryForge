@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::model::*;
 use std::collections::HashMap;
 

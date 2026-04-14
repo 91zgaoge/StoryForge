@@ -14,6 +14,7 @@ export const healthCheck = () =>
   invoke<{ status: string; timestamp: string; version: string }>('health_check');
 
 // Dashboard
+/** @deprecated 暂时保留 — Dashboard 直接调用 `get_state` */
 export const getDashboardState = () => 
   invoke<DashboardState>('get_state');
 
@@ -63,6 +64,7 @@ export const createChapter = (req: { story_id: string; chapter_number: number; t
 export const getSkills = () => 
   invoke<Skill[]>('get_skills');
 
+/** @deprecated 暂时保留 — Skills 页面使用前端本地分类筛选 */
 export const getSkillsByCategory = (category: string) => 
   invoke<Skill[]>('get_skills_by_category', { category });
 
@@ -82,16 +84,19 @@ export const executeSkill = (skillId: string, params: Record<string, unknown>) =
   invoke<unknown>('execute_skill', { skillId, params });
 
 // MCP
+/** @deprecated 暂时保留 — 待 MCP 外部服务器 UI 完成后启用 */
 export const connectMcpServer = (config: McpServer) => 
   invoke<McpTool[]>('connect_mcp_server', { config });
 
+/** @deprecated 暂时保留 — 待 MCP 外部服务器 UI 完成后启用 */
 export const callMcpTool = (config: McpServer, toolName: string, args: unknown) => 
   invoke<unknown>('call_mcp_tool', { config, toolName, arguments: args });
 
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>
-  invoke<SimilarityResult[]>('search_similar', { ...req });
+  invoke<SimilarityResult[]>('search_similar', { storyId: req.story_id, query: req.query, topK: req.top_k });
 
+/** @deprecated 暂时保留 — 待章节嵌入手动触发功能完成后启用 */
 export const embedChapter = (chapterId: string, content: string) =>
   invoke<void>('embed_chapter', { chapterId, content });
 
@@ -149,8 +154,12 @@ export const restoreArchivedEntity = (entityId: string) =>
 export const getArchivedEntities = (storyId: string) =>
   invoke<Entity[]>('get_archived_entities', { story_id: storyId });
 
+/** @deprecated 暂时保留 — 待知识图谱手动创建实体功能完成后启用 */
 export const createEntity = (storyId: string, name: string, entityType: string, attributes: Record<string, unknown>) =>
   invoke<Entity>('create_entity', { story_id: storyId, name, entity_type: entityType, attributes });
+
+export const updateEntity = (entityId: string, updates: { name?: string; attributes?: Record<string, unknown> }) =>
+  invoke<Entity>('update_entity', { entity_id: entityId, name: updates.name, attributes: updates.attributes });
 
 // Novel Creation Wizard
 export const generateWorldBuildingOptions = (userInput: string) =>
@@ -176,6 +185,7 @@ export const createStoryWithWizard = (params: {
 }) =>
   invoke<import('@/types/index').WizardCreationResult>('create_story_with_wizard', params);
 
+/** @deprecated 暂时保留 — 待知识图谱手动创建关系功能完成后启用 */
 export const createRelation = (storyId: string, sourceId: string, targetId: string, relationType: string, strength: number) =>
   invoke<Relation>('create_relation', { story_id: storyId, source_id: sourceId, target_id: targetId, relation_type: relationType, strength });
 
@@ -229,10 +239,10 @@ export const generateParagraphCommentaries = (params: { story_id: string; story_
 
 // Vector Search
 export const textSearchVectors = (storyId: string, query: string, top_k?: number) =>
-  invoke<VectorSearchResult[]>('text_search_vectors', { story_id: storyId, query, top_k });
+  invoke<VectorSearchResult[]>('text_search_vectors', { storyId, query, topK: top_k });
 
 export const hybridSearchVectors = (storyId: string, query: string, top_k?: number) =>
-  invoke<VectorSearchResult[]>('hybrid_search_vectors', { story_id: storyId, query, top_k });
+  invoke<VectorSearchResult[]>('hybrid_search_vectors', { storyId, query, topK: top_k });
 
 // Memory Compressor
 export const compressContent = (params: { story_id: string; content: string; target_ratio?: number }) =>

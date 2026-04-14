@@ -1,6 +1,7 @@
 //! 版本管理模块
 //! 
 //! 提供场景版本历史、比较和恢复功能
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};

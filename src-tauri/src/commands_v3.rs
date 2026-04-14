@@ -68,7 +68,7 @@ pub async fn delete_scene(
 
 #[command]
 pub async fn reorder_scenes(
-    story_id: String,
+    _story_id: String,
     scene_ids: Vec<String>,
     pool: State<'_, DbPool>,
 ) -> Result<(), String> {

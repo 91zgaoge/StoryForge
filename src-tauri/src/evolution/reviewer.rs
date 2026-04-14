@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
@@ -219,7 +220,7 @@ impl EvolutionReviewer {
         analyses: &[super::analyzer::AnalysisReport],
     ) -> OverallAssessment {
         let avg_coherence = analyses.iter().map(|a| a.plot_coherence.score).sum::<f32>() / analyses.len() as f32;
-        let avg_quality = analyses.iter().map(|a| a.writing_quality.score).sum::<f32>() / analyses.len() as f32;
+        let _avg_quality = analyses.iter().map(|a| a.writing_quality.score).sum::<f32>() / analyses.len() as f32;
 
         OverallAssessment {
             narrative_coherence_score: avg_coherence,

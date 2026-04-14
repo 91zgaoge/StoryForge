@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::types::*;
 use super::transport::{Transport, StdioTransport};
 use uuid::Uuid;

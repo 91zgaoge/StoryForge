@@ -1,6 +1,7 @@
 //! V3 架构数据模型
 //! 
 //! 包含场景化叙事、知识图谱、工作室配置等新模型
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Local};
@@ -658,6 +659,7 @@ pub enum AgentBotType {
 
 // ==================== Request/Response 模型 ====================
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CreateSceneRequest {
     pub story_id: String,
@@ -671,6 +673,7 @@ pub struct CreateSceneRequest {
     pub content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct UpdateSceneRequest {
     pub title: Option<String>,
@@ -685,6 +688,7 @@ pub struct UpdateSceneRequest {
     pub setting_atmosphere: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CreateWorldBuildingRequest {
     pub story_id: String,
@@ -694,6 +698,7 @@ pub struct CreateWorldBuildingRequest {
     pub cultures: Option<Vec<Culture>>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CreateWritingStyleRequest {
     pub story_id: String,
@@ -738,6 +743,7 @@ pub struct ExportManifest {
 
 // ==================== 场景版本相关请求/响应 (新增) ====================
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CreateSceneVersionRequest {
     pub scene_id: String,

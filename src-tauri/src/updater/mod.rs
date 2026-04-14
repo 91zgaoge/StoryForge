@@ -2,6 +2,7 @@
 //!
 //! 提供应用自动检测更新和安装的功能
 //! 基于 tauri-plugin-updater
+#![allow(unused_imports)]
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};

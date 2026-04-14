@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use super::types::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

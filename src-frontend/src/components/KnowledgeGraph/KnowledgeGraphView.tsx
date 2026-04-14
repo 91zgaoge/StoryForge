@@ -15,12 +15,13 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import type { Entity, Relation, EntityType } from '@/types/v3';
 import { cn } from '@/utils/cn';
-import { Search, X, Filter } from 'lucide-react';
+import { Search, X, Filter, Pencil, Plus, Trash2, Check, RotateCcw } from 'lucide-react';
 
 interface KnowledgeGraphViewProps {
   entities: Entity[];
   relations: Relation[];
   onNodeClick?: (entity: Entity) => void;
+  onEntityUpdate?: (entity: Entity) => void;
   className?: string;
 }
 
@@ -130,6 +131,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   entities,
   relations,
   onNodeClick,
+  onEntityUpdate,
   className,
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -141,6 +143,10 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
     () => new Set(Object.keys(ENTITY_COLORS) as EntityType[])
   );
   const [showFilters, setShowFilters] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editAttributes, setEditAttributes] = useState<[string, string][]>([]);
+  const [isSaving, setIsSaving] = useState(false);
   const { fitView } = useReactFlow();
 
   const filteredEntities = useMemo(() => {
@@ -174,6 +180,7 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
       const entity = entities.find((e) => e.id === node.id);
       if (entity) {
         setSelectedEntity(entity);
+        setIsEditing(false);
         onNodeClick?.(entity);
       }
     },
@@ -202,6 +209,51 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   const clearSearch = useCallback(() => {
     setSearchQuery('');
   }, []);
+
+  const startEditing = useCallback(() => {
+    if (!selectedEntity) return;
+    setEditName(selectedEntity.name);
+    const attrs = Object.entries(selectedEntity.attributes || {}).map(([k, v]) => [
+      k,
+      typeof v === 'string' ? v : JSON.stringify(v),
+    ]) as [string, string][];
+    setEditAttributes(attrs);
+    setIsEditing(true);
+  }, [selectedEntity]);
+
+  const cancelEditing = useCallback(() => {
+    setIsEditing(false);
+  }, []);
+
+  const saveEditing = useCallback(async () => {
+    if (!selectedEntity) return;
+    setIsSaving(true);
+    try {
+      const { updateEntity } = await import('@/services/tauri');
+      const attributes: Record<string, unknown> = {};
+      editAttributes.forEach(([k, v]) => {
+        if (k.trim()) {
+          try {
+            attributes[k.trim()] = JSON.parse(v);
+          } catch {
+            attributes[k.trim()] = v;
+          }
+        }
+      });
+      const updated = await updateEntity(selectedEntity.id, {
+        name: editName.trim() || selectedEntity.name,
+        attributes,
+      });
+      setSelectedEntity(updated);
+      onEntityUpdate?.(updated);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to update entity:', error);
+      // Could add toast here if desired; keeping minimal
+    } finally {
+      setIsSaving(false);
+    }
+  }, [selectedEntity, editName, editAttributes, onEntityUpdate]);
 
   const entityRelations = useMemo(() => {
     if (!selectedEntity) return [];
@@ -359,26 +411,103 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
       {selectedEntity && (
         <div className="absolute right-4 top-4 bottom-4 w-72 bg-cinema-900/95 border border-cinema-800 rounded-xl p-4 overflow-y-auto shadow-2xl backdrop-blur-sm">
           <div className="flex items-start justify-between mb-3">
-            <div>
+            <div className="flex-1 min-w-0">
               <span
                 className="inline-block px-2 py-0.5 rounded text-[10px] font-medium text-white mb-1"
                 style={{ backgroundColor: ENTITY_COLORS[selectedEntity.entity_type] }}
               >
                 {ENTITY_LABELS[selectedEntity.entity_type]}
               </span>
-              <h3 className="text-lg font-bold text-white">{selectedEntity.name}</h3>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-cinema-800 border border-cinema-700 rounded-md px-2 py-1 text-sm text-white focus:outline-none focus:border-cinema-gold"
+                  placeholder="实体名称"
+                />
+              ) : (
+                <h3 className="text-lg font-bold text-white truncate">{selectedEntity.name}</h3>
+              )}
             </div>
-            <button
-              onClick={() => setSelectedEntity(null)}
-              className="text-gray-500 hover:text-white transition-colors"
-            >
-              ×
-            </button>
+            <div className="flex items-center gap-1 ml-2">
+              {!isEditing && (
+                <button
+                  onClick={startEditing}
+                  className="p-1 text-gray-500 hover:text-cinema-gold transition-colors"
+                  title="编辑"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                onClick={() => setSelectedEntity(null)}
+                className="p-1 text-gray-500 hover:text-white transition-colors"
+                title="关闭"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          {selectedEntity.attributes && Object.keys(selectedEntity.attributes).length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">属性</h4>
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">属性</h4>
+              {isEditing && (
+                <button
+                  onClick={() => setEditAttributes((prev) => [...prev, ['', '']])}
+                  className="flex items-center gap-1 text-[10px] text-cinema-gold hover:text-cinema-gold/80"
+                >
+                  <Plus className="w-3 h-3" />
+                  添加
+                </button>
+              )}
+            </div>
+            {isEditing ? (
+              <div className="space-y-2">
+                {editAttributes.map(([key, value], idx) => (
+                  <div key={idx} className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={key}
+                      onChange={(e) =>
+                        setEditAttributes((prev) => {
+                          const next = [...prev];
+                          next[idx] = [e.target.value, next[idx][1]];
+                          return next;
+                        })
+                      }
+                      placeholder="键"
+                      className="flex-1 min-w-0 bg-cinema-800 border border-cinema-700 rounded-md px-1.5 py-1 text-[11px] text-white focus:outline-none focus:border-cinema-gold"
+                    />
+                    <input
+                      type="text"
+                      value={value}
+                      onChange={(e) =>
+                        setEditAttributes((prev) => {
+                          const next = [...prev];
+                          next[idx] = [next[idx][0], e.target.value];
+                          return next;
+                        })
+                      }
+                      placeholder="值"
+                      className="flex-[1.5] min-w-0 bg-cinema-800 border border-cinema-700 rounded-md px-1.5 py-1 text-[11px] text-white focus:outline-none focus:border-cinema-gold"
+                    />
+                    <button
+                      onClick={() =>
+                        setEditAttributes((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      className="p-1 text-gray-500 hover:text-red-400"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {editAttributes.length === 0 && (
+                  <p className="text-xs text-gray-500 italic">暂无属性</p>
+                )}
+              </div>
+            ) : selectedEntity.attributes && Object.keys(selectedEntity.attributes).length > 0 ? (
               <div className="space-y-1.5">
                 {Object.entries(selectedEntity.attributes).map(([key, value]) => (
                   <div key={key} className="text-sm">
@@ -389,8 +518,10 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500">暂无属性</p>
+            )}
+          </div>
 
           <div className="mb-4">
             <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">关系</h4>
@@ -437,6 +568,27 @@ const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
           <div className="text-xs text-gray-600 pt-3 border-t border-cinema-800">
             <p>首次出现: {new Date(selectedEntity.first_seen).toLocaleDateString()}</p>
           </div>
+
+          {isEditing && (
+            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-cinema-800">
+              <button
+                onClick={saveEditing}
+                disabled={isSaving}
+                className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md bg-cinema-gold/20 text-cinema-gold border border-cinema-gold/30 hover:bg-cinema-gold/30 transition-colors disabled:opacity-50 text-sm"
+              >
+                <Check className="w-3.5 h-3.5" />
+                {isSaving ? '保存中...' : '保存'}
+              </button>
+              <button
+                onClick={cancelEditing}
+                disabled={isSaving}
+                className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-md bg-cinema-800 text-gray-300 hover:bg-cinema-700 transition-colors disabled:opacity-50 text-sm"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                取消
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

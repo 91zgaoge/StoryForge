@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { searchSimilar, textSearchVectors, hybridSearchVectors } from '@/services/tauri';
 
 export interface SearchResult {
   id: string;
@@ -29,10 +29,10 @@ export function useVectorSearch() {
 
     setIsLoading(true);
     try {
-      const data = await invoke<SearchResult[]>('search_similar', {
-        storyId: req.story_id,
+      const data = await searchSimilar({
+        story_id: req.story_id,
         query: req.query,
-        topK: req.top_k || 5,
+        top_k: req.top_k || 5,
       });
       setResults(data);
     } catch (error) {
@@ -59,7 +59,7 @@ export function useVectorSearch() {
 export function useTextSearchVectors(storyId: string | null, query: string, top_k: number = 5) {
   return useQuery({
     queryKey: ['text-search-vectors', storyId, query, top_k],
-    queryFn: () => (storyId ? invoke<SearchResult[]>('text_search_vectors', { storyId, query, topK: top_k }) : Promise.resolve([])),
+    queryFn: () => (storyId ? textSearchVectors(storyId, query, top_k) : Promise.resolve([])),
     enabled: !!storyId && query.trim().length > 0,
   });
 }
@@ -67,7 +67,7 @@ export function useTextSearchVectors(storyId: string | null, query: string, top_
 export function useHybridSearchVectors(storyId: string | null, query: string, top_k: number = 5) {
   return useQuery({
     queryKey: ['hybrid-search-vectors', storyId, query, top_k],
-    queryFn: () => (storyId ? invoke<SearchResult[]>('hybrid_search_vectors', { storyId, query, topK: top_k }) : Promise.resolve([])),
+    queryFn: () => (storyId ? hybridSearchVectors(storyId, query, top_k) : Promise.resolve([])),
     enabled: !!storyId && query.trim().length > 0,
   });
 }

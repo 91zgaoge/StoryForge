@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::{DbPool, Story, Character, Chapter, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest, DynamicTrait};
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
-import type { VersionDiff } from '@/types';
+import type { VersionDiff as VersionDiffType } from '@/types';
 import { useVersionDiff } from '@/hooks/useSceneVersions';
 
 interface DiffLine {
@@ -164,6 +164,40 @@ function UnifiedView({ diff }: { diff: DiffLine[] }) {
   );
 }
 
+function VersionDiffMeta({ data }: { data: VersionDiffType | null | undefined }) {
+  if (!data) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs">
+      {data.title_changed && (
+        <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300">标题变更</span>
+      )}
+      {data.setting_changed && (
+        <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300">场景变更</span>
+      )}
+      {data.characters_changed && (
+        <span className="px-2 py-0.5 rounded bg-pink-500/20 text-pink-300">角色变更</span>
+      )}
+      {data.dramatic_goal_changed && (
+        <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300">戏剧目标变更</span>
+      )}
+      <span className={cn(
+        'px-2 py-0.5 rounded',
+        data.word_count_delta >= 0 ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
+      )}>
+        字数 {data.word_count_delta >= 0 ? '+' : ''}{data.word_count_delta}
+      </span>
+      {data.confidence_delta !== 0 && (
+        <span className={cn(
+          'px-2 py-0.5 rounded',
+          data.confidence_delta >= 0 ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
+        )}>
+          置信度 {data.confidence_delta >= 0 ? '+' : ''}{(data.confidence_delta * 100).toFixed(1)}%
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function DiffViewer({
   oldContent = '',
   newContent = '',
@@ -175,6 +209,11 @@ export function DiffViewer({
 }: DiffViewerProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('unified');
   const [copied, setCopied] = useState(false);
+
+  const { data: versionDiffData, isLoading: isVersionDiffLoading } = useVersionDiff(
+    fromVersionId || null,
+    toVersionId || null
+  );
 
   const diff = useMemo(() => computeDiff(oldContent, newContent), [oldContent, newContent]);
 
@@ -201,6 +240,7 @@ export function DiffViewer({
         </div>
         
         <div className="flex items-center gap-2">
+          {fromVersionId && toVersionId && versionDiffData && <VersionDiffMeta data={versionDiffData} />}
           {!isEmpty && <DiffStats diff={diff} />}
           
           <div className="flex items-center gap-1 ml-4 bg-cinema-700 rounded-lg p-1">

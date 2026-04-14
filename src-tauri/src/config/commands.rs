@@ -1,4 +1,5 @@
 //! Settings management commands for Tauri
+#![allow(dead_code)]
 
 use super::settings::*;
 use serde::{Deserialize, Serialize};
@@ -199,7 +200,7 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
 /// 导出设置
 #[command]
 pub fn export_settings(app_handle: AppHandle) -> Result<AppSettingsExport, String> {
-    let app_dir = app_handle
+    let _app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;

@@ -2,6 +2,8 @@
 //!
 //! 协调多个Agent完成复杂的创作任务
 //! 支持任务分解、执行、结果整合
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 use super::{Agent, AgentContext, AgentResult};
 use crate::config::settings::AppConfig;

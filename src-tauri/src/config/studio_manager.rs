@@ -1,6 +1,7 @@
 //! 工作室配置管理器
 //! 
 //! 负责每部小说的独立配置管理，包括导入/导出功能
+#![allow(dead_code)]
 
 use crate::db::*;
 use crate::db::repositories_v3::*;
@@ -26,7 +27,7 @@ impl StudioManager {
     }
 
     /// 为小说创建默认工作室配置
-    pub fn create_default_studio(&self, story_id: &str, title: &str) -> Result<StudioConfig, Box<dyn std::error::Error>> {
+    pub fn create_default_studio(&self, story_id: &str, _title: &str) -> Result<StudioConfig, Box<dyn std::error::Error>> {
         let studio_repo = StudioConfigRepository::new(self.pool.clone());
         
         // 检查是否已存在
@@ -171,11 +172,11 @@ impl StudioManager {
     /// 导入工作室配置
     pub fn import_studio(&self, data: &[u8], options: &ImportOptions) -> Result<Story, Box<dyn std::error::Error>> {
         let story_repo = StoryRepository::new(self.pool.clone());
-        let scene_repo = SceneRepository::new(self.pool.clone());
-        let world_repo = WorldBuildingRepository::new(self.pool.clone());
-        let style_repo = WritingStyleRepository::new(self.pool.clone());
-        let char_repo = CharacterRepository::new(self.pool.clone());
-        let studio_repo = StudioConfigRepository::new(self.pool.clone());
+        let _scene_repo = SceneRepository::new(self.pool.clone());
+        let _world_repo = WorldBuildingRepository::new(self.pool.clone());
+        let _style_repo = WritingStyleRepository::new(self.pool.clone());
+        let _char_repo = CharacterRepository::new(self.pool.clone());
+        let _studio_repo = StudioConfigRepository::new(self.pool.clone());
         
         // 解压ZIP
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(data))?;

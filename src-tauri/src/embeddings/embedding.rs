@@ -5,6 +5,7 @@
 //! - 实体嵌入（名称+描述+属性拼接）
 //! - Embedding 缓存
 //! - 多模型支持（预留接口）
+#![allow(dead_code)]
 
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};

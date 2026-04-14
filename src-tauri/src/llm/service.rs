@@ -2,6 +2,7 @@
 //! 
 //! 提供同步生成和流式生成两种模式
 //! 支持多提供商配置管理和自动切换
+#![allow(dead_code)]
 
 use super::adapter::{GenerateRequest, GenerateResponse};
 use super::anthropic::AnthropicAdapter;
@@ -270,7 +271,7 @@ impl LlmService {
 
     /// 测试连接
     pub async fn test_connection(&self) -> Result<(bool, u64), String> {
-        let profile = self.get_active_profile()
+        let _profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
         
         let start = std::time::Instant::now();
