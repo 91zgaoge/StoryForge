@@ -53,16 +53,6 @@ pub struct AppSettingsData {
     pub privacy: PrivacySettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentMapping {
-    pub agent_id: String,
-    pub agent_name: String,
-    pub chat_model_id: Option<String>,
-    pub embedding_model_id: Option<String>,
-    pub multimodal_model_id: Option<String>,
-    pub description: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GeneralSettings {
     pub theme: String,
@@ -157,10 +147,12 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
     .into_iter()
     .collect();
     
+    let agent_mappings: Vec<AgentMapping> = config.agent_mappings.values().cloned().collect();
+
     Ok(AppSettingsData {
         models,
         active_models,
-        agent_mappings: vec![], // TODO: 实现Agent映射
+        agent_mappings,
         general: GeneralSettings {
             theme: "dark".to_string(),
             language: "zh-CN".to_string(),
@@ -196,6 +188,11 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         if !emb_id.is_empty() {
             config.active_embedding_profile = Some(emb_id.clone());
         }
+    }
+
+    // 保存 Agent 映射
+    for mapping in settings.agent_mappings {
+        config.agent_mappings.insert(mapping.agent_id.clone(), mapping);
     }
     
     config.save(&app_dir).map_err(|e| e.to_string())
@@ -459,41 +456,27 @@ pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHan
 
 /// 获取Agent模型映射
 #[command]
-pub fn get_agent_mappings() -> Result<Vec<AgentMapping>, String> {
-    // TODO: 从配置中读取Agent映射
-    Ok(vec![
-        AgentMapping {
-            agent_id: "writer".to_string(),
-            agent_name: "写作助手".to_string(),
-            chat_model_id: None,
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责章节生成、改写".to_string()),
-        },
-        AgentMapping {
-            agent_id: "inspector".to_string(),
-            agent_name: "质检员".to_string(),
-            chat_model_id: None,
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责内容质量检查".to_string()),
-        },
-        AgentMapping {
-            agent_id: "outline_planner".to_string(),
-            agent_name: "大纲规划师".to_string(),
-            chat_model_id: None,
-            embedding_model_id: None,
-            multimodal_model_id: None,
-            description: Some("负责故事大纲设计".to_string()),
-        },
-    ])
+pub fn get_agent_mappings(app_handle: AppHandle) -> Result<Vec<AgentMapping>, String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app dir: {}", e))?;
+    
+    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    Ok(config.agent_mappings.values().cloned().collect())
 }
 
 /// 更新Agent模型映射
 #[command]
-pub fn update_agent_mapping(mapping: AgentMapping, _app_handle: AppHandle) -> Result<(), String> {
-    // TODO: 保存到配置
-    log::info!("Updated agent mapping: {:?}", mapping);
+pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Result<(), String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app dir: {}", e))?;
+    
+    let mut config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    config.agent_mappings.insert(mapping.agent_id.clone(), mapping);
+    config.save(&app_dir).map_err(|e| e.to_string())?;
     Ok(())
 }
 

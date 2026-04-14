@@ -77,6 +77,12 @@ impl LlmService {
         guard.get_active_llm_profile().cloned()
     }
 
+    /// 获取指定ID的LLM配置
+    fn get_profile_by_id(&self, profile_id: &str) -> Option<LlmProfile> {
+        let guard = self.config.lock().ok()?;
+        guard.llm_profiles.get(profile_id).cloned()
+    }
+
     /// 创建适配器
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, String> {
         match profile.provider {
@@ -110,6 +116,29 @@ impl LlmService {
     ) -> Result<GenerateResponse, String> {
         let profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
+        
+        let adapter = self.create_adapter(&profile)?;
+        
+        let request = GenerateRequest {
+            prompt,
+            max_tokens,
+            temperature,
+        };
+        
+        adapter.generate(request).await
+            .map_err(|e| format!("Generation failed: {}", e))
+    }
+
+    /// 使用指定模型配置同步生成文本
+    pub async fn generate_with_profile(
+        &self,
+        profile_id: &str,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Result<GenerateResponse, String> {
+        let profile = self.get_profile_by_id(profile_id)
+            .ok_or_else(|| format!("LLM profile '{}' not found", profile_id))?;
         
         let adapter = self.create_adapter(&profile)?;
         

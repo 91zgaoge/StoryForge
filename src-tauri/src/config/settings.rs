@@ -3,6 +3,21 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+/// Agent 模型映射
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentMapping {
+    pub agent_id: String,
+    pub agent_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multimodal_model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// 全局应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -15,6 +30,8 @@ pub struct AppConfig {
     pub active_llm_profile: Option<String>,
     #[serde(default)]
     pub active_embedding_profile: Option<String>,
+    #[serde(default)]
+    pub agent_mappings: HashMap<String, AgentMapping>,
 }
 
 /// 语言模型配置（向后兼容）
@@ -189,6 +206,48 @@ impl Default for AppConfig {
         };
         embedding_profiles.insert(bge_m3.id.clone(), bge_m3);
 
+        let mut agent_mappings = HashMap::new();
+        agent_mappings.insert("writer".to_string(), AgentMapping {
+            agent_id: "writer".to_string(),
+            agent_name: "写作助手".to_string(),
+            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+            embedding_model_id: None,
+            multimodal_model_id: None,
+            description: Some("负责章节生成、改写".to_string()),
+        });
+        agent_mappings.insert("inspector".to_string(), AgentMapping {
+            agent_id: "inspector".to_string(),
+            agent_name: "质检员".to_string(),
+            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+            embedding_model_id: None,
+            multimodal_model_id: None,
+            description: Some("负责内容质量检查".to_string()),
+        });
+        agent_mappings.insert("outline_planner".to_string(), AgentMapping {
+            agent_id: "outline_planner".to_string(),
+            agent_name: "大纲规划师".to_string(),
+            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+            embedding_model_id: None,
+            multimodal_model_id: None,
+            description: Some("负责故事大纲设计".to_string()),
+        });
+        agent_mappings.insert("style_mimic".to_string(), AgentMapping {
+            agent_id: "style_mimic".to_string(),
+            agent_name: "风格模仿师".to_string(),
+            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+            embedding_model_id: None,
+            multimodal_model_id: None,
+            description: Some("负责文风分析与模仿".to_string()),
+        });
+        agent_mappings.insert("plot_analyzer".to_string(), AgentMapping {
+            agent_id: "plot_analyzer".to_string(),
+            agent_name: "情节分析师".to_string(),
+            chat_model_id: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
+            embedding_model_id: None,
+            multimodal_model_id: None,
+            description: Some("负责情节复杂度分析".to_string()),
+        });
+
         Self {
             llm: LlmConfig {
                 provider: "custom".to_string(),
@@ -202,6 +261,7 @@ impl Default for AppConfig {
             embedding_profiles,
             active_llm_profile: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
             active_embedding_profile: Some("bge-m3".to_string()),
+            agent_mappings,
         }
     }
 }

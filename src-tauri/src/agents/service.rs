@@ -4,7 +4,7 @@
 //! 支持任务分解、执行、结果整合
 
 use super::{Agent, AgentContext, AgentResult};
-use crate::config::settings::{AppConfig, LlmProvider};
+use crate::config::settings::{AppConfig, LlmProvider, AgentMapping};
 use crate::llm::service::LlmService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -29,6 +29,16 @@ impl AgentType {
             AgentType::OutlinePlanner => "大纲规划师",
             AgentType::StyleMimic => "风格模仿师",
             AgentType::PlotAnalyzer => "情节分析师",
+        }
+    }
+
+    pub fn agent_id(&self) -> &'static str {
+        match self {
+            AgentType::Writer => "writer",
+            AgentType::Inspector => "inspector",
+            AgentType::OutlinePlanner => "outline_planner",
+            AgentType::StyleMimic => "style_mimic",
+            AgentType::PlotAnalyzer => "plot_analyzer",
         }
     }
 
@@ -118,6 +128,34 @@ impl AgentService {
         result
     }
 
+    /// 获取Agent对应的聊天模型ID
+    fn get_agent_chat_model_id(&self, agent_type: AgentType) -> Option<String> {
+        let app_dir = self.app_handle
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        
+        let config = AppConfig::load(&app_dir).ok()?;
+        config.agent_mappings
+            .get(agent_type.agent_id())
+            .and_then(|m| m.chat_model_id.clone())
+    }
+
+    /// 为Agent生成内容，优先使用映射的模型
+    async fn generate_for_agent(
+        &self,
+        agent_type: AgentType,
+        prompt: String,
+        max_tokens: Option<i32>,
+        temperature: Option<f32>,
+    ) -> Result<crate::llm::GenerateResponse, String> {
+        if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
+            self.llm_service.generate_with_profile(&model_id, prompt, max_tokens, temperature).await
+        } else {
+            self.llm_service.generate(prompt, max_tokens, temperature).await
+        }
+    }
+
     /// 执行写作助手
     async fn execute_writer(&self, task: AgentTask) -> Result<AgentResult, String> {
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
@@ -127,8 +165,9 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成内容", 0.3);
         
-        // 调用LLM生成
-        let response = self.llm_service.generate(
+        // 调用LLM生成（根据Agent映射选择模型）
+        let response = self.generate_for_agent(
+            task.agent_type,
             prompt,
             Some(2000),
             Some(0.8),
@@ -160,7 +199,8 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成质检报告", 0.4);
         
-        let response = self.llm_service.generate(
+        let response = self.generate_for_agent(
+            task.agent_type,
             prompt,
             Some(1500),
             Some(0.3), // 低temperature以获得更确定的分析
@@ -184,7 +224,8 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "设计故事大纲", 0.3);
         
-        let response = self.llm_service.generate(
+        let response = self.generate_for_agent(
+            task.agent_type,
             prompt,
             Some(3000),
             Some(0.9),
@@ -205,7 +246,8 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "模仿指定文风", 0.4);
         
-        let response = self.llm_service.generate(
+        let response = self.generate_for_agent(
+            task.agent_type,
             prompt,
             Some(2000),
             Some(0.85),
@@ -226,7 +268,8 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成分析报告", 0.4);
         
-        let response = self.llm_service.generate(
+        let response = self.generate_for_agent(
+            task.agent_type,
             prompt,
             Some(2000),
             Some(0.4),
