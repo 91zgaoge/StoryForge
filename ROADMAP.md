@@ -154,8 +154,8 @@ $ cd src-tauri && cargo tauri build
 ### v3.2.0 (短期计划)
 
 #### 向量存储增强
-- [ ] LanceDB 持久化存储（ blocked：Arrow 52 与当前工具链存在编译冲突，待升级 lancedb/arrow 版本后启用）
-- [x] JSON 持久化存储（已作为 fallback 实现）
+- [x] SQLite 向量存储持久化（已替代 JSON-memory fallback）
+- [ ] LanceDB 持久化存储（ blocked：Arrow 依赖与当前工具链冲突）
 - [ ] 实体向量自动更新
 - [ ] 语义搜索优化
 - [ ] 向量索引性能优化

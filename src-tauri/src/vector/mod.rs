@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-// 重新导出 LanceDB 类型
+// 重新导出 SQLite 向量存储类型（LanceDB 兼容 API）
 pub use lancedb_store::{LanceVectorStore, VectorRecord, SearchResult};
 
 /// 纯Rust实现的向量存储 - 使用词频向量（保留作为fallback）

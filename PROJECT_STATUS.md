@@ -1,6 +1,6 @@
 # StoryForge (草苔) v3.1+ 项目完成状态
 
-> 最后更新: 2026-04-14（v3.2.0 小说创建向导 + 自动归档系统 + Skills 后端连通完成）
+> 最后更新: 2026-04-14（v3.2.0 SQLite 向量持久化 + 小说创建向导 + 自动归档系统 + Skills 后端连通完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -8,6 +8,15 @@
 ## ✅ 已完成功能
 
 ### v3.2.0 进行中功能
+
+#### 💾 向量存储持久化 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| SQLite 向量表 | ✅ | 100% | `vector_records` 表 + 索引 |
+| `LanceVectorStore` SQLite 实现 | ✅ | 100% | 替换 JSON-memory fallback |
+| API 向后兼容 | ✅ | 100% | `search_similar` / `embed_chapter` 零改动 |
+| 持久化单元测试 | ✅ | 100% | 跨实例数据不丢失 |
 
 #### 🕸️ 知识图谱可视化 (90%)
 
@@ -265,8 +274,8 @@
 #### P1 - 重要功能
 1. **向量存储持久化**
    - 位置: `src-tauri/src/vector/lancedb_store.rs`
-   - 状态: 🟡 进行中（JSON 持久化已实现，LanceDB 完整集成待 Rust 1.88+）
-   - 说明: 实体向量自动更新
+   - 状态: ✅ 已完成（SQLite 持久化已替代 JSON-memory fallback）
+   - 说明: `LanceVectorStore` 使用 SQLite 实现真正的持久化存储
 
 2. **知识图谱可视化**
    - 位置: `src-frontend/src/components/KnowledgeGraph/`

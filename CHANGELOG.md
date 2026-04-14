@@ -77,6 +77,21 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `plot_suggest` / `character_check` / `world_consistency` 等走 Agent 调度路径
   - 聊天消息显示意图标签（如 "情节建议 · 建议卡片"）
 
+### 💾 SQLite 向量存储持久化
+
+- **替换 JSON 内存 fallback**
+  - `LanceVectorStore` 内部实现从 `HashMap + records.json` 改为 `SQLite + vector_store.db`
+  - 保留完全相同的公共 API：`upsert`、`search`、`delete`、`count`
+  - 所有现有调用方（`search_similar`、`embed_chapter`、`HybridSearch`）无需修改
+
+- **数据表结构**
+  - `vector_records` 表存储 `id`、`story_id`、`chapter_id`、`text`、`record_type`、`embedding`（JSON）
+  - 创建 `story_id` 和 `chapter_id` 索引优化查询
+
+- **持久化验证**
+  - 单元测试验证：跨实例重启后记录不丢失
+  - `upsert` 使用 `ON CONFLICT(id) DO UPDATE` 实现幂等写入
+
 ### 🛠️ 技能工坊 (Skills) 后端连通
 
 - **前端类型对齐**

@@ -1,10 +1,10 @@
 //! Vector Store Module
 //!
-//! LanceDB-compatible API with JSON file persistence.
-//! Records are stored in memory and automatically persisted to disk on every write.
+//! SQLite-backed vector storage with LanceDB-compatible API.
+//! Replaces the previous JSON-memory fallback with true persistent storage.
 
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -31,63 +31,80 @@ pub struct SearchResult {
     pub score: f32,
 }
 
-/// LanceDB 向量存储 (内存实现 + JSON 持久化)
+/// SQLite 向量存储 (LanceDB 兼容 API)
 pub struct LanceVectorStore {
     db_path: PathBuf,
-    storage: Arc<Mutex<HashMap<String, Vec<VectorRecord>>>>, // chapter_id -> records
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl LanceVectorStore {
     pub fn new(db_path: String) -> Self {
+        let path = PathBuf::from(db_path);
+        // Use a placeholder connection; real connection is established in init()
+        let conn = Connection::open_in_memory().expect("Failed to create in-memory connection");
         Self {
-            db_path: PathBuf::from(db_path),
-            storage: Arc::new(Mutex::new(HashMap::new())),
+            db_path: path,
+            conn: Arc::new(Mutex::new(conn)),
         }
     }
 
-    fn records_file(&self) -> PathBuf {
-        self.db_path.join("records.json")
+    fn db_file(&self) -> PathBuf {
+        self.db_path.join("vector_store.db")
     }
 
     pub async fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Ensure directory exists
         tokio::fs::create_dir_all(&self.db_path).await?;
-        self.load().await?;
-        log::info!("Vector store initialized with persistence at {:?}", self.db_path);
-        Ok(())
-    }
+        let db_file = self.db_file();
+        let conn = Connection::open(&db_file)?;
 
-    async fn load(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = self.records_file();
-        if path.exists() {
-            let content = tokio::fs::read_to_string(&path).await?;
-            let data: HashMap<String, Vec<VectorRecord>> = serde_json::from_str(&content)?;
-            let mut storage = self.storage.lock().unwrap();
-            *storage = data;
-            log::info!("Loaded {} chapters from vector store", storage.len());
-        }
-        Ok(())
-    }
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS vector_records (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                chapter_id TEXT NOT NULL,
+                chapter_number INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                record_type TEXT NOT NULL,
+                embedding TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_vector_records_story ON vector_records(story_id);
+            CREATE INDEX IF NOT EXISTS idx_vector_records_chapter ON vector_records(chapter_id);
+            "#,
+        )?;
 
-    async fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = self.records_file();
-        let content = {
-            let storage = self.storage.lock().unwrap();
-            serde_json::to_string_pretty(&*storage)?
-        };
-        tokio::fs::write(&path, content).await?;
+        self.conn = Arc::new(Mutex::new(conn));
+        log::info!("SQLite vector store initialized at {:?}", db_file);
         Ok(())
     }
 
     /// Upsert a record (update if exists, insert if not)
     pub async fn upsert(&self, record: VectorRecord) -> Result<(), Box<dyn std::error::Error>> {
-        {
-            let mut storage = self.storage.lock().unwrap();
-            let records = storage.entry(record.chapter_id.clone()).or_insert_with(Vec::new);
-            records.retain(|r| r.id != record.id);
-            records.push(record);
-        }
-        self.save().await
+        let conn = self.conn.lock().unwrap();
+        let embedding_json = serde_json::to_string(&record.embedding)?;
+
+        conn.execute(
+            "INSERT INTO vector_records (id, story_id, chapter_id, chapter_number, text, record_type, embedding)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+                 story_id = excluded.story_id,
+                 chapter_id = excluded.chapter_id,
+                 chapter_number = excluded.chapter_number,
+                 text = excluded.text,
+                 record_type = excluded.record_type,
+                 embedding = excluded.embedding",
+            params![
+                &record.id,
+                &record.story_id,
+                &record.chapter_id,
+                record.chapter_number,
+                &record.text,
+                &record.record_type,
+                embedding_json
+            ],
+        )?;
+
+        Ok(())
     }
 
     pub async fn add_record(&self, record: VectorRecord) -> Result<(), Box<dyn std::error::Error>> {
@@ -112,24 +129,38 @@ impl LanceVectorStore {
         query_embedding: Vec<f32>,
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
-        let storage = self.storage.lock().unwrap();
-        let mut results = Vec::new();
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, chapter_id, chapter_number, text, embedding
+             FROM vector_records WHERE story_id = ?1"
+        )?;
 
-        for records in storage.values() {
-            for record in records {
-                if record.story_id == story_id {
-                    let score = Self::cosine_similarity(&query_embedding, &record.embedding);
-                    if score > 0.1 {
-                        results.push(SearchResult {
-                            id: record.id.clone(),
-                            story_id: record.story_id.clone(),
-                            chapter_id: record.chapter_id.clone(),
-                            chapter_number: record.chapter_number,
-                            text: record.text.clone(),
-                            score,
-                        });
-                    }
-                }
+        let rows = stmt.query_map([story_id], |row| {
+            let embedding_json: String = row.get(5)?;
+            let embedding: Vec<f32> = serde_json::from_str(&embedding_json).unwrap_or_default();
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, String>(4)?,
+                embedding,
+            ))
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let (id, sid, cid, cnum, text, embedding) = row?;
+            let score = Self::cosine_similarity(&query_embedding, &embedding);
+            if score > 0.1 {
+                results.push(SearchResult {
+                    id,
+                    story_id: sid,
+                    chapter_id: cid,
+                    chapter_number: cnum,
+                    text,
+                    score,
+                });
             }
         }
 
@@ -139,29 +170,25 @@ impl LanceVectorStore {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        {
-            let mut storage = self.storage.lock().unwrap();
-            for records in storage.values_mut() {
-                records.retain(|r| r.id != id);
-            }
-            // Clean up empty chapters
-            storage.retain(|_, records| !records.is_empty());
-        }
-        self.save().await
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM vector_records WHERE id = ?1", [id])?;
+        Ok(())
     }
 
     pub async fn delete_chapter(&self, chapter_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        {
-            let mut storage = self.storage.lock().unwrap();
-            storage.remove(chapter_id);
-        }
-        self.save().await
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM vector_records WHERE chapter_id = ?1", [chapter_id])?;
+        Ok(())
     }
 
     pub async fn count(&self) -> Result<usize, Box<dyn std::error::Error>> {
-        let storage = self.storage.lock().unwrap();
-        let count: usize = storage.values().map(|v| v.len()).sum();
-        Ok(count)
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM vector_records",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
     }
 }
 
