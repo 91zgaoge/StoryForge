@@ -1010,7 +1010,7 @@ pub async fn create_story_with_wizard(
 
 use crate::db::models_v3::{SceneVersion, CreatorType};
 use crate::db::repositories_v3::SceneVersionRepository;
-use crate::versions::service::{SceneVersionService, VersionDiff, VersionStats, RestoreResult};
+use crate::versions::service::{SceneVersionService, VersionDiff, VersionStats};
 
 #[command]
 pub async fn get_scene_versions(
@@ -1040,12 +1040,22 @@ pub async fn create_scene_version(
     confidence_score: Option<f32>,
     pool: State<'_, DbPool>,
 ) -> Result<SceneVersion, String> {
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
     let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
     let version_repo = SceneVersionRepository::new(pool.inner().clone());
+    let track_repo = ChangeTrackRepository::new(pool.inner().clone());
     
     let scene = scene_repo.get_by_id(&scene_id)
         .map_err(|e| e.to_string())?
         .ok_or("Scene not found")?;
+    
+    // 获取上一版本内容用于 diff
+    let prev_content = version_repo.get_versions(&scene_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|v| v.content);
     
     let creator = match created_by.as_str() {
         "user" => CreatorType::User,
@@ -1053,8 +1063,87 @@ pub async fn create_scene_version(
         _ => CreatorType::System,
     };
     
-    version_repo.create_version(&scene, &change_summary, creator, None, confidence_score)
-        .map_err(|e| e.to_string())
+    let version = version_repo.create_version(&scene, &change_summary, creator, None, confidence_score)
+        .map_err(|e| e.to_string())?;
+    
+    // 基于 diff 生成 ChangeTrack
+    let current_content = scene.content.as_deref().unwrap_or("");
+    if let Some(old) = prev_content {
+        let tracks = diff_to_change_tracks(&scene_id, &created_by, &old, current_content);
+        for mut track in tracks {
+            track.version_id = Some(version.id.clone());
+            let _ = track_repo.create(&track);
+        }
+    }
+    
+    Ok(version)
+}
+
+/// 将两段文本的差异转换为 ChangeTrack 列表（简单字符级 diff）
+fn diff_to_change_tracks(
+    scene_id: &str,
+    author_id: &str,
+    old: &str,
+    new: &str,
+) -> Vec<crate::db::models_v3::ChangeTrack> {
+    use crate::db::models_v3::{ChangeTrack, ChangeType};
+    
+    if old == new {
+        return vec![];
+    }
+    
+    // 找公共前缀
+    let mut prefix = 0;
+    let old_chars: Vec<char> = old.chars().collect();
+    let new_chars: Vec<char> = new.chars().collect();
+    while prefix < old_chars.len() && prefix < new_chars.len() && old_chars[prefix] == new_chars[prefix] {
+        prefix += 1;
+    }
+    
+    // 找公共后缀
+    let mut suffix = 0;
+    while suffix < old_chars.len() - prefix && suffix < new_chars.len() - prefix
+        && old_chars[old_chars.len() - 1 - suffix] == new_chars[new_chars.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    
+    let old_mid_start = prefix;
+    let old_mid_end = old_chars.len() - suffix;
+    let new_mid_start = prefix;
+    let new_mid_end = new_chars.len() - suffix;
+    
+    let mut tracks = Vec::new();
+    
+    // 删除的部分
+    if old_mid_start < old_mid_end {
+        let deleted: String = old_chars[old_mid_start..old_mid_end].iter().collect();
+        tracks.push(ChangeTrack::new(
+            Some(scene_id.to_string()),
+            None,
+            author_id.to_string(),
+            ChangeType::Delete,
+            old_mid_start as i32,
+            old_mid_end as i32,
+            Some(deleted),
+        ));
+    }
+    
+    // 插入的部分
+    if new_mid_start < new_mid_end {
+        let inserted: String = new_chars[new_mid_start..new_mid_end].iter().collect();
+        tracks.push(ChangeTrack::new(
+            Some(scene_id.to_string()),
+            None,
+            author_id.to_string(),
+            ChangeType::Insert,
+            new_mid_start as i32,
+            new_mid_end as i32,
+            Some(inserted),
+        ));
+    }
+    
+    tracks
 }
 
 #[command]
@@ -1065,6 +1154,16 @@ pub async fn compare_scene_versions(
 ) -> Result<VersionDiff, String> {
     let service = SceneVersionService::new(pool.inner().clone());
     service.compare_versions(&from_version_id, &to_version_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_version_change_tracks(
+    version_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::models_v3::ChangeTrack>, String> {
+    let repo = crate::db::repositories_v3::ChangeTrackRepository::new(pool.inner().clone());
+    repo.get_by_version(&version_id)
         .map_err(|e| e.to_string())
 }
 

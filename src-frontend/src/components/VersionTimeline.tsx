@@ -10,12 +10,15 @@ import {
   Check,
   FileText,
   BarChart3,
-  X
+  X,
+  Plus,
+  Minus,
+  Edit3
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { cn } from '@/utils/cn';
-import type { SceneVersion, CreatorType, VersionStats } from '@/types';
+import type { SceneVersion, CreatorType, VersionStats, ChangeTrack } from '@/types';
 import { 
   useSceneVersions, 
   useVersionStats,
@@ -28,6 +31,7 @@ import {
   formatVersionNumber,
   calculateWordCountDelta
 } from '@/hooks/useSceneVersions';
+import { useVersionChangeTracks } from '@/hooks/useChangeTracking';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 
 interface VersionTimelineProps {
@@ -267,6 +271,69 @@ function VersionStatsPanel({ stats }: { stats: VersionStats | null | undefined }
   );
 }
 
+function ChangeTrackItem({ track }: { track: ChangeTrack }) {
+  const isInsert = track.change_type === 'Insert';
+  const isDelete = track.change_type === 'Delete';
+
+  return (
+    <div className={cn(
+      'flex items-start gap-2 p-2 rounded-lg text-sm',
+      isInsert && 'bg-green-500/10',
+      isDelete && 'bg-red-500/10',
+      track.change_type === 'Format' && 'bg-blue-500/10'
+    )}>
+      <span className="mt-0.5 shrink-0">
+        {isInsert && <Plus className="w-3.5 h-3.5 text-green-400" />}
+        {isDelete && <Minus className="w-3.5 h-3.5 text-red-400" />}
+        {track.change_type === 'Format' && <Edit3 className="w-3.5 h-3.5 text-blue-400" />}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
+          <span>{isInsert ? '插入' : isDelete ? '删除' : '格式'}</span>
+          <span>·</span>
+          <span>位置 {track.from_pos}-{track.to_pos}</span>
+        </div>
+        <p className={cn(
+          'break-words',
+          isInsert && 'text-green-300',
+          isDelete && 'text-red-300 line-through',
+          track.change_type === 'Format' && 'text-blue-300'
+        )}>
+          {track.content || ' '}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function VersionChangeTracksPanel({ versionId }: { versionId: string }) {
+  const { data: tracks = [], isLoading } = useVersionChangeTracks(versionId);
+
+  if (isLoading) {
+    return (
+      <div className="p-4 text-center text-sm text-gray-500">
+        加载变更追踪...
+      </div>
+    );
+  }
+
+  if (tracks.length === 0) {
+    return (
+      <div className="p-4 text-center text-sm text-gray-500">
+        此版本没有记录的变更追踪
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {tracks.map((track) => (
+        <ChangeTrackItem key={track.id} track={track} />
+      ))}
+    </div>
+  );
+}
+
 export function VersionTimeline({ 
   sceneId, 
   storyId,
@@ -428,6 +495,17 @@ export function VersionTimeline({
           </div>
         )}
       </div>
+
+      {/* Selected Version Change Tracks */}
+      {selectedVersion && selectionMode !== 'compare' && (
+        <div className="mt-4 pt-4 border-t border-cinema-700">
+          <h4 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
+            <GitCompare className="w-4 h-4 text-cinema-gold" />
+            版本变更详情 (v{selectedVersion.version_number})
+          </h4>
+          <VersionChangeTracksPanel versionId={selectedVersion.id} />
+        </div>
+      )}
     </div>
   );
 }

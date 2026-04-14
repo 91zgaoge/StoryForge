@@ -1659,6 +1659,44 @@ impl ChangeTrackRepository {
         rows.collect()
     }
 
+    pub fn get_by_version(&self, version_id: &str) -> Result<Vec<ChangeTrack>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, scene_id, chapter_id, version_id, author_id, author_name, change_type, from_pos, to_pos, content, status, created_at, resolved_at
+             FROM change_tracks WHERE version_id = ?1 ORDER BY created_at DESC"
+        )?;
+
+        let rows = stmt.query_map([version_id], |row| {
+            let created_str: String = row.get(11)?;
+            let resolved_str: Option<String> = row.get(12)?;
+            Ok(ChangeTrack {
+                id: row.get(0)?,
+                scene_id: row.get(1)?,
+                chapter_id: row.get(2)?,
+                version_id: row.get(3)?,
+                author_id: row.get(4)?,
+                author_name: row.get(5)?,
+                change_type: match row.get::<_, String>(6)?.as_str() {
+                    "Delete" => ChangeType::Delete,
+                    "Format" => ChangeType::Format,
+                    _ => ChangeType::Insert,
+                },
+                from_pos: row.get(7)?,
+                to_pos: row.get(8)?,
+                content: row.get(9)?,
+                status: match row.get::<_, String>(10)?.as_str() {
+                    "Accepted" => ChangeStatus::Accepted,
+                    "Rejected" => ChangeStatus::Rejected,
+                    _ => ChangeStatus::Pending,
+                },
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                resolved_at: resolved_str.and_then(|s| s.parse().ok()),
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn update_status(&self, id: &str, status: ChangeStatus) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let resolved = match status {

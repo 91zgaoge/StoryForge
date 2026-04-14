@@ -1,18 +1,23 @@
 import { useState } from 'react';
-import { Plus, BookOpen, AlertCircle } from 'lucide-react';
+import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StoryTimeline } from '@/components/StoryTimeline';
 import { SceneEditor } from '@/components/SceneEditor';
+import { VersionTimeline } from '@/components/VersionTimeline';
+import { DiffViewer } from '@/components/DiffViewer';
 import { useScenes, useCreateScene, useUpdateScene, useDeleteScene, useReorderScenes } from '@/hooks/useScenes';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useAppStore } from '@/stores/appStore';
-import type { Scene } from '@/types';
+import { useCreateSceneVersion } from '@/hooks/useSceneVersions';
+import type { Scene, SceneVersion } from '@/types';
 import toast from 'react-hot-toast';
 
 export function Scenes() {
   const currentStory = useAppStore((s) => s.currentStory);
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [previewTab, setPreviewTab] = useState<'content' | 'versions'>('content');
+  const [compareVersions, setCompareVersions] = useState<[SceneVersion, SceneVersion] | null>(null);
 
   const { data: scenes = [], isLoading } = useScenes(currentStory?.id || null);
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
@@ -21,6 +26,7 @@ export function Scenes() {
   const updateScene = useUpdateScene();
   const deleteScene = useDeleteScene();
   const reorderScenes = useReorderScenes();
+  const createVersion = useCreateSceneVersion();
 
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) || null;
 
@@ -84,6 +90,16 @@ export function Scenes() {
         onSuccess: () => {
           toast.success('场景已保存');
           setIsEditing(false);
+          // 自动创建版本快照
+          const hasContentChange = updates.content !== undefined && updates.content !== selectedScene.content;
+          const hasMetaChange = updates.title !== selectedScene.title || updates.dramatic_goal !== selectedScene.dramatic_goal;
+          if (hasContentChange || hasMetaChange) {
+            createVersion.mutate({
+              sceneId: selectedScene.id,
+              changeSummary: hasContentChange ? '编辑场景内容' : '编辑场景元数据',
+              createdBy: 'user',
+            });
+          }
         },
       }
     );
@@ -176,84 +192,147 @@ export function Scenes() {
           </div>
         ) : selectedScene ? (
           <div className="h-full flex flex-col">
-            {/* Scene Preview */}
-            <div className="flex-1 p-8 overflow-auto">
-              <div className="max-w-3xl mx-auto">
-                <h1 className="text-2xl font-bold text-white mb-4">
-                  {selectedScene.title || `场景 ${selectedScene.sequence_number}`}
-                </h1>
-                
-                {/* Scene Meta */}
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {selectedScene.conflict_type && (
-                    <span className="px-3 py-1 text-sm rounded-full bg-cinema-800 text-gray-300">
-                      冲突: {selectedScene.conflict_type}
-                    </span>
-                  )}
-                  {selectedScene.setting_location && (
-                    <span className="px-3 py-1 text-sm rounded-full bg-cinema-800 text-gray-300">
-                      地点: {selectedScene.setting_location}
-                    </span>
-                  )}
-                  {selectedScene.characters_present.length > 0 && (
-                    <span className="px-3 py-1 text-sm rounded-full bg-cinema-800 text-gray-300">
-                      {selectedScene.characters_present.length} 个角色
-                    </span>
-                  )}
+            {/* Preview Tabs */}
+            <div className="flex items-center gap-1 px-6 pt-4 pb-2 border-b border-cinema-700">
+              <button
+                onClick={() => setPreviewTab('content')}
+                className={`
+                  flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                  ${previewTab === 'content'
+                    ? 'bg-cinema-gold text-cinema-900'
+                    : 'text-gray-400 hover:text-white hover:bg-cinema-800'}
+                `}
+              >
+                <FileText className="w-4 h-4" />
+                内容
+              </button>
+              <button
+                onClick={() => setPreviewTab('versions')}
+                className={`
+                  flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                  ${previewTab === 'versions'
+                    ? 'bg-cinema-gold text-cinema-900'
+                    : 'text-gray-400 hover:text-white hover:bg-cinema-800'}
+                `}
+              >
+                <History className="w-4 h-4" />
+                版本历史
+              </button>
+            </div>
+
+            {previewTab === 'content' ? (
+              <>
+                {/* Scene Preview */}
+                <div className="flex-1 p-8 overflow-auto">
+                  <div className="max-w-3xl mx-auto">
+                    <h1 className="text-2xl font-bold text-white mb-4">
+                      {selectedScene.title || `场景 ${selectedScene.sequence_number}`}
+                    </h1>
+                    
+                    {/* Scene Meta */}
+                    <div className="flex flex-wrap gap-2 mb-6">
+                      {selectedScene.conflict_type && (
+                        <span className="px-3 py-1 text-sm rounded-full bg-cinema-800 text-gray-300">
+                          冲突: {selectedScene.conflict_type}
+                        </span>
+                      )}
+                      {selectedScene.setting_location && (
+                        <span className="px-3 py-1 text-sm rounded-full bg-cinema-800 text-gray-300">
+                          地点: {selectedScene.setting_location}
+                        </span>
+                      )}
+                      {selectedScene.characters_present.length > 0 && (
+                        <span className="px-3 py-1 text-sm rounded-full bg-cinema-800 text-gray-300">
+                          {selectedScene.characters_present.length} 个角色
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Drama Info */}
+                    {(selectedScene.dramatic_goal || selectedScene.external_pressure) && (
+                      <div className="grid grid-cols-2 gap-4 mb-6">
+                        {selectedScene.dramatic_goal && (
+                          <div className="p-4 bg-cinema-800/50 rounded-lg">
+                            <h3 className="text-sm font-medium text-cinema-gold mb-2">戏剧目标</h3>
+                            <p className="text-sm text-gray-300">{selectedScene.dramatic_goal}</p>
+                          </div>
+                        )}
+                        {selectedScene.external_pressure && (
+                          <div className="p-4 bg-cinema-800/50 rounded-lg">
+                            <h3 className="text-sm font-medium text-cinema-gold mb-2">外部压迫</h3>
+                            <p className="text-sm text-gray-300">{selectedScene.external_pressure}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Content */}
+                    {selectedScene.content ? (
+                      <div className="prose prose-invert max-w-none">
+                        <div className="whitespace-pre-wrap text-gray-200 leading-relaxed font-serif">
+                          {selectedScene.content}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <AlertCircle className="w-12 h-12 text-cinema-700 mx-auto mb-4" />
+                        <p className="text-gray-500 mb-4">这个场景还没有内容</p>
+                        <Button 
+                          variant="primary" 
+                          onClick={() => setIsEditing(true)}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          开始写作
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Drama Info */}
-                {(selectedScene.dramatic_goal || selectedScene.external_pressure) && (
-                  <div className="grid grid-cols-2 gap-4 mb-6">
-                    {selectedScene.dramatic_goal && (
-                      <div className="p-4 bg-cinema-800/50 rounded-lg">
-                        <h3 className="text-sm font-medium text-cinema-gold mb-2">戏剧目标</h3>
-                        <p className="text-sm text-gray-300">{selectedScene.dramatic_goal}</p>
-                      </div>
-                    )}
-                    {selectedScene.external_pressure && (
-                      <div className="p-4 bg-cinema-800/50 rounded-lg">
-                        <h3 className="text-sm font-medium text-cinema-gold mb-2">外部压迫</h3>
-                        <p className="text-sm text-gray-300">{selectedScene.external_pressure}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Content */}
-                {selectedScene.content ? (
-                  <div className="prose prose-invert max-w-none">
-                    <div className="whitespace-pre-wrap text-gray-200 leading-relaxed font-serif">
-                      {selectedScene.content}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <AlertCircle className="w-12 h-12 text-cinema-700 mx-auto mb-4" />
-                    <p className="text-gray-500 mb-4">这个场景还没有内容</p>
+                {/* Action Bar */}
+                <div className="p-4 border-t border-cinema-700 bg-cinema-900">
+                  <div className="flex justify-center">
                     <Button 
                       variant="primary" 
                       onClick={() => setIsEditing(true)}
                     >
-                      <Plus className="w-4 h-4 mr-2" />
-                      开始写作
+                      编辑场景
                     </Button>
                   </div>
-                )}
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 p-6 overflow-hidden">
+                <VersionTimeline
+                  sceneId={selectedScene.id}
+                  storyId={currentStory.id}
+                  onCompare={(v1, v2) => setCompareVersions([v1, v2])}
+                />
               </div>
-            </div>
+            )}
 
-            {/* Action Bar */}
-            <div className="p-4 border-t border-cinema-700 bg-cinema-900">
-              <div className="flex justify-center">
-                <Button 
-                  variant="primary" 
-                  onClick={() => setIsEditing(true)}
-                >
-                  编辑场景
-                </Button>
+            {/* Diff Comparison Modal */}
+            {compareVersions && (
+              <div className="absolute inset-0 bg-cinema-950/90 z-50 flex items-center justify-center p-8">
+                <div className="w-full max-w-5xl h-full max-h-[80vh] flex flex-col">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">版本对比</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setCompareVersions(null)}>
+                      关闭
+                    </Button>
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <DiffViewer
+                      oldContent={compareVersions[0].content || ''}
+                      newContent={compareVersions[1].content || ''}
+                      oldLabel={`${compareVersions[0].change_summary || '旧版本'} (v${compareVersions[0].version_number})`}
+                      newLabel={`${compareVersions[1].change_summary || '新版本'} (v${compareVersions[1].version_number})`}
+                      className="h-full"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-8">

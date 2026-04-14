@@ -23,6 +23,17 @@ export function usePendingChanges(
   });
 }
 
+export function useVersionChangeTracks(versionId: string | undefined) {
+  return useQuery({
+    queryKey: ['versionChangeTracks', versionId],
+    queryFn: () => {
+      if (!versionId) return Promise.resolve([]);
+      return invoke<ChangeTrack[]>('get_version_change_tracks', { version_id: versionId });
+    },
+    enabled: !!versionId,
+  });
+}
+
 export function useTrackChange() {
   const queryClient = useQueryClient();
 
