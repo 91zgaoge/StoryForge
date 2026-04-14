@@ -7,6 +7,7 @@ import type {
 } from '@/types/index';
 import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary, AgentResult, VectorSearchResult, StorySummary } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
+import type { AppSettings } from '@/types/llm';
 
 // Health Check
 export const healthCheck = () => 
@@ -94,12 +95,36 @@ export const searchSimilar = (req: VectorSearchRequest) =>
 export const embedChapter = (chapterId: string, content: string) =>
   invoke<void>('embed_chapter', { chapterId, content });
 
-// Settings
-export const getConfig = () => 
-  invoke<LlmConfig>('get_config_command');
+// Settings (兼容旧接口，内部映射到 get_settings / save_settings)
+export const getConfig = async () => {
+  const settings = await invoke<AppSettings>('get_settings');
+  const chatModel = settings.models.chat?.find((m: any) => m.id === settings.active_models.chat) || settings.models.chat?.[0];
+  if (!chatModel) {
+    throw new Error('No chat model configured');
+  }
+  return {
+    provider: chatModel.provider || 'custom',
+    api_key: chatModel.api_key || '',
+    model: chatModel.model || '',
+    temperature: chatModel.temperature ?? 0.8,
+    max_tokens: chatModel.max_tokens ?? 4096,
+    base_url: chatModel.api_base || '',
+  } as LlmConfig;
+};
 
-export const updateConfig = (config: { llm: LlmConfig }) => 
-  invoke<void>('update_config', config);
+export const updateConfig = async (config: { llm: LlmConfig }) => {
+  const settings = await invoke<AppSettings>('get_settings');
+  const chatModel = settings.models.chat?.find((m: any) => m.id === settings.active_models.chat) || settings.models.chat?.[0];
+  if (chatModel) {
+    chatModel.provider = config.llm.provider;
+    chatModel.api_key = config.llm.api_key || '';
+    chatModel.model = config.llm.model;
+    chatModel.temperature = config.llm.temperature;
+    chatModel.max_tokens = config.llm.max_tokens;
+    chatModel.api_base = config.llm.base_url;
+  }
+  await invoke('save_settings', { settings });
+};
 
 // Intent Engine
 export const parseIntent = (req: IntentParseRequest) =>

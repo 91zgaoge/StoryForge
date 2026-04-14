@@ -1010,7 +1010,7 @@ pub async fn create_story_with_wizard(
 
 use crate::db::models_v3::{SceneVersion, CreatorType};
 use crate::db::repositories_v3::SceneVersionRepository;
-use crate::versions::service::{SceneVersionService, VersionDiff, VersionStats};
+use crate::versions::service::{SceneVersionService, VersionChainNode, VersionDiff, VersionStats};
 
 #[command]
 pub async fn get_scene_versions(
@@ -1202,6 +1202,16 @@ pub async fn compare_scene_versions(
 ) -> Result<VersionDiff, String> {
     let service = SceneVersionService::new(pool.inner().clone());
     service.compare_versions(&from_version_id, &to_version_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_scene_version_chain(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<VersionChainNode>, String> {
+    let service = SceneVersionService::new(pool.inner().clone());
+    service.get_version_chain(&scene_id)
         .map_err(|e| e.to_string())
 }
 

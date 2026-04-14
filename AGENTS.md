@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v3.2.0-in-progress
+- **版本**: v3.3.0-in-progress
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite
 
@@ -146,4 +146,19 @@ npm test
 
 ---
 
-*最后更新: 2025-04-13 - 添加自动化测试助手配置*
+### 最近完成的功能
+
+- **P3 修订模式与变更追踪** (`8a13661` ~ `b26ca51`)
+  - Phase 1: ChangeTrack 数据库 + TipTap `trackInsert`/`trackDelete` Mark + 实时 diff 检测
+  - Phase 2: `comment_threads` / `comment_messages` + `commentAnchor` Mark + 右侧评论面板
+  - Phase 3: 版本集成（保存场景/接受拒绝变更时自动生成版本快照 + diff ChangeTrack）
+
+### 编译状态
+
+- `cargo check` ✅ | 警告: ~163 (非阻塞)
+- `npm run build` ✅
+- `cargo test` ✅ 20/20
+
+---
+
+*最后更新: 2026-04-14 - P3 修订模式完成，更新编译状态*

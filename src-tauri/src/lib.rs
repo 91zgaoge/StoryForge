@@ -241,6 +241,7 @@ pub fn run() {
             commands_v3::restore_scene_version,
             commands_v3::get_scene_version_stats,
             commands_v3::delete_scene_version,
+            commands_v3::get_scene_version_chain,
             commands_v3::get_version_change_tracks,
             // Change tracking (revision mode)
             commands_v3::track_change,
