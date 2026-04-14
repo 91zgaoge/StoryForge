@@ -322,6 +322,14 @@
     - 状态: ✅ 已完成
     - 说明: `vector_records` 新增 FTS5 全文索引，提供 `text_search_vectors` 和 `hybrid_search_vectors`（RRF 融合）
 
+11. **修订模式与变更追踪**
+    - 状态: ✅ 已完成
+    - 说明: 完整实现变更追踪（Track Changes）、评论线程（Comment Threads）、版本差异集成
+
+12. **评论批注系统**
+    - 状态: ✅ 已完成
+    - 说明: `comment_threads` / `comment_messages` 表 + TipTap `commentAnchor` + 右侧评论面板
+
 ---
 
 ## 🐛 已知问题

@@ -12,6 +12,15 @@ export {
   useRestoreSceneVersion,
   useDeleteSceneVersion,
 } from './useSceneVersions';
+export {
+  usePendingChanges,
+  useVersionChangeTracks,
+  useTrackChange,
+  useAcceptChange,
+  useRejectChange,
+  useAcceptAllChanges,
+  useRejectAllChanges,
+} from './useChangeTracking';
 export { useCollaboration } from './useCollaboration';
 export { useExport } from './useExport';
 export { useMcpTools } from './useMcpTools';

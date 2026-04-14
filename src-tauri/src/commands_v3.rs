@@ -1032,6 +1032,54 @@ pub async fn get_scene_version(
         .map_err(|e| e.to_string())
 }
 
+/// 为指定场景创建版本快照，并自动生成 ChangeTrack diff
+fn create_version_snapshot(
+    pool: &DbPool,
+    scene_id: &str,
+    change_summary: &str,
+    created_by: &str,
+) -> Result<Option<SceneVersion>, String> {
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.clone());
+    let version_repo = SceneVersionRepository::new(pool.clone());
+    let track_repo = ChangeTrackRepository::new(pool.clone());
+    
+    let scene = match scene_repo.get_by_id(scene_id) {
+        Ok(Some(s)) => s,
+        Ok(None) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    
+    // 获取上一版本内容用于 diff
+    let prev_content = version_repo.get_versions(scene_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .next()
+        .and_then(|v| v.content);
+    
+    let creator = match created_by {
+        "user" => CreatorType::User,
+        "ai" => CreatorType::Ai,
+        _ => CreatorType::System,
+    };
+    
+    let version = version_repo.create_version(&scene, change_summary, creator, None, None)
+        .map_err(|e| e.to_string())?;
+    
+    // 基于 diff 生成 ChangeTrack
+    let current_content = scene.content.as_deref().unwrap_or("");
+    if let Some(old) = prev_content {
+        let tracks = diff_to_change_tracks(scene_id, created_by, &old, current_content);
+        for mut track in tracks {
+            track.version_id = Some(version.id.clone());
+            let _ = track_repo.create(&track);
+        }
+    }
+    
+    Ok(Some(version))
+}
+
 #[command]
 pub async fn create_scene_version(
     scene_id: String,
@@ -1247,8 +1295,17 @@ pub async fn accept_change(
     use crate::db::repositories_v3::ChangeTrackRepository;
 
     let repo = ChangeTrackRepository::new(pool.inner().clone());
-    repo.update_status(&change_id, ChangeStatus::Accepted)
-        .map_err(|e| e.to_string())
+    let result = repo.update_status(&change_id, ChangeStatus::Accepted)
+        .map_err(|e| e.to_string())?;
+    
+    // 自动创建版本快照
+    if let Ok(Some(track)) = repo.get_by_id(&change_id) {
+        if let Some(scene_id) = track.scene_id {
+            let _ = create_version_snapshot(pool.inner(), &scene_id, "接受变更", "system");
+        }
+    }
+    
+    Ok(result)
 }
 
 #[command]
@@ -1260,8 +1317,17 @@ pub async fn reject_change(
     use crate::db::repositories_v3::ChangeTrackRepository;
 
     let repo = ChangeTrackRepository::new(pool.inner().clone());
-    repo.update_status(&change_id, ChangeStatus::Rejected)
-        .map_err(|e| e.to_string())
+    let result = repo.update_status(&change_id, ChangeStatus::Rejected)
+        .map_err(|e| e.to_string())?;
+    
+    // 自动创建版本快照
+    if let Ok(Some(track)) = repo.get_by_id(&change_id) {
+        if let Some(scene_id) = track.scene_id {
+            let _ = create_version_snapshot(pool.inner(), &scene_id, "拒绝变更", "system");
+        }
+    }
+    
+    Ok(result)
 }
 
 #[command]
@@ -1293,15 +1359,22 @@ pub async fn accept_all_changes(
     use crate::db::repositories_v3::ChangeTrackRepository;
 
     let repo = ChangeTrackRepository::new(pool.inner().clone());
-    if let Some(sid) = scene_id {
+    let result = if let Some(sid) = scene_id.clone() {
         repo.accept_all_by_scene(&sid)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?
     } else if let Some(cid) = chapter_id {
         repo.accept_all_by_chapter(&cid)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?
     } else {
-        Err("Either scene_id or chapter_id must be provided".to_string())
+        return Err("Either scene_id or chapter_id must be provided".to_string());
+    };
+    
+    // 自动创建版本快照（仅场景级变更）
+    if let Some(sid) = scene_id {
+        let _ = create_version_snapshot(pool.inner(), &sid, "全部接受变更", "system");
     }
+    
+    Ok(result)
 }
 
 #[command]
@@ -1313,15 +1386,22 @@ pub async fn reject_all_changes(
     use crate::db::repositories_v3::ChangeTrackRepository;
 
     let repo = ChangeTrackRepository::new(pool.inner().clone());
-    if let Some(sid) = scene_id {
+    let result = if let Some(sid) = scene_id.clone() {
         repo.reject_all_by_scene(&sid)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?
     } else if let Some(cid) = chapter_id {
         repo.reject_all_by_chapter(&cid)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?
     } else {
-        Err("Either scene_id or chapter_id must be provided".to_string())
+        return Err("Either scene_id or chapter_id must be provided".to_string());
+    };
+    
+    // 自动创建版本快照（仅场景级变更）
+    if let Some(sid) = scene_id {
+        let _ = create_version_snapshot(pool.inner(), &sid, "全部拒绝变更", "system");
     }
+    
+    Ok(result)
 }
 
 

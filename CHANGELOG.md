@@ -2,7 +2,7 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档 + 场景批注 + LLM 流式升级
+## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档 + 场景批注 + LLM 流式升级 + 修订模式
 
 ### 🕸️ 知识图谱可视化
 
@@ -182,6 +182,47 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **前端集成**
   - 新增 `useTextAnnotations` 系列 React Query Hook
   - 完整支持新建、编辑、解决/恢复、删除批注
+
+### 🔄 修订模式与变更追踪 (P3)
+
+#### Phase 1 — 变更追踪核心
+- **数据库与后端 API**
+  - 新增 `change_tracks` 表，记录单条编辑操作的类型、位置、内容、作者和状态
+  - `ChangeTrackRepository` 支持创建、查询、状态更新、批量接受/拒绝
+  - 6 个 Tauri 命令：`track_change`、`accept_change`、`reject_change`、`get_pending_changes`、`accept_all_changes`、`reject_all_changes`
+
+- **TipTap 编辑器扩展**
+  - `TrackInsert` Mark：蓝色下划线 + 淡蓝背景，带 `changeId` / `authorId` 属性
+  - `TrackDelete` Mark：红色删除线 + 淡红背景
+  - `RichTextEditor` 集成修订模式开关、待审变更数横幅、全部接受/拒绝/退出按钮
+
+- **前端状态管理**
+  - `useChangeTracking` 系列 Hook：待审变更查询、单条追踪、接受/拒绝、批量操作
+  - 实时 diff 检测：`onUpdate` 中对比文本变化，自动调用 `track_change`
+
+#### Phase 2 — 评论线程系统
+- **数据库与后端 API**
+  - 新增 `comment_threads` 和 `comment_messages` 表，支持多回复线程
+  - `CommentThreadRepository` 支持创建线程、添加消息、查询、解决/重开/删除
+  - 8 个 Tauri 命令：`create_comment_thread`、`add_comment_message`、`get_comment_threads`、`resolve_comment_thread`、`reopen_comment_thread`、`delete_comment_thread`
+
+- **TipTap 编辑器扩展**
+  - `CommentAnchor` Mark：黄色高亮 + 虚线下划线，锚定 `threadId`
+
+- **前端集成**
+  - `useCommentThreads` 系列 Hook：线程查询、创建、回复、解决、重开、删除
+  - `RichTextEditor` 右侧评论面板：选中文本创建线程、浏览消息、状态切换
+
+#### Phase 3 — 版本集成
+- **自动 diff 生成 ChangeTrack**
+  - `create_scene_version` 在创建版本时自动与上一版本内容做字符级 diff
+  - 将差异转换为 `ChangeTrack`（Insert / Delete）并绑定到该 `version_id`
+
+- **版本历史集成**
+  - 新增 `get_version_change_tracks` 命令和 `ChangeTrackRepository::get_by_version`
+  - `VersionTimeline` 选中版本时展示该版本的所有变更追踪详情
+  - `Scenes.tsx` 预览面板新增「版本历史」标签页，集成 `VersionTimeline` 和 `DiffViewer`
+  - 保存场景时自动创建版本快照（内容或元数据变更触发）
 
 ### 🎭 古典评点家 Agent (CommentatorAgent)
 
