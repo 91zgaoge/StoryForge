@@ -54,6 +54,10 @@ pub enum ConflictType {
     ManVsTechnology, // 人与科技
     ManVsFate,       // 人与命运
     ManVsSupernatural, // 人与超自然
+    ManVsTime,       // 人与时间
+    ManVsMorality,   // 人与道德
+    ManVsIdentity,   // 人与身份
+    FactionVsFaction, // 群体冲突
 }
 
 impl std::fmt::Display for ConflictType {
@@ -66,6 +70,10 @@ impl std::fmt::Display for ConflictType {
             ConflictType::ManVsTechnology => "人与科技",
             ConflictType::ManVsFate => "人与命运",
             ConflictType::ManVsSupernatural => "人与超自然",
+            ConflictType::ManVsTime => "人与时间",
+            ConflictType::ManVsMorality => "人与道德",
+            ConflictType::ManVsIdentity => "人与身份",
+            ConflictType::FactionVsFaction => "群体冲突",
         };
         write!(f, "{}", s)
     }
@@ -83,6 +91,10 @@ impl std::str::FromStr for ConflictType {
             "人与科技" | "ManVsTechnology" => Ok(ConflictType::ManVsTechnology),
             "人与命运" | "ManVsFate" => Ok(ConflictType::ManVsFate),
             "人与超自然" | "ManVsSupernatural" => Ok(ConflictType::ManVsSupernatural),
+            "人与时间" | "ManVsTime" => Ok(ConflictType::ManVsTime),
+            "人与道德" | "ManVsMorality" => Ok(ConflictType::ManVsMorality),
+            "人与身份" | "ManVsIdentity" => Ok(ConflictType::ManVsIdentity),
+            "群体冲突" | "FactionVsFaction" => Ok(ConflictType::FactionVsFaction),
             _ => Err(format!("Unknown conflict type: {}", s)),
         }
     }

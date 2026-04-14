@@ -16,13 +16,16 @@ import {
   Check,
   RotateCcw,
   Trash2,
-  Edit3
+  Edit3,
+  Minimize2,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
-import type { Scene, ConflictType, CharacterConflict, SceneAnnotation } from '@/types';
+import type { Scene, ConflictType, CharacterConflict, SceneAnnotation, AgentResult } from '@/types';
 import { useSceneAnnotations, useCreateSceneAnnotation, useUpdateSceneAnnotation, useResolveSceneAnnotation, useUnresolveSceneAnnotation, useDeleteSceneAnnotation, ANNOTATION_TYPE_LABELS, ANNOTATION_TYPE_COLORS } from '@/hooks/useSceneAnnotations';
 import { getConflictTypeLabel, getConflictTypeColor } from '@/hooks/useScenes';
+import { useCompressScene } from '@/hooks/useMemoryCompression';
 
 interface SceneEditorProps {
   scene: Scene | null;
@@ -39,6 +42,10 @@ const CONFLICT_TYPES: ConflictType[] = [
   'ManVsTechnology',
   'ManVsFate',
   'ManVsSupernatural',
+  'ManVsTime',
+  'ManVsMorality',
+  'ManVsIdentity',
+  'FactionVsFaction',
 ];
 
 export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditorProps) {
@@ -49,8 +56,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
   const [newAnnotationType, setNewAnnotationType] = useState<SceneAnnotation['annotation_type']>('note');
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [compressionResult, setCompressionResult] = useState<AgentResult | null>(null);
+  const [showCompression, setShowCompression] = useState(false);
 
   const { data: annotations = [], isLoading: annotationsLoading } = useSceneAnnotations(scene?.id || null);
+  const compressScene = useCompressScene();
   const createAnnotation = useCreateSceneAnnotation();
   const updateAnnotation = useUpdateSceneAnnotation();
   const resolveAnnotation = useResolveSceneAnnotation();
@@ -148,14 +158,34 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         </h2>
         <div className="flex items-center gap-2">
           {activeTab === 'content' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setRevisionMode(!revisionMode)}
-            >
-              {revisionMode ? <EyeOff className="w-4 h-4 mr-1" /> : <GitCompare className="w-4 h-4 mr-1" />}
-              {revisionMode ? '退出修订' : '修订模式'}
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={compressScene.isPending || !formData.content?.trim()}
+                onClick={async () => {
+                  if (!scene) return;
+                  try {
+                    const result = await compressScene.mutateAsync({ scene_id: scene.id, target_ratio: 0.25 });
+                    setCompressionResult(result);
+                    setShowCompression(true);
+                  } catch (e) {
+                    console.error('Compress failed', e);
+                  }
+                }}
+              >
+                {compressScene.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Minimize2 className="w-4 h-4 mr-1" />}
+                记忆压缩
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRevisionMode(!revisionMode)}
+              >
+                {revisionMode ? <EyeOff className="w-4 h-4 mr-1" /> : <GitCompare className="w-4 h-4 mr-1" />}
+                {revisionMode ? '退出修订' : '修订模式'}
+              </Button>
+            </>
           )}
           <Button variant="ghost" size="sm" onClick={onCancel}>
             <X className="w-4 h-4 mr-1" />
@@ -345,7 +375,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
             <Card>
               <CardContent className="p-4">
                 <h3 className="font-medium text-white mb-3">冲突类型</h3>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {CONFLICT_TYPES.map((type) => (
                     <button
                       key={type}
@@ -409,15 +439,55 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 </div>
               </div>
             ) : (
-              <div>
+              <div className="space-y-3">
                 <label className="block text-sm text-gray-400 mb-2">场景内容</label>
                 <textarea
                   value={formData.content || ''}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   placeholder="开始写作..."
-                  rows={20}
+                  rows={showCompression ? 12 : 20}
                   className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
                 />
+                {showCompression && compressionResult && (
+                  <div className="bg-cinema-900/50 border border-cinema-gold/30 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2 text-sm text-cinema-gold">
+                        <Sparkles className="w-4 h-4" />
+                        <span>压缩摘要</span>
+                        {compressionResult.score !== undefined && (
+                          <span className="text-xs text-gray-400">
+                            (压缩率: {(compressionResult.score * 100).toFixed(1)}%)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setFormData({ ...formData, content: compressionResult.content });
+                            setShowCompression(false);
+                          }}
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          应用
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setShowCompression(false)}>
+                          <X className="w-4 h-4 mr-1" />
+                          关闭
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">
+                      {compressionResult.content}
+                    </div>
+                    {compressionResult.suggestions.length > 0 && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        {compressionResult.suggestions.join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

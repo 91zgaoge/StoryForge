@@ -497,6 +497,95 @@ pub async fn generate_paragraph_commentaries(
     serde_json::to_string(&commentaries).map_err(|e| e.to_string())
 }
 
+// ==================== 记忆压缩命令 ====================
+
+#[command]
+pub async fn compress_content(
+    story_id: String,
+    content: String,
+    target_ratio: Option<f32>,
+    app_handle: AppHandle,
+) -> Result<crate::agents::AgentResult, String> {
+    use crate::agents::service::{AgentService, AgentTask, AgentType};
+    use crate::agents::commands::ExecuteAgentRequest;
+    use std::collections::HashMap;
+
+    let parameters = target_ratio.map(|r| {
+        let mut map = HashMap::new();
+        map.insert("target_ratio".to_string(), serde_json::json!(r));
+        map
+    });
+
+    let request = ExecuteAgentRequest {
+        agent_type: AgentType::MemoryCompressor,
+        story_id: story_id.clone(),
+        chapter_number: None,
+        input: content.clone(),
+        parameters: parameters.clone(),
+    };
+
+    let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
+    let task = AgentTask {
+        id: uuid::Uuid::new_v4().to_string(),
+        agent_type: AgentType::MemoryCompressor,
+        context,
+        input: content,
+        parameters: parameters.unwrap_or_default(),
+    };
+
+    let service = AgentService::new(app_handle);
+    service.execute_task(task).await
+}
+
+#[command]
+pub async fn compress_scene(
+    scene_id: String,
+    target_ratio: Option<f32>,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<crate::agents::AgentResult, String> {
+    use crate::agents::service::{AgentService, AgentTask, AgentType};
+    use crate::agents::commands::ExecuteAgentRequest;
+    use crate::db::repositories_v3::SceneRepository;
+    use std::collections::HashMap;
+
+    let scene_repo = SceneRepository::new(pool.inner().clone());
+    let scene = scene_repo.get_by_id(&scene_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Scene not found")?;
+
+    let content = scene.content.unwrap_or_default();
+    if content.trim().is_empty() {
+        return Err("Scene has no content to compress".to_string());
+    }
+
+    let parameters = target_ratio.map(|r| {
+        let mut map = HashMap::new();
+        map.insert("target_ratio".to_string(), serde_json::json!(r));
+        map
+    });
+
+    let request = ExecuteAgentRequest {
+        agent_type: AgentType::MemoryCompressor,
+        story_id: scene.story_id.clone(),
+        chapter_number: Some(scene.sequence_number.max(0) as u32),
+        input: content.clone(),
+        parameters: parameters.clone(),
+    };
+
+    let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
+    let task = AgentTask {
+        id: uuid::Uuid::new_v4().to_string(),
+        agent_type: AgentType::MemoryCompressor,
+        context,
+        input: content,
+        parameters: parameters.unwrap_or_default(),
+    };
+
+    let service = AgentService::new(app_handle);
+    service.execute_task(task).await
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct StoryGraph {
     pub entities: Vec<Entity>,

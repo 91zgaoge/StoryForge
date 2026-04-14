@@ -5,7 +5,7 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
   Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
-import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary } from '@/types/v3';
+import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary, AgentResult, VectorSearchResult } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
 
 // Health Check
@@ -201,3 +201,17 @@ export const deleteTextAnnotation = (annotationId: string) =>
 // Commentator Agent
 export const generateParagraphCommentaries = (params: { story_id: string; story_title: string; genre: string; text: string }) =>
   invoke<string>('generate_paragraph_commentaries', params);
+
+// Vector Search
+export const textSearchVectors = (storyId: string, query: string, top_k?: number) =>
+  invoke<VectorSearchResult[]>('text_search_vectors', { story_id: storyId, query, top_k });
+
+export const hybridSearchVectors = (storyId: string, query: string, top_k?: number) =>
+  invoke<VectorSearchResult[]>('hybrid_search_vectors', { story_id: storyId, query, top_k });
+
+// Memory Compressor
+export const compressContent = (params: { story_id: string; content: string; target_ratio?: number }) =>
+  invoke<AgentResult>('compress_content', params);
+
+export const compressScene = (params: { scene_id: string; target_ratio?: number }) =>
+  invoke<AgentResult>('compress_scene', params);

@@ -210,6 +210,52 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `IngestBatch::process` 改为使用 `futures::future::join_all` 并发执行内容摄取
   - 显著提升批量内容的处理吞吐量
 
+### 🧠 Agent 上下文增强
+
+- **`build_agent_context` 真实数据库接入**
+  - 修复 `agents/commands.rs` 中长期存在的 TODO
+  - 现在所有 Agent 执行任务时，上下文会自动从数据库拉取：
+    - 作品标题、题材、文风、节奏（从 `stories` + `writing_styles` 表）
+    - 角色信息（从 `characters` 表，包含姓名、性格、角色定位）
+    - 前场景摘要（从 `scenes` 表，按 sequence_number 过滤并生成摘要）
+  - 写作助手、质检员、评点家、记忆压缩师等 Agent 均获得更精准的上下文
+
+### 🗜️ 记忆压缩师集成 (MemoryCompressorAgent)
+
+- **后端命令**
+  - 新增 `compress_content`：对任意内容进行记忆压缩
+  - 新增 `compress_scene`：自动读取场景内容并调用压缩 Agent
+  - 支持 `target_ratio` 参数控制压缩比例（默认 25%）
+
+- **前端集成**
+  - `SceneEditor` 内容标签页新增「记忆压缩」按钮
+  - 压缩结果以下方面板展示，支持「应用」到场景内容或「关闭」
+  - 新增 `useCompressScene` / `useCompressContent` React Query Hooks
+
+### ⚔️ 冲突类型扩展
+
+- `ConflictType` 新增 4 种戏剧冲突：
+  - `ManVsTime` — 人与时间
+  - `ManVsMorality` — 人与道德
+  - `ManVsIdentity` — 人与身份
+  - `FactionVsFaction` — 群体冲突
+- `SceneEditor` 冲突选择网格从 2 列调整为 3 列，容纳 11 种冲突类型
+
+### 🔍 SQLite FTS5 语义搜索优化
+
+- **FTS5 全文索引**
+  - `vector_records` 表新增 FTS5 虚拟表 `vector_records_fts`
+  - 自动触发器同步 INSERT/UPDATE/DELETE，无需应用层手动维护
+
+- **新搜索 API**
+  - `text_search_vectors`：基于 BM25 的全文关键词搜索
+  - `hybrid_search_vectors`：向量相似度 + FTS5 全文搜索的 RRF 融合
+  - 前端新增 `useTextSearchVectors` / `useHybridSearchVectors` Hooks
+
+- **性能收益**
+  - 文本搜索从纯向量扫描升级为 FTS5 索引加速
+  - 混合搜索通过 RRF（Reciprocal Rank Fusion）融合两路结果，召回率和相关性显著提升
+
 ## [3.1.2] - 2026-04-13 - 设置页增强、浏览器开发环境修复与全新应用图标
 
 ### 🎨 全新应用图标

@@ -9,7 +9,11 @@ export type ConflictType =
   | 'ManVsNature'     // 人与自然
   | 'ManVsTechnology' // 人与科技
   | 'ManVsFate'       // 人与命运
-  | 'ManVsSupernatural'; // 人与超自然
+  | 'ManVsSupernatural' // 人与超自然
+  | 'ManVsTime'       // 人与时间
+  | 'ManVsMorality'   // 人与道德
+  | 'ManVsIdentity'   // 人与身份
+  | 'FactionVsFaction'; // 群体冲突
 
 export interface CharacterConflict {
   character_a_id: string;
@@ -237,6 +241,21 @@ export interface ParagraphCommentary {
   paragraph_index: number;
   commentary: string;
   tone: CommentaryTone;
+}
+
+export interface AgentResult {
+  content: string;
+  score?: number;
+  suggestions: string[];
+}
+
+export interface VectorSearchResult {
+  id: string;
+  story_id: string;
+  chapter_id: string;
+  chapter_number: number;
+  text: string;
+  score: number;
 }
 
 // ==================== 知识图谱类型 ====================

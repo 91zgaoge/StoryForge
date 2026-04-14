@@ -340,6 +340,12 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析待压缩内容", 0.1);
         
         let ctx = &task.context;
+        let target_ratio = task.parameters.get("target_ratio")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
+            .unwrap_or(0.25);
+        let ratio_pct = (target_ratio * 100.0) as i32;
+        
         let prompt = format!(
             r#"你是一位专业的文学记忆压缩师。请将以下小说相关内容压缩为简洁的高层摘要。
 
@@ -355,7 +361,7 @@ impl AgentService {
 【压缩要求】
 1. 保留核心情节、人物关系、关键伏笔
 2. 删除细节描写、重复叙述、过渡段落
-3. 输出长度控制在原文的 20%-30%
+3. 输出长度控制在原文的 {}%
 4. 使用第三人称客观叙述
 
 请直接输出压缩后的摘要，不要添加解释。"#,
@@ -363,6 +369,7 @@ impl AgentService {
             ctx.genre,
             ctx.tone,
             ctx.pacing,
+            ratio_pct,
             task.input
         );
         

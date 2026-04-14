@@ -124,6 +124,10 @@ export function getConflictTypeLabel(type: ConflictType): string {
     ManVsTechnology: '人与科技',
     ManVsFate: '人与命运',
     ManVsSupernatural: '人与超自然',
+    ManVsTime: '人与时间',
+    ManVsMorality: '人与道德',
+    ManVsIdentity: '人与身份',
+    FactionVsFaction: '群体冲突',
   };
   return labels[type] || type;
 }
@@ -137,6 +141,10 @@ export function getConflictTypeColor(type: ConflictType): string {
     ManVsTechnology: '#3b82f6', // blue
     ManVsFate: '#6366f1',       // indigo
     ManVsSupernatural: '#ec4899', // pink
+    ManVsTime: '#06b6d4',       // cyan
+    ManVsMorality: '#f43f5e',   // rose
+    ManVsIdentity: '#14b8a6',   // teal
+    FactionVsFaction: '#64748b', // slate
   };
   return colors[type] || '#6b7280';
 }

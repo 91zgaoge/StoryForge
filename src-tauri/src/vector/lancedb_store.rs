@@ -106,6 +106,34 @@ impl LanceVectorStore {
             );
             CREATE INDEX IF NOT EXISTS idx_vector_records_story ON vector_records(story_id);
             CREATE INDEX IF NOT EXISTS idx_vector_records_chapter ON vector_records(chapter_id);
+
+            -- FTS5 全文索引用于语义搜索优化
+            CREATE VIRTUAL TABLE IF NOT EXISTS vector_records_fts USING fts5(
+                text,
+                content='vector_records',
+                content_rowid='rowid'
+            );
+
+            -- 同步触发器：插入
+            CREATE TRIGGER IF NOT EXISTS vector_records_fts_insert
+            AFTER INSERT ON vector_records BEGIN
+                INSERT INTO vector_records_fts(rowid, text) VALUES (new.rowid, new.text);
+            END;
+
+            -- 同步触发器：删除
+            CREATE TRIGGER IF NOT EXISTS vector_records_fts_delete
+            AFTER DELETE ON vector_records BEGIN
+                INSERT INTO vector_records_fts(vector_records_fts, rowid, text)
+                VALUES ('delete', old.rowid, old.text);
+            END;
+
+            -- 同步触发器：更新
+            CREATE TRIGGER IF NOT EXISTS vector_records_fts_update
+            AFTER UPDATE ON vector_records BEGIN
+                INSERT INTO vector_records_fts(vector_records_fts, rowid, text)
+                VALUES ('delete', old.rowid, old.text);
+                INSERT INTO vector_records_fts(rowid, text) VALUES (new.rowid, new.text);
+            END;
             "#,
         )?;
 
@@ -247,6 +275,105 @@ impl LanceVectorStore {
         }
 
         Ok(results)
+    }
+
+    /// 基于 FTS5 的全文关键词搜索（BM25 排序）
+    pub async fn text_search(
+        &self,
+        story_id: &str,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT v.id, v.story_id, v.chapter_id, v.chapter_number, v.text, rank
+             FROM vector_records_fts f
+             JOIN vector_records v ON v.rowid = f.rowid
+             WHERE f.text MATCH ?1 AND v.story_id = ?2
+             ORDER BY rank ASC
+             LIMIT ?3"
+        )?;
+
+        let mut results = Vec::new();
+        let rows = stmt.query_map(params![query, story_id, top_k as i32], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, f64>(5)?,
+            ))
+        })?;
+
+        for row in rows {
+            let (id, sid, cid, cnum, text, rank) = row?;
+            results.push(SearchResult {
+                id,
+                story_id: sid,
+                chapter_id: cid,
+                chapter_number: cnum,
+                text,
+                score: rank as f32,
+            });
+        }
+
+        // 将 rank 归一化为 0-1 分数（越低越好 -> 越高越好）
+        if !results.is_empty() {
+            let min_rank = results.iter().map(|r| r.score).fold(f32::INFINITY, |a, b| a.min(b));
+            let max_rank = results.iter().map(|r| r.score).fold(f32::NEG_INFINITY, |a, b| a.max(b));
+            for r in &mut results {
+                r.score = if max_rank > min_rank {
+                    (max_rank - r.score) / (max_rank - min_rank)
+                } else {
+                    1.0
+                };
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// 混合搜索：向量相似度 + FTS5 全文搜索，使用 RRF 融合
+    pub async fn hybrid_search(
+        &self,
+        story_id: &str,
+        query_text: &str,
+        query_embedding: Vec<f32>,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        const RRF_K: f32 = 60.0;
+
+        let vector_results = self.search(story_id, query_embedding, top_k * 2).await?;
+        let text_results = self.text_search(story_id, query_text, top_k * 2).await?;
+
+        use std::collections::HashMap;
+        let mut scores: HashMap<String, f32> = HashMap::new();
+
+        for (rank, r) in vector_results.iter().enumerate() {
+            let score = 1.0 / (RRF_K + rank as f32 + 1.0);
+            *scores.entry(r.id.clone()).or_insert(0.0) += score;
+        }
+
+        for (rank, r) in text_results.iter().enumerate() {
+            let score = 1.0 / (RRF_K + rank as f32 + 1.0);
+            *scores.entry(r.id.clone()).or_insert(0.0) += score;
+        }
+
+        let mut all_results: HashMap<String, SearchResult> = HashMap::new();
+        for r in vector_results.into_iter().chain(text_results.into_iter()) {
+            all_results.entry(r.id.clone()).or_insert(r);
+        }
+
+        let mut fused: Vec<SearchResult> = all_results.into_iter().map(|(id, mut r)| {
+            r.score = scores.get(&id).copied().unwrap_or(0.0);
+            r
+        }).collect();
+
+        fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        fused.truncate(top_k);
+
+        Ok(fused)
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), Box<dyn std::error::Error>> {

@@ -1,6 +1,6 @@
 # StoryForge (草苔) v3.1+ 项目完成状态
 
-> 最后更新: 2026-04-14（v3.2.0 SQLite 向量持久化 + 小说创建向导 + 自动归档系统 + Skills 后端连通完成）
+> 最后更新: 2026-04-14（v3.2.0 Agent 上下文增强 + 记忆压缩 + FTS5 语义搜索 + 冲突类型扩展完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -294,18 +294,33 @@
 
 #### P2 - 增强功能
 4. **Ingest 管线性能优化**
-   - 说明: 批量处理、异步优化
+   - 状态: ✅ 已完成
+   - 说明: `IngestBatch::process` 改为 `join_all` 并发执行
 
 5. **查询缓存机制**
-   - 说明: 缓存常用查询结果
+   - 状态: ✅ 已完成
+   - 说明: `LanceVectorStore` 新增 100 条容量的 LRU 查询结果缓存
 
 6. **实体嵌入持久化**
    - 位置: `src-tauri/src/db/repositories_v3.rs`
    - 状态: ✅ 已完成
    - 说明: `kg_entities.embedding` BLOB 序列化/反序列化已修复，Ingest 生成的嵌入向量可持久化存储
 
-6. **更多冲突类型**
-   - 说明: 扩展 ConflictType 枚举
+7. **更多冲突类型**
+   - 状态: ✅ 已完成
+   - 说明: `ConflictType` 从 7 种扩展为 11 种，新增人与时间/道德/身份/群体冲突
+
+8. **Agent 上下文增强**
+   - 状态: ✅ 已完成
+   - 说明: `build_agent_context` 接入真实数据库，自动注入故事信息、角色列表、前场景摘要
+
+9. **记忆压缩**
+   - 状态: ✅ 已完成
+   - 说明: `MemoryCompressorAgent` 后端命令 + `SceneEditor` 前端集成，支持场景内容一键压缩摘要
+
+10. **语义搜索优化**
+    - 状态: ✅ 已完成
+    - 说明: `vector_records` 新增 FTS5 全文索引，提供 `text_search_vectors` 和 `hybrid_search_vectors`（RRF 融合）
 
 ---
 

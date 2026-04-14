@@ -128,7 +128,7 @@ pub fn run() {
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
             get_skills, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill,
             connect_mcp_server, call_mcp_tool, list_mcp_tools, execute_mcp_tool,
-            search_similar, embed_chapter,
+            search_similar, text_search_vectors, hybrid_search_vectors, embed_chapter,
             export_story,
             // Window management commands
             window::show_frontstage,
@@ -219,6 +219,9 @@ pub fn run() {
             commands_v3::delete_text_annotation,
             // Commentator agent
             commands_v3::generate_paragraph_commentaries,
+            // Memory compressor
+            commands_v3::compress_content,
+            commands_v3::compress_scene,
             // Novel creation wizard commands
             commands_v3::generate_world_building_options,
             commands_v3::generate_character_profiles,
@@ -408,6 +411,26 @@ async fn search_similar(story_id: String, query: String, top_k: Option<usize>) -
     let query_embedding = embed_text(&query).map_err(|e| e.to_string())?;
     
     store.search(&story_id, query_embedding, top_k.unwrap_or(5))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn text_search_vectors(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {
+    let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
+    store.text_search(&story_id, &query, top_k.unwrap_or(5))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn hybrid_search_vectors(story_id: String, query: String, top_k: Option<usize>) -> Result<Vec<SearchResult>, String> {
+    use embeddings::embed_text;
+    
+    let store = VECTOR_STORE.get().ok_or("Vector store not initialized")?;
+    let query_embedding = embed_text(&query).map_err(|e| e.to_string())?;
+    
+    store.hybrid_search(&story_id, &query, query_embedding, top_k.unwrap_or(5))
         .await
         .map_err(|e| e.to_string())
 }
