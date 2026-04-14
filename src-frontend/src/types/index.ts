@@ -57,15 +57,36 @@ export type SkillCategory =
   | 'integration' 
   | 'custom';
 
+export interface SkillParameter {
+  name: string;
+  description: string;
+  param_type: string;
+  required: boolean;
+  default?: unknown;
+}
+
+export interface HookDefinition {
+  event: string;
+  handler: string;
+  priority: number;
+}
+
 export interface Skill {
   id: string;
   name: string;
-  description?: string;
+  description: string;
   category: SkillCategory;
   version: string;
-  author?: string;
-  enabled: boolean;
-  builtin: boolean;
+  author: string;
+  entry_point: string;
+  parameters: SkillParameter[];
+  capabilities: string[];
+  hooks: HookDefinition[];
+  config: Record<string, unknown>;
+  path: string;
+  is_enabled: boolean;
+  loaded_at: string;
+  runtime_type: string;
 }
 
 export interface McpServer {
