@@ -240,6 +240,23 @@ impl std::str::FromStr for AnnotationType {
     }
 }
 
+// ==================== 文本内联批注模型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextAnnotation {
+    pub id: String,
+    pub story_id: String,
+    pub scene_id: Option<String>,
+    pub chapter_id: Option<String>,
+    pub content: String,
+    pub annotation_type: AnnotationType,
+    pub from_pos: i32,
+    pub to_pos: i32,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+    pub resolved_at: Option<DateTime<Local>>,
+}
+
 // ==================== 世界观模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -8,6 +8,9 @@ import {
   Sparkles,
   Save,
   X,
+  GitCompare,
+  Eye,
+  EyeOff,
   MessageSquare,
   Plus,
   Check,
@@ -41,6 +44,7 @@ const CONFLICT_TYPES: ConflictType[] = [
 export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditorProps) {
   const [formData, setFormData] = useState<Partial<Scene>>({});
   const [activeTab, setActiveTab] = useState<'basic' | 'drama' | 'content' | 'annotations'>('basic');
+  const [revisionMode, setRevisionMode] = useState(false);
   const [newAnnotationContent, setNewAnnotationContent] = useState('');
   const [newAnnotationType, setNewAnnotationType] = useState<SceneAnnotation['annotation_type']>('note');
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
@@ -82,7 +86,43 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
 
   const handleSave = () => {
     onSave(formData);
+    setRevisionMode(false);
   };
+
+  // Simple diff computation for revision mode
+  const computeDiff = (oldText: string, newText: string) => {
+    const oldLines = oldText.split('\n');
+    const newLines = newText.split('\n');
+    const lcs: number[][] = Array(oldLines.length + 1).fill(null).map(() => Array(newLines.length + 1).fill(0));
+    for (let i = 1; i <= oldLines.length; i++) {
+      for (let j = 1; j <= newLines.length; j++) {
+        if (oldLines[i - 1] === newLines[j - 1]) {
+          lcs[i][j] = lcs[i - 1][j - 1] + 1;
+        } else {
+          lcs[i][j] = Math.max(lcs[i - 1][j], lcs[i][j - 1]);
+        }
+      }
+    }
+    const result: Array<{type: 'added' | 'removed' | 'unchanged'; content: string}> = [];
+    let i = oldLines.length, j = newLines.length;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+        result.unshift({ type: 'unchanged', content: oldLines[i - 1] });
+        i--; j--;
+      } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+        result.unshift({ type: 'added', content: newLines[j - 1] });
+        j--;
+      } else {
+        result.unshift({ type: 'removed', content: oldLines[i - 1] });
+        i--;
+      }
+    }
+    return result;
+  };
+
+  const contentDiff = activeTab === 'content' && revisionMode && scene
+    ? computeDiff(scene.content || '', formData.content || '')
+    : null;
 
   const toggleCharacter = (charId: string) => {
     const current = formData.characters_present || [];
@@ -107,6 +147,16 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
           编辑场景 #{scene.sequence_number}
         </h2>
         <div className="flex items-center gap-2">
+          {activeTab === 'content' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRevisionMode(!revisionMode)}
+            >
+              {revisionMode ? <EyeOff className="w-4 h-4 mr-1" /> : <GitCompare className="w-4 h-4 mr-1" />}
+              {revisionMode ? '退出修订' : '修订模式'}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={onCancel}>
             <X className="w-4 h-4 mr-1" />
             取消
@@ -329,14 +379,47 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         {/* Content Tab */}
         {activeTab === 'content' && (
           <div>
-            <label className="block text-sm text-gray-400 mb-2">场景内容</label>
-            <textarea
-              value={formData.content || ''}
-              onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-              placeholder="开始写作..."
-              rows={20}
-              className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
-            />
+            {revisionMode && contentDiff ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-gray-400">修订对比</label>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />新增</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />删除</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500" />未变</span>
+                  </div>
+                </div>
+                <div className="bg-cinema-800 border border-cinema-700 rounded-lg p-4 space-y-1 max-h-[32rem] overflow-y-auto font-mono text-sm">
+                  {contentDiff.map((line, idx) => (
+                    <div
+                      key={idx}
+                      className={`
+                        px-2 py-1 rounded
+                        ${line.type === 'added' ? 'bg-green-500/10 text-green-300' : ''}
+                        ${line.type === 'removed' ? 'bg-red-500/10 text-red-300 line-through' : ''}
+                        ${line.type === 'unchanged' ? 'text-gray-400' : ''}
+                      `}
+                    >
+                      {line.type === 'added' && '+ '}
+                      {line.type === 'removed' && '- '}
+                      {line.type === 'unchanged' && '  '}
+                      {line.content || ' '}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">场景内容</label>
+                <textarea
+                  value={formData.content || ''}
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  placeholder="开始写作..."
+                  rows={20}
+                  className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
+                />
+              </div>
+            )}
           </div>
         )}
 

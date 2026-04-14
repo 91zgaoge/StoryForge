@@ -133,6 +133,16 @@ body {
   margin-bottom: 0;
 }
 
+/* 古典评点段落样式 */
+.ProseMirror p.commentary-paragraph {
+  font-size: 0.8em;
+  color: var(--terracotta);
+  font-style: italic;
+  margin-left: 1.5em;
+  margin-bottom: 0.75em;
+  opacity: 0.9;
+}
+
 .ProseMirror h1 {
   font-size: 2em;
   font-weight: 600;

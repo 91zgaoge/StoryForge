@@ -192,6 +192,7 @@ pub fn run() {
             commands_v3::export_studio,
             commands_v3::import_studio,
             commands_v3::create_entity,
+            commands_v3::update_entity,
             commands_v3::get_story_entities,
             commands_v3::create_relation,
             commands_v3::get_entity_relations,
@@ -208,6 +209,16 @@ pub fn run() {
             commands_v3::resolve_scene_annotation,
             commands_v3::unresolve_scene_annotation,
             commands_v3::delete_scene_annotation,
+            // Text inline annotations
+            commands_v3::create_text_annotation,
+            commands_v3::get_text_annotations_by_chapter,
+            commands_v3::get_text_annotations_by_scene,
+            commands_v3::update_text_annotation,
+            commands_v3::resolve_text_annotation,
+            commands_v3::unresolve_text_annotation,
+            commands_v3::delete_text_annotation,
+            // Commentator agent
+            commands_v3::generate_paragraph_commentaries,
             // Novel creation wizard commands
             commands_v3::generate_world_building_options,
             commands_v3::generate_character_profiles,

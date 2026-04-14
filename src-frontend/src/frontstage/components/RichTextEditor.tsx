@@ -17,7 +17,8 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
-  Loader2
+  Loader2,
+  Quote
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { Character } from '@/types/index';
@@ -32,6 +33,8 @@ import { useIntent } from '@/hooks/useIntent';
 import { ChatMessage } from '@/services/modelService';
 import { ModelConfig } from '@/config/models';
 import type { IntentType, FeedbackType } from '@/types/index';
+import type { ParagraphCommentary } from '@/types/v3';
+import { generateParagraphCommentaries } from '@/services/tauri';
 
 const INTENT_LABELS: Record<IntentType, string> = {
   text_generate: '续写生成',
@@ -104,6 +107,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [isExpanded, setIsExpanded] = useState(false);
     const [showModelTooltip, setShowModelTooltip] = useState(false);
     const [streamingContent, setStreamingContent] = useState('');
+    const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
     
     // 使用模型管理Hook
     const { currentModel, status, chat } = useModel();
@@ -325,6 +329,56 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         setStreamingContent('');
       }
     }, [chatInput, chatHistory, chat, isAiThinking, isParsingIntent, isExecutingIntent, parseIntent, executeIntent, buildMessages, editor, storyId]);
+
+    // 生成古典评点
+    const handleGenerateCommentary = useCallback(async () => {
+      if (!editor || !storyId) return;
+      
+      const text = editor.getText();
+      if (!text.trim()) return;
+
+      setIsGeneratingCommentary(true);
+      try {
+        const result = await generateParagraphCommentaries({
+          story_id: storyId,
+          story_title: '',
+          genre: '',
+          text,
+        });
+        
+        const commentaries: ParagraphCommentary[] = JSON.parse(result);
+        if (!commentaries.length) return;
+
+        // 从后往前插入，避免位置偏移
+        const paragraphs: { pos: number; nodeSize: number }[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === 'paragraph') {
+            paragraphs.push({ pos, nodeSize: node.nodeSize });
+          }
+        });
+
+        const chain = editor.chain().focus();
+        // 按 paragraph_index 从大到小排序，从后往前插入
+        const sorted = [...commentaries]
+          .filter(c => c.paragraph_index < paragraphs.length)
+          .sort((a, b) => b.paragraph_index - a.paragraph_index);
+
+        for (const c of sorted) {
+          const para = paragraphs[c.paragraph_index];
+          const insertPos = para.pos + para.nodeSize;
+          chain.insertContentAt(insertPos, {
+            type: 'paragraph',
+            attrs: { class: 'commentary-paragraph' },
+            content: [{ type: 'text', text: `【批】${c.commentary}` }],
+          });
+        }
+        chain.run();
+      } catch (error) {
+        console.error('Commentary error:', error);
+      } finally {
+        setIsGeneratingCommentary(false);
+      }
+    }, [editor, storyId]);
 
     // 获取状态图标
     const getStatusIcon = () => {
@@ -572,8 +626,24 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   />
                 </div>
 
-                {/* 右侧：发送按钮 */}
-                <div className="chat-input-right">
+                {/* 右侧：评点按钮 + 发送按钮 */}
+                <div className="chat-input-right flex items-center gap-1.5">
+                  <button
+                    onClick={handleGenerateCommentary}
+                    disabled={isGeneratingCommentary || !storyId || status === 'disconnected'}
+                    title="生成古典评点"
+                    className={cn(
+                      'p-2 rounded-full transition-colors duration-200',
+                      'text-[var(--stone-gray)] hover:text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10',
+                      isGeneratingCommentary && 'opacity-50 cursor-not-allowed'
+                    )}
+                  >
+                    {isGeneratingCommentary ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Quote className="w-4 h-4" />
+                    )}
+                  </button>
                   <button
                     onClick={handleSendMessage}
                     disabled={!chatInput.trim() || isAiThinking || isParsingIntent || isExecutingIntent || status === 'disconnected'}

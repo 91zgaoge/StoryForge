@@ -5,7 +5,7 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
   Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
-import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation } from '@/types/v3';
+import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
 
 // Health Check
@@ -175,3 +175,29 @@ export const unresolveSceneAnnotation = (annotationId: string) =>
 
 export const deleteSceneAnnotation = (annotationId: string) =>
   invoke<number>('delete_scene_annotation', { annotation_id: annotationId });
+
+// Text Inline Annotations
+export const createTextAnnotation = (params: { story_id: string; scene_id?: string; chapter_id?: string; content: string; annotation_type: string; from_pos: number; to_pos: number }) =>
+  invoke<TextAnnotation>('create_text_annotation', params);
+
+export const getTextAnnotationsByChapter = (chapterId: string) =>
+  invoke<TextAnnotation[]>('get_text_annotations_by_chapter', { chapter_id: chapterId });
+
+export const getTextAnnotationsByScene = (sceneId: string) =>
+  invoke<TextAnnotation[]>('get_text_annotations_by_scene', { scene_id: sceneId });
+
+export const updateTextAnnotation = (annotationId: string, content: string) =>
+  invoke<number>('update_text_annotation', { annotation_id: annotationId, content });
+
+export const resolveTextAnnotation = (annotationId: string) =>
+  invoke<number>('resolve_text_annotation', { annotation_id: annotationId });
+
+export const unresolveTextAnnotation = (annotationId: string) =>
+  invoke<number>('unresolve_text_annotation', { annotation_id: annotationId });
+
+export const deleteTextAnnotation = (annotationId: string) =>
+  invoke<number>('delete_text_annotation', { annotation_id: annotationId });
+
+// Commentator Agent
+export const generateParagraphCommentaries = (params: { story_id: string; story_title: string; genre: string; text: string }) =>
+  invoke<string>('generate_paragraph_commentaries', params);

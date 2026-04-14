@@ -215,6 +215,30 @@ export interface SceneAnnotation {
   resolved_at?: string;
 }
 
+// ==================== 文本内联批注类型 ====================
+
+export interface TextAnnotation {
+  id: string;
+  story_id: string;
+  scene_id?: string;
+  chapter_id?: string;
+  content: string;
+  annotation_type: AnnotationType;
+  from_pos: number;
+  to_pos: number;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string;
+}
+
+export type CommentaryTone = 'insightful' | 'witty' | 'emotional' | 'critical';
+
+export interface ParagraphCommentary {
+  paragraph_index: number;
+  commentary: string;
+  tone: CommentaryTone;
+}
+
 // ==================== 知识图谱类型 ====================
 
 export type EntityType = 

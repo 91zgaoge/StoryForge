@@ -172,6 +172,44 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 提取实体和关系并保存到知识图谱
   - 创建成功 toast 显示摄取的实体数和关系数
 
+### ✏️ 文本内联批注系统
+
+- **数据库与后端 API**
+  - 新增 `text_annotations` 表，支持文本级别的内联批注
+  - 8 个 Tauri 命令：`create_text_annotation`、`get_text_annotations_by_chapter`、`get_text_annotations_by_scene`、`update_text_annotation`、`resolve_text_annotation`、`unresolve_text_annotation`、`delete_text_annotation`
+  - 支持按 `chapter_id` 或 `scene_id` 查询，带 `from_pos` / `to_pos` 文本坐标
+
+- **前端集成**
+  - 新增 `useTextAnnotations` 系列 React Query Hook
+  - 完整支持新建、编辑、解决/恢复、删除批注
+
+### 🎭 古典评点家 Agent (CommentatorAgent)
+
+- **后端 Agent 实现**
+  - 新增 `CommentatorAgent` (`agents/commentator.rs`)，模拟金圣叹风格对小说段落进行实时文学点评
+  - 支持 `ParagraphCommentary` 结构，返回段落索引、点评内容和语气类型
+  - `AgentType` 新增 `Commentator` 变体，集成到 `AgentService` 模型路由
+  - 新增 Tauri 命令 `generate_paragraph_commentaries`
+
+- **前端集成**
+  - `RichTextEditor` 聊天栏新增「生成古典评点」按钮
+  - 调用后端逐段生成评点后，以 `commentary-paragraph` 样式插入编辑器
+  - 古典批注样式：小字号（0.8em）、赤陶色（terracotta）、斜体、左侧缩进，还原传统小说批注效果
+
+### ⚡ 性能与缓存优化
+
+- **实体向量自动更新**
+  - `update_entity` 命令支持 `regenerate_embedding` 参数
+  - 当实体名称或属性变更时，可选自动重新生成并保存嵌入向量
+
+- **向量搜索缓存**
+  - `LanceVectorStore` 新增 `HashMap` 结果缓存，最大容量 100 条
+  - 简单 LRU 淘汰策略（溢出时移除最旧的 20%），写操作时自动失效缓存
+
+- **并行 Ingest 处理**
+  - `IngestBatch::process` 改为使用 `futures::future::join_all` 并发执行内容摄取
+  - 显著提升批量内容的处理吞吐量
+
 ## [3.1.2] - 2026-04-13 - 设置页增强、浏览器开发环境修复与全新应用图标
 
 ### 🎨 全新应用图标

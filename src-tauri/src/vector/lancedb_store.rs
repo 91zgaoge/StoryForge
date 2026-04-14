@@ -3,10 +3,29 @@
 //! SQLite-backed vector storage with LanceDB-compatible API.
 //! Replaces the previous JSON-memory fallback with true persistent storage.
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+/// 搜索缓存键
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+struct SearchCacheKey {
+    story_id: String,
+    query_hash: u64,
+    top_k: usize,
+}
+
+/// 搜索缓存项
+struct SearchCacheEntry {
+    results: Vec<SearchResult>,
+    inserted_at: Instant,
+}
+
+const CACHE_TTL: Duration = Duration::from_secs(300); // 5分钟
+const MAX_CACHE_SIZE: usize = 100;
 
 /// 向量记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +54,7 @@ pub struct SearchResult {
 pub struct LanceVectorStore {
     db_path: PathBuf,
     conn: Arc<Mutex<Connection>>,
+    search_cache: Arc<Mutex<HashMap<SearchCacheKey, SearchCacheEntry>>>,
 }
 
 impl LanceVectorStore {
@@ -45,7 +65,23 @@ impl LanceVectorStore {
         Self {
             db_path: path,
             conn: Arc::new(Mutex::new(conn)),
+            search_cache: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    fn compute_query_hash(query_embedding: &[f32]) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        // 采样前16个维度进行哈希，平衡精度与性能
+        let sample: Vec<i32> = query_embedding.iter().take(16).map(|&f| (f * 1000.0) as i32).collect();
+        sample.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn invalidate_cache(&self, story_id: &str) {
+        let mut cache = self.search_cache.lock().unwrap();
+        cache.retain(|key, _| key.story_id != story_id);
     }
 
     fn db_file(&self) -> PathBuf {
@@ -104,6 +140,8 @@ impl LanceVectorStore {
             ],
         )?;
 
+        drop(conn);
+        self.invalidate_cache(&record.story_id);
         Ok(())
     }
 
@@ -129,6 +167,22 @@ impl LanceVectorStore {
         query_embedding: Vec<f32>,
         top_k: usize,
     ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        // 1. 检查缓存
+        let cache_key = SearchCacheKey {
+            story_id: story_id.to_string(),
+            query_hash: Self::compute_query_hash(&query_embedding),
+            top_k,
+        };
+        {
+            let cache = self.search_cache.lock().unwrap();
+            if let Some(entry) = cache.get(&cache_key) {
+                if entry.inserted_at.elapsed() < CACHE_TTL {
+                    return Ok(entry.results.clone());
+                }
+            }
+        }
+
+        // 2. 执行搜索（语义搜索优化：维度预过滤 + 提前终止低分）
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, story_id, chapter_id, chapter_number, text, embedding
@@ -148,11 +202,17 @@ impl LanceVectorStore {
             ))
         })?;
 
+        let query_dim = query_embedding.len();
         let mut results = Vec::new();
         for row in rows {
             let (id, sid, cid, cnum, text, embedding) = row?;
+            // 维度预过滤：跳过维度不匹配的向量
+            if embedding.len() != query_dim {
+                continue;
+            }
             let score = Self::cosine_similarity(&query_embedding, &embedding);
-            if score > 0.1 {
+            // 提前终止阈值
+            if score > 0.05 {
                 results.push(SearchResult {
                     id,
                     story_id: sid,
@@ -166,18 +226,56 @@ impl LanceVectorStore {
 
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         results.truncate(top_k);
+
+        // 3. 写入缓存
+        {
+            let mut cache = self.search_cache.lock().unwrap();
+            if cache.len() >= MAX_CACHE_SIZE {
+                // 简单LRU：删除最旧的20%条目
+                let mut entries: Vec<_> = cache.iter().collect();
+                entries.sort_by(|a, b| a.1.inserted_at.cmp(&b.1.inserted_at));
+                let to_remove = entries.len() / 5;
+                let keys_to_remove: Vec<_> = entries.into_iter().take(to_remove).map(|(k, _)| k.clone()).collect();
+                for key in keys_to_remove {
+                    cache.remove(&key);
+                }
+            }
+            cache.insert(cache_key, SearchCacheEntry {
+                results: results.clone(),
+                inserted_at: Instant::now(),
+            });
+        }
+
         Ok(results)
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let conn = self.conn.lock().unwrap();
+        // 获取 story_id 以清空对应缓存
+        let story_id: Option<String> = conn.query_row(
+            "SELECT story_id FROM vector_records WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        ).optional().ok().flatten();
         conn.execute("DELETE FROM vector_records WHERE id = ?1", [id])?;
+        drop(conn);
+        if let Some(sid) = story_id {
+            self.invalidate_cache(&sid);
+        }
         Ok(())
     }
 
     pub async fn delete_chapter(&self, chapter_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         let conn = self.conn.lock().unwrap();
+        let story_ids: Vec<String> = conn.prepare(
+            "SELECT DISTINCT story_id FROM vector_records WHERE chapter_id = ?1"
+        )?.query_map([chapter_id], |row| row.get(0))?
+         .collect::<Result<Vec<_>, _>>()?;
         conn.execute("DELETE FROM vector_records WHERE chapter_id = ?1", [chapter_id])?;
+        drop(conn);
+        for sid in story_ids {
+            self.invalidate_cache(&sid);
+        }
         Ok(())
     }
 

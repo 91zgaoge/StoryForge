@@ -371,13 +371,14 @@ impl IngestBatch {
     }
 
     pub async fn process(&self, pipeline: &IngestPipeline) -> Vec<Result<IngestResult, Box<dyn std::error::Error>>> {
-        let mut results = vec![];
+        use futures::future::join_all;
         
-        for content in &self.contents {
-            results.push(pipeline.ingest(content).await);
-        }
+        let futures: Vec<_> = self.contents
+            .iter()
+            .map(|content| pipeline.ingest(content))
+            .collect();
         
-        results
+        join_all(futures).await
     }
 }
 

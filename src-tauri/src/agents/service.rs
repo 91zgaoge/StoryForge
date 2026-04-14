@@ -14,11 +14,13 @@ use tauri::{AppHandle, Emitter, Manager};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentType {
-    Writer,         // 写作助手
-    Inspector,      // 质检员
-    OutlinePlanner, // 大纲规划师
-    StyleMimic,     // 风格模仿师
-    PlotAnalyzer,   // 情节分析师
+    Writer,           // 写作助手
+    Inspector,        // 质检员
+    OutlinePlanner,   // 大纲规划师
+    StyleMimic,       // 风格模仿师
+    PlotAnalyzer,     // 情节分析师
+    MemoryCompressor, // 记忆压缩师
+    Commentator,      // 古典评点家
 }
 
 impl AgentType {
@@ -29,6 +31,8 @@ impl AgentType {
             AgentType::OutlinePlanner => "大纲规划师",
             AgentType::StyleMimic => "风格模仿师",
             AgentType::PlotAnalyzer => "情节分析师",
+            AgentType::MemoryCompressor => "记忆压缩师",
+            AgentType::Commentator => "古典评点家",
         }
     }
 
@@ -39,6 +43,8 @@ impl AgentType {
             AgentType::OutlinePlanner => "outline_planner",
             AgentType::StyleMimic => "style_mimic",
             AgentType::PlotAnalyzer => "plot_analyzer",
+            AgentType::MemoryCompressor => "memory_compressor",
+            AgentType::Commentator => "commentator",
         }
     }
 
@@ -49,6 +55,8 @@ impl AgentType {
             AgentType::OutlinePlanner => "设计故事大纲、章节结构",
             AgentType::StyleMimic => "分析并模仿特定文风",
             AgentType::PlotAnalyzer => "分析情节复杂度、检测漏洞",
+            AgentType::MemoryCompressor => "将详细内容压缩为高层记忆摘要",
+            AgentType::Commentator => "以金圣叹风格对小说段落进行实时文学点评",
         }
     }
 }
@@ -114,6 +122,8 @@ impl AgentService {
             AgentType::OutlinePlanner => self.execute_outline_planner(task).await,
             AgentType::StyleMimic => self.execute_style_mimic(task).await,
             AgentType::PlotAnalyzer => self.execute_plot_analyzer(task).await,
+            AgentType::MemoryCompressor => self.execute_memory_compressor(task).await,
+            AgentType::Commentator => self.execute_commentator(task).await,
         };
         
         match &result {
@@ -281,6 +291,103 @@ impl AgentService {
             content: response.content,
             score: Some(score),
             suggestions,
+        })
+    }
+
+    /// 执行古典评点家
+    async fn execute_commentator(&self, task: AgentTask) -> Result<AgentResult, String> {
+        self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "品读文本", 0.1);
+        
+        let ctx = &task.context;
+        let prompt = format!(
+            r#"你是一位中国古典小说评点家，风格类似金圣叹。请对以下小说段落进行简短点评。
+
+【作品信息】
+标题: {}
+题材: {}
+
+【待评段落】
+{}
+
+【点评要求】
+1. 用古典文人评点的口吻，简洁有力，每段不超过60字
+2. 可点评：文笔、结构、人物、伏笔、情感、节奏
+3. 语气可带几分机锋，但不可刻薄伤人
+4. 直接输出 JSON 数组，格式：[{{"paragraph_index": 0, "commentary": "...", "tone": "insightful"}}]
+5. tone 可选：insightful / witty / emotional / critical
+6. 如果没有值得点评之处， commentary 可为空字符串
+
+请直接输出 JSON，不要添加 markdown 代码块标记。"#,
+            ctx.story_title,
+            ctx.genre,
+            task.input
+        );
+        
+        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成评点", 0.4);
+        
+        let response = self.generate_for_agent(
+            task.agent_type,
+            prompt,
+            Some(2048),
+            Some(0.85),
+        ).await?;
+        
+        Ok(AgentResult::simple(response.content))
+    }
+
+    /// 执行记忆压缩师
+    async fn execute_memory_compressor(&self, task: AgentTask) -> Result<AgentResult, String> {
+        self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析待压缩内容", 0.1);
+        
+        let ctx = &task.context;
+        let prompt = format!(
+            r#"你是一位专业的文学记忆压缩师。请将以下小说相关内容压缩为简洁的高层摘要。
+
+【作品信息】
+标题: {}
+题材: {}
+文风: {}
+节奏: {}
+
+【待压缩内容】
+{}
+
+【压缩要求】
+1. 保留核心情节、人物关系、关键伏笔
+2. 删除细节描写、重复叙述、过渡段落
+3. 输出长度控制在原文的 20%-30%
+4. 使用第三人称客观叙述
+
+请直接输出压缩后的摘要，不要添加解释。"#,
+            ctx.story_title,
+            ctx.genre,
+            ctx.tone,
+            ctx.pacing,
+            task.input
+        );
+        
+        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "压缩内容", 0.4);
+        
+        let response = self.generate_for_agent(
+            task.agent_type,
+            prompt,
+            Some(2048),
+            Some(0.3),
+        ).await?;
+        
+        let original_len = task.input.chars().count();
+        let compressed_len = response.content.chars().count();
+        let compression_ratio = if original_len > 0 {
+            compressed_len as f32 / original_len as f32
+        } else {
+            1.0
+        };
+        let score = (1.0 - compression_ratio).max(0.0).min(1.0);
+        
+        Ok(AgentResult {
+            content: response.content,
+            score: Some(score),
+            suggestions: vec![format!("压缩率: {:.1}%", compression_ratio * 100.0)],
         })
     }
 

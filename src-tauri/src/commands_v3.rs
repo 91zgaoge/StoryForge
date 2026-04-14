@@ -9,9 +9,7 @@ use crate::agents::novel_creation::{NovelCreationAgent, WorldBuildingOption, Cha
 use crate::llm::LlmService;
 use serde::{Serialize, Deserialize};
 use tauri::{command, AppHandle, Manager, State};
-use chrono::Local;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+
 
 // ==================== 场景命令 ====================
 
@@ -239,6 +237,46 @@ pub async fn create_entity(
 }
 
 #[command]
+pub async fn update_entity(
+    entity_id: String,
+    name: Option<String>,
+    attributes: Option<serde_json::Value>,
+    pool: State<'_, DbPool>,
+) -> Result<Entity, String> {
+    use crate::embeddings::{embed_entity, EntityEmbeddingRequest};
+    use std::collections::HashMap;
+
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    let existing = repo.get_entity_by_id(&entity_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Entity not found")?;
+
+    let new_name = name.as_deref().unwrap_or(&existing.name);
+    let new_attrs = attributes.as_ref().unwrap_or(&existing.attributes);
+
+    // Auto-regenerate embedding when attributes or name changes
+    let embedding = if name.is_some() || attributes.is_some() {
+        let attrs_map: HashMap<String, serde_json::Value> = match new_attrs {
+            serde_json::Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            _ => HashMap::new(),
+        };
+        let request = EntityEmbeddingRequest {
+            entity_id: entity_id.clone(),
+            name: new_name.to_string(),
+            description: new_attrs.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            entity_type: existing.entity_type.to_string(),
+            attributes: attrs_map,
+        };
+        embed_entity(&request).ok()
+    } else {
+        existing.embedding
+    };
+
+    repo.update_entity(&entity_id, Some(new_name), Some(new_attrs), embedding)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
 pub async fn get_story_entities(
     story_id: String,
     pool: State<'_, DbPool>,
@@ -346,6 +384,117 @@ pub async fn delete_scene_annotation(
     let repo = SceneAnnotationRepository::new(pool.inner().clone());
     repo.delete_annotation(&annotation_id)
         .map_err(|e| e.to_string())
+}
+
+// ==================== 文本内联批注命令 ====================
+
+#[command]
+pub async fn create_text_annotation(
+    story_id: String,
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    content: String,
+    annotation_type: String,
+    from_pos: i32,
+    to_pos: i32,
+    pool: State<'_, DbPool>,
+) -> Result<TextAnnotation, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.create_annotation(&story_id, scene_id.as_deref(), chapter_id.as_deref(), &content, &annotation_type, from_pos, to_pos)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_text_annotations_by_chapter(
+    chapter_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<TextAnnotation>, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.get_annotations_by_chapter(&chapter_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_text_annotations_by_scene(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<TextAnnotation>, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.get_annotations_by_scene(&scene_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_text_annotation(
+    annotation_id: String,
+    content: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.update_annotation(&annotation_id, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn resolve_text_annotation(
+    annotation_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.resolve_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn unresolve_text_annotation(
+    annotation_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.unresolve_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn delete_text_annotation(
+    annotation_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = TextAnnotationRepository::new(pool.inner().clone());
+    repo.delete_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+// ==================== 古典评点家命令 ====================
+
+#[command]
+pub async fn generate_paragraph_commentaries(
+    story_id: String,
+    story_title: String,
+    genre: String,
+    text: String,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    use crate::agents::AgentContext;
+    use crate::agents::commentator::CommentatorAgent;
+
+    let context = AgentContext {
+        story_id,
+        story_title,
+        genre,
+        tone: "中性".to_string(),
+        pacing: "正常".to_string(),
+        chapter_number: 1,
+        characters: vec![],
+        previous_chapters: vec![],
+    };
+
+    let llm_service = LlmService::new(app_handle);
+    let agent = CommentatorAgent::new(llm_service);
+    let commentaries = agent.comment_on_text(&context, &text).await
+        .map_err(|e| e.to_string())?;
+
+    serde_json::to_string(&commentaries).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, serde::Serialize)]

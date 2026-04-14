@@ -15,6 +15,7 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     let mut conn = pool.get()?;
     create_tables(&mut conn)?;
     create_v3_tables(&mut conn)?;
+    run_migrations(&mut conn)?;
     
     Ok(pool)
 }
@@ -234,6 +235,22 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 
+        -- 文本内联批注表（TipTap range comments）
+        CREATE TABLE IF NOT EXISTS text_annotations (
+            id TEXT PRIMARY KEY,
+            story_id TEXT NOT NULL,
+            scene_id TEXT,
+            chapter_id TEXT,
+            content TEXT NOT NULL,
+            annotation_type TEXT NOT NULL DEFAULT 'note',
+            from_pos INTEGER NOT NULL,
+            to_pos INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+        );
+
         -- 创建索引
         CREATE INDEX IF NOT EXISTS idx_scenes_story ON scenes(story_id);
         CREATE INDEX IF NOT EXISTS idx_scenes_sequence ON scenes(story_id, sequence_number);
@@ -247,7 +264,6 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         
         CREATE INDEX IF NOT EXISTS idx_kg_entities_story ON kg_entities(story_id);
         CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(entity_type);
-        CREATE INDEX IF NOT EXISTS idx_kg_entities_archived ON kg_entities(is_archived);
         CREATE INDEX IF NOT EXISTS idx_kg_relations_story ON kg_relations(story_id);
         CREATE INDEX IF NOT EXISTS idx_kg_relations_source ON kg_relations(source_id);
         CREATE INDEX IF NOT EXISTS idx_kg_relations_target ON kg_relations(target_id);
@@ -257,6 +273,10 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         CREATE INDEX IF NOT EXISTS idx_scene_annotations_scene ON scene_annotations(scene_id);
         CREATE INDEX IF NOT EXISTS idx_scene_annotations_story ON scene_annotations(story_id);
         CREATE INDEX IF NOT EXISTS idx_scene_annotations_resolved ON scene_annotations(resolved_at);
+        CREATE INDEX IF NOT EXISTS idx_text_annotations_story ON text_annotations(story_id);
+        CREATE INDEX IF NOT EXISTS idx_text_annotations_scene ON text_annotations(scene_id);
+        CREATE INDEX IF NOT EXISTS idx_text_annotations_chapter ON text_annotations(chapter_id);
+        CREATE INDEX IF NOT EXISTS idx_text_annotations_resolved ON text_annotations(resolved_at);
         "#
     )?;
     Ok(())
@@ -284,6 +304,12 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             [],
         )?;
     }
+    
+    // 创建归档索引（仅在 kg_entities 表已存在时）
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_kg_entities_archived ON kg_entities(is_archived)",
+        [],
+    )?;
     
     // Migration 2: 添加实体保留字段 (v3.1.0 - 如果缺失)
     if !columns.iter().any(|c| c == "confidence_score") {
@@ -335,6 +361,42 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX idx_scene_annotations_story ON scene_annotations(story_id)",
+            [],
+        )?;
+    }
+
+    // Migration 4: 创建文本内联批注表 (v3.2.0)
+    let text_annotation_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='text_annotations'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if text_annotation_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE text_annotations (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT,
+                chapter_id TEXT,
+                content TEXT NOT NULL,
+                annotation_type TEXT NOT NULL DEFAULT 'note',
+                from_pos INTEGER NOT NULL,
+                to_pos INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                resolved_at TEXT,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_text_annotations_story ON text_annotations(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_text_annotations_scene ON text_annotations(scene_id)",
             [],
         )?;
     }
