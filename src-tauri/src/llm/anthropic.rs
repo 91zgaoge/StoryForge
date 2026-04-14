@@ -2,7 +2,7 @@ use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-pub struct OpenAiAdapter {
+pub struct AnthropicAdapter {
     api_key: String,
     model: String,
     api_base: String,
@@ -11,61 +11,43 @@ pub struct OpenAiAdapter {
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAiRequest {
+struct AnthropicRequest {
     model: String,
-    messages: Vec<Message>,
     max_tokens: i32,
     temperature: f32,
+    messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    stream: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Message {
+struct AnthropicMessage {
     role: String,
     content: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAiResponse {
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
     model: String,
-    usage: Usage,
-    choices: Vec<Choice>,
-}
-
-#[derive(Debug, Serialize)]
-struct OpenAiStreamRequest {
-    model: String,
-    messages: Vec<Message>,
-    max_tokens: i32,
-    temperature: f32,
-    stream: bool,
+    usage: AnthropicUsage,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAiStreamChoice {
-    delta: OpenAiDelta,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct OpenAiDelta {
-    content: Option<String>,
+struct AnthropicContent {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct OpenAiStreamResponse {
-    choices: Vec<OpenAiStreamChoice>,
+struct AnthropicUsage {
+    input_tokens: i32,
+    output_tokens: i32,
 }
 
-#[derive(Debug, Deserialize)]
-struct Usage {
-    total_tokens: i32,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
-    message: Message,
-}
-
-impl OpenAiAdapter {
+impl AnthropicAdapter {
     pub fn new(
         api_key: String,
         model: String,
@@ -76,77 +58,72 @@ impl OpenAiAdapter {
         Self {
             api_key,
             model,
-            api_base: api_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            api_base: api_base.unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
             default_max_tokens: max_tokens,
             default_temperature: temperature,
         }
     }
 
-    fn calculate_cost(&self, model: &str, tokens: i32) -> f64 {
-        // Pricing per 1K tokens (as of 2024)
-        let rate = match model {
-            "gpt-4" => 0.03,
-            "gpt-4-turbo" => 0.01,
-            "gpt-3.5-turbo" => 0.002,
-            _ => 0.002,
+    fn calculate_cost(&self, input_tokens: i32, output_tokens: i32) -> f64 {
+        let rate = match self.model.as_str() {
+            "claude-3-opus-20240229" => 0.015,
+            "claude-3-sonnet-20240229" => 0.003,
+            "claude-3-haiku-20240307" => 0.00025,
+            _ => 0.003,
         };
-        (tokens as f64 / 1000.0) * rate
-    }
-
-    fn build_messages(&self, prompt: String) -> Vec<Message> {
-        vec![
-            Message {
-                role: "system".to_string(),
-                content: "You are a professional creative writing assistant.".to_string(),
-            },
-            Message {
-                role: "user".to_string(),
-                content: prompt,
-            },
-        ]
+        ((input_tokens + output_tokens) as f64 / 1000.0) * rate
     }
 }
 
 #[async_trait::async_trait]
-impl LlmAdapter for OpenAiAdapter {
+impl LlmAdapter for AnthropicAdapter {
     async fn generate(
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
         let client = Client::new();
-        
-        let openai_req = OpenAiRequest {
+        let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
-            messages: self.build_messages(request.prompt),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: request.prompt,
+            }],
+            system: Some("You are a professional creative writing assistant.".to_string()),
+            stream: false,
         };
 
         let response = client
-            .post(format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(format!("{}/messages", self.api_base))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
-            .json(&openai_req)
+            .json(&anthropic_req)
             .send()
             .await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
-            return Err(format!("OpenAI API error: {}", error_text).into());
+            return Err(format!("Anthropic API error: {}", error_text).into());
         }
 
-        let openai_resp: OpenAiResponse = response.json().await?;
-        let content = openai_resp.choices
-            .first()
-            .map(|c| c.message.content.clone())
-            .unwrap_or_default();
-        
-        let cost = self.calculate_cost(&openai_resp.model, openai_resp.usage.total_tokens);
+        let anthropic_resp: AnthropicResponse = response.json().await?;
+        let content = anthropic_resp
+            .content
+            .into_iter()
+            .filter(|c| c.content_type == "text")
+            .map(|c| c.text)
+            .collect::<Vec<String>>()
+            .join("");
+
+        let total_tokens = anthropic_resp.usage.input_tokens + anthropic_resp.usage.output_tokens;
+        let cost = self.calculate_cost(anthropic_resp.usage.input_tokens, anthropic_resp.usage.output_tokens);
 
         Ok(GenerateResponse {
             content,
-            model: openai_resp.model,
-            tokens_used: openai_resp.usage.total_tokens,
+            model: anthropic_resp.model,
+            tokens_used: total_tokens,
             cost,
         })
     }
@@ -156,25 +133,31 @@ impl LlmAdapter for OpenAiAdapter {
         request: GenerateRequest,
     ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
         let client = Client::new();
-        let openai_req = OpenAiStreamRequest {
+        let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
-            messages: self.build_messages(request.prompt),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
             temperature: request.temperature.unwrap_or(self.default_temperature),
+            messages: vec![AnthropicMessage {
+                role: "user".to_string(),
+                content: request.prompt,
+            }],
+            system: Some("You are a professional creative writing assistant.".to_string()),
             stream: true,
         };
 
         let response = client
-            .post(format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(format!("{}/messages", self.api_base))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
             .header("Content-Type", "application/json")
-            .json(&openai_req)
+            .header("Accept", "text/event-stream")
+            .json(&anthropic_req)
             .send()
             .await?;
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
-            return Err(format!("OpenAI API error: {}", error_text).into());
+            return Err(format!("Anthropic API error: {}", error_text).into());
         }
 
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, Box<dyn std::error::Error + Send + Sync>>>(128);
@@ -190,20 +173,24 @@ impl LlmAdapter for OpenAiAdapter {
             let mut lines = reader.lines();
 
             while let Ok(Some(line)) = lines.next_line().await {
-                if line.is_empty() || !line.starts_with("data: ") {
+                if line.is_empty() {
+                    continue;
+                }
+                if line.starts_with("event: ") {
+                    continue;
+                }
+                if !line.starts_with("data: ") {
                     continue;
                 }
                 let data = &line[6..];
                 if data == "[DONE]" {
                     break;
                 }
-                match serde_json::from_str::<OpenAiStreamResponse>(data) {
-                    Ok(parsed) => {
-                        if let Some(choice) = parsed.choices.first() {
-                            if let Some(content) = &choice.delta.content {
-                                if tx.send(Ok(content.clone())).await.is_err() {
-                                    break;
-                                }
+                match serde_json::from_str::<serde_json::Value>(data) {
+                    Ok(json) => {
+                        if let Some(text) = json.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                            if tx.send(Ok(text.to_string())).await.is_err() {
+                                break;
                             }
                         }
                     }

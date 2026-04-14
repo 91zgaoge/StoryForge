@@ -5,6 +5,8 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
   Node,
   Edge,
   MarkerType,
@@ -13,6 +15,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import type { Entity, Relation, EntityType } from '@/types/v3';
 import { cn } from '@/utils/cn';
+import { Search, X, Filter } from 'lucide-react';
 
 interface KnowledgeGraphViewProps {
   entities: Entity[];
@@ -42,7 +45,6 @@ const ENTITY_LABELS: Record<EntityType, string> = {
 function calculateLayout(entities: Entity[], relations: Relation[]) {
   const nodeMap = new Map<string, Node>();
   const typeCounts: Record<string, number> = {};
-  const typeIndices: Record<string, number> = {};
 
   // Group by type
   entities.forEach((entity) => {
@@ -87,6 +89,7 @@ function calculateLayout(entities: Entity[], relations: Relation[]) {
             minWidth: 80,
             textAlign: 'center',
             boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            opacity: 1,
           },
         });
       });
@@ -123,7 +126,7 @@ function calculateLayout(entities: Entity[], relations: Relation[]) {
   return { nodes: Array.from(nodeMap.values()), edges };
 }
 
-export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
+const KnowledgeGraphViewInner: React.FC<KnowledgeGraphViewProps> = ({
   entities,
   relations,
   onNodeClick,
@@ -132,11 +135,33 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
-  const [fitView, setFitView] = useState(true);
+  const [fitViewFlag, setFitViewFlag] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleTypes, setVisibleTypes] = useState<Set<EntityType>>(
+    () => new Set(Object.keys(ENTITY_COLORS) as EntityType[])
+  );
+  const [showFilters, setShowFilters] = useState(false);
+  const { fitView } = useReactFlow();
+
+  const filteredEntities = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    return entities.filter(
+      (e) =>
+        visibleTypes.has(e.entity_type) &&
+        (!query || e.name.toLowerCase().includes(query))
+    );
+  }, [entities, searchQuery, visibleTypes]);
+
+  const filteredRelations = useMemo(() => {
+    const visibleIds = new Set(filteredEntities.map((e) => e.id));
+    return relations.filter(
+      (r) => visibleIds.has(r.source_id) && visibleIds.has(r.target_id)
+    );
+  }, [filteredEntities, relations]);
 
   const layout = useMemo(
-    () => calculateLayout(entities, relations),
-    [entities, relations]
+    () => calculateLayout(filteredEntities, filteredRelations),
+    [filteredEntities, filteredRelations]
   );
 
   useEffect(() => {
@@ -155,6 +180,29 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
     [entities, onNodeClick]
   );
 
+  const handleNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      fitView({ nodes: [node], duration: 800, padding: 0.3 });
+    },
+    [fitView]
+  );
+
+  const toggleType = useCallback((type: EntityType) => {
+    setVisibleTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
+
   const entityRelations = useMemo(() => {
     if (!selectedEntity) return [];
     return relations.filter(
@@ -170,6 +218,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
     return entities.find((e) => e.id === otherId);
   };
 
+  const hiddenCount = entities.length - filteredEntities.length;
+
   return (
     <div className={cn('relative w-full h-full bg-cinema-950', className)}>
       <ReactFlow
@@ -178,8 +228,9 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
-        fitView={fitView}
-        onInit={() => setFitView(false)}
+        onNodeDoubleClick={handleNodeDoubleClick}
+        fitView={fitViewFlag}
+        onInit={() => setFitViewFlag(false)}
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -194,6 +245,8 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
           className="bg-cinema-900 border-cinema-800"
           maskColor="rgba(0,0,0,0.5)"
         />
+
+        {/* Legend Panel */}
         <Panel position="top-left" className="bg-cinema-900/90 border border-cinema-800 rounded-xl p-3 m-2">
           <h3 className="text-sm font-semibold text-white mb-2">图例</h3>
           <div className="space-y-1.5">
@@ -208,8 +261,96 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
             ))}
           </div>
           <div className="mt-3 pt-2 border-t border-cinema-800 text-xs text-gray-500">
-            <p>节点: {entities.length}</p>
-            <p>关系: {relations.length}</p>
+            <p>节点: {filteredEntities.length}{hiddenCount > 0 && <span className="text-gray-600"> / {entities.length}</span>}</p>
+            <p>关系: {filteredRelations.length}</p>
+            {hiddenCount > 0 && <p className="text-cinema-gold mt-1">已筛选隐藏 {hiddenCount} 个</p>}
+          </div>
+        </Panel>
+
+        {/* Search & Filter Panel */}
+        <Panel position="top-right" className="m-2">
+          <div className="bg-cinema-900/90 border border-cinema-800 rounded-xl p-3 w-64">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索节点..."
+                  className="w-full bg-cinema-800 border border-cinema-700 rounded-md pl-7 pr-7 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={clearSearch}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => setShowFilters((s) => !s)}
+                className={cn(
+                  'p-1.5 rounded-md border transition-colors',
+                  showFilters
+                    ? 'bg-cinema-gold/20 border-cinema-gold text-cinema-gold'
+                    : 'bg-cinema-800 border-cinema-700 text-gray-400 hover:text-white'
+                )}
+                title="筛选类型"
+              >
+                <Filter className="w-4 h-4" />
+              </button>
+            </div>
+
+            {showFilters && (
+              <div className="pt-2 border-t border-cinema-800">
+                <div className="flex flex-wrap gap-1.5">
+                  {(Object.keys(ENTITY_COLORS) as EntityType[]).map((type) => {
+                    const active = visibleTypes.has(type);
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => toggleType(type)}
+                        className={cn(
+                          'px-2 py-1 rounded text-[10px] font-medium border transition-all',
+                          active
+                            ? 'text-white border-transparent'
+                            : 'text-gray-500 border-cinema-700 bg-cinema-800/50'
+                        )}
+                        style={
+                          active
+                            ? { backgroundColor: `${ENTITY_COLORS[type]}40`, borderColor: ENTITY_COLORS[type] }
+                            : undefined
+                        }
+                      >
+                        {ENTITY_LABELS[type]}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <button
+                    onClick={() => setVisibleTypes(new Set(Object.keys(ENTITY_COLORS) as EntityType[]))}
+                    className="text-[10px] text-gray-400 hover:text-white"
+                  >
+                    全选
+                  </button>
+                  <button
+                    onClick={() => setVisibleTypes(new Set())}
+                    className="text-[10px] text-gray-400 hover:text-white"
+                  >
+                    清空
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {filteredEntities.length === 0 && entities.length > 0 && (
+              <div className="pt-2 border-t border-cinema-800 text-xs text-gray-500 text-center">
+                无匹配节点
+              </div>
+            )}
           </div>
         </Panel>
       </ReactFlow>
@@ -299,6 +440,14 @@ export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = ({
         </div>
       )}
     </div>
+  );
+};
+
+export const KnowledgeGraphView: React.FC<KnowledgeGraphViewProps> = (props) => {
+  return (
+    <ReactFlowProvider>
+      <KnowledgeGraphViewInner {...props} />
+    </ReactFlowProvider>
   );
 };
 

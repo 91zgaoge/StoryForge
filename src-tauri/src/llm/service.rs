@@ -4,6 +4,8 @@
 //! 支持多提供商配置管理和自动切换
 
 use super::adapter::{GenerateRequest, GenerateResponse};
+use super::anthropic::AnthropicAdapter;
+use super::ollama::OllamaAdapter;
 use super::openai::OpenAiAdapter;
 use crate::config::settings::{AppConfig, LlmProfile, LlmProvider};
 use serde::{Deserialize, Serialize};
@@ -96,12 +98,22 @@ impl LlmService {
                 )))
             }
             LlmProvider::Anthropic => {
-                // TODO: 实现Anthropic适配器
-                Err("Anthropic adapter not yet implemented".to_string())
+                Ok(Box::new(AnthropicAdapter::new(
+                    profile.api_key.clone(),
+                    profile.model.clone(),
+                    profile.api_base.clone(),
+                    profile.max_tokens,
+                    profile.temperature,
+                )))
             }
             LlmProvider::Ollama => {
-                // TODO: 实现Ollama适配器
-                Err("Ollama adapter not yet implemented".to_string())
+                Ok(Box::new(OllamaAdapter::new(
+                    profile.api_key.clone(),
+                    profile.model.clone(),
+                    profile.api_base.clone(),
+                    profile.max_tokens,
+                    profile.temperature,
+                )))
             }
             _ => Err(format!("Provider {:?} not supported", profile.provider)),
         }
@@ -175,42 +187,54 @@ impl LlmService {
         log::info!("[LLM] Starting stream generation with request_id: {}", request_id);
         log::debug!("[LLM] Prompt: {}...", &enhanced_prompt[..enhanced_prompt.len().min(100)]);
         
-        // 目前使用模拟流式生成，后续可接入真实SSE
-        // TODO: 实现真实的流式API调用
-        let simulated_text = self.simulate_generation(&enhanced_prompt).await;
-        
-        // 模拟流式发送
-        let chars: Vec<char> = simulated_text.chars().collect();
-        let chunk_size = 3; // 每次发送3个字符
-        
-        for (i, chunk) in chars.chunks(chunk_size).enumerate() {
-            let chunk_str: String = chunk.iter().collect();
-            let is_first = i == 0;
-            
-            let stream_chunk = StreamChunk {
-                chunk: chunk_str,
-                is_first,
-                is_last: false,
-                model: profile.model.clone(),
-            };
-            
-            // 发送事件到前端
-            let _ = self.app_handle.emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
-            
-            // 模拟打字延迟
-            tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+        let adapter = self.create_adapter(&profile)?;
+
+        let request = GenerateRequest {
+            prompt: enhanced_prompt,
+            max_tokens,
+            temperature,
+        };
+
+        let mut rx = adapter.generate_stream(request).await
+            .map_err(|e| format!("Stream setup failed: {}", e))?;
+
+        let mut full_text = String::new();
+        let mut is_first = true;
+
+        while let Some(chunk_result) = rx.recv().await {
+            match chunk_result {
+                Ok(chunk) => {
+                    full_text.push_str(&chunk);
+                    let stream_chunk = StreamChunk {
+                        chunk,
+                        is_first,
+                        is_last: false,
+                        model: profile.model.clone(),
+                    };
+                    let _ = self.app_handle.emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
+                    is_first = false;
+                }
+                Err(e) => {
+                    let error = GenerationError {
+                        error: e.to_string(),
+                        error_code: "STREAM_ERROR".to_string(),
+                    };
+                    let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
+                    return Err(format!("Stream error: {}", e));
+                }
+            }
         }
-        
+
         // 发送完成事件
         let duration = start_time.elapsed().as_millis() as u64;
         let complete = GenerationComplete {
-            full_text: simulated_text.clone(),
+            full_text: full_text.clone(),
             model: profile.model.clone(),
-            tokens_used: simulated_text.len() as i32 / 2, // 粗略估计
+            tokens_used: full_text.len() as i32 / 2, // 粗略估计
             cost: 0.001, // 粗略估计
             duration_ms: duration,
         };
-        
+
         let _ = self.app_handle.emit(&format!("llm-stream-complete-{}", request_id), complete);
         
         log::info!("[LLM] Stream generation completed in {}ms", duration);
@@ -243,24 +267,6 @@ impl LlmService {
         prompt
     }
 
-    /// 模拟生成（临时实现）
-    async fn simulate_generation(&self, prompt: &str) -> String {
-        // 根据提示词长度决定生成长度
-        let prompt_len = prompt.len();
-        
-        let samples = vec![
-            "夜风轻轻拂过窗棂，带来远处桂花的香气。她放下手中的笔，望向窗外那轮明月，心中涌起无限思绪。过去的点点滴滴，仿佛都在这清冷的月光下浮现。".to_string(),
-            "他的声音低沉而温柔，像是大提琴的最后一个音符，在空气中缓缓消散。那一刻，她感觉时间都静止了，只剩下心跳的声音在耳畔回响。".to_string(),
-            "雨点开始敲打屋顶，节奏清晰而有力，仿佛大自然在谱写一首独特的乐章。她靠在窗边，听着这雨声，思绪也随之飘向了远方。".to_string(),
-            "烛光摇曳，在墙上投下舞动的影子。她轻抚那本泛黄的书页，指尖传来岁月的温度。那些文字，那些故事，仿佛都有了生命。".to_string(),
-        ];
-        
-        // 根据prompt哈希选择一个样本
-        let hash: usize = prompt.bytes().map(|b| b as usize).sum();
-        let index = hash % samples.len();
-        
-        samples[index].clone()
-    }
 
     /// 测试连接
     pub async fn test_connection(&self) -> Result<(bool, u64), String> {

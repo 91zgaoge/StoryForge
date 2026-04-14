@@ -17,9 +17,15 @@ pub struct GenerateResponse {
 
 #[async_trait::async_trait]
 pub trait LlmAdapter: Send + Sync {
-    async fn generate(&self,
+    async fn generate(
+        &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>>;
-    
+
+    async fn generate_stream(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>>;
+
     fn model_name(&self) -> String;
 }
