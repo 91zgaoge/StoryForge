@@ -540,6 +540,15 @@ export interface ArchiveResult {
   story_id: string;
 }
 
+export interface StorySummary {
+  id: string;
+  story_id: string;
+  summary_type: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RetentionScore {
   entity_id: string;
   entity_name: string;

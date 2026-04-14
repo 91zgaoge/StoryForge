@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { KnowledgeGraphView } from '@/components/KnowledgeGraph';
 import { getStoryGraph, getRetentionReport, archiveForgottenEntities, getArchivedEntities, restoreArchivedEntity } from '@/services/tauri';
 import { useAppStore } from '@/stores/appStore';
-import type { StoryGraph, RetentionReport, Entity } from '@/types/v3';
-import { Network, RefreshCw, Activity, AlertTriangle, CheckCircle, Brain, Archive, RotateCcw, PackageOpen } from 'lucide-react';
+import type { StoryGraph, RetentionReport, Entity, StorySummary } from '@/types/v3';
+import { Network, RefreshCw, Activity, AlertTriangle, CheckCircle, Brain, Archive, RotateCcw, PackageOpen, Sparkles, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useStorySummaries, useDistillStoryKnowledge, useDeleteStorySummary } from '@/hooks/useKnowledgeDistillation';
 
-type TabType = 'graph' | 'memory' | 'archived';
+type TabType = 'graph' | 'memory' | 'archived' | 'distillation';
 
 const LEVEL_COLORS: Record<string, string> = {
   critical: 'bg-red-500',
@@ -42,6 +43,8 @@ export const KnowledgeGraph: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const [isRestoringId, setIsRestoringId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
 
   const loadData = async () => {
     if (!currentStory) return;
@@ -75,10 +78,40 @@ export const KnowledgeGraph: React.FC = () => {
     }
   };
 
+  const {
+    data: summaries = [],
+    isLoading: isSummariesLoading,
+    refetch: refetchSummaries,
+  } = useStorySummaries(currentStory?.id);
+
+  const distillMutation = useDistillStoryKnowledge();
+  const deleteMutation = useDeleteStorySummary();
+
   useEffect(() => {
     loadData();
     loadArchived();
   }, [currentStory?.id]);
+
+  const handleDistill = async () => {
+    if (!currentStory) return;
+    try {
+      await distillMutation.mutateAsync(currentStory.id);
+      toast.success('知识蒸馏完成');
+    } catch (error) {
+      console.error('Failed to distill knowledge:', error);
+      toast.error('蒸馏失败');
+    }
+  };
+
+  const handleDeleteSummary = async (summary: StorySummary) => {
+    try {
+      await deleteMutation.mutateAsync({ summaryId: summary.id, storyId: summary.story_id });
+      toast.success('摘要已删除');
+    } catch (error) {
+      console.error('Failed to delete summary:', error);
+      toast.error('删除失败');
+    }
+  };
 
   const handleArchiveForgotten = async () => {
     if (!currentStory) return;
@@ -264,6 +297,84 @@ export const KnowledgeGraph: React.FC = () => {
     );
   };
 
+  const renderDistillation = () => {
+    if (isSummariesLoading) {
+      return (
+        <div className="h-full flex items-center justify-center text-gray-500">
+          <RefreshCw className="w-8 h-8 animate-spin mr-2" />
+          加载中...
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-y-auto p-6">
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-cinema-gold" />
+                知识蒸馏
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                基于知识图谱自动生成故事摘要与洞察
+              </p>
+            </div>
+            <button
+              onClick={handleDistill}
+              disabled={distillMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/20 hover:bg-cinema-gold/20 transition-colors disabled:opacity-50"
+            >
+              <Sparkles className={cn('w-4 h-4', distillMutation.isPending && 'animate-pulse')} />
+              <span className="text-sm font-medium">
+                {distillMutation.isPending ? '蒸馏中...' : '重新蒸馏'}
+              </span>
+            </button>
+          </div>
+
+          {summaries.length === 0 ? (
+            <div className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-8 text-center">
+              <Sparkles className="w-12 h-12 mx-auto mb-4 text-cinema-700" />
+              <p className="text-gray-300 mb-2">暂无知识摘要</p>
+              <p className="text-sm text-gray-500">点击右上角按钮，AI 将基于当前知识图谱生成故事摘要</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {summaries.map((summary) => (
+                <div
+                  key={summary.id}
+                  className="bg-cinema-900/80 border border-cinema-800 rounded-xl p-5"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium px-2 py-1 rounded-md bg-cinema-800 text-gray-400 uppercase tracking-wider">
+                      {summary.summary_type}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDeleteSummary(summary)}
+                        disabled={deleteMutation.isPending}
+                        className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="删除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="prose prose-invert prose-sm max-w-none text-gray-300 leading-relaxed whitespace-pre-wrap">
+                    {summary.content}
+                  </div>
+                  <p className="text-xs text-gray-600 mt-4">
+                    更新于 {new Date(summary.updated_at).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderArchived = () => {
     if (isLoading && archivedEntities.length === 0) {
       return (
@@ -370,16 +481,26 @@ export const KnowledgeGraph: React.FC = () => {
             >
               已归档
             </button>
+            <button
+              onClick={() => setActiveTab('distillation')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                activeTab === 'distillation' ? 'bg-cinema-700 text-white' : 'text-gray-400 hover:text-white'
+              )}
+            >
+              知识蒸馏
+            </button>
           </div>
           <button
             onClick={() => {
               loadData();
               if (activeTab === 'archived') loadArchived();
+              if (activeTab === 'distillation') refetchSummaries();
             }}
-            disabled={isLoading}
+            disabled={isLoading || isSummariesLoading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cinema-800 hover:bg-cinema-700 text-gray-300 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+            <RefreshCw className={cn('w-4 h-4', (isLoading || isSummariesLoading) && 'animate-spin')} />
             <span className="text-sm">刷新</span>
           </button>
         </div>
@@ -403,8 +524,10 @@ export const KnowledgeGraph: React.FC = () => {
           ) : null
         ) : activeTab === 'memory' ? (
           renderMemoryHealth()
-        ) : (
+        ) : activeTab === 'archived' ? (
           renderArchived()
+        ) : (
+          renderDistillation()
         )}
       </div>
     </div>

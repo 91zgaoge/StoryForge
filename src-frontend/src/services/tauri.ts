@@ -5,7 +5,7 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
   Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
-import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary, AgentResult, VectorSearchResult } from '@/types/v3';
+import type { StoryGraph, Entity, Relation, RetentionReport, ArchiveResult, WorldBuildingOption, CharacterProfileOption, WritingStyleOption, SceneProposal, SceneAnnotation, TextAnnotation, ParagraphCommentary, AgentResult, VectorSearchResult, StorySummary } from '@/types/v3';
 import type { WizardCreationResult } from '@/types/index';
 
 // Health Check
@@ -215,3 +215,16 @@ export const compressContent = (params: { story_id: string; content: string; tar
 
 export const compressScene = (params: { scene_id: string; target_ratio?: number }) =>
   invoke<AgentResult>('compress_scene', params);
+
+// Knowledge Distillation
+export const distillStoryKnowledge = (storyId: string) =>
+  invoke<StorySummary>('distill_story_knowledge', { story_id: storyId });
+
+export const getStorySummaries = (storyId: string) =>
+  invoke<StorySummary[]>('get_story_summaries', { story_id: storyId });
+
+export const updateStorySummary = (summaryId: string, content: string) =>
+  invoke<number>('update_story_summary', { summary_id: summaryId, content });
+
+export const deleteStorySummary = (summaryId: string) =>
+  invoke<number>('delete_story_summary', { summary_id: summaryId });
