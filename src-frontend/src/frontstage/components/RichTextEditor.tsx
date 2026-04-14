@@ -154,34 +154,92 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [content, editor]);
 
-    // 处理角色名点击
+    // 处理角色名点击 - 自动扩展选区到完整词
     useEffect(() => {
       if (!editor || !containerRef.current || characters.length === 0) return;
 
       const editorElement = containerRef.current?.querySelector('.ProseMirror');
       if (!editorElement) return;
 
+      const extractWordAtPoint = (node: Node, offset: number): string | null => {
+        if (node.nodeType !== Node.TEXT_NODE) return null;
+        const text = node.textContent || '';
+        
+        // 扩展选区到完整的中文词或英文单词
+        let start = offset;
+        let end = offset;
+        
+        // 向前扩展
+        while (start > 0) {
+          const char = text[start - 1];
+          if (/[\s\n\r.,;:!?，。；：！？""''（）【】]/.test(char)) break;
+          start--;
+        }
+        
+        // 向后扩展
+        while (end < text.length) {
+          const char = text[end];
+          if (/[\s\n\r.,;:!?，。；：！？""''（）【】]/.test(char)) break;
+          end++;
+        }
+        
+        return text.slice(start, end).trim();
+      };
+
       const handleClick = (e: Event) => {
-        const target = e.target as HTMLElement;
-        if (target.tagName === 'P' || target.closest('p')) {
-          const text = target.textContent || '';
-          const selection = window.getSelection();
-          if (selection && selection.toString()) {
-            const selectedText = selection.toString().trim();
-            const character = characters.find(c => c.name === selectedText);
-            if (character) {
-              const rect = target.getBoundingClientRect();
-              setPopupPosition({ x: rect.left, y: rect.bottom + 8 });
-              setPopupAnchor(target);
-              setSelectedCharacter(character);
-              setShowPopup(true);
+        const mouseEvent = e as MouseEvent;
+        const target = mouseEvent.target as HTMLElement;
+        const paragraph = target.tagName === 'P' ? target : target.closest('p');
+        if (!paragraph) return;
+
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return;
+
+        const range = selection.getRangeAt(0);
+        let word: string | null = null;
+
+        if (selection.toString().trim()) {
+          // 用户已有选区，直接使用
+          word = selection.toString().trim();
+        } else {
+          // 自动提取点击位置附近的词
+          const node = range.startContainer;
+          const offset = range.startOffset;
+          word = extractWordAtPoint(node, offset);
+        }
+
+        if (word) {
+          const character = characters.find(c => c.name === word);
+          if (character) {
+            // 高亮选中该角色名
+            if (!selection.toString().trim()) {
+              try {
+                const textNode = range.startContainer;
+                const text = textNode.textContent || '';
+                const index = text.indexOf(word);
+                if (index >= 0 && textNode.nodeType === Node.TEXT_NODE) {
+                  const newRange = document.createRange();
+                  newRange.setStart(textNode, index);
+                  newRange.setEnd(textNode, index + (word?.length || 0));
+                  selection.removeAllRanges();
+                  selection.addRange(newRange);
+                }
+              } catch {
+                // 忽略选区设置失败
+              }
             }
+
+            const rect = paragraph.getBoundingClientRect();
+            setPopupPosition({ x: rect.left, y: rect.bottom + 8 });
+            setPopupAnchor(paragraph as HTMLElement);
+            setSelectedCharacter(character);
+            setShowPopup(true);
           }
         }
       };
 
-      editorElement.addEventListener('click', handleClick);
-      return () => editorElement.removeEventListener('click', handleClick);
+      (editorElement as HTMLElement).addEventListener('click', handleClick);
+      return () => (editorElement as HTMLElement).removeEventListener('click', handleClick);
     }, [editor, characters]);
 
     // 发送消息（意图感知）
