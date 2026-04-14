@@ -586,6 +586,119 @@ pub async fn compress_scene(
     service.execute_task(task).await
 }
 
+// ==================== 知识蒸馏命令 ====================
+
+#[command]
+pub async fn distill_story_knowledge(
+    story_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<StorySummary, String> {
+    use crate::agents::service::{AgentService, AgentTask, AgentType};
+    use crate::agents::commands::ExecuteAgentRequest;
+    use crate::db::repositories_v3::{KnowledgeGraphRepository, StorySummaryRepository};
+
+    let kg_repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    let entities = kg_repo.get_entities_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+    let relations = kg_repo.get_relations_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+
+    use std::collections::HashMap;
+    let entity_names: HashMap<&str, &str> = entities.iter()
+        .map(|e| (e.id.as_str(), e.name.as_str()))
+        .collect();
+
+    let kg_input = serde_json::json!({
+        "entities": entities.iter().map(|e| {
+            serde_json::json!({
+                "name": e.name,
+                "type": e.entity_type,
+                "attributes": e.attributes,
+            })
+        }).collect::<Vec<_>>(),
+        "relations": relations.iter().map(|r| {
+            serde_json::json!({
+                "source": entity_names.get(r.source_id.as_str()).unwrap_or(&r.source_id.as_str()),
+                "target": entity_names.get(r.target_id.as_str()).unwrap_or(&r.target_id.as_str()),
+                "type": r.relation_type,
+                "strength": r.strength,
+            })
+        }).collect::<Vec<_>>(),
+    });
+
+    let request = ExecuteAgentRequest {
+        agent_type: AgentType::KnowledgeDistiller,
+        story_id: story_id.clone(),
+        chapter_number: None,
+        input: kg_input.to_string(),
+        parameters: None,
+    };
+
+    let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
+    let task = AgentTask {
+        id: uuid::Uuid::new_v4().to_string(),
+        agent_type: AgentType::KnowledgeDistiller,
+        context,
+        input: kg_input.to_string(),
+        parameters: std::collections::HashMap::new(),
+    };
+
+    let service = AgentService::new(app_handle);
+    let result = service.execute_task(task).await?;
+
+    let summary_repo = StorySummaryRepository::new(pool.inner().clone());
+    // 如果已存在同类型摘要，则更新；否则创建
+    let summary = match summary_repo.get_summary_by_type(&story_id, "knowledge_distillation") {
+        Ok(Some(existing)) => {
+            summary_repo.update_summary(&existing.id, &result.content)
+                .map_err(|e| e.to_string())?;
+            StorySummary {
+                content: result.content,
+                updated_at: chrono::Local::now(),
+                ..existing
+            }
+        }
+        _ => {
+            summary_repo.create_summary(&story_id, "knowledge_distillation", &result.content)
+                .map_err(|e| e.to_string())?
+        }
+    };
+
+    Ok(summary)
+}
+
+#[command]
+pub async fn get_story_summaries(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<StorySummary>, String> {
+    let repo = StorySummaryRepository::new(pool.inner().clone());
+    repo.get_summaries_by_story(&story_id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_story_summary(
+    summary_id: String,
+    content: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = StorySummaryRepository::new(pool.inner().clone());
+    repo.update_summary(&summary_id, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn delete_story_summary(
+    summary_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    let repo = StorySummaryRepository::new(pool.inner().clone());
+    repo.delete_summary(&summary_id)
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct StoryGraph {
     pub entities: Vec<Entity>,

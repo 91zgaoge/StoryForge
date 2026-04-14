@@ -251,6 +251,17 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 
+        -- 故事摘要表（知识蒸馏、剧情总结等）
+        CREATE TABLE IF NOT EXISTS story_summaries (
+            id TEXT PRIMARY KEY,
+            story_id TEXT NOT NULL,
+            summary_type TEXT NOT NULL DEFAULT 'knowledge_distillation',
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+        );
+
         -- 创建索引
         CREATE INDEX IF NOT EXISTS idx_scenes_story ON scenes(story_id);
         CREATE INDEX IF NOT EXISTS idx_scenes_sequence ON scenes(story_id, sequence_number);
@@ -277,6 +288,8 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         CREATE INDEX IF NOT EXISTS idx_text_annotations_scene ON text_annotations(scene_id);
         CREATE INDEX IF NOT EXISTS idx_text_annotations_chapter ON text_annotations(chapter_id);
         CREATE INDEX IF NOT EXISTS idx_text_annotations_resolved ON text_annotations(resolved_at);
+        CREATE INDEX IF NOT EXISTS idx_story_summaries_story ON story_summaries(story_id);
+        CREATE INDEX IF NOT EXISTS idx_story_summaries_type ON story_summaries(story_id, summary_type);
         "#
     )?;
     Ok(())

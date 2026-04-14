@@ -17,6 +17,7 @@ pub mod service;
 pub mod novel_creation;
 pub mod memory_compressor;
 pub mod commentator;
+pub mod distiller;
 
 // ==================== 核心Trait ====================
 

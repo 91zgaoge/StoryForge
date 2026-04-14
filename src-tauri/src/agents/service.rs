@@ -21,6 +21,7 @@ pub enum AgentType {
     PlotAnalyzer,     // 情节分析师
     MemoryCompressor, // 记忆压缩师
     Commentator,      // 古典评点家
+    KnowledgeDistiller, // 知识蒸馏师
 }
 
 impl AgentType {
@@ -33,6 +34,7 @@ impl AgentType {
             AgentType::PlotAnalyzer => "情节分析师",
             AgentType::MemoryCompressor => "记忆压缩师",
             AgentType::Commentator => "古典评点家",
+            AgentType::KnowledgeDistiller => "知识蒸馏师",
         }
     }
 
@@ -45,6 +47,7 @@ impl AgentType {
             AgentType::PlotAnalyzer => "plot_analyzer",
             AgentType::MemoryCompressor => "memory_compressor",
             AgentType::Commentator => "commentator",
+            AgentType::KnowledgeDistiller => "knowledge_distiller",
         }
     }
 
@@ -57,6 +60,7 @@ impl AgentType {
             AgentType::PlotAnalyzer => "分析情节复杂度、检测漏洞",
             AgentType::MemoryCompressor => "将详细内容压缩为高层记忆摘要",
             AgentType::Commentator => "以金圣叹风格对小说段落进行实时文学点评",
+            AgentType::KnowledgeDistiller => "将知识图谱蒸馏为高层故事摘要与世界观总结",
         }
     }
 }
@@ -124,6 +128,7 @@ impl AgentService {
             AgentType::PlotAnalyzer => self.execute_plot_analyzer(task).await,
             AgentType::MemoryCompressor => self.execute_memory_compressor(task).await,
             AgentType::Commentator => self.execute_commentator(task).await,
+            AgentType::KnowledgeDistiller => self.execute_knowledge_distiller(task).await,
         };
         
         match &result {
@@ -396,6 +401,50 @@ impl AgentService {
             score: Some(score),
             suggestions: vec![format!("压缩率: {:.1}%", compression_ratio * 100.0)],
         })
+    }
+
+    /// 执行知识蒸馏师
+    async fn execute_knowledge_distiller(&self, task: AgentTask) -> Result<AgentResult, String> {
+        self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析知识图谱结构", 0.1);
+        
+        let ctx = &task.context;
+        let prompt = format!(
+            r#"你是一位专业的文学知识蒸馏师。请根据以下小说知识图谱，提炼出高层摘要。
+
+【作品信息】
+标题: {}
+题材: {}
+文风: {}
+节奏: {}
+
+【知识图谱】
+{}
+
+【蒸馏要求】
+1. 世界观概述：提炼故事的宏观设定、核心规则、时代背景
+2. 主要势力：总结故事中的重要组织、阵营、群体及其关系
+3. 人物关系网：梳理核心角色之间的关系、立场、冲突
+4. 核心情节线：提炼当前已展开的主要悬念、伏笔、目标
+5. 输出条理清晰，使用Markdown格式，总长度控制在800字以内
+
+请直接输出蒸馏后的摘要。"#,
+            ctx.story_title,
+            ctx.genre,
+            ctx.tone,
+            ctx.pacing,
+            task.input
+        );
+        
+        self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "蒸馏知识图谱", 0.4);
+        
+        let response = self.generate_for_agent(
+            task.agent_type,
+            prompt,
+            Some(2048),
+            Some(0.4),
+        ).await?;
+        
+        Ok(AgentResult::with_score(response.content, 0.9))
     }
 
     // ==================== 提示词构建 ====================

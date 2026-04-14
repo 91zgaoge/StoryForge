@@ -269,6 +269,18 @@ pub struct TextAnnotation {
     pub resolved_at: Option<DateTime<Local>>,
 }
 
+// ==================== 故事摘要模型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorySummary {
+    pub id: String,
+    pub story_id: String,
+    pub summary_type: String,
+    pub content: String,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
 // ==================== 世界观模型 ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

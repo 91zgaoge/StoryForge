@@ -222,6 +222,11 @@ pub fn run() {
             // Memory compressor
             commands_v3::compress_content,
             commands_v3::compress_scene,
+            // Knowledge distiller
+            commands_v3::distill_story_knowledge,
+            commands_v3::get_story_summaries,
+            commands_v3::update_story_summary,
+            commands_v3::delete_story_summary,
             // Novel creation wizard commands
             commands_v3::generate_world_building_options,
             commands_v3::generate_character_profiles,
