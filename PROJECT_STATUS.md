@@ -1,6 +1,6 @@
 # StoryForge (草苔) v3.1+ 项目完成状态
 
-> 最后更新: 2026-04-14（v3.2.0 自动归档系统 + Skills 后端连通完成）
+> 最后更新: 2026-04-14（v3.2.0 小说创建向导 + 自动归档系统 + Skills 后端连通完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -41,6 +41,19 @@
 | 启用/禁用 | ✅ | 100% | 开关调用 `enable/disable_skill` |
 | 执行技能 | ✅ | 100% | ▶️ 按钮运行，自动收集必填参数 |
 | 卸载技能 | ✅ | 100% | 非内置技能显示卸载入口 |
+
+#### 🪄 小说创建向导 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `generate_world_building_options` | ✅ | 100% | AI 生成世界观选项 |
+| `generate_character_profiles` | ✅ | 100% | AI 生成角色谱选项 |
+| `generate_writing_styles` | ✅ | 100% | AI 生成文风选项 |
+| `generate_first_scene` | ✅ | 100% | AI 生成首个场景 |
+| `create_story_with_wizard` | ✅ | 100% | 一键保存 + 自动 Ingest |
+| 前端向导连通 | ✅ | 100% | `NovelCreationWizard` 调用真实后端 |
+| Dashboard 集成 | ✅ | 100% | 首页「AI 创建故事」入口 |
+| 自动 Ingest | ✅ | 100% | 完成后自动摄取知识图谱 |
 | 图谱交互优化 | ⏳ | 70% | 待添加双击聚焦、搜索筛选 |
 
 #### 🤖 Agent 模型映射与路由 (95%)

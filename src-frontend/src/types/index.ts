@@ -114,6 +114,16 @@ export interface LlmConfig {
   base_url?: string;
 }
 
+export interface WizardCreationResult {
+  story: Story;
+  world_building: import('./v3').WorldBuilding;
+  writing_style: import('./v3').WritingStyle;
+  first_scene: import('./v3').Scene;
+  characters: Character[];
+  ingested_entities: number;
+  ingested_relations: number;
+}
+
 export interface AppSettings {
   llm: LlmConfig;
   theme: 'dark' | 'light' | 'system';

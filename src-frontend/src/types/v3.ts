@@ -361,6 +361,17 @@ export interface WritingStyleOption {
   sample_text: string;
 }
 
+export interface SceneProposal {
+  title: string;
+  dramatic_goal: string;
+  external_pressure: string;
+  conflict_type: string;
+  setting_location: string;
+  setting_time: string;
+  setting_atmosphere: string;
+  content: string;
+}
+
 export interface NovelCreationProgress {
   step: 'genre_input' | 'generating_world' | 'selecting_world' | 'generating_characters' | 'selecting_characters' | 'generating_style' | 'selecting_style' | 'generating_first_scene' | 'completed';
   message: string;

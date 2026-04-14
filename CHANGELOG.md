@@ -91,6 +91,30 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 执行按钮支持 Prompt 技能运行，自动弹出必填参数输入框
   - 非内置技能显示卸载按钮，调用 `uninstall_skill`
 
+### 🪄 小说创建向导 (NovelCreationWizard) 后端连通与自动 Ingest
+
+- **后端 Agent 命令**
+  - `generate_world_building_options`：基于用户输入生成世界观选项
+  - `generate_character_profiles`：基于世界观生成角色谱选项
+  - `generate_writing_styles`：生成文字风格选项
+  - `generate_first_scene`：生成首个场景
+  - `create_story_with_wizard`：一键保存故事、世界观、角色、文风、首个场景，并自动触发 Ingest
+
+- **Dashboard 集成**
+  - 主按钮从「新建故事」改为「AI 创建故事」，打开 NovelCreationWizard
+  - 保留「手动创建」入口作为备用
+  - 空状态时同时显示 AI 创建和手动创建按钮
+
+- **前端向导重构**
+  - `NovelCreationWizard` 从 mock 数据改为真实调用后端 Agent 命令
+  - 每一步显示加载状态，失败时自动回退并提示重试
+  - 完成页展示世界观、角色、文风、场景四项准备状态
+
+- **自动 Ingest**
+  - 向导完成后自动将世界观、角色设定、首个场景内容送入 `IngestPipeline`
+  - 提取实体和关系并保存到知识图谱
+  - 创建成功 toast 显示摄取的实体数和关系数
+
 ## [3.1.2] - 2026-04-13 - 设置页增强、浏览器开发环境修复与全新应用图标
 
 ### 🎨 全新应用图标

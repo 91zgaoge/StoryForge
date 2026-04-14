@@ -200,6 +200,12 @@ pub fn run() {
             commands_v3::archive_forgotten_entities,
             commands_v3::restore_archived_entity,
             commands_v3::get_archived_entities,
+            // Novel creation wizard commands
+            commands_v3::generate_world_building_options,
+            commands_v3::generate_character_profiles,
+            commands_v3::generate_writing_styles,
+            commands_v3::generate_first_scene,
+            commands_v3::create_story_with_wizard,
             // Scene version commands
             commands_v3::get_scene_versions,
             commands_v3::get_scene_version,

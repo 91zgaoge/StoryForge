@@ -4,6 +4,8 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useStories, useCreateStory } from '@/hooks/useStories';
+import { createStoryWithWizard } from '@/services/tauri';
+import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { formatNumber, formatDate } from '@/utils/format';
 import toast from 'react-hot-toast';
 
@@ -16,6 +18,8 @@ export function Dashboard() {
   const isLoading = useAppStore((s) => s.isLoading);
   const hasHydrated = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   const { data: fetchedStories = [], isLoading: isStoriesLoading } = useStories();
   const createStory = useCreateStory();
@@ -70,6 +74,40 @@ export function Dashboard() {
     });
   };
 
+  const handleWizardComplete = async (data: {
+    worldBuilding: import('@/types/v3').WorldBuildingOption;
+    characters: import('@/types/v3').CharacterProfileOption[];
+    writingStyle: import('@/types/v3').WritingStyleOption;
+    firstScene: import('@/types/v3').SceneProposal;
+    genreInput: string;
+  }) => {
+    setIsCreating(true);
+    try {
+      const result = await createStoryWithWizard({
+        title: data.writingStyle.name || '未命名作品',
+        description: data.genreInput,
+        genre: data.genreInput,
+        world_building: data.worldBuilding,
+        characters: data.characters,
+        writing_style: data.writingStyle,
+        first_scene: data.firstScene,
+      });
+
+      setIsWizardOpen(false);
+      setStories([...stories, result.story]);
+      setCurrentStory(result.story);
+      setCurrentView('scenes');
+      toast.success(
+        `「${result.story.title}」创建成功！已自动摄取 ${result.ingested_entities} 个实体、${result.ingested_relations} 条关系到知识图谱。`
+      );
+    } catch (error) {
+      console.error('Wizard creation failed:', error);
+      toast.error('创建失败，请重试');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const handleContinueStory = (story: typeof stories[0]) => {
     setCurrentStory(story);
     setCurrentView('scenes');
@@ -93,12 +131,15 @@ export function Dashboard() {
             "每一个伟大的故事，都始于一个勇敢的开始。"
           </p>
           <div className="mt-6 flex gap-4">
-            <Button variant="primary" className="gap-2" onClick={() => setIsModalOpen(true)}>
+            <Button variant="primary" className="gap-2" onClick={() => setIsWizardOpen(true)}>
               <Sparkles className="w-4 h-4" />
-              新建故事
+              AI 创建故事
+            </Button>
+            <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
+              手动创建
             </Button>
             {recentStories.length > 0 && (
-              <Button variant="secondary" onClick={() => setCurrentView('stories')}>
+              <Button variant="ghost" onClick={() => setCurrentView('stories')}>
                 <FolderOpen className="w-4 h-4 mr-2" />
                 打开故事库
               </Button>
@@ -179,12 +220,17 @@ export function Dashboard() {
               开始你的创作之旅
             </h3>
             <p className="text-gray-500 max-w-md mx-auto mb-6">
-              创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供 AI 辅助写作。
+              使用 AI 向导创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供 AI 辅助写作。
             </p>
-            <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-              <Sparkles className="w-4 h-4 mr-2" />
-              创建第一个故事
-            </Button>
+            <div className="flex justify-center gap-4">
+              <Button variant="primary" onClick={() => setIsWizardOpen(true)}>
+                <Sparkles className="w-4 h-4 mr-2" />
+                AI 创建第一个故事
+              </Button>
+              <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
+                手动创建
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -256,6 +302,32 @@ export function Dashboard() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Wizard Modal */}
+      {isWizardOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 animate-fade-in overflow-y-auto py-8">
+          <Card className="w-full max-w-3xl mx-4 animate-slide-up my-auto">
+            <CardContent className="p-8">
+              {isCreating ? (
+                <div className="text-center py-12">
+                  <div className="relative w-20 h-20 mx-auto mb-6">
+                    <div className="absolute inset-0 border-4 border-cinema-700 rounded-full" />
+                    <div className="absolute inset-0 border-4 border-cinema-gold rounded-full border-t-transparent animate-spin" />
+                    <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-cinema-gold" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-white mb-2">正在创建故事...</h3>
+                  <p className="text-gray-400">保存世界观、角色、文风并自动摄取知识</p>
+                </div>
+              ) : (
+                <NovelCreationWizard
+                  onComplete={handleWizardComplete}
+                  onCancel={() => setIsWizardOpen(false)}
+                />
+              )}
             </CardContent>
           </Card>
         </div>
