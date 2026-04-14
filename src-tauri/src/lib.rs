@@ -162,6 +162,7 @@ pub fn run() {
             llm::commands::llm_cancel_generation,
             // Intent commands
             parse_intent,
+            execute_intent,
             // Agent commands
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
@@ -409,6 +410,17 @@ async fn embed_chapter(chapter_id: String, content: String) -> Result<(), String
 async fn parse_intent(user_input: String, app_handle: AppHandle) -> Result<intent::Intent, String> {
     let parser = intent::IntentParser::new(app_handle);
     parser.parse(&user_input).await
+}
+
+// Intent Executor Command
+#[tauri::command]
+async fn execute_intent(
+    intent: intent::Intent,
+    story_id: String,
+    app_handle: AppHandle,
+) -> Result<intent::IntentExecutionResult, String> {
+    let executor = intent::IntentExecutor::new(app_handle);
+    executor.execute(intent, story_id).await
 }
 
 #[tauri::command]

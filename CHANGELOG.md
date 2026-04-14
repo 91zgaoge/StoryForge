@@ -2,6 +2,27 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [Unreleased] - 意图引擎与 Agent 调度
+
+### 🧠 意图解析引擎 (Intent Engine)
+
+- **后端意图解析器** (`src-tauri/src/intent.rs`)
+  - 基于 LLM 的 JSON 意图提取，支持 11 种意图类型
+  - 包含 `IntentParser`（解析）和 `IntentExecutor`（执行）两个核心组件
+  - 新增 `parse_intent` 和 `execute_intent` Tauri 命令
+
+- **Agent 调度执行**
+  - 将意图的 `required_agents` 映射到现有的 `AgentService`
+  - 支持串行 (`serial`) 和并行 (`parallel`) 两种执行模式
+  - 执行结果包含每个 Agent 的步骤输出、评分和建议
+
+- **前端意图感知对话**
+  - `useIntent` Hook 新增 `executeIntent` 方法
+  - `RichTextEditor` 聊天栏根据意图类型自动选择执行路径
+  - `text_generate` / `text_rewrite` 继续走流式输出路径
+  - `plot_suggest` / `character_check` / `world_consistency` 等走 Agent 调度路径
+  - 聊天消息显示意图标签（如 "情节建议 · 建议卡片"）
+
 ## [3.1.2] - 2026-04-13 - 设置页增强、浏览器开发环境修复与全新应用图标
 
 ### 🎨 全新应用图标

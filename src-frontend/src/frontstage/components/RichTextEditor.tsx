@@ -69,6 +69,7 @@ interface RichTextEditorProps {
   onFontSizeChange?: (size: number) => void;
   isZenMode?: boolean;
   onZenModeChange?: (zen: boolean) => void;
+  storyId?: string;
 }
 
 export interface RichTextEditorRef {
@@ -92,6 +93,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     onFontSizeChange,
     isZenMode = false,
     onZenModeChange,
+    storyId,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -106,7 +108,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 使用模型管理Hook
     const { currentModel, status, chat } = useModel();
     // 使用意图解析Hook
-    const { parseIntent, buildMessages, isParsing: isParsingIntent } = useIntent();
+    const { parseIntent, executeIntent, buildMessages, isParsing: isParsingIntent, isExecuting: isExecutingIntent } = useIntent();
     
     // 角色卡片弹窗状态
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -184,7 +186,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // 发送消息（意图感知）
     const handleSendMessage = useCallback(async () => {
-      if (!chatInput.trim() || isAiThinking || isParsingIntent) return;
+      if (!chatInput.trim() || isAiThinking || isParsingIntent || isExecutingIntent) return;
       
       const userMessage = chatInput.trim();
       setChatHistory(prev => [...prev, { type: 'user', content: userMessage }]);
@@ -199,32 +201,61 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           ? `${INTENT_LABELS[intent.intent_type] || '自由对话'} · ${FEEDBACK_LABELS[intent.feedback_type] || '建议卡片'}`
           : undefined;
         
-        // Step 2: 根据意图构建消息
-        const messages = intent
-          ? buildMessages(intent, chatHistory, userMessage, editor?.getText())
-          : [
-              {
-                role: 'system',
-                content: '你是一位专业的写作助手，擅长帮助作者改进文章、提供创作灵感和续写建议。请用中文回答，语言要优美、富有文学性。'
-              },
-              ...chatHistory.map(h => ({
-                role: (h.type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-                content: h.content
-              })),
-              { role: 'user' as const, content: userMessage }
-            ];
-
-        let aiResponse = '';
+        // Step 2: 根据意图类型选择执行路径
+        const shouldUseAgentExecution = intent && 
+          !['unknown', 'text_generate', 'text_rewrite'].includes(intent.intent_type) &&
+          storyId;
         
-        await chat(messages as ChatMessage[], {
-          stream: true,
-          onStream: (chunk) => {
-            aiResponse += chunk;
-            setStreamingContent(aiResponse);
+        if (shouldUseAgentExecution) {
+          // Agent 调度执行路径
+          const result = await executeIntent(intent, storyId);
+          if (result && result.steps.length > 0) {
+            const agentContent = result.steps
+              .filter(s => s.success && s.result)
+              .map(s => `【${s.agent_name}】\n${s.result!.content}`)
+              .join('\n\n');
+            const finalContent = agentContent || result.summary;
+            setChatHistory(prev => [...prev, { type: 'ai', content: finalContent, intentLabel }]);
+          } else {
+            const fallbackMessages = buildMessages(intent, chatHistory, userMessage, editor?.getText());
+            let aiResponse = '';
+            await chat(fallbackMessages as ChatMessage[], {
+              stream: true,
+              onStream: (chunk) => {
+                aiResponse += chunk;
+                setStreamingContent(aiResponse);
+              }
+            });
+            setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse, intentLabel }]);
           }
-        });
+        } else {
+          // 直接对话流式输出路径
+          const messages = intent
+            ? buildMessages(intent, chatHistory, userMessage, editor?.getText())
+            : [
+                {
+                  role: 'system',
+                  content: '你是一位专业的写作助手，擅长帮助作者改进文章、提供创作灵感和续写建议。请用中文回答，语言要优美、富有文学性。'
+                },
+                ...chatHistory.map(h => ({
+                  role: (h.type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+                  content: h.content
+                })),
+                { role: 'user' as const, content: userMessage }
+              ];
 
-        setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse, intentLabel }]);
+          let aiResponse = '';
+          
+          await chat(messages as ChatMessage[], {
+            stream: true,
+            onStream: (chunk) => {
+              aiResponse += chunk;
+              setStreamingContent(aiResponse);
+            }
+          });
+
+          setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse, intentLabel }]);
+        }
       } catch (error) {
         console.error('Chat error:', error);
         setChatHistory(prev => [...prev, { 
@@ -235,7 +266,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         setIsAiThinking(false);
         setStreamingContent('');
       }
-    }, [chatInput, chatHistory, chat, isAiThinking, isParsingIntent, parseIntent, buildMessages, editor]);
+    }, [chatInput, chatHistory, chat, isAiThinking, isParsingIntent, isExecutingIntent, parseIntent, executeIntent, buildMessages, editor, storyId]);
 
     // 获取状态图标
     const getStatusIcon = () => {
@@ -393,7 +424,15 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     </div>
                   </div>
                 )}
-                {isAiThinking && !streamingContent && !isParsingIntent && (
+                {isExecutingIntent && (
+                  <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
+                    <div className="flex items-center gap-2 text-[var(--stone-gray)]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span className="text-xs">Agent 执行中...</span>
+                    </div>
+                  </div>
+                )}
+                {isAiThinking && !streamingContent && !isParsingIntent && !isExecutingIntent && (
                   <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
                     <div className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 bg-[var(--stone-gray)] rounded-full animate-bounce" />
@@ -471,7 +510,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     placeholder="在此驾驭智能文思"
                     className="chat-textarea"
                     rows={isExpanded ? 2 : 1}
-                    disabled={status === 'disconnected' || isParsingIntent}
+                    disabled={status === 'disconnected' || isParsingIntent || isExecutingIntent}
                   />
                 </div>
 
@@ -479,13 +518,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 <div className="chat-input-right">
                   <button
                     onClick={handleSendMessage}
-                    disabled={!chatInput.trim() || isAiThinking || isParsingIntent || status === 'disconnected'}
+                    disabled={!chatInput.trim() || isAiThinking || isParsingIntent || isExecutingIntent || status === 'disconnected'}
                     className={cn(
                       'chat-send-btn',
-                      chatInput.trim() && !isAiThinking && !isParsingIntent && status === 'connected' && 'active'
+                      chatInput.trim() && !isAiThinking && !isParsingIntent && !isExecutingIntent && status === 'connected' && 'active'
                     )}
                   >
-                    {isAiThinking || isParsingIntent ? (
+                    {isAiThinking || isParsingIntent || isExecutingIntent ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Send className="w-4 h-4" />

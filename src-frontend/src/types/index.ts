@@ -191,9 +191,21 @@ export interface IntentParseRequest {
   user_input: string;
 }
 
-export interface IntentExecutionResult {
+export interface AgentStepResult {
+  agent_name: string;
   success: boolean;
-  intent_type: IntentType;
-  content?: string;
+  result?: {
+    content: string;
+    score?: number;
+    suggestions: string[];
+  };
   error?: string;
+}
+
+export interface IntentExecutionResult {
+  intent_type: IntentType;
+  feedback_type: FeedbackType;
+  execution_mode: ExecutionMode;
+  steps: AgentStepResult[];
+  summary: string;
 }

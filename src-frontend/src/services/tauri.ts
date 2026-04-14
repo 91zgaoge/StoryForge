@@ -3,7 +3,7 @@ import type {
   Story, Character, Chapter, Skill, McpServer, McpTool,
   DashboardState, CreateStoryRequest, CreateCharacterRequest, 
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
-  Intent, IntentParseRequest
+  Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
 
 // Health Check
@@ -102,3 +102,6 @@ export const updateConfig = (config: { llm: LlmConfig }) =>
 // Intent Engine
 export const parseIntent = (req: IntentParseRequest) =>
   invoke<Intent>('parse_intent', { user_input: req.user_input });
+
+export const executeIntent = (intent: Intent, storyId: string) =>
+  invoke<IntentExecutionResult>('execute_intent', { intent, story_id: storyId });

@@ -332,6 +332,7 @@ const FrontstageApp: React.FC = () => {
             onFontSizeChange={setFontSize}
             isZenMode={isZenMode}
             onZenModeChange={setIsZenMode}
+            storyId={currentStory?.id}
           />
         </main>
       </div>

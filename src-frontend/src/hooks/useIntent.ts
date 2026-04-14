@@ -6,13 +6,15 @@
  */
 
 import { useState, useCallback } from 'react';
-import { parseIntent as parseIntentApi } from '@/services/tauri';
-import type { Intent, IntentType, FeedbackType } from '@/types/index';
+import { parseIntent as parseIntentApi, executeIntent as executeIntentApi } from '@/services/tauri';
+import type { Intent, IntentType, FeedbackType, IntentExecutionResult } from '@/types/index';
 import type { ChatMessage } from '@/services/modelService';
 
 interface UseIntentState {
   isParsing: boolean;
+  isExecuting: boolean;
   lastIntent: Intent | null;
+  lastResult: IntentExecutionResult | null;
   error: string | null;
 }
 
@@ -41,7 +43,9 @@ const FEEDBACK_LABELS: Record<FeedbackType, string> = {
 export function useIntent() {
   const [state, setState] = useState<UseIntentState>({
     isParsing: false,
+    isExecuting: false,
     lastIntent: null,
+    lastResult: null,
     error: null,
   });
 
@@ -57,6 +61,25 @@ export function useIntent() {
     } catch (err) {
       const message = err instanceof Error ? err.message : '意图解析失败';
       setState(prev => ({ ...prev, error: message, isParsing: false }));
+      return null;
+    }
+  }, []);
+
+  /**
+   * 执行意图对应的 Agent 任务
+   */
+  const executeIntent = useCallback(async (
+    intent: Intent,
+    storyId: string
+  ): Promise<IntentExecutionResult | null> => {
+    setState(prev => ({ ...prev, isExecuting: true, error: null }));
+    try {
+      const result = await executeIntentApi(intent, storyId);
+      setState(prev => ({ ...prev, lastResult: result, isExecuting: false }));
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '意图执行失败';
+      setState(prev => ({ ...prev, error: message, isExecuting: false }));
       return null;
     }
   }, []);
@@ -142,6 +165,7 @@ export function useIntent() {
   return {
     ...state,
     parseIntent,
+    executeIntent,
     buildSystemPrompt,
     buildMessages,
     getIntentLabel,

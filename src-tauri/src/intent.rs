@@ -3,9 +3,13 @@
 //! 将创作者的自然语言输入解析为结构化意图，
 //! 驱动 workflow::scheduler 调用正确的 Agent 执行创作任务。
 
+use crate::agents::service::{AgentService, AgentTask, AgentType};
+use crate::agents::{AgentContext, AgentResult};
 use crate::llm::{GenerateResponse, LlmService};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::AppHandle;
+use uuid::Uuid;
 
 /// 意图类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -215,6 +219,259 @@ JSON Schema:
     }
 }
 
+/// Agent 执行步骤结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentStepResult {
+    pub agent_name: String,
+    pub success: bool,
+    pub result: Option<AgentResult>,
+    pub error: Option<String>,
+}
+
+/// 意图执行结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntentExecutionResult {
+    pub intent_type: IntentType,
+    pub feedback_type: FeedbackType,
+    pub execution_mode: ExecutionMode,
+    pub steps: Vec<AgentStepResult>,
+    pub summary: String,
+}
+
+/// 意图执行器 - 将解析后的意图调度到具体 Agent 执行
+pub struct IntentExecutor {
+    agent_service: AgentService,
+}
+
+impl IntentExecutor {
+    pub fn new(app_handle: AppHandle) -> Self {
+        Self {
+            agent_service: AgentService::new(app_handle),
+        }
+    }
+
+    /// 执行意图对应的 Agent 任务
+    pub async fn execute(&self, intent: Intent, story_id: String) -> Result<IntentExecutionResult, String> {
+        let agents = Self::map_agents(&intent.required_agents);
+        
+        if agents.is_empty() {
+            return Ok(IntentExecutionResult {
+                intent_type: intent.intent_type.clone(),
+                feedback_type: intent.feedback_type.clone(),
+                execution_mode: intent.execution_mode.clone(),
+                steps: vec![],
+                summary: "暂无可执行的相关 Agent，已回退到对话模式。".to_string(),
+            });
+        }
+
+        let context = Self::build_context(&story_id, &intent);
+        let steps = match intent.execution_mode {
+            ExecutionMode::Serial => {
+                self.execute_serial(agents, context, &intent).await
+            }
+            ExecutionMode::Parallel => {
+                self.execute_parallel(agents, context, &intent).await
+            }
+        };
+
+        let summary = Self::build_summary(&intent, &steps);
+
+        Ok(IntentExecutionResult {
+            intent_type: intent.intent_type,
+            feedback_type: intent.feedback_type,
+            execution_mode: intent.execution_mode,
+            steps,
+            summary,
+        })
+    }
+
+    /// 将 agent 名称字符串映射到 AgentType
+    fn map_agents(agent_names: &[String]) -> Vec<AgentType> {
+        agent_names
+            .iter()
+            .filter_map(|name| match name.as_str() {
+                "writer" => Some(AgentType::Writer),
+                "style_mimic" => Some(AgentType::StyleMimic),
+                "plot_analyzer" => Some(AgentType::PlotAnalyzer),
+                "outline_planner" => Some(AgentType::OutlinePlanner),
+                "inspector" => Some(AgentType::Inspector),
+                // 以下 agent 尚未实现独立类型，暂时映射到最接近的实现
+                "character_agent" => Some(AgentType::Inspector),
+                "world_building_agent" => Some(AgentType::Inspector),
+                "memory_agent" => Some(AgentType::Writer),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// 构建 Agent 执行上下文
+    fn build_context(story_id: &str, intent: &Intent) -> AgentContext {
+        AgentContext {
+            story_id: story_id.to_string(),
+            story_title: "未命名作品".to_string(),
+            genre: "小说".to_string(),
+            tone: "中性".to_string(),
+            pacing: "正常".to_string(),
+            chapter_number: 1,
+            characters: vec![],
+            previous_chapters: vec![],
+        }
+    }
+
+    /// 串行执行
+    async fn execute_serial(
+        &self,
+        agents: Vec<AgentType>,
+        context: AgentContext,
+        intent: &Intent,
+    ) -> Vec<AgentStepResult> {
+        let mut steps = Vec::new();
+        let mut current_input = intent.raw_input.clone();
+
+        for agent in agents {
+            let task = AgentTask {
+                id: Uuid::new_v4().to_string(),
+                agent_type: agent,
+                context: context.clone(),
+                input: current_input.clone(),
+                parameters: Self::build_parameters(intent),
+            };
+
+            match self.agent_service.execute_task(task).await {
+                Ok(result) => {
+                    current_input = result.content.clone();
+                    steps.push(AgentStepResult {
+                        agent_name: agent.name().to_string(),
+                        success: true,
+                        result: Some(result),
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    steps.push(AgentStepResult {
+                        agent_name: agent.name().to_string(),
+                        success: false,
+                        result: None,
+                        error: Some(e),
+                    });
+                    // 串行模式下遇到错误可选择中断，这里继续记录但停止传递输入
+                    break;
+                }
+            }
+        }
+
+        steps
+    }
+
+    /// 并行执行
+    async fn execute_parallel(
+        &self,
+        agents: Vec<AgentType>,
+        context: AgentContext,
+        intent: &Intent,
+    ) -> Vec<AgentStepResult> {
+        let mut handles = Vec::new();
+        let service = self.agent_service.clone();
+
+        for agent in agents {
+            let task = AgentTask {
+                id: Uuid::new_v4().to_string(),
+                agent_type: agent,
+                context: context.clone(),
+                input: intent.raw_input.clone(),
+                parameters: Self::build_parameters(intent),
+            };
+
+            let service_clone = service.clone();
+            let handle = tokio::spawn(async move {
+                match service_clone.execute_task(task).await {
+                    Ok(result) => AgentStepResult {
+                        agent_name: agent.name().to_string(),
+                        success: true,
+                        result: Some(result),
+                        error: None,
+                    },
+                    Err(e) => AgentStepResult {
+                        agent_name: agent.name().to_string(),
+                        success: false,
+                        result: None,
+                        error: Some(e),
+                    },
+                }
+            });
+            handles.push(handle);
+        }
+
+        let mut steps = Vec::new();
+        for handle in handles {
+            if let Ok(step) = handle.await {
+                steps.push(step);
+            }
+        }
+
+        steps
+    }
+
+    /// 构建额外参数
+    fn build_parameters(intent: &Intent) -> HashMap<String, serde_json::Value> {
+        let mut params = HashMap::new();
+        if let Some(target_type) = &intent.target.target_type {
+            params.insert("target_type".to_string(), serde_json::json!(target_type));
+        }
+        if let Some(target_id) = &intent.target.id {
+            params.insert("target_id".to_string(), serde_json::json!(target_id));
+        }
+        if let Some(target_name) = &intent.target.name {
+            params.insert("target_name".to_string(), serde_json::json!(target_name));
+        }
+        if !intent.constraints.is_empty() {
+            params.insert("constraints".to_string(), serde_json::json!(intent.constraints));
+        }
+        params
+    }
+
+    /// 构建执行结果摘要
+    fn build_summary(intent: &Intent, steps: &[AgentStepResult]) -> String {
+        let success_count = steps.iter().filter(|s| s.success).count();
+        let total_count = steps.len();
+
+        if total_count == 0 {
+            return "未执行任何 Agent 任务。".to_string();
+        }
+
+        if success_count == total_count {
+            format!(
+                "{} 意图已完全执行，共调用 {} 个 Agent。",
+                Self::intent_display_name(&intent.intent_type),
+                total_count
+            )
+        } else {
+            format!(
+                "{} 意图部分执行，成功 {}/{}。",
+                Self::intent_display_name(&intent.intent_type),
+                success_count,
+                total_count
+            )
+        }
+    }
+
+    fn intent_display_name(intent_type: &IntentType) -> &'static str {
+        match intent_type {
+            IntentType::TextGenerate => "续写生成",
+            IntentType::TextRewrite => "文本改写",
+            IntentType::PlotSuggest => "情节建议",
+            IntentType::CharacterCheck => "角色检查",
+            IntentType::WorldConsistency => "世界观检查",
+            IntentType::StyleShift => "文风切换",
+            IntentType::MemoryIngest => "知识摄取",
+            IntentType::VisualGenerate => "视觉生成",
+            IntentType::SceneReorder => "场景调整",
+            IntentType::OutlineExpand => "大纲扩展",
+            IntentType::Unknown => "自由对话",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +510,33 @@ mod tests {
         let invalid = "这不是 JSON";
         let intent = IntentParser::parse_intent_json(invalid, "你好").unwrap();
         assert_eq!(intent.intent_type, IntentType::Unknown);
+    }
+
+    #[test]
+    fn test_map_agents() {
+        let agents = IntentExecutor::map_agents(&vec![
+            "writer".to_string(),
+            "plot_analyzer".to_string(),
+            "unknown_agent".to_string(),
+        ]);
+        assert_eq!(agents.len(), 2);
+        assert!(matches!(agents[0], AgentType::Writer));
+        assert!(matches!(agents[1], AgentType::PlotAnalyzer));
+    }
+
+    #[test]
+    fn test_build_summary() {
+        let intent = Intent::unknown("测试");
+        let steps = vec![
+            AgentStepResult {
+                agent_name: "Writer".to_string(),
+                success: true,
+                result: None,
+                error: None,
+            },
+        ];
+        let summary = IntentExecutor::build_summary(&intent, &steps);
+        assert!(summary.contains("自由对话"));
+        assert!(summary.contains("1 个 Agent"));
     }
 }
