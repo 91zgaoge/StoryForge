@@ -1100,3 +1100,127 @@ pub async fn delete_scene_version(
     repo.delete_version(&version_id)
         .map_err(|e| e.to_string())
 }
+
+
+// ==================== 变更追踪命令 (修订模式) ====================
+
+#[command]
+pub async fn track_change(
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    change_type: String,
+    from_pos: i32,
+    to_pos: i32,
+    content: Option<String>,
+    author_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<crate::db::models_v3::ChangeTrack, String> {
+    use crate::db::models_v3::{ChangeTrack, ChangeType};
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let ct = match change_type.as_str() {
+        "Delete" => ChangeType::Delete,
+        "Format" => ChangeType::Format,
+        _ => ChangeType::Insert,
+    };
+
+    let track = ChangeTrack::new(
+        scene_id,
+        chapter_id,
+        author_id.unwrap_or_else(|| "user".to_string()),
+        ct,
+        from_pos,
+        to_pos,
+        content,
+    );
+
+    let repo = ChangeTrackRepository::new(pool.inner().clone());
+    repo.create(&track)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn accept_change(
+    change_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::models_v3::ChangeStatus;
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let repo = ChangeTrackRepository::new(pool.inner().clone());
+    repo.update_status(&change_id, ChangeStatus::Accepted)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn reject_change(
+    change_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::models_v3::ChangeStatus;
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let repo = ChangeTrackRepository::new(pool.inner().clone());
+    repo.update_status(&change_id, ChangeStatus::Rejected)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_pending_changes(
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<crate::db::models_v3::ChangeTrack>, String> {
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let repo = ChangeTrackRepository::new(pool.inner().clone());
+    if let Some(sid) = scene_id {
+        repo.get_pending_by_scene(&sid)
+            .map_err(|e| e.to_string())
+    } else if let Some(cid) = chapter_id {
+        repo.get_pending_by_chapter(&cid)
+            .map_err(|e| e.to_string())
+    } else {
+        Err("Either scene_id or chapter_id must be provided".to_string())
+    }
+}
+
+#[command]
+pub async fn accept_all_changes(
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let repo = ChangeTrackRepository::new(pool.inner().clone());
+    if let Some(sid) = scene_id {
+        repo.accept_all_by_scene(&sid)
+            .map_err(|e| e.to_string())
+    } else if let Some(cid) = chapter_id {
+        repo.accept_all_by_chapter(&cid)
+            .map_err(|e| e.to_string())
+    } else {
+        Err("Either scene_id or chapter_id must be provided".to_string())
+    }
+}
+
+#[command]
+pub async fn reject_all_changes(
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<usize, String> {
+    use crate::db::repositories_v3::ChangeTrackRepository;
+
+    let repo = ChangeTrackRepository::new(pool.inner().clone());
+    if let Some(sid) = scene_id {
+        repo.reject_all_by_scene(&sid)
+            .map_err(|e| e.to_string())
+    } else if let Some(cid) = chapter_id {
+        repo.reject_all_by_chapter(&cid)
+            .map_err(|e| e.to_string())
+    } else {
+        Err("Either scene_id or chapter_id must be provided".to_string())
+    }
+}

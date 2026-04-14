@@ -549,6 +549,24 @@ export interface StorySummary {
   updated_at: string;
 }
 
+export type ChangeTypeV3 = 'Insert' | 'Delete' | 'Format';
+export type ChangeStatusV3 = 'Pending' | 'Accepted' | 'Rejected';
+
+export interface ChangeTrack {
+  id: string;
+  scene_id: string;
+  version_id?: string;
+  author_id: string;
+  author_name?: string;
+  change_type: ChangeTypeV3;
+  from_pos: number;
+  to_pos: number;
+  content?: string;
+  status: ChangeStatusV3;
+  created_at: string;
+  resolved_at?: string;
+}
+
 export interface RetentionScore {
   entity_id: string;
   entity_name: string;

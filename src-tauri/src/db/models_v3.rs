@@ -760,3 +760,64 @@ pub struct CompareVersionsResponse {
     pub version_b: SceneVersion,
     pub differences: Vec<SceneVersionDiff>,
 }
+
+// ==================== 变更追踪模型 (修订模式) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangeTrack {
+    pub id: String,
+    pub scene_id: Option<String>,
+    pub chapter_id: Option<String>,
+    pub version_id: Option<String>,
+    pub author_id: String,
+    pub author_name: Option<String>,
+    pub change_type: ChangeType,
+    pub from_pos: i32,
+    pub to_pos: i32,
+    pub content: Option<String>,
+    pub status: ChangeStatus,
+    pub created_at: DateTime<Local>,
+    pub resolved_at: Option<DateTime<Local>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChangeType {
+    Insert,
+    Delete,
+    Format,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChangeStatus {
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+impl ChangeTrack {
+    pub fn new(
+        scene_id: Option<String>,
+        chapter_id: Option<String>,
+        author_id: String,
+        change_type: ChangeType,
+        from_pos: i32,
+        to_pos: i32,
+        content: Option<String>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            scene_id,
+            chapter_id,
+            version_id: None,
+            author_id,
+            author_name: None,
+            change_type,
+            from_pos,
+            to_pos,
+            content,
+            status: ChangeStatus::Pending,
+            created_at: Local::now(),
+            resolved_at: None,
+        }
+    }
+}

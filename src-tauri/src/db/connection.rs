@@ -262,7 +262,30 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 
+        -- 变更追踪表（修订模式）
+        CREATE TABLE IF NOT EXISTS change_tracks (
+            id TEXT PRIMARY KEY,
+            scene_id TEXT,
+            chapter_id TEXT,
+            version_id TEXT,
+            author_id TEXT NOT NULL,
+            author_name TEXT,
+            change_type TEXT NOT NULL,
+            from_pos INTEGER NOT NULL,
+            to_pos INTEGER NOT NULL,
+            content TEXT,
+            status TEXT NOT NULL DEFAULT 'Pending',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+            FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+            FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+        );
+
         -- 创建索引
+        CREATE INDEX IF NOT EXISTS idx_change_tracks_scene ON change_tracks(scene_id);
+        CREATE INDEX IF NOT EXISTS idx_change_tracks_chapter ON change_tracks(chapter_id);
+        CREATE INDEX IF NOT EXISTS idx_change_tracks_status ON change_tracks(status);
         CREATE INDEX IF NOT EXISTS idx_scenes_story ON scenes(story_id);
         CREATE INDEX IF NOT EXISTS idx_scenes_sequence ON scenes(story_id, sequence_number);
         CREATE INDEX IF NOT EXISTS idx_scenes_prev ON scenes(previous_scene_id);
@@ -410,6 +433,69 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX idx_text_annotations_scene ON text_annotations(scene_id)",
+            [],
+        )?;
+    }
+
+    // Migration 5: 创建变更追踪表 (v3.3.0)
+    let change_track_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='change_tracks'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if change_track_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE change_tracks (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT,
+                chapter_id TEXT,
+                version_id TEXT,
+                author_id TEXT NOT NULL,
+                author_name TEXT,
+                change_type TEXT NOT NULL,
+                from_pos INTEGER NOT NULL,
+                to_pos INTEGER NOT NULL,
+                content TEXT,
+                status TEXT NOT NULL DEFAULT 'Pending',
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+                FOREIGN KEY (version_id) REFERENCES scene_versions(id)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_change_tracks_scene ON change_tracks(scene_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_change_tracks_chapter ON change_tracks(chapter_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_change_tracks_status ON change_tracks(status)",
+            [],
+        )?;
+    }
+
+    // Migration 5.1: 为旧版 change_tracks 添加 chapter_id (v3.3.0)
+    let change_track_columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(change_tracks)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !change_track_columns.iter().any(|c| c == "chapter_id") {
+        conn.execute(
+            "ALTER TABLE change_tracks ADD COLUMN chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_change_tracks_chapter ON change_tracks(chapter_id)",
             [],
         )?;
     }

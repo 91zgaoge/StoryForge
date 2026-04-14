@@ -23,7 +23,11 @@ import {
   X,
   StickyNote,
   Check,
-  Trash2
+  Trash2,
+  GitBranch,
+  CheckCheck,
+  Undo2,
+  FileCheck
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { Character } from '@/types/index';
@@ -42,8 +46,10 @@ import type { ParagraphCommentary } from '@/types/v3';
 import toast from 'react-hot-toast';
 import { generateParagraphCommentaries } from '@/services/tauri';
 import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
+import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnnotation, TEXT_ANNOTATION_TYPE_COLORS, TEXT_ANNOTATION_TYPE_LABELS } from '@/hooks/useTextAnnotations';
-import type { TextAnnotation } from '@/types/v3';
+import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
+import type { TextAnnotation, ChangeTrack } from '@/types/v3';
 
 const INTENT_LABELS: Record<IntentType, string> = {
   text_generate: '续写生成',
@@ -138,6 +144,16 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const createAnnotationMutation = useCreateTextAnnotation();
     const deleteAnnotationMutation = useDeleteTextAnnotation();
     
+    // 修订模式状态
+    const [isRevisionMode, setIsRevisionMode] = useState(false);
+    const prevTextRef = useRef('');
+    const { data: pendingChanges = [] } = usePendingChanges(undefined, chapterId || undefined);
+    const trackChangeMutation = useTrackChange();
+    const acceptChangeMutation = useAcceptChange();
+    const rejectChangeMutation = useRejectChange();
+    const acceptAllMutation = useAcceptAllChanges();
+    const rejectAllMutation = useRejectAllChanges();
+    
     // 角色卡片弹窗状态
     const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
     const [popupPosition, setPopupPosition] = useState({ x: 0, y: 0 });
@@ -155,10 +171,54 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         Underline,
         Highlight.configure({ multicolor: true }),
         TextAnnotationMark,
+        TrackInsertMark,
+        TrackDeleteMark,
       ],
       content,
       onUpdate: ({ editor }) => {
         onChange(editor.getHTML());
+        
+        if (isRevisionMode && chapterId) {
+          const currentText = editor.getText();
+          const prevText = prevTextRef.current;
+          
+          if (prevText && currentText !== prevText) {
+            // Simple LCS-like detection for single insertion or deletion
+            if (currentText.length > prevText.length) {
+              // Likely insertion
+              const insertPos = findFirstDiff(prevText, currentText);
+              const insertedText = currentText.slice(insertPos, insertPos + (currentText.length - prevText.length));
+              if (insertedText.trim()) {
+                trackChangeMutation.mutate({
+                  chapterId,
+                  changeType: 'Insert',
+                  fromPos: insertPos,
+                  toPos: insertPos + insertedText.length,
+                  content: insertedText,
+                });
+                // Apply visual mark
+                const pmPos = textOffsetToPmPosition(editor, insertPos, insertedText.length);
+                if (pmPos) {
+                  editor.chain().focus().setTextSelection({ from: pmPos.from, to: pmPos.to }).setMark('trackInsert', { changeId: `temp-${Date.now()}` }).setTextSelection(pmPos.to).run();
+                }
+              }
+            } else if (currentText.length < prevText.length) {
+              // Likely deletion
+              const deletePos = findFirstDiff(prevText, currentText);
+              const deletedText = prevText.slice(deletePos, deletePos + (prevText.length - currentText.length));
+              if (deletedText.trim()) {
+                trackChangeMutation.mutate({
+                  chapterId,
+                  changeType: 'Delete',
+                  fromPos: deletePos,
+                  toPos: deletePos + deletedText.length,
+                  content: deletedText,
+                });
+              }
+            }
+          }
+          prevTextRef.current = currentText;
+        }
       },
       editorProps: {
         attributes: {
@@ -188,6 +248,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editor.commands.setContent(content);
       }
     }, [content, editor]);
+
+    // 修订模式：初始化/同步 prevTextRef
+    useEffect(() => {
+      if (editor) {
+        prevTextRef.current = editor.getText();
+      }
+    }, [editor, isRevisionMode]);
 
     // 文本批注：选区变化时显示添加按钮
     useEffect(() => {
@@ -535,6 +602,37 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     };
 
+    // 辅助函数：查找第一个不同字符的位置
+    const findFirstDiff = (a: string, b: string): number => {
+      let i = 0;
+      while (i < a.length && i < b.length && a[i] === b[i]) i++;
+      return i;
+    };
+
+    // 辅助函数：将纯文本偏移转换为 ProseMirror 位置
+    const textOffsetToPmPosition = (editorInstance: any, offset: number, length: number) => {
+      let currentOffset = 0;
+      let startPos = -1;
+      let endPos = -1;
+      editorInstance.state.doc.descendants((node: any, pos: number) => {
+        if (!node.isText) return;
+        const text = node.text || '';
+        const nodeStart = currentOffset;
+        const nodeEnd = currentOffset + text.length;
+        if (startPos === -1 && nodeEnd > offset) {
+          startPos = pos + (offset - nodeStart);
+        }
+        if (endPos === -1 && nodeEnd >= offset + length) {
+          endPos = pos + (offset + length - nodeStart);
+        }
+        currentOffset += text.length;
+      });
+      if (startPos !== -1 && endPos !== -1) {
+        return { from: startPos, to: endPos };
+      }
+      return null;
+    };
+
     // 获取状态图标
     const getStatusIcon = () => {
       switch (status) {
@@ -615,6 +713,41 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       >
         {/* 编辑器内容区 */}
         <div className="flex-1 overflow-auto relative">
+          {/* 修订模式横幅 */}
+          {isRevisionMode && (
+            <div className="absolute top-0 left-0 right-0 z-40 bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex items-center justify-between backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-sm text-blue-400">
+                <GitBranch className="w-4 h-4" />
+                <span>修订模式已开启</span>
+                <span className="text-xs text-blue-500/70">({pendingChanges.length} 处待审变更)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => chapterId && acceptAllMutation.mutate({ chapterId })}
+                  disabled={acceptAllMutation.isPending || pendingChanges.length === 0}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 text-xs hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  全部接受
+                </button>
+                <button
+                  onClick={() => chapterId && rejectAllMutation.mutate({ chapterId })}
+                  disabled={rejectAllMutation.isPending || pendingChanges.length === 0}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 text-xs hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  全部拒绝
+                </button>
+                <button
+                  onClick={() => setIsRevisionMode(false)}
+                  className="px-2.5 py-1 rounded-md bg-cinema-800 text-gray-300 text-xs hover:bg-cinema-700 transition-colors"
+                >
+                  退出
+                </button>
+              </div>
+            </div>
+          )}
+          
           <EditorContent editor={editor} />
           
           {/* 文本批注选区浮动按钮 */}
@@ -880,6 +1013,17 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
                 {/* 右侧：批注按钮 + 评点按钮 + 发送按钮 */}
                 <div className="chat-input-right flex items-center gap-1.5">
+                  <button
+                    onClick={() => setIsRevisionMode(!isRevisionMode)}
+                    title={isRevisionMode ? '退出修订模式' : '进入修订模式'}
+                    className={cn(
+                      'p-2 rounded-full transition-colors duration-200',
+                      'text-[var(--stone-gray)] hover:text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10',
+                      isRevisionMode && 'text-blue-400 bg-blue-500/10'
+                    )}
+                  >
+                    <GitBranch className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
                     title="文本批注"

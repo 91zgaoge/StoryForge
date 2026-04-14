@@ -241,6 +241,13 @@ pub fn run() {
             commands_v3::restore_scene_version,
             commands_v3::get_scene_version_stats,
             commands_v3::delete_scene_version,
+            // Change tracking (revision mode)
+            commands_v3::track_change,
+            commands_v3::accept_change,
+            commands_v3::reject_change,
+            commands_v3::get_pending_changes,
+            commands_v3::accept_all_changes,
+            commands_v3::reject_all_changes,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
