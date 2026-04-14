@@ -33,6 +33,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 优先级分布可视化：关键/高/中/低/已遗忘五级进度条
   - 关键实体列表和待归档实体列表
 
+### 🤖 Agent 模型映射与路由
+
+- **后端配置持久化**
+  - `AppConfig` 新增 `agent_mappings` 字段，支持 JSON 持久化
+  - 默认映射：writer/inspector/outline_planner/style_mimic/plot_analyzer → Qwen 3.5
+  - `get_settings` / `save_settings` 完整读写 agent_mappings
+  - `get_agent_mappings` / `update_agent_mapping` 从硬编码改为读取/写入真实配置
+
+- **模型路由逻辑**
+  - `LlmService` 新增 `generate_with_profile`，支持按模型 ID 调用指定配置
+  - `AgentService` 新增 `generate_for_agent`，自动根据 Agent 类型查找映射模型
+  - 5 种 Agent（写作/质检/大纲/文风/情节）均已接入模型路由
+  - 未配置映射时自动回退到活跃 LLM Profile
+
 ### 🧠 意图解析引擎 (Intent Engine)
 
 - **后端意图解析器** (`src-tauri/src/intent.rs`)
