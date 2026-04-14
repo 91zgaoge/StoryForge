@@ -2,7 +2,7 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
-## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化
+## [Unreleased] - 意图引擎与 Agent 调度 + 知识图谱可视化 + 自动归档
 
 ### 🕸️ 知识图谱可视化
 
@@ -20,6 +20,18 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **页面集成**
   - 新增 backstage 「知识图谱」页面和 Sidebar 导航入口
   - 自动绑定当前选中的故事，空状态引导用户先选择故事
+
+### 🧠 记忆健康与自动归档建议
+
+- **后端保留报告 API**
+  - `get_retention_report`：基于 Ebbinghaus 遗忘曲线计算实体保留状态
+  - 复用已有的 `RetentionManager`，按实体类型应用不同衰减配置
+
+- **记忆健康面板**（集成在知识图谱页面）
+  - 汇总卡片：总实体数、平均优先级、系统健康状态
+  - 自动归档建议：根据遗忘比例生成动态推荐文案
+  - 优先级分布可视化：关键/高/中/低/已遗忘五级进度条
+  - 关键实体列表和待归档实体列表
 
 ### 🧠 意图解析引擎 (Intent Engine)
 
