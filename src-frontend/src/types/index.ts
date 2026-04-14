@@ -144,6 +144,7 @@ export type ViewType =
   | 'stories' 
   | 'characters' 
   | 'scenes' 
+  | 'knowledge-graph'
   | 'skills' 
   | 'mcp' 
   | 'settings';

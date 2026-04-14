@@ -940,4 +940,36 @@ impl KnowledgeGraphRepository {
 
         Ok(relations)
     }
+
+    pub fn get_relations_by_story(&self, story_id: &str) -> Result<Vec<Relation>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, source_id, target_id, relation_type, strength, evidence, first_seen, confidence_score
+             FROM kg_relations WHERE story_id = ?1"
+        )?;
+
+        let relations = stmt.query_map([story_id], |row| {
+            let type_str: String = row.get(4)?;
+            let relation_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid relation type".to_string()))?;
+            
+            let evidence_json: String = row.get(6)?;
+            let evidence: Vec<String> = serde_json::from_str(&evidence_json).unwrap_or_default();
+            
+            let first_str: String = row.get(7)?;
+            
+            Ok(Relation {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                source_id: row.get(2)?,
+                target_id: row.get(3)?,
+                relation_type,
+                strength: row.get(5)?,
+                evidence,
+                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score: row.get(8)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(relations)
+    }
 }

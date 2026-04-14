@@ -5,6 +5,7 @@ import type {
   UpdateChapterRequest, LlmConfig, SimilarityResult, VectorSearchRequest,
   Intent, IntentParseRequest, IntentExecutionResult
 } from '@/types/index';
+import type { StoryGraph, Entity, Relation } from '@/types/v3';
 
 // Health Check
 export const healthCheck = () => 
@@ -105,3 +106,13 @@ export const parseIntent = (req: IntentParseRequest) =>
 
 export const executeIntent = (intent: Intent, storyId: string) =>
   invoke<IntentExecutionResult>('execute_intent', { intent, story_id: storyId });
+
+// Knowledge Graph
+export const getStoryGraph = (storyId: string) =>
+  invoke<StoryGraph>('get_story_graph', { story_id: storyId });
+
+export const createEntity = (storyId: string, name: string, entityType: string, attributes: Record<string, unknown>) =>
+  invoke<Entity>('create_entity', { story_id: storyId, name, entity_type: entityType, attributes });
+
+export const createRelation = (storyId: string, sourceId: string, targetId: string, relationType: string, strength: number) =>
+  invoke<Relation>('create_relation', { story_id: storyId, source_id: sourceId, target_id: targetId, relation_type: relationType, strength });

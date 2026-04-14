@@ -4,6 +4,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
 import { Characters } from '@/pages/Characters';
 import { Scenes } from '@/pages/Scenes';
+import { KnowledgeGraph } from '@/pages/KnowledgeGraph';
 import { Skills } from '@/pages/Skills';
 import { Mcp } from '@/pages/Mcp';
 import { Settings } from '@/pages/Settings';
@@ -50,6 +51,7 @@ function App() {
       case 'stories': return <Stories />;
       case 'characters': return <Characters />;
       case 'scenes': return <Scenes />;
+      case 'knowledge-graph': return <KnowledgeGraph />;
       case 'skills': return <Skills />;
       case 'mcp': return <Mcp />;
       case 'settings': return <Settings />;

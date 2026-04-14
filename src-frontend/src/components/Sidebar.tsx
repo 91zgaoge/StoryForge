@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, BookOpen, Users, Clapperboard,
-  Wand2, Plug, Settings, Film, Sparkles, MonitorPlay
+  Wand2, Plug, Settings, Film, Sparkles, MonitorPlay,
+  Network
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
@@ -18,6 +19,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'stories', label: '故事', icon: BookOpen },
   { id: 'characters', label: '角色', icon: Users },
   { id: 'scenes', label: '场景', icon: Clapperboard },
+  { id: 'knowledge-graph', label: '知识图谱', icon: Network },
   { id: 'skills', label: '技能', icon: Wand2 },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'settings', label: '设置', icon: Settings },

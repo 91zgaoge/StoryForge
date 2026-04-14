@@ -244,6 +244,11 @@ export interface Relation {
   first_seen: string;
 }
 
+export interface StoryGraph {
+  entities: Entity[];
+  relations: Relation[];
+}
+
 // ==================== 请求/响应类型 ====================
 
 export interface CreateSceneRequest {

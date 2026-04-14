@@ -266,6 +266,25 @@ pub async fn get_entity_relations(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct StoryGraph {
+    pub entities: Vec<Entity>,
+    pub relations: Vec<Relation>,
+}
+
+#[command]
+pub async fn get_story_graph(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<StoryGraph, String> {
+    let repo = KnowledgeGraphRepository::new(pool.inner().clone());
+    let entities = repo.get_entities_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+    let relations = repo.get_relations_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+    Ok(StoryGraph { entities, relations })
+}
+
 // ==================== 场景版本命令 ====================
 
 use crate::db::models_v3::{SceneVersion, CreatorType};
