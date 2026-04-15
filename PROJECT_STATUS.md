@@ -1,11 +1,23 @@
-# StoryForge (草苔) v3.1+ 项目完成状态
+# StoryForge (草苔) v3.3.0 项目完成状态
 
-> 最后更新: 2026-04-14（v3.3.0 API 一致性审计修复 + 功能断层补齐 + Rust warnings 清零）
+> 最后更新: 2026-04-15（v3.3.0 幕前右键菜单修复 + API 一致性审计 + Rust warnings 清零）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v3.3.0 新增功能（2026-04-15）
+
+#### 🖱️ 幕前右键菜单修复与暖色重构 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| Tailwind utilities 补充 | ✅ | 100% | `frontstage.css` 添加 `@tailwind utilities;`，`fixed`/`z-[9999]` 等类正常生效 |
+| 事件捕获修复 | ✅ | 100% | `contextmenu`/`mousedown` 改为捕获阶段监听，兼容 Tauri WebView |
+| WebView2 默认菜单禁用 | ✅ | 100% | Rust 后端通过 `webview2-com` 禁用 Windows 系统右键菜单 |
+| 暖色 UI 重构 | ✅ | 100% | 背景 ivory / 边框 warm-sand / 文字 charcoal / hover warm-sand |
+| 菜单功能完整 | ✅ | 100% | 剪切/复制/粘贴、修订模式、批注、评论、古典评点、全选 |
 
 ### v3.2.0 进行中功能
 
@@ -126,17 +138,17 @@
 
 | 模型 | 类型 | 状态 | 备注 |
 |------|------|------|------|
-| Gemma-4-31B-it-Q6_K | 多模态 | ✅ | http://10.62.239.13:17099/v1 |
-| Qwen3.5-27B-Uncensored | 语言 | ✅ | http://10.62.239.13:17098/v1 |
-| bge-m3 | Embedding | ✅ | http://10.62.239.13:8089 |
+| Gemma-4-31B-it-Q6_K | 多模态 | ✅ | 本地 vLLM 服务 |
+| Qwen3.5-27B-Uncensored | 语言 | ✅ | 本地 vLLM 服务 |
+| bge-m3 | Embedding | ✅ | 本地 Embedding 服务 |
 
 #### 🖥️ Tauri 构建与 CI (100%)
 
 | 目标 | 状态 | 说明 |
 |------|------|------|
-| Release 编译 | ✅ | Rust 后端编译通过（189 warnings，非阻塞） |
-| MSI 安装包 | ✅ | `StoryForge_0.1.0_x64_en-US.msi` (12.3 MB) |
-| NSIS 安装包 | ✅ | `StoryForge_0.1.0_x64-setup.exe` (8.1 MB) |
+| Release 编译 | ✅ | Rust 后端编译通过（0 warnings） |
+| MSI 安装包 | ✅ | `StoryForge_3.1.2_x64_en-US.msi` |
+| NSIS 安装包 | ✅ | `StoryForge_3.1.2_x64-setup.exe` |
 | `rust-check` (Ubuntu) | ✅ | GitHub Actions 通过 |
 | `rust-check` (Windows) | ✅ | GitHub Actions 通过 |
 | `rust-check` (macOS) | ✅ | GitHub Actions 通过 |
