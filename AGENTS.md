@@ -148,6 +148,12 @@ npm test
 
 ### 最近完成的功能
 
+- **品牌 Logo 全面应用** (2026-04-15)
+  - `LOGO.jpg` 生成 Tauri 全平台图标包（Windows / macOS / iOS / Android）
+  - 前端 favicon 从 `feather.svg` 替换为 `favicon.ico` + `apple-touch-icon.png`
+  - `docs/images/logo.png` 作为 README 品牌展示图
+  - README / CHANGELOG / PROJECT_STATUS 品牌描述同步更新
+
 - **幕前右键菜单修复与暖色重构** (2026-04-15)
   - 修复 `frontstage.css` 缺失 Tailwind utilities 导致菜单 `fixed`/`z-[9999]` 类不生效的问题
   - WebView2 禁用 Windows 默认系统右键菜单

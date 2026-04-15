@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
+</p>
+
 # StoryForge (草苔) v3.3.0 - Rust Implementation
 
 > 🌿 越写越懂的创作系统 - AI 辅助小说创作桌面应用
@@ -98,7 +102,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: ~99%
 
-> 🪶 品牌图标：Lucide `feather`（羽毛笔）—— 来自 [iconbuddy.com](https://iconbuddy.com)，象征创作与文学
+> 🍃 品牌图标：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型，象征创作的生长力与文学的韧性
 
 | 模块 | 状态 | 完成度 |
 |------|------|--------|

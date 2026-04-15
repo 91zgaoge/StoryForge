@@ -101,14 +101,25 @@
 | RichTextEditor 集成 | ✅ | 90% | 自动选择流式输出或 Agent 调度路径 |
 | 完整 workflow 集成 | ✅ | 100% | 基础框架 + Agent 路由 + 取消机制已完成 |
 
+### v3.3.0 新增功能（2026-04-15）
+
+#### 🍃 品牌 Logo 全面应用 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| Tauri 全平台图标 | ✅ | 100% | `cargo tauri icon` 从 `LOGO.jpg` 生成 Windows/macOS/iOS/Android 图标 |
+| 前端 favicon | ✅ | 100% | `favicon.ico` + `apple-touch-icon.png` + `icon-192/512.png` |
+| 文档展示图 | ✅ | 100% | `docs/images/logo.png` 用于 README 等品牌展示 |
+| 品牌描述更新 | ✅ | 100% | README / CHANGELOG / PROJECT_STATUS 同步更新 |
+
 ### v3.1.2 新增功能（2026-04-13）
 
 #### 🎨 品牌视觉升级 (100%)
 
 | 功能模块 | 状态 | 完成度 | 备注 |
 |---------|------|--------|------|
-| 应用主图标 | ✅ | 100% | Lucide feather 羽毛笔，全平台图标包已生成 |
-| 前端 favicon | ✅ | 100% | 替换为 feather.svg |
+| 应用主图标 | ✅ | 100% | 临时使用 Lucide feather 羽毛笔作为过渡 |
+| 前端 favicon | ✅ | 100% | 过渡阶段使用 feather.svg |
 | 图标来源 | ✅ | 100% | iconbuddy.com / Lucide Icons (MIT) |
 
 #### 🔧 幕后设置页增强 (100%)
