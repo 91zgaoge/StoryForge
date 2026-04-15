@@ -425,8 +425,7 @@ body {
 }
 
 .frontstage-sidebar-content {
-  width: 100%;
-  padding: 16px;
+  width: 64px;
   opacity: 1;
   transition: opacity var(--transition-fast) 0.1s;
 }
@@ -508,29 +507,48 @@ body {
   transform: scale(0.97);
 }
 
-/* 简化版幕后按钮 */
-.backstage-btn-minimal {
-  width: 100%;
-  padding: 10px;
+/* Sidebar Dock Buttons */
+.sidebar-dock-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--stone-gray);
   background: transparent;
-  color: var(--terracotta);
-  border: 1px solid var(--terracotta);
-  border-radius: 6px;
+  border: none;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform 0.1s ease;
-  font-family: var(--font-serif);
-  letter-spacing: 0.1em;
+  transition: background-color var(--transition-fast), color var(--transition-fast), transform 0.1s ease;
 }
 
-.backstage-btn-minimal:hover {
-  background: var(--terracotta);
-  color: oklch(100% 0 0);
+.sidebar-dock-btn:hover {
+  background-color: var(--warm-sand);
+  color: var(--charcoal);
 }
 
-.backstage-btn-minimal:active {
+.sidebar-dock-btn:active {
   transform: scale(0.95);
+}
+
+.sidebar-dock-btn.active {
+  background-color: var(--warm-sand);
+  box-shadow: inset 2px 0 0 0 var(--terracotta);
+  color: var(--terracotta);
+}
+
+.sidebar-dock-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.backstage-dock-btn {
+  color: var(--terracotta);
+}
+
+.backstage-dock-btn:hover {
+  background-color: var(--terracotta);
+  color: oklch(100% 0 0);
 }
 
 /* ===== Chat Toolbar - 对话栏样式（v2 重构版） ===== */

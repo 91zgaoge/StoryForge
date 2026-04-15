@@ -49,6 +49,7 @@ import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { CommentAnchorMark } from '@/frontstage/extensions/CommentAnchor';
 import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnnotation, TEXT_ANNOTATION_TYPE_COLORS, TEXT_ANNOTATION_TYPE_LABELS } from '@/hooks/useTextAnnotations';
+import { EditorContextMenu } from './EditorContextMenu';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
 import { useCommentThreads, useCreateCommentThread, useAddCommentMessage, useResolveCommentThread, useDeleteCommentThread } from '@/hooks/useCommentThreads';
 import type { TextAnnotation, ChangeTrack, CommentThreadWithMessages } from '@/types/v3';
@@ -91,12 +92,19 @@ interface RichTextEditorProps {
   onZenModeChange?: (zen: boolean) => void;
   storyId?: string;
   chapterId?: string;
+  isRevisionMode?: boolean;
+  onRevisionModeChange?: (v: boolean) => void;
+  showAnnotationPanel?: boolean;
+  onShowAnnotationPanelChange?: (v: boolean) => void;
+  showCommentPanel?: boolean;
+  onShowCommentPanelChange?: (v: boolean) => void;
 }
 
 export interface RichTextEditorRef {
   insertText: (text: string) => void;
   getText: () => string;
   focus: () => void;
+  generateCommentary: () => void;
 }
 
 const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
@@ -116,6 +124,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     onZenModeChange,
     storyId,
     chapterId,
+    isRevisionMode: externalIsRevisionMode = false,
+    onRevisionModeChange,
+    showAnnotationPanel: externalShowAnnotationPanel = false,
+    onShowAnnotationPanelChange,
+    showCommentPanel: externalShowCommentPanel = false,
+    onShowCommentPanelChange,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -129,7 +143,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
     
     // 文本批注状态
-    const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
     const [selectedRange, setSelectedRange] = useState<{ from: number; to: number; text: string } | null>(null);
     const [annotationContent, setAnnotationContent] = useState('');
     const [annotationType, setAnnotationType] = useState<TextAnnotation['annotation_type']>('note');
@@ -138,7 +151,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [popupMode, setPopupMode] = useState<'annotation' | 'comment'>('annotation');
     
     // 评论线程状态
-    const [showCommentPanel, setShowCommentPanel] = useState(false);
     const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null);
     const [newCommentContent, setNewCommentContent] = useState('');
     const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
@@ -160,9 +172,25 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const resolveCommentThreadMutation = useResolveCommentThread();
     const deleteCommentThreadMutation = useDeleteCommentThread();
     
-    // 修订模式状态
-    const [isRevisionMode, setIsRevisionMode] = useState(false);
+    // 修订模式状态（受控）
+    const isRevisionMode = externalIsRevisionMode;
+    const setIsRevisionMode = (v: boolean) => onRevisionModeChange?.(v);
     const prevTextRef = useRef('');
+    const isRevisionModeRef = useRef(isRevisionMode);
+    isRevisionModeRef.current = isRevisionMode;
+    const chapterIdRef = useRef(chapterId);
+    chapterIdRef.current = chapterId;
+    
+    // 文本批注面板（受控）
+    const showAnnotationPanel = externalShowAnnotationPanel;
+    const setShowAnnotationPanel = (v: boolean) => onShowAnnotationPanelChange?.(v);
+    
+    // 评论线程面板（受控）
+    const showCommentPanel = externalShowCommentPanel;
+    const setShowCommentPanel = (v: boolean) => onShowCommentPanelChange?.(v);
+    
+    // 右键菜单状态
+    const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
     const { data: pendingChanges = [] } = usePendingChanges(undefined, chapterId || undefined);
     const trackChangeMutation = useTrackChange();
     const acceptChangeMutation = useAcceptChange();
@@ -195,7 +223,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       onUpdate: ({ editor }) => {
         onChange(editor.getHTML());
         
-        if (isRevisionMode && chapterId) {
+        if (isRevisionModeRef.current && chapterIdRef.current) {
           const currentText = editor.getText();
           const prevText = prevTextRef.current;
           
@@ -207,7 +235,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               const insertedText = currentText.slice(insertPos, insertPos + (currentText.length - prevText.length));
               if (insertedText.trim()) {
                 trackChangeMutation.mutate({
-                  chapterId,
+                  chapterId: chapterIdRef.current,
                   changeType: 'Insert',
                   fromPos: insertPos,
                   toPos: insertPos + insertedText.length,
@@ -225,7 +253,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               const deletedText = prevText.slice(deletePos, deletePos + (prevText.length - currentText.length));
               if (deletedText.trim()) {
                 trackChangeMutation.mutate({
-                  chapterId,
+                  chapterId: chapterIdRef.current,
                   changeType: 'Delete',
                   fromPos: deletePos,
                   toPos: deletePos + deletedText.length,
@@ -242,8 +270,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           class: 'prose prose-lg focus:outline-none',
         },
         handleDOMEvents: {
-          mousedown: () => {
-            setSelectedRange(null);
+          mousedown: (view, event) => {
+            if ((event as MouseEvent).button === 0) {
+              setSelectedRange(null);
+            }
             return false;
           },
         },
@@ -278,6 +308,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       if (!editor) return;
 
       const handleSelectionUpdate = () => {
+        if (contextMenu.visible) return;
         const { selection } = editor.state;
         if (selection.empty) {
           setSelectedRange(null);
@@ -746,7 +777,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       },
       getText: () => editor?.getText() || '',
       focus: () => editor?.commands.focus(),
-    }), [editor]);
+      generateCommentary: () => {
+        handleGenerateCommentary();
+      },
+    }), [editor, handleGenerateCommentary]);
 
     if (!editor) return null;
 
@@ -779,6 +813,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           if (!isExpanded && !chatInput) {
             setShowToolbar(false);
           }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
         }}
       >
         {/* 编辑器内容区 */}
@@ -1228,57 +1266,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   />
                 </div>
 
-                {/* 右侧：批注按钮 + 评点按钮 + 发送按钮 */}
+                {/* 右侧：发送按钮 */}
                 <div className="chat-input-right flex items-center gap-1.5">
-                  <button
-                    onClick={() => setIsRevisionMode(!isRevisionMode)}
-                    title={isRevisionMode ? '退出修订模式' : '进入修订模式'}
-                    className={cn(
-                      'p-2 rounded-full transition-colors duration-200',
-                      'text-[var(--stone-gray)] hover:text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10',
-                      isRevisionMode && 'text-blue-400 bg-blue-500/10'
-                    )}
-                  >
-                    <GitBranch className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
-                    title="文本批注"
-                    className={cn(
-                      'p-2 rounded-full transition-colors duration-200',
-                      'text-[var(--stone-gray)] hover:text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10',
-                      showAnnotationPanel && 'text-[var(--terracotta)] bg-[var(--terracotta)]/10'
-                    )}
-                  >
-                    <StickyNote className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setShowCommentPanel(!showCommentPanel)}
-                    title="评论线程"
-                    className={cn(
-                      'p-2 rounded-full transition-colors duration-200',
-                      'text-[var(--stone-gray)] hover:text-yellow-400 hover:bg-yellow-500/10',
-                      showCommentPanel && 'text-yellow-400 bg-yellow-500/10'
-                    )}
-                  >
-                    <MessageSquarePlus className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleGenerateCommentary}
-                    disabled={isGeneratingCommentary || !storyId || status === 'disconnected'}
-                    title="生成古典评点"
-                    className={cn(
-                      'p-2 rounded-full transition-colors duration-200',
-                      'text-[var(--stone-gray)] hover:text-[var(--terracotta)] hover:bg-[var(--terracotta)]/10',
-                      isGeneratingCommentary && 'opacity-50 cursor-not-allowed'
-                    )}
-                  >
-                    {isGeneratingCommentary ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Quote className="w-4 h-4" />
-                    )}
-                  </button>
                   <button
                     onClick={handleSendMessage}
                     disabled={!chatInput.trim() || isAiThinking || isParsingIntent || isExecutingIntent || status === 'disconnected'}
@@ -1309,6 +1298,31 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             </div>
           </div>
         )}
+
+        {/* 编辑器右键菜单 */}
+        <EditorContextMenu
+          visible={contextMenu.visible}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu({ visible: false, x: 0, y: 0 })}
+          editor={editor}
+          isRevisionMode={isRevisionMode}
+          onToggleRevision={() => setIsRevisionMode(!isRevisionMode)}
+          onOpenAnnotation={() => {
+            setPopupMode('annotation');
+            setContextMenu({ visible: false, x: 0, y: 0 });
+          }}
+          onOpenComment={() => {
+            setPopupMode('comment');
+            setContextMenu({ visible: false, x: 0, y: 0 });
+          }}
+          onGenerateCommentary={() => {
+            handleGenerateCommentary();
+            setContextMenu({ visible: false, x: 0, y: 0 });
+          }}
+          isGeneratingCommentary={isGeneratingCommentary}
+          hasSelection={!!selectedRange}
+        />
 
         {/* 角色卡片弹窗 */}
         <CharacterCardPopup

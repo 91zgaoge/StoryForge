@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote } from 'lucide-react';
+import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -43,6 +45,9 @@ const FrontstageApp: React.FC = () => {
   const [wordCount, setWordCount] = useState(0);
   const [fontSize, setFontSize] = useState(18);
   const [isZenMode, setIsZenMode] = useState(false);
+  const [isRevisionMode, setIsRevisionMode] = useState(false);
+  const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
+  const [showCommentPanel, setShowCommentPanel] = useState(false);
   const editorRef = useRef<RichTextEditorRef>(null);
 
   // 加载当前故事的角色
@@ -288,19 +293,51 @@ const FrontstageApp: React.FC = () => {
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar - 仅保留幕后按钮 */}
+        {/* Sidebar - Dock 工具栏 */}
         {!isZenMode && (
           <aside 
             className={`frontstage-sidebar ${sidebarOpen ? '' : 'collapsed'}`}
-            style={{ width: sidebarOpen ? '120px' : '0px' }}
+            style={{ width: sidebarOpen ? '64px' : '0px' }}
           >
-            <div className="frontstage-sidebar-content h-full flex flex-col justify-end p-3">
+            <div className="frontstage-sidebar-content h-full flex flex-col items-center py-4 gap-2">
+              <button
+                className={cn('sidebar-dock-btn', isRevisionMode && 'active')}
+                onClick={() => setIsRevisionMode(!isRevisionMode)}
+                title="修订模式"
+              >
+                <GitBranch className="w-5 h-5" />
+              </button>
+              <button
+                className={cn('sidebar-dock-btn', showAnnotationPanel && 'active')}
+                onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
+                title="文本批注"
+              >
+                <StickyNote className="w-5 h-5" />
+              </button>
+              <button
+                className={cn('sidebar-dock-btn', showCommentPanel && 'active')}
+                onClick={() => setShowCommentPanel(!showCommentPanel)}
+                title="评论线程"
+              >
+                <MessageSquarePlus className="w-5 h-5" />
+              </button>
+              <button
+                className="sidebar-dock-btn"
+                onClick={() => editorRef.current?.generateCommentary()}
+                disabled={!currentStory}
+                title="生成古典评点"
+              >
+                <Quote className="w-5 h-5" />
+              </button>
+
+              <div className="flex-1 min-h-0" />
+
               <button 
-                className="backstage-btn-minimal" 
+                className="sidebar-dock-btn backstage-dock-btn" 
                 onClick={openBackstage}
                 title="打开幕后工作室"
               >
-                幕后
+                <Eye className="w-5 h-5" />
               </button>
             </div>
           </aside>
@@ -334,6 +371,12 @@ const FrontstageApp: React.FC = () => {
             onZenModeChange={setIsZenMode}
             storyId={currentStory?.id}
             chapterId={currentChapter?.id}
+            isRevisionMode={isRevisionMode}
+            onRevisionModeChange={setIsRevisionMode}
+            showAnnotationPanel={showAnnotationPanel}
+            onShowAnnotationPanelChange={setShowAnnotationPanel}
+            showCommentPanel={showCommentPanel}
+            onShowCommentPanelChange={setShowCommentPanel}
           />
         </main>
       </div>
