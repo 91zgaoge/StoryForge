@@ -148,6 +148,11 @@ npm test
 
 ### 最近完成的功能
 
+- **幕前右键菜单修复与暖色重构** (2026-04-15)
+  - 修复 `frontstage.css` 缺失 Tailwind utilities 导致菜单 `fixed`/`z-[9999]` 类不生效的问题
+  - WebView2 禁用 Windows 默认系统右键菜单
+  - 菜单 UI 全面适配幕前暖色纸张设计规范
+
 - **P3 修订模式与变更追踪** (`8a13661` ~ `b26ca51`)
   - Phase 1: ChangeTrack 数据库 + TipTap `trackInsert`/`trackDelete` Mark + 实时 diff 检测
   - Phase 2: `comment_threads` / `comment_messages` + `commentAnchor` Mark + 右侧评论面板
@@ -155,10 +160,10 @@ npm test
 
 ### 编译状态
 
-- `cargo check` ✅ | 警告: ~163 (非阻塞)
+- `cargo check` ✅ | 警告: 0
 - `npm run build` ✅
 - `cargo test` ✅ 20/20
 
 ---
 
-*最后更新: 2026-04-14 - P3 修订模式完成，更新编译状态*
+*最后更新: 2026-04-15 - 幕前右键菜单修复完成，编译状态更新为 0 警告*

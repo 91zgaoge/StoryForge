@@ -50,18 +50,11 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
 
   useEffect(() => {
     if (!visible) return;
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleKey);
     return () => {
-      document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
   }, [visible, onClose]);
@@ -109,20 +102,23 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
       disabled={disabled}
       className={cn(
         'w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors',
-        disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-[var(--warm-sand)] active:scale-[0.98]'
+        disabled ? 'text-[var(--stone-gray)]/60 cursor-not-allowed' : 'hover:bg-[var(--warm-sand)] active:scale-[0.98] text-[var(--charcoal)]'
       )}
     >
       {children}
     </button>
   );
 
-  const Divider = () => <div className="h-px bg-[var(--warm-sand)] my-1" />;
+  const Divider = () => <div className="h-px bg-[var(--charcoal)]/10 my-1" />;
 
   return (
     <div
       ref={menuRef}
-      onMouseDown={(e) => e.preventDefault()}
-      className="fixed z-[100] bg-[var(--ivory)] border border-[var(--warm-sand)] rounded-xl shadow-xl p-1.5 min-w-[160px] animate-fade-in"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      className="fixed z-[9999] bg-[var(--ivory)] border border-[var(--warm-sand)] rounded-xl shadow-xl p-1.5 min-w-[160px] animate-fade-in text-[var(--charcoal)]"
       style={{ left: pos.x, top: pos.y }}
     >
       <div className="grid grid-cols-3 gap-0.5">
@@ -152,9 +148,9 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
       <Divider />
 
       <MenuItem onClick={onToggleRevision}>
-        <GitBranch className={cn('w-4 h-4', isRevisionMode ? 'text-blue-400' : 'text-[var(--stone-gray)]')} />
+        <GitBranch className={cn('w-4 h-4', isRevisionMode ? 'text-[var(--terracotta)]' : 'text-[var(--stone-gray)]')} />
         <span className="flex-1">修订模式</span>
-        {isRevisionMode && <Check className="w-4 h-4 text-blue-400" />}
+        {isRevisionMode && <Check className="w-4 h-4 text-[var(--terracotta)]" />}
       </MenuItem>
 
       <MenuItem onClick={onOpenAnnotation} disabled={!hasSelection}>

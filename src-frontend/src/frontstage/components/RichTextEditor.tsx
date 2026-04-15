@@ -289,6 +289,41 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
+    // 编辑器区域右键菜单（直接绑定到编辑器容器，避免捕获阶段 stopPropagation 副作用）
+    useEffect(() => {
+      const editorEl = containerRef.current;
+      if (!editorEl || !editor) return;
+
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
+      };
+
+      const handleMouseDown = (e: MouseEvent) => {
+        if (e.button === 2) {
+          // 右键：显示菜单（部分 WebView 中 contextmenu 不触发，用 mousedown 兜底）
+          e.preventDefault();
+          setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
+        }
+      };
+
+      // 点击页面其他区域关闭菜单（右键点击用于打开菜单，不关闭）
+      const handleDocumentMouseDown = (e: MouseEvent) => {
+        if (e.button === 2) return;
+        setContextMenu(prev => (prev.visible ? { ...prev, visible: false } : prev));
+      };
+
+      editorEl.addEventListener('contextmenu', handleContextMenu, true);
+      editorEl.addEventListener('mousedown', handleMouseDown, true);
+      document.addEventListener('mousedown', handleDocumentMouseDown);
+
+      return () => {
+        editorEl.removeEventListener('contextmenu', handleContextMenu, true);
+        editorEl.removeEventListener('mousedown', handleMouseDown, true);
+        document.removeEventListener('mousedown', handleDocumentMouseDown);
+      };
+    }, [editor]);
+
     // 同步外部内容变化
     useEffect(() => {
       if (editor && content !== editor.getHTML()) {
@@ -816,6 +851,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setContextMenu({ visible: true, x: e.clientX, y: e.clientY });
         }}
       >
@@ -1310,10 +1346,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           onToggleRevision={() => setIsRevisionMode(!isRevisionMode)}
           onOpenAnnotation={() => {
             setPopupMode('annotation');
+            setShowAnnotationPanel(true);
             setContextMenu({ visible: false, x: 0, y: 0 });
           }}
           onOpenComment={() => {
             setPopupMode('comment');
+            setShowCommentPanel(true);
             setContextMenu({ visible: false, x: 0, y: 0 });
           }}
           onGenerateCommentary={() => {

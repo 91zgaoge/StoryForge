@@ -121,6 +121,25 @@ pub fn run() {
                 let _ = frontstage.set_focus();
             }
 
+            // Disable default webview context menus on Windows
+            #[cfg(target_os = "windows")]
+            {
+                for label in ["frontstage", "backstage"] {
+                    if let Some(window) = app.get_webview_window(label) {
+                        let _ = window.with_webview(|webview| {
+                            let controller = webview.controller();
+                            unsafe {
+                                if let Ok(core) = controller.CoreWebView2() {
+                                    if let Ok(settings) = core.Settings() {
+                                        let _ = settings.SetAreDefaultContextMenusEnabled(false);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

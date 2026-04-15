@@ -4,6 +4,20 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ## [Unreleased] - v3.3.0 功能断层修复与架构清理
 
+### 🖱️ 幕前右键菜单修复与样式重构（2026-04-15）
+
+- **修复右键菜单不出现的问题**
+  - `frontstage.css` 补充 `@tailwind utilities;`，解决 Tailwind utility 类（`fixed`、`z-[9999]` 等）在幕前入口不生效的问题
+  - `RichTextEditor.tsx` 将事件监听改为捕获阶段，兼容 Tauri WebView 中 `contenteditable` 的原生事件拦截
+  - Rust 后端通过 `webview2-com` 调用 WebView2 API 禁用 Windows 默认系统右键菜单
+
+- **右键菜单 UI 暖色重构**
+  - `EditorContextMenu.tsx` 整体色调从深色突兀风格切换为幕前暖色纸张规范
+  - 背景：`bg-[var(--ivory)]`，边框：`border-[var(--warm-sand)]`
+  - 主文字：`text-[var(--charcoal)]`，图标：`text-[var(--stone-gray)]`
+  - Hover：`hover:bg-[var(--warm-sand)]`，禁用态：`text-[var(--stone-gray)]/60`
+  - 分隔线改为 `bg-[var(--charcoal)]/10`，与暖色背景协调
+
 ### 🔧 API 一致性审计修复（2026-04-14）
 
 - **MCP 外部服务器连接**
