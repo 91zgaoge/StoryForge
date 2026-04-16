@@ -59,6 +59,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-http = "2"
 tauri-plugin-updater = "2"
+
+[target.'cfg(windows)'.dependencies]
 webview2-com = "0.36"
 
 [features]

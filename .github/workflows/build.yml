@@ -19,6 +19,7 @@ jobs:
   rust-check:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
@@ -97,10 +98,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
             args: --target x86_64-unknown-linux-gnu
           - os: windows-latest
+            target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc
           - os: macos-latest
+            target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
 
     steps:
