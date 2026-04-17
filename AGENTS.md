@@ -178,4 +178,28 @@ npm test
 
 ---
 
-*最后更新: 2026-04-17 - 幕前排版与自动续写优化完成*
+### 🏗️ 永久构建规则（用户强制要求）
+
+> **每次推送到 GitHub 前，必须先在本地执行构建，然后再推送。**
+> **每次推送到 GitHub 后，必须确保 GitHub Actions 自动触发全平台构建。**
+> **Git tag、Cargo.toml、tauri.conf.json、package.json 中的版本号必须保持统一。**
+
+**本地构建脚本**: `scripts/build-local.ps1`
+```powershell
+# Windows 本地构建
+.\scripts\build-local.ps1
+
+# 或指定平台
+.\scripts\build-local.ps1 -Windows
+.\scripts\build-local.ps1 -All
+```
+
+**现实限制**:
+- Windows 主机 ✅ 可本地构建 Windows (.msi/.exe)
+- Linux 主机 ⚠️ 需 WSL 或 Linux 虚拟机
+- macOS 主机 ❌ 无法在 Windows 上本地构建（需 macOS + Xcode）
+- 跨平台完整构建 → 交由 GitHub Actions (`ubuntu-latest` / `windows-latest` / `macos-latest`)
+
+---
+
+*最后更新: 2026-04-17 - 幕前排版与自动续写优化完成，版本号统一为 3.3.0*
