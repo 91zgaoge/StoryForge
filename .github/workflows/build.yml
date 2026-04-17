@@ -151,8 +151,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v3.1.2-nightly
-          releaseName: 'StoryForge v3.1.2 Nightly'
+          tagName: v3.3.0-nightly
+          releaseName: 'StoryForge v3.3.0 Nightly'
           releaseBody: |
             🌿 StoryForge (草苔) 最新构建版本
 
