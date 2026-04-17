@@ -3,6 +3,8 @@ name: Build and Test
 on:
   push:
     branches: [master, main]
+    tags:
+      - 'v*'
   pull_request:
     branches: [master, main]
 
@@ -145,8 +147,8 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
-      - name: Build Tauri app and release
-        if: github.event_name == 'push'
+      - name: Build Tauri app and release (nightly)
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -165,4 +167,26 @@ jobs:
             提交: ${{ github.sha }}
           releaseDraft: false
           prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Build Tauri app and release (stable)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'StoryForge ${{ github.ref_name }}'
+          releaseBody: |
+            🌿 StoryForge (草苔) ${{ github.ref_name }} 正式版
+
+            包含三个平台的安装包：
+            - Windows (.msi / .exe)
+            - macOS (.dmg / .app)
+            - Linux (.deb / .AppImage / .rpm)
+
+            构建时间: ${{ github.event.head_commit.timestamp }}
+            提交: ${{ github.sha }}
+          releaseDraft: false
+          prerelease: false
           args: ${{ matrix.args }}
