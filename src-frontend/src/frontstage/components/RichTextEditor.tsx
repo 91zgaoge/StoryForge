@@ -13,7 +13,6 @@ import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
 import { 
   Send,
-  ChevronUp,
   Sparkles,
   CheckCircle2,
   AlertCircle,
@@ -38,13 +37,9 @@ import {
 } from '@/components/EditorSettings';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { useModel } from '@/hooks/useModel';
-import { useIntent } from '@/hooks/useIntent';
-import { ChatMessage } from '@/services/modelService';
-import { ModelConfig } from '@/config/models';
-import type { IntentType, FeedbackType } from '@/types/index';
 import type { ParagraphCommentary } from '@/types/v3';
 import toast from 'react-hot-toast';
-import { generateParagraphCommentaries } from '@/services/tauri';
+import { generateParagraphCommentaries, writerAgentExecute } from '@/services/tauri';
 import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { CommentAnchorMark } from '@/frontstage/extensions/CommentAnchor';
@@ -53,28 +48,6 @@ import { EditorContextMenu } from './EditorContextMenu';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
 import { useCommentThreads, useCreateCommentThread, useAddCommentMessage, useResolveCommentThread, useDeleteCommentThread } from '@/hooks/useCommentThreads';
 import type { TextAnnotation, ChangeTrack, CommentThreadWithMessages } from '@/types/v3';
-
-const INTENT_LABELS: Record<IntentType, string> = {
-  text_generate: '续写生成',
-  text_rewrite: '文本改写',
-  plot_suggest: '情节建议',
-  character_check: '角色检查',
-  world_consistency: '世界观检查',
-  style_shift: '文风切换',
-  memory_ingest: '知识摄取',
-  visual_generate: '视觉生成',
-  scene_reorder: '场景调整',
-  outline_expand: '大纲扩展',
-  unknown: '自由对话',
-};
-
-const FEEDBACK_LABELS: Record<FeedbackType, string> = {
-  direct_apply: '直接应用',
-  suggestion_card: '建议卡片',
-  diff_preview: '差异预览',
-  system_notice: '系统通知',
-  visual_highlight: '高亮提示',
-};
 
 interface RichTextEditorProps {
   content: string;
@@ -92,6 +65,8 @@ interface RichTextEditorProps {
   onZenModeChange?: (zen: boolean) => void;
   storyId?: string;
   chapterId?: string;
+  chapterNumber?: number;
+  onWriterResult?: (text: string) => void;
   isRevisionMode?: boolean;
   onRevisionModeChange?: (v: boolean) => void;
   showAnnotationPanel?: boolean;
@@ -103,6 +78,7 @@ interface RichTextEditorProps {
 export interface RichTextEditorRef {
   insertText: (text: string) => void;
   getText: () => string;
+  getSelectedText: () => string;
   focus: () => void;
   generateCommentary: () => void;
 }
@@ -124,6 +100,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     onZenModeChange,
     storyId,
     chapterId,
+    chapterNumber,
+    onWriterResult,
     isRevisionMode: externalIsRevisionMode = false,
     onRevisionModeChange,
     showAnnotationPanel: externalShowAnnotationPanel = false,
@@ -133,13 +111,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
-    const [showToolbar, setShowToolbar] = useState(false);
     const [chatInput, setChatInput] = useState('');
-    const [chatHistory, setChatHistory] = useState<Array<{type: 'user' | 'ai', content: string, intentLabel?: string}>>([]);
     const [isAiThinking, setIsAiThinking] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [lastInstruction, setLastInstruction] = useState<string | null>(null);
     const [showModelTooltip, setShowModelTooltip] = useState(false);
-    const [streamingContent, setStreamingContent] = useState('');
     const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
     
     // 文本批注状态
@@ -156,9 +131,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
     
     // 使用模型管理Hook
-    const { currentModel, status, chat } = useModel();
-    // 使用意图解析Hook
-    const { parseIntent, executeIntent, buildMessages, isParsing: isParsingIntent, isExecuting: isExecutingIntent } = useIntent();
+    const { currentModel, status } = useModel();
     
     // 文本批注数据
     const { data: textAnnotations = [] } = useTextAnnotationsByChapter(chapterId || null);
@@ -513,89 +486,52 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       return () => (editorElement as HTMLElement).removeEventListener('click', handleClick);
     }, [editor, characters]);
 
-    // 发送消息（意图感知）
-    const handleSendMessage = useCallback(async () => {
-      if (!chatInput.trim() || isAiThinking || isParsingIntent || isExecutingIntent) return;
-      
-      const userMessage = chatInput.trim();
-      setChatHistory(prev => [...prev, { type: 'user', content: userMessage }]);
-      setChatInput('');
+    // 发送消息（正文助手指令栏）
+    const executeWriterAgent = useCallback(async (instruction: string) => {
+      if (isAiThinking) return;
+      setLastInstruction(instruction);
       setIsAiThinking(true);
-      setStreamingContent('');
-      
+
       try {
-        // Step 1: 解析意图
-        const intent = await parseIntent(userMessage);
-        const intentLabel = intent 
-          ? `${INTENT_LABELS[intent.intent_type] || '自由对话'} · ${FEEDBACK_LABELS[intent.feedback_type] || '建议卡片'}`
+        const currentContent = editor?.getHTML() || '';
+        const selectedText = (editor && !editor.state.selection.empty)
+          ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
           : undefined;
-        
-        // Step 2: 根据意图类型选择执行路径
-        const shouldUseAgentExecution = intent && 
-          !['unknown', 'text_generate', 'text_rewrite'].includes(intent.intent_type) &&
-          storyId;
-        
-        if (shouldUseAgentExecution) {
-          // Agent 调度执行路径
-          const result = await executeIntent(intent, storyId);
-          if (result && result.steps.length > 0) {
-            const agentContent = result.steps
-              .filter(s => s.success && s.result)
-              .map(s => `【${s.agent_name}】\n${s.result!.content}`)
-              .join('\n\n');
-            const finalContent = agentContent || result.summary;
-            setChatHistory(prev => [...prev, { type: 'ai', content: finalContent, intentLabel }]);
-          } else {
-            const fallbackMessages = buildMessages(intent, chatHistory, userMessage, editor?.getText());
-            let aiResponse = '';
-            await chat(fallbackMessages as ChatMessage[], {
-              stream: true,
-              onStream: (chunk) => {
-                aiResponse += chunk;
-                setStreamingContent(aiResponse);
-              }
-            });
-            setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse, intentLabel }]);
-          }
-        } else {
-          // 直接对话流式输出路径
-          const messages = intent
-            ? buildMessages(intent, chatHistory, userMessage, editor?.getText())
-            : [
-                {
-                  role: 'system',
-                  content: '你是一位专业的写作助手，擅长帮助作者改进文章、提供创作灵感和续写建议。请用中文回答，语言要优美、富有文学性。'
-                },
-                ...chatHistory.map(h => ({
-                  role: (h.type === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-                  content: h.content
-                })),
-                { role: 'user' as const, content: userMessage }
-              ];
 
-          let aiResponse = '';
-          
-          await chat(messages as ChatMessage[], {
-            stream: true,
-            onStream: (chunk) => {
-              aiResponse += chunk;
-              setStreamingContent(aiResponse);
-            }
-          });
+        const result = await writerAgentExecute({
+          story_id: storyId || '',
+          chapter_number: chapterNumber,
+          current_content: currentContent,
+          selected_text: selectedText,
+          instruction,
+        });
 
-          setChatHistory(prev => [...prev, { type: 'ai', content: aiResponse, intentLabel }]);
-        }
+        onWriterResult?.(result.content);
+        toast.success('正文助手已完成');
       } catch (error) {
-        console.error('Chat error:', error);
-        setChatHistory(prev => [...prev, { 
-          type: 'ai', 
-          content: '抱歉，我暂时无法回应。请检查模型连接状态。' 
-        }]);
+        console.error('Writer agent error:', error);
+        const msg = error instanceof Error ? error.message : String(error);
+        toast.error(`正文助手调用失败：${msg}`);
       } finally {
         setIsAiThinking(false);
-        setStreamingContent('');
       }
-    }, [chatInput, chatHistory, chat, isAiThinking, isParsingIntent, isExecutingIntent, parseIntent, executeIntent, buildMessages, editor, storyId]);
+    }, [isAiThinking, storyId, chapterNumber, editor, onWriterResult]);
+
+    const handleSendMessage = useCallback(async () => {
+      if (!chatInput.trim() || isAiThinking) return;
+      const instruction = chatInput.trim();
+      setChatInput('');
+      await executeWriterAgent(instruction);
+    }, [chatInput, isAiThinking, executeWriterAgent]);
+
+    const handleAcceptAndContinue = useCallback(() => {
+      onAcceptGeneration?.();
+      if (aiEnabled && !isZenMode) {
+        setTimeout(() => {
+          executeWriterAgent('续写');
+        }, 300);
+      }
+    }, [onAcceptGeneration, aiEnabled, isZenMode, executeWriterAgent]);
 
     // 生成古典评点
     const handleGenerateCommentary = useCallback(async () => {
@@ -784,10 +720,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 键盘快捷键
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
+        if (isZenMode) return;
+
         // Accept AI suggestion
-        if (e.key === 'Tab' && generatedText && onAcceptGeneration) {
+        if (e.key === 'Tab' && generatedText && handleAcceptAndContinue) {
           e.preventDefault();
-          onAcceptGeneration();
+          handleAcceptAndContinue();
           return;
         }
 
@@ -801,21 +739,38 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [generatedText, onAcceptGeneration, onRejectGeneration]);
+    }, [generatedText, handleAcceptAndContinue, onRejectGeneration, isZenMode]);
+
+    // 当 generatedText 被清空（接受/拒绝）时，也清空 lastInstruction
+    useEffect(() => {
+      if (!generatedText) {
+        setLastInstruction(null);
+      }
+    }, [generatedText]);
 
     // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
       insertText: (text: string) => {
         if (editor) {
-          editor.chain().focus().insertContent(text).run();
+          if (selectedRange) {
+            editor.chain().focus().setTextSelection({ from: selectedRange.from, to: selectedRange.to }).insertContent(text).run();
+          } else {
+            editor.chain().focus().insertContent(text).run();
+          }
         }
       },
       getText: () => editor?.getText() || '',
+      getSelectedText: () => {
+        if (!editor) return '';
+        const { from, to } = editor.state.selection;
+        if (from === to) return '';
+        return editor.state.doc.textBetween(from, to, '\n');
+      },
       focus: () => editor?.commands.focus(),
       generateCommentary: () => {
         handleGenerateCommentary();
       },
-    }), [editor, handleGenerateCommentary]);
+    }), [editor, handleGenerateCommentary, selectedRange]);
 
     if (!editor) return null;
 
@@ -843,12 +798,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           className
         )}
         style={styleVars}
-        onMouseEnter={() => setShowToolbar(true)}
-        onMouseLeave={() => {
-          if (!isExpanded && !chatInput) {
-            setShowToolbar(false);
-          }
-        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -980,32 +929,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           )}
         </div>
 
-        {/* AI 生成预览 */}
-        {generatedText && (
-          <div className="mx-8 my-4 p-4 bg-[var(--parchment-dark)] rounded-xl relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-0.5 bg-[var(--terracotta)]/30" />
-            <p className="text-sm text-[var(--stone-gray)] italic mb-2 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-[var(--terracotta)]" />
-              AI 建议续写
-            </p>
-            <p className="text-[var(--charcoal)] leading-relaxed">{generatedText}</p>
-            <div className="flex items-center gap-2 mt-3 text-sm">
-              <button
-                onClick={onAcceptGeneration}
-                className="px-3 py-1.5 bg-[var(--terracotta)] text-white rounded-lg hover:bg-[var(--terracotta-dark)] active:scale-95 transition-colors duration-200"
-              >
-                Tab 接受
-              </button>
-              <button
-                onClick={onRejectGeneration}
-                className="px-3 py-1.5 text-[var(--stone-gray)] hover:text-[var(--charcoal)] hover:bg-[var(--warm-sand)] rounded-lg active:scale-95 transition-colors duration-200"
-              >
-                Esc 拒绝
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* 底部对话栏 */}
         {!isZenMode && (
           <div 
@@ -1015,9 +938,49 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               'px-6 pb-5 pt-3',
               'border-t border-[var(--warm-sand)]',
               'transition-opacity duration-300 ease-out transition-transform duration-300 ease-out',
-              showToolbar || isExpanded || chatInput ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'
+              'opacity-100 translate-y-0'
             )}
           >
+            {/* AI 生成状态 / 预览 */}
+            {isAiThinking && (
+              <div className="mx-2 mb-3 p-4 bg-[var(--warm-sand)] rounded-xl relative overflow-hidden border border-[var(--terracotta)]/10">
+                <div className="flex items-center gap-3 text-[var(--stone-gray)]">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--terracotta)]" />
+                  <div>
+                    <p className="text-sm font-medium text-[var(--charcoal)]">正文助手思考中...</p>
+                    {lastInstruction && (
+                      <p className="text-xs text-[var(--stone-gray)]/80 mt-0.5">「{lastInstruction}」</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {generatedText && (
+              <div className="mx-2 mb-3 p-4 bg-[var(--parchment-dark)] rounded-xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-[var(--terracotta)]/30" />
+                <p className="text-sm text-[var(--stone-gray)] italic mb-2 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--terracotta)]" />
+                  AI 建议续写
+                </p>
+                <p className="text-[var(--charcoal)] leading-relaxed">{generatedText}</p>
+                <div className="flex items-center gap-2 mt-3 text-sm">
+                  <button
+                    onClick={handleAcceptAndContinue}
+                    className="px-3 py-1.5 bg-[var(--terracotta)] text-white rounded-lg hover:bg-[var(--terracotta-dark)] active:scale-95 transition-colors duration-200"
+                  >
+                    Tab 接受
+                  </button>
+                  <button
+                    onClick={onRejectGeneration}
+                    className="px-3 py-1.5 text-[var(--stone-gray)] hover:text-[var(--charcoal)] hover:bg-[var(--warm-sand)] rounded-lg active:scale-95 transition-colors duration-200"
+                  >
+                    Esc 拒绝
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 批注面板 */}
             {showAnnotationPanel && (
               <div className="annotation-panel mb-3 max-h-40 overflow-y-auto bg-cinema-900/50 border border-cinema-800 rounded-xl p-3">
@@ -1177,78 +1140,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               </div>
             )}
 
-            {/* 对话历史 - 仅在展开时显示 */}
-            {isExpanded && (chatHistory.length > 0 || streamingContent) && (
-              <div className="chat-history mb-3 max-h-40 overflow-y-auto space-y-2 px-1">
-                {chatHistory.map((msg, idx) => (
-                  <div 
-                    key={idx} 
-                    className={cn(
-                      'chat-message text-sm p-2.5 rounded-2xl max-w-[85%]',
-                      msg.type === 'user' 
-                        ? 'bg-[var(--terracotta)]/10 ml-auto rounded-br-md' 
-                        : 'bg-[var(--warm-sand)] mr-auto rounded-bl-md'
-                    )}
-                  >
-                    {msg.type === 'ai' && msg.intentLabel && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--terracotta)]/10 text-[var(--terracotta)] mb-1.5">
-                        <Sparkles className="w-3 h-3" />
-                        {msg.intentLabel}
-                      </span>
-                    )}
-                    <p className="text-[var(--charcoal)] leading-relaxed">{msg.content}</p>
-                  </div>
-                ))}
-                {streamingContent && (
-                  <div className="chat-message text-sm p-2.5 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[85%] mr-auto">
-                    <p className="text-[var(--charcoal)] leading-relaxed">{streamingContent}</p>
-                  </div>
-                )}
-                {isParsingIntent && (
-                  <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
-                    <div className="flex items-center gap-2 text-[var(--stone-gray)]">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span className="text-xs">解析意图中...</span>
-                    </div>
-                  </div>
-                )}
-                {isExecutingIntent && (
-                  <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
-                    <div className="flex items-center gap-2 text-[var(--stone-gray)]">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span className="text-xs">Agent 执行中...</span>
-                    </div>
-                  </div>
-                )}
-                {isAiThinking && !streamingContent && !isParsingIntent && !isExecutingIntent && (
-                  <div className="chat-message text-sm p-3 bg-[var(--warm-sand)] rounded-2xl rounded-bl-md max-w-[60%] mr-auto">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 bg-[var(--stone-gray)] rounded-full animate-bounce" />
-                      <span className="w-1.5 h-1.5 bg-[var(--stone-gray)] rounded-full animate-bounce delay-100" />
-                      <span className="w-1.5 h-1.5 bg-[var(--stone-gray)] rounded-full animate-bounce delay-200" />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* 模型状态与输入框一体化设计 */}
             <div className="chat-input-wrapper">
-              <div className={cn(
-                'chat-input-container',
-                isExpanded && 'expanded'
-              )}>
-                {/* 左侧：模型状态 + 展开按钮 */}
+              <div className="chat-input-container">
+                {/* 左侧：模型状态 */}
                 <div className="chat-input-left">
-                  <button
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    className="chat-toggle-btn"
-                    title={isExpanded ? '收起对话' : '展开对话'}
-                  >
-                    <ChevronUp className={cn('w-4 h-4 transition-transform duration-200', isExpanded && 'rotate-180')} />
-                  </button>
-
-                  <div 
+                  <div
                     className="model-status-wrapper relative"
                     onMouseEnter={() => setShowModelTooltip(true)}
                     onMouseLeave={() => setShowModelTooltip(false)}
@@ -1259,7 +1156,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                       status === 'disconnected' && 'status-disconnected',
                       status === 'connecting' && 'status-connecting'
                     )} />
-                    
+
                     {/* 悬停提示 */}
                     {showModelTooltip && (
                       <div className="model-tooltip">
@@ -1294,11 +1191,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                         handleSendMessage();
                       }
                     }}
-                    onFocus={() => setIsExpanded(true)}
-                    placeholder="在此驾驭智能文思"
+                    placeholder="输入指令，如：续写、改写成古风、扩展这段描写"
                     className="chat-textarea"
-                    rows={isExpanded ? 2 : 1}
-                    disabled={status === 'disconnected' || isParsingIntent || isExecutingIntent}
+                    rows={1}
+                    disabled={status === 'disconnected' || isAiThinking}
                   />
                 </div>
 
@@ -1306,13 +1202,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 <div className="chat-input-right flex items-center gap-1.5">
                   <button
                     onClick={handleSendMessage}
-                    disabled={!chatInput.trim() || isAiThinking || isParsingIntent || isExecutingIntent || status === 'disconnected'}
+                    disabled={!chatInput.trim() || isAiThinking || status === 'disconnected'}
                     className={cn(
                       'chat-send-btn',
-                      chatInput.trim() && !isAiThinking && !isParsingIntent && !isExecutingIntent && status === 'connected' && 'active'
+                      chatInput.trim() && !isAiThinking && status === 'connected' && 'active'
                     )}
                   >
-                    {isAiThinking || isParsingIntent || isExecutingIntent ? (
+                    {isAiThinking ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <Send className="w-4 h-4" />
@@ -1324,7 +1220,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               {/* 提示文字 */}
               <div className="chat-hint">
                 <span>Enter 发送 · Shift+Enter 换行</span>
-                {aiEnabled && (
+                {aiEnabled && !isZenMode && (
                   <span className="hint-wensi">
                     <Sparkles className="w-3 h-3" />
                     文思已开启

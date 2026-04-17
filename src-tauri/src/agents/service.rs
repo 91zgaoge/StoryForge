@@ -453,12 +453,52 @@ impl AgentService {
 
     fn build_writer_prompt(&self, task: &AgentTask) -> String {
         let ctx = &task.context;
-        format!(r#"【故事信息】
+        let has_selection = ctx.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+
+        if has_selection {
+            format!(r#"【故事信息】
+标题: {}
+类型: {}
+风格: {} / 节奏: {}
+
+【当前章节内容】
+{}
+
+【用户选中的文本】
+{}
+
+【修改要求】
+{}
+
+【角色信息】
+{}
+
+请根据以上上下文，对用户选中的文本进行修改。要求：
+1. 保持文风一致
+2. 情节连贯自然
+3. 人物行为符合性格设定
+4. 只输出修改后的文本，不要添加解释或重复上下文
+
+直接输出修改后的内容："#,
+                ctx.story_title,
+                ctx.genre,
+                ctx.tone,
+                ctx.pacing,
+                ctx.current_content.as_deref().unwrap_or("无"),
+                ctx.selected_text.as_deref().unwrap_or(""),
+                task.input,
+                ctx.format_characters()
+            )
+        } else {
+            format!(r#"【故事信息】
 标题: {}
 类型: {}
 风格: {} / 节奏: {}
 
 【前文内容】
+{}
+
+【当前章节已有内容】
 {}
 
 【写作要求】
@@ -467,21 +507,23 @@ impl AgentService {
 【角色信息】
 {}
 
-请根据以上上下文，续写接下来的内容。要求：
+请根据以上上下文，续写或扩展接下来的内容。要求：
 1. 保持文风一致
 2. 情节连贯自然
 3. 人物行为符合性格设定
 4. 适当加入环境描写和对话
 
 直接输出续写内容，不要添加解释。"#,
-            ctx.story_title,
-            ctx.genre,
-            ctx.tone,
-            ctx.pacing,
-            ctx.previous_chapters.last().map(|c| &c.summary).unwrap_or(&"无".to_string()),
-            task.input,
-            ctx.characters.iter().map(|c| format!("- {}: {}", c.name, c.personality)).collect::<Vec<_>>().join("\n")
-        )
+                ctx.story_title,
+                ctx.genre,
+                ctx.tone,
+                ctx.pacing,
+                ctx.format_previous_chapters(),
+                ctx.current_content.as_deref().unwrap_or("无"),
+                task.input,
+                ctx.format_characters()
+            )
+        }
     }
 
     fn build_inspector_prompt(&self, task: &AgentTask) -> String {

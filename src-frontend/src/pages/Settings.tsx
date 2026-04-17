@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useSettings, useModels, useExportSettings, useImportSettings } from '@/hooks/useSettings';
+import { useSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel } from '@/hooks/useSettings';
 import { useUpdater } from '@/hooks/useUpdater';
 import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
@@ -47,16 +47,23 @@ export function Settings() {
   
   // 模型连接状态
   const [connectionStatus, setConnectionStatus] = useState<Record<string, { loading: boolean; success?: boolean; latency?: number; error?: string }>>({});
-  
+
+  // 对当前 tab 的模型进行连接测试
   useEffect(() => {
     if (!models.length) return;
-    
+
+    const currentTabModels = models.filter(m => m.type === activeTab);
+    if (!currentTabModels.length) return;
+
     const testConnections = async () => {
-      const initial: Record<string, { loading: boolean }> = {};
-      models.forEach(m => { initial[m.id] = { loading: true }; });
-      setConnectionStatus(initial);
-      
-      for (const model of models) {
+      // 将当前 tab 的模型设为加载中
+      setConnectionStatus(prev => {
+        const next = { ...prev };
+        currentTabModels.forEach(m => { next[m.id] = { loading: true }; });
+        return next;
+      });
+
+      for (const model of currentTabModels) {
         try {
           const result = await testModelConnection(model.id);
           setConnectionStatus(prev => ({
@@ -71,9 +78,9 @@ export function Settings() {
         }
       }
     };
-    
+
     testConnections();
-  }, [models]);
+  }, [models, activeTab]);
   
   // 按类型过滤模型
   const filteredModels = models.filter(m => m.type === activeTab);
@@ -421,7 +428,9 @@ function ModelModal({
   };
   
   const { register, handleSubmit, watch } = useForm({
-    defaultValues: model ? { ...defaultValues, ...model } : defaultValues
+    defaultValues: model 
+      ? { ...defaultValues, ...model, api_key: model.api_key === '***' ? '' : (model.api_key || '') } 
+      : defaultValues
   });
   
   const provider = watch('provider');
@@ -430,10 +439,46 @@ function ModelModal({
   const requiresApiKey = providers.find(p => p.id === provider)?.requiresApiKey ?? true;
   const showApiKeyField = requiresApiKey || provider === 'custom';
   
+  const createModelMutation = useCreateModel();
+  const updateModelMutation = useUpdateModel();
+  
   const onSubmit = (data: any) => {
-    console.log('Submit:', data);
-    // TODO: 调用创建/更新API
-    onClose();
+    const payload: any = {
+      name: data.name,
+      provider: data.provider,
+      model: data.model,
+      description: data.description || undefined,
+      api_base: data.api_base || undefined,
+      model_type: type,
+      is_default: !!data.is_default,
+      enabled: data.enabled !== false,
+    };
+    
+    // API Key：新建时必须传；编辑时如果为空表示未修改，保留旧值由后端处理
+    if (!model || (data.api_key && data.api_key !== '***')) {
+      payload.api_key = data.api_key || undefined;
+    }
+    
+    if (type === 'chat' || type === 'multimodal') {
+      payload.temperature = Number(data.temperature);
+      payload.max_tokens = Number(data.max_tokens);
+      payload.capabilities = type === 'chat'
+        ? ['chat', 'completion', 'long_context']
+        : ['chat', 'vision', 'long_context'];
+    }
+    
+    if (type === 'embedding') {
+      payload.dimensions = Number(data.dimensions);
+    }
+    
+    if (model) {
+      updateModelMutation.mutate(
+        { id: model.id, config: payload },
+        { onSuccess: onClose }
+      );
+    } else {
+      createModelMutation.mutate(payload as Omit<ModelConfig, 'id'>, { onSuccess: onClose });
+    }
   };
   
   return (

@@ -400,12 +400,34 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
 
 /// 更新模型配置
 #[command]
-pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle) -> Result<(), String> {
+pub fn update_model(id: String, mut config: ModelConfigInput, app_handle: AppHandle) -> Result<(), String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app dir: {}", e))?;
+    let mut app_config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+
+    // 如果前端没传 API Key（空字符串表示未修改），保留旧值
+    let old_api_key = app_config.llm_profiles.get(&id)
+        .map(|p| p.api_key.clone())
+        .or_else(|| app_config.embedding_profiles.get(&id).map(|p| p.api_key.clone()));
+
+    // 先临时取消默认标记，避免 delete_model 因"不能删除默认模型"而失败
+    if let Some(p) = app_config.llm_profiles.get_mut(&id) {
+        p.is_default = false;
+    }
+    if let Some(p) = app_config.embedding_profiles.get_mut(&id) {
+        p.is_default = false;
+    }
+    app_config.save(&app_dir).map_err(|e| e.to_string())?;
+
     // 简化实现：删除旧配置，创建新配置
     delete_model(id.clone(), app_handle.clone())?;
-    let mut new_config = config;
-    new_config.id = Some(id);
-    create_model(new_config, app_handle)?;
+    if config.api_key.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+        config.api_key = old_api_key;
+    }
+    config.id = Some(id);
+    create_model(config, app_handle)?;
     Ok(())
 }
 
@@ -482,27 +504,106 @@ pub fn update_agent_mapping(mapping: AgentMapping, app_handle: AppHandle) -> Res
 /// 测试模型连接
 #[command]
 pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> Result<serde_json::Value, String> {
-    let settings = get_settings(app_handle)?;
-    
-    // 查找模型
-    let mut found_model: Option<&serde_json::Value> = None;
-    for models in settings.models.values() {
-        if let Some(model) = models.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(&model_id)) {
-            found_model = Some(model);
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app dir: {}", e))?;
+    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+
+    // 在 LLM profiles 和 embedding profiles 中查找真实配置
+    let mut found_profile: Option<(String, Option<String>)> = None;
+    for p in config.llm_profiles.values() {
+        if p.id == model_id {
+            found_profile = Some((p.api_base.clone().unwrap_or_default(), Some(p.api_key.clone())));
             break;
         }
     }
-    
-    if found_model.is_none() {
-        return Err(format!("Model '{}' not found", model_id));
+    if found_profile.is_none() {
+        for p in config.embedding_profiles.values() {
+            if p.id == model_id {
+                found_profile = Some((p.api_base.clone().unwrap_or_default(), Some(p.api_key.clone())));
+                break;
+            }
+        }
     }
-    
-    // TODO: 实际测试连接
-    // 模拟延迟测试
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    
-    Ok(serde_json::json!({
-        "success": true,
-        "latency": 500,
-    }))
+
+    let (api_base, api_key) = found_profile.ok_or_else(|| format!("Model '{}' not found", model_id))?;
+    if api_base.is_empty() {
+        return Ok(serde_json::json!({
+            "success": false,
+            "latency": 0,
+            "error": "未配置 API Base",
+        }));
+    }
+
+    let start = std::time::Instant::now();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let api_key_ref = api_key.as_deref();
+
+    // 探测策略：只要收到任何 HTTP 响应（不论状态码）即视为网络可通
+    let mut connected = false;
+
+    // 1. GET base_url（根路径）
+    if client.get(&api_base).send().await.is_ok() {
+        connected = true;
+    }
+
+    // 2. GET /models
+    if !connected {
+        let mut req = client.get(format!("{}/models", api_base));
+        if let Some(key) = api_key_ref {
+            if !key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+        if req.send().await.is_ok() {
+            connected = true;
+        }
+    }
+
+    // 3. POST /chat/completions
+    if !connected {
+        let mut req = client.post(format!("{}/chat/completions", api_base));
+        if let Some(key) = api_key_ref {
+            if !key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+        req = req.header("Content-Type", "application/json");
+        if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
+            connected = true;
+        }
+    }
+
+    // 4. POST /v1/chat/completions
+    if !connected {
+        let mut req = client.post(format!("{}/v1/chat/completions", api_base));
+        if let Some(key) = api_key_ref {
+            if !key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+        req = req.header("Content-Type", "application/json");
+        if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
+            connected = true;
+        }
+    }
+
+    if connected {
+        let latency = start.elapsed().as_millis() as u64;
+        Ok(serde_json::json!({
+            "success": true,
+            "latency": latency,
+        }))
+    } else {
+        Ok(serde_json::json!({
+            "success": false,
+            "latency": 0,
+            "error": "无法连接到模型服务".to_string(),
+        }))
+    }
 }

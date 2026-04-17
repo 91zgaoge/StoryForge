@@ -5,6 +5,7 @@
  * 支持多模态、语言和Embedding模型
  */
 
+import { invoke } from '@tauri-apps/api/core';
 import { ModelConfig, getChatModel, getEmbeddingModel } from '@/config/models';
 
 export interface ChatMessage {
@@ -75,28 +76,23 @@ class ModelService {
     return this.currentModelId;
   }
 
-  // 检查模型连接状态
+  // 检查模型连接状态（通过后端 Rust 代理，绕过 CSP/CORS 限制）
   async checkModelStatus(modelId?: string): Promise<'connected' | 'disconnected' | 'connecting'> {
     const config = modelId ? getChatModel(modelId) : this.getCurrentModel();
-    
+
     try {
-      const response = await fetch(`${config.baseUrl}/models`, {
-        method: 'GET',
-        headers: this.buildHeaders(config),
-        signal: AbortSignal.timeout(5000),
+      const status = await invoke<string>('check_model_status', {
+        baseUrl: config.baseUrl,
+        apiKey: config.useApiKey && config.apiKey ? config.apiKey : undefined,
       });
-      
-      if (response.ok) {
-        return 'connected';
-      }
-      return 'disconnected';
+      return status as 'connected' | 'disconnected';
     } catch (error) {
       console.warn('Model status check failed:', error);
       return 'disconnected';
     }
   }
 
-  // 发送聊天请求
+  // 发送聊天请求（通过后端 Rust 代理，绕过前端 CSP/fetch 限制）
   async chat(
     messages: ChatMessage[],
     options?: {
@@ -107,50 +103,25 @@ class ModelService {
     }
   ): Promise<ChatCompletionResponse> {
     const config = this.getCurrentModel();
-    
-    // 取消之前的请求
-    if (this.abortController) {
-      this.abortController.abort();
-    }
-    this.abortController = new AbortController();
 
-    const requestBody: ChatCompletionRequest = {
+    const data = await invoke<ChatCompletionResponse>('chat_completion', {
+      baseUrl: config.baseUrl,
+      apiKey: config.useApiKey && config.apiKey ? config.apiKey : undefined,
       model: config.id,
       messages,
-      max_tokens: options?.maxTokens || config.maxTokens || 8192,
+      maxTokens: options?.maxTokens || config.maxTokens || 8192,
       temperature: options?.temperature || config.temperature || 0.8,
-      stream: options?.stream || false,
-    };
+    });
 
-    try {
-      const response = await fetch(`${config.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          ...this.buildHeaders(config),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal: this.abortController.signal,
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`API请求失败: ${response.status} - ${error}`);
+    // 模拟流式效果：如果前端要求 onStream，一次性推送完整内容
+    if (options?.stream && options.onStream) {
+      const content = data.choices?.[0]?.message?.content || '';
+      if (content) {
+        options.onStream(content);
       }
-
-      // 处理流式响应
-      if (options?.stream && options.onStream) {
-        return await this.handleStreamResponse(response, options.onStream);
-      }
-
-      const data: ChatCompletionResponse = await response.json();
-      return data;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error('请求已取消');
-      }
-      throw error;
     }
+
+    return data;
   }
 
   // 处理流式响应

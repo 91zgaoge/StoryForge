@@ -89,7 +89,7 @@ impl LlmService {
     /// 创建适配器
     fn create_adapter(&self, profile: &LlmProfile) -> Result<Box<dyn super::LlmAdapter>, String> {
         match profile.provider {
-            LlmProvider::OpenAI => {
+            LlmProvider::OpenAI | LlmProvider::Custom | LlmProvider::DeepSeek | LlmProvider::Qwen => {
                 Ok(Box::new(OpenAiAdapter::new(
                     profile.api_key.clone(),
                     profile.model.clone(),

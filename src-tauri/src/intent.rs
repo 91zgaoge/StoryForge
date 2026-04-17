@@ -315,6 +315,8 @@ impl IntentExecutor {
             chapter_number: 1,
             characters: vec![],
             previous_chapters: vec![],
+            current_content: None,
+            selected_text: None,
         }
     }
 

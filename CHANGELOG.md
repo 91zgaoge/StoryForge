@@ -65,6 +65,25 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - 明确保留 HTTP 直连 (`modelService.ts`) 为前端唯一官方 LLM 调用路径
   - Tauri 侧 `llm_generate` 等命令降级为内部/备用用途
 
+### 📝 幕前排版与 AI 续写优化（2026-04-17）
+
+- **段落间距优化**
+  - `frontstage.css` 将 `.ProseMirror p` 的 `margin-bottom` 从 `1.5em` 统一降至 `0`
+  - 为所有 `.ProseMirror p` 增加 `text-indent: 2em`，符合中文小说首行缩进排版
+  - 同步调整 classical / modernCN / minimal / romantic 四种写作风格的段落间距
+
+- **底部栏遮挡修复**
+  - `.rich-text-editor .ProseMirror` 的 `padding-bottom` 从 `3rem` 增至 `10rem`
+  - 长文本滚动到底部时，最后一段文字不再被底部 chat toolbar 遮挡
+
+- **自动续写**
+  - `RichTextEditor.tsx` 提取 `executeWriterAgent(instruction)` 通用函数
+  - 新增 `handleAcceptAndContinue`：用户按 `Tab` 或点击「接受」后，若 `aiEnabled` 开启且不在 Zen 模式，自动延迟 300ms 调用 `executeWriterAgent('续写')` 发起下一轮生成
+
+- **Zen 模式 AI 纯净**
+  - 禅模式下完全隐藏 `AiSuggestionBubble`、`generatedText` 预览、`isAiThinking` 指示器
+  - 禁用 `Tab`/`Esc` 接受/拒绝快捷键，确保 F11 禅模式仅保留文字与空白
+
 ### 🔇 质量提升
 
 - **Rust Warnings 降噪**

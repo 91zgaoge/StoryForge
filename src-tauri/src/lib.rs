@@ -69,6 +69,7 @@ pub fn run() {
             match init_db(&app_dir) {
                 Ok(pool) => {
                     log::info!("Database initialized successfully");
+                    app.manage(pool.clone());
                     *DB_POOL.lock().unwrap() = Some(pool);
                 }
                 Err(e) => {
@@ -143,7 +144,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            health_check, get_state, list_stories, create_story, update_story, delete_story,
+            health_check, check_model_status, chat_completion, get_state, list_stories, create_story, update_story, delete_story,
             get_story_characters, create_character, update_character, delete_character,
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
             get_skills, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill,
@@ -187,6 +188,7 @@ pub fn run() {
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
             agents::commands::agent_cancel_task,
+            agents::commands::writer_agent_execute,
             agents::service::get_available_agents,
             // Updater commands
             updater::check_update,
@@ -289,6 +291,105 @@ fn health_check() -> Result<serde_json::Value, String> {
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "version": env!("CARGO_PKG_VERSION"),
     }))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChatMessageItem {
+    pub role: String,
+    pub content: String,
+}
+
+#[tauri::command]
+async fn chat_completion(
+    base_url: String,
+    api_key: Option<String>,
+    model: String,
+    messages: Vec<ChatMessageItem>,
+    max_tokens: i32,
+    temperature: f32,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut request = client
+        .post(format!("{}/chat/completions", base_url))
+        .header("Content-Type", "application/json");
+
+    if let Some(key) = api_key {
+        if !key.is_empty() {
+            request = request.header("Authorization", format!("Bearer {}", key));
+        }
+    }
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": messages.iter().map(|m| serde_json::json!({
+            "role": m.role,
+            "content": m.content
+        })).collect::<Vec<_>>(),
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": false,
+    });
+
+    let response = request.json(&body).send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("HTTP {}: {}", status, text));
+    }
+
+    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    Ok(data)
+}
+
+#[tauri::command]
+async fn check_model_status(base_url: String, api_key: Option<String>) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let api_key_ref = api_key.as_deref();
+
+    // 探测策略：只要收到任何 HTTP 响应（不论状态码）即视为网络可通
+    // 1. GET base_url（根路径，最宽容）
+    if client.get(&base_url).send().await.is_ok() {
+        return Ok("connected".to_string());
+    }
+
+    // 2. GET /models（OpenAI 标准）
+    let mut req = client.get(format!("{}/models", base_url));
+    if let Some(key) = api_key_ref {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    if req.send().await.is_ok() {
+        return Ok("connected".to_string());
+    }
+
+    // 3. POST /chat/completions
+    let mut req = client.post(format!("{}/chat/completions", base_url));
+    if let Some(key) = api_key_ref {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    req = req.header("Content-Type", "application/json");
+    if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
+        return Ok("connected".to_string());
+    }
+
+    // 4. POST /v1/chat/completions（部分服务 base_url 不含 /v1）
+    let mut req = client.post(format!("{}/v1/chat/completions", base_url));
+    if let Some(key) = api_key_ref {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    req = req.header("Content-Type", "application/json");
+    if req.body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#).send().await.is_ok() {
+        return Ok("connected".to_string());
+    }
+
+    Ok("disconnected".to_string())
 }
 
 #[tauri::command]
@@ -418,6 +519,8 @@ fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -
         chapter_number: 0,
         characters: vec![],
         previous_chapters: vec![],
+        current_content: None,
+        selected_text: None,
     };
     let result = manager.execute_skill(&skill_id, &context, params)?;
     serde_json::to_value(result).map_err(|e| e.to_string())
@@ -656,6 +759,19 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
         window.set_focus().map_err(|e| e.to_string())?;
         Ok(())
     } else {
-        Err("Backstage window not found".to_string())
+        // 窗口可能被关闭，重新创建
+        let window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "backstage",
+            tauri::WebviewUrl::App("index.html".into())
+        )
+        .title("草苔 - 幕后工作室")
+        .inner_size(1200.0, 800.0)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        Ok(())
     }
 }

@@ -38,7 +38,7 @@
   /* Spacing */
   --content-max-width: 900px;
   --line-height: 1.8;
-  --paragraph-spacing: 1.5em;
+  --paragraph-spacing: 0;
   
   /* Transitions */
   --transition-fast: 0.15s ease;
@@ -50,7 +50,7 @@
   --fs-font-size: 18px;
   --fs-line-height: 1.8;
   --fs-letter-spacing: normal;
-  --fs-paragraph-spacing: 1.5em;
+  --fs-paragraph-spacing: 0;
   --fs-paper-color: var(--parchment);
   --fs-ink-color: var(--ink);
   --fs-accent-color: var(--terracotta);
@@ -129,6 +129,7 @@ body {
 .ProseMirror p {
   margin-bottom: var(--fs-paragraph-spacing, var(--paragraph-spacing));
   text-align: justify;
+  text-indent: 2em;
 }
 
 .ProseMirror p:last-child {
@@ -141,8 +142,9 @@ body {
   color: var(--terracotta);
   font-style: italic;
   margin-left: 1.5em;
-  margin-bottom: 0.75em;
+  margin-bottom: 0.5em;
   opacity: 0.9;
+  text-indent: 0;
 }
 
 .ProseMirror h1 {
@@ -424,6 +426,8 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  position: relative;
+  z-index: 0;
 }
 
 .frontstage-sidebar-content {
@@ -702,26 +706,26 @@ body {
 .model-tooltip {
   position: absolute;
   bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  transform: translateY(0);
   background: white;
   border: 1px solid var(--warm-sand);
   border-radius: 10px;
   padding: 10px 14px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
   min-width: 220px;
-  z-index: 100;
+  z-index: 9999;
   animation: tooltip-fade-in 0.2s ease-out;
 }
 
 @keyframes tooltip-fade-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(5px);
+    transform: translateY(5px);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translateY(0);
   }
 }
 
@@ -971,7 +975,7 @@ body {
 .rich-text-editor .ProseMirror {
   max-width: 900px;
   margin: 0 auto;
-  padding: 3rem 2rem;
+  padding: 3rem 2rem 10rem;
   min-height: 80vh;
   outline: none;
 }
@@ -982,6 +986,7 @@ body {
 
 .rich-text-editor .prose p {
   margin-bottom: var(--paragraph-spacing);
+  text-indent: 2em;
 }
 
 /* 禅模式 */
@@ -1195,7 +1200,7 @@ body {
 }
 
 .writing-style-classical .ProseMirror p {
-  margin-bottom: 1.8em;
+  margin-bottom: 0;
   text-indent: 2em;
 }
 
@@ -1220,7 +1225,8 @@ body {
 }
 
 .writing-style-modernCN .ProseMirror p {
-  margin-bottom: 1.6em;
+  margin-bottom: 0;
+  text-indent: 2em;
 }
 
 .writing-style-modernCN .ProseMirror blockquote {
@@ -1243,7 +1249,8 @@ body {
 }
 
 .writing-style-minimal .ProseMirror p {
-  margin-bottom: 2em;
+  margin-bottom: 0;
+  text-indent: 2em;
 }
 
 .writing-style-minimal .ProseMirror blockquote {
@@ -1267,7 +1274,8 @@ body {
 }
 
 .writing-style-romantic .ProseMirror p {
-  margin-bottom: 2em;
+  margin-bottom: 0;
+  text-indent: 2em;
 }
 
 .writing-style-romantic .ProseMirror blockquote {

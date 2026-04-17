@@ -244,6 +244,16 @@ export const textSearchVectors = (storyId: string, query: string, top_k?: number
 export const hybridSearchVectors = (storyId: string, query: string, top_k?: number) =>
   invoke<VectorSearchResult[]>('hybrid_search_vectors', { storyId, query, topK: top_k });
 
+// Writer Agent (正文助手)
+export const writerAgentExecute = (params: {
+  story_id: string;
+  chapter_number?: number;
+  current_content: string;
+  selected_text?: string;
+  instruction: string;
+}) =>
+  invoke<{ content: string; story_id?: string; chapter_id?: string }>('writer_agent_execute', { request: params });
+
 // Memory Compressor
 export const compressContent = (params: { story_id: string; content: string; target_ratio?: number }) =>
   invoke<AgentResult>('compress_content', params);

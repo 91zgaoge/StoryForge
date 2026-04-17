@@ -52,6 +52,8 @@ pub struct AgentContext {
     pub chapter_number: u32,
     pub characters: Vec<CharacterInfo>,
     pub previous_chapters: Vec<ChapterSummary>,
+    pub current_content: Option<String>, // 当前章节全文
+    pub selected_text: Option<String>,   // 用户选中的文本
 }
 
 /// 角色信息
@@ -92,6 +94,8 @@ impl AgentContext {
             chapter_number: 1,
             characters: vec![],
             previous_chapters: vec![],
+            current_content: None,
+            selected_text: None,
         }
     }
     

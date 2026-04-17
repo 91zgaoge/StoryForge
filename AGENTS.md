@@ -159,6 +159,12 @@ npm test
   - WebView2 禁用 Windows 默认系统右键菜单
   - 菜单 UI 全面适配幕前暖色纸张设计规范
 
+- **幕前排版与 AI 续写优化** (2026-04-17)
+  - 段落间距：`.ProseMirror p` `margin-bottom` 从 `1.5em` 降至 `0`，统一增加 `text-indent: 2em`
+  - 底部栏不再遮挡：编辑器 `padding-bottom` 增至 `10rem`
+  - 自动续写：接受 AI 生成（`Tab`）后自动触发下一轮 `executeWriterAgent('续写')`
+  - Zen 模式纯净：隐藏所有 AI UI（气泡、指示器、接受/拒绝按钮及快捷键）
+
 - **P3 修订模式与变更追踪** (`8a13661` ~ `b26ca51`)
   - Phase 1: ChangeTrack 数据库 + TipTap `trackInsert`/`trackDelete` Mark + 实时 diff 检测
   - Phase 2: `comment_threads` / `comment_messages` + `commentAnchor` Mark + 右侧评论面板
@@ -172,4 +178,4 @@ npm test
 
 ---
 
-*最后更新: 2026-04-15 - 幕前右键菜单修复完成，编译状态更新为 0 警告*
+*最后更新: 2026-04-17 - 幕前排版与自动续写优化完成*

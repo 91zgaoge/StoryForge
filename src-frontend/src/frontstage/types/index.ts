@@ -16,15 +16,18 @@ export interface AiHint {
   isPreview?: boolean;
 }
 
-export interface FrontstageEvent {
-  type: 'ContentUpdate' | 'AiHint' | 'AiPreview' | 'ChapterSwitch' | 'SaveStatus';
-  payload: any;
-}
+export type FrontstageEvent =
+  | { type: 'ContentUpdate'; payload: { text: string; chapter_id: string } }
+  | { type: 'AiHint'; payload: { hint: string; position: HintPosition; duration_ms: number } }
+  | { type: 'AiPreview'; payload: { text: string; insert_position: number } }
+  | { type: 'ChapterSwitch'; payload: { story_id: string; chapter_id: string; title: string } }
+  | { type: 'SaveStatus'; payload: { saved: boolean; timestamp?: string } };
 
-export interface BackstageEvent {
-  type: 'ContentChanged' | 'GenerationRequested' | 'FrontstageClosed' | 'FrontstageFocused';
-  payload: any;
-}
+export type BackstageEvent =
+  | { type: 'ContentChanged'; payload: { text: string; chapter_id: string } }
+  | { type: 'GenerationRequested'; payload: { chapter_id: string; context: string } }
+  | { type: 'FrontstageClosed'; payload?: undefined }
+  | { type: 'FrontstageFocused'; payload?: undefined };
 
 export interface ChapterInfo {
   id: string;

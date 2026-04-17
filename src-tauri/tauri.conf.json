@@ -5,13 +5,13 @@
   "identifier": "com.storyforge.app",
   "build": {
     "beforeBuildCommand": "npm run --prefix src-frontend build",
-    "beforeDevCommand": "cd ../src-frontend && npm run dev",
+    "beforeDevCommand": "npm run --prefix src-frontend dev",
     "frontendDist": "../src-frontend/dist"
   },
   "app": {
     "withGlobalTauri": true,
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com;",
+      "csp": "default-src 'self'; connect-src 'self' ipc: *; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com",
       "capabilities": ["main-capability"]
     },
     "windows": [

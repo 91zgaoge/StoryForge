@@ -86,6 +86,8 @@ impl ShortTermMemory {
             chapter_number: target_chapter_number,
             previous_chapters,
             characters: character_infos,
+            current_content: None,
+            selected_text: None,
         }
     }
 

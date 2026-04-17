@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
 use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
+use crate::db::{DbPool, CreateStoryRequest, CreateChapterRequest};
+use crate::db::repositories::{StoryRepository, ChapterRepository};
 
 static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -129,6 +131,122 @@ pub fn agent_get_status(_task_id: String) -> String {
     format!("running")
 }
 
+/// 正文助手(WriterAgent)专用请求
+#[derive(Debug, Deserialize)]
+pub struct WriterAgentRequest {
+    pub story_id: String,
+    pub chapter_number: Option<u32>,
+    pub current_content: String,
+    pub selected_text: Option<String>,
+    pub instruction: String,
+}
+
+/// 正文助手执行响应
+#[derive(Debug, Serialize)]
+pub struct WriterAgentResponse {
+    pub content: String,
+    pub story_id: Option<String>,
+    pub chapter_id: Option<String>,
+}
+
+/// 执行正文助手任务（直接操作编辑器内容）
+#[command]
+pub async fn writer_agent_execute(
+    request: WriterAgentRequest,
+    app_handle: AppHandle,
+) -> Result<WriterAgentResponse, String> {
+    let mut story_id = request.story_id.clone();
+    let mut chapter_number = request.chapter_number.unwrap_or(1);
+    let mut created_chapter_id: Option<String> = None;
+
+    // 如果没有 story_id，自动创建新作品和第一章
+    if story_id.is_empty() {
+        let pool = app_handle.state::<DbPool>();
+        let story_repo = StoryRepository::new(pool.inner().clone());
+        let chapter_repo = ChapterRepository::new(pool.inner().clone());
+
+        let story = story_repo.create(CreateStoryRequest {
+            title: "未命名作品".to_string(),
+            description: Some(request.instruction.clone()),
+            genre: Some("小说".to_string()),
+        }).map_err(|e| e.to_string())?;
+
+        let chapter = chapter_repo.create(CreateChapterRequest {
+            story_id: story.id.clone(),
+            chapter_number: 1,
+            title: Some("第一章".to_string()),
+            outline: None,
+            content: None,
+        }).map_err(|e| e.to_string())?;
+
+        story_id = story.id;
+        chapter_number = 1;
+        created_chapter_id = Some(chapter.id.clone());
+
+        // 通知幕前切换到新章节
+        let event = crate::window::FrontstageEvent::ChapterSwitch {
+            story_id: story_id.clone(),
+            chapter_id: chapter.id,
+            title: "第一章".to_string(),
+        };
+        let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
+    }
+
+    let mut context = build_agent_context(
+        &app_handle,
+        &ExecuteAgentRequest {
+            agent_type: AgentType::Writer,
+            story_id: story_id.clone(),
+            chapter_number: Some(chapter_number),
+            input: request.instruction.clone(),
+            parameters: None,
+        },
+    ).await?;
+
+    context.current_content = Some(request.current_content);
+    context.selected_text = request.selected_text;
+
+    let task = AgentTask {
+        id: Uuid::new_v4().to_string(),
+        agent_type: AgentType::Writer,
+        context,
+        input: request.instruction,
+        parameters: std::collections::HashMap::new(),
+    };
+
+    let service = AgentService::new(app_handle.clone());
+
+    match service.execute_task(task).await {
+        Ok(result) => {
+            // 如果创建了新区间，把生成的内容保存到数据库
+            if let Some(ref chapter_id) = created_chapter_id {
+                let pool = app_handle.state::<DbPool>();
+                let chapter_repo = ChapterRepository::new(pool.inner().clone());
+                let _ = chapter_repo.update(
+                    chapter_id,
+                    Some("第一章".to_string()),
+                    None,
+                    Some(result.content.clone()),
+                );
+
+                // 同时推送内容更新事件到幕前
+                let event = crate::window::FrontstageEvent::ContentUpdate {
+                    text: result.content.clone(),
+                    chapter_id: chapter_id.clone(),
+                };
+                let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
+            }
+
+            Ok(WriterAgentResponse {
+                content: result.content,
+                story_id: Some(story_id),
+                chapter_id: created_chapter_id,
+            })
+        },
+        Err(e) => Err(e),
+    }
+}
+
 /// 构建Agent上下文
 /// 
 /// 从数据库中获取故事、角色、文风以及前场景信息，为Agent提供完整上下文
@@ -160,6 +278,8 @@ pub(crate) async fn build_agent_context(
                 chapter_number,
                 characters: vec![],
                 previous_chapters: vec![],
+                current_content: None,
+                selected_text: None,
             });
         }
     };
@@ -229,5 +349,7 @@ pub(crate) async fn build_agent_context(
         chapter_number,
         characters,
         previous_chapters,
+        current_content: None,
+        selected_text: None,
     })
 }

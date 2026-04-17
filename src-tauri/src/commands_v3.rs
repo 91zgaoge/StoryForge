@@ -487,6 +487,8 @@ pub async fn generate_paragraph_commentaries(
         chapter_number: 1,
         characters: vec![],
         previous_chapters: vec![],
+        current_content: None,
+        selected_text: None,
     };
 
     let llm_service = LlmService::new(app_handle);

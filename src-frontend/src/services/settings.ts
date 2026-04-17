@@ -179,10 +179,24 @@ async function browserTestModelConnection(modelId: string): Promise<{ success: b
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    // 尝试 GET 探测，任何 HTTP 响应（包括 CORS 预检失败前的网络到达）都视为可通
-    await fetch(model.api_base, { method: 'GET', signal: controller.signal });
+    // 先尝试 GET /models
+    const resp = await fetch(`${model.api_base}/models`, { method: 'GET', signal: controller.signal });
     clearTimeout(timeout);
-    return { success: true, latency: Math.round(performance.now() - start) };
+    if (resp.ok) {
+      return { success: true, latency: Math.round(performance.now() - start) };
+    }
+    // /models 404 时尝试 POST /chat/completions 轻量探测
+    const postStart = performance.now();
+    const postController = new AbortController();
+    const postTimeout = setTimeout(() => postController.abort(), 5000);
+    await fetch(`${model.api_base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+      signal: postController.signal,
+    });
+    clearTimeout(postTimeout);
+    return { success: true, latency: Math.round(performance.now() - postStart) };
   } catch (e: any) {
     const latency = Math.round(performance.now() - start);
     if (e.name === 'AbortError') {

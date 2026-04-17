@@ -26,6 +26,8 @@ interface FrontstageEvent {
   payload?: {
     text?: string;
     chapter_id?: string;
+    story_id?: string;
+    title?: string;
     hint?: string;
     position?: { line: number; column: number };
     duration_ms?: number;
@@ -76,9 +78,29 @@ const FrontstageApp: React.FC = () => {
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
-              const chapter = chapters.find(c => c.id === payload.chapter_id);
-              if (chapter) {
-                selectChapter(chapter);
+              if (payload?.story_id && payload.story_id !== currentStory?.id) {
+                (async () => {
+                  try {
+                    const allStories = await invoke<Story[]>('list_stories');
+                    const targetStory = allStories.find(s => s.id === payload.story_id);
+                    if (targetStory) {
+                      const storyChapters = await invoke<Chapter[]>('get_story_chapters', { storyId: targetStory.id });
+                      setCurrentStory(targetStory);
+                      setChapters(storyChapters);
+                      const targetChapter = storyChapters.find(c => c.id === payload.chapter_id);
+                      if (targetChapter) {
+                        selectChapter(targetChapter);
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Failed to switch to new story:', e);
+                  }
+                })();
+              } else {
+                const chapter = chapters.find(c => c.id === payload.chapter_id);
+                if (chapter) {
+                  selectChapter(chapter);
+                }
               }
             }
             break;
@@ -209,10 +231,14 @@ const FrontstageApp: React.FC = () => {
     setGeneratedText('');
   }, []);
 
+  const handleWriterResult = useCallback((text: string) => {
+    setGeneratedText(text);
+  }, []);
+
   // AI toggle shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === ' ' && e.ctrlKey && !e.shiftKey) {
+      if (e.key === ' ' && e.ctrlKey && !e.shiftKey && !isZenMode) {
         e.preventDefault();
         setShowAI(prev => !prev);
       }
@@ -280,15 +306,17 @@ const FrontstageApp: React.FC = () => {
           </div>
         </div>
         
-        <div className="frontstage-header-right">
-          <button
-            className={`frontstage-ai-toggle ${showAI ? 'active' : ''}`}
-            onClick={() => setShowAI(!showAI)}
-            title="Ctrl+Space 开启/关闭文思"
-          >
-            {showAI ? '文思泉涌中...' : '开启文思'}
-          </button>
-        </div>
+        {!isZenMode && (
+          <div className="frontstage-header-right">
+            <button
+              className={`frontstage-ai-toggle ${showAI ? 'active' : ''}`}
+              onClick={() => setShowAI(!showAI)}
+              title="Ctrl+Space 开启/关闭文思"
+            >
+              {showAI ? '文思泉涌中...' : '开启文思'}
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
@@ -363,6 +391,7 @@ const FrontstageApp: React.FC = () => {
             generatedText={generatedText}
             onAcceptGeneration={handleAcceptGeneration}
             onRejectGeneration={handleRejectGeneration}
+            onWriterResult={handleWriterResult}
             placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
             characters={characters}
             fontSize={fontSize}
@@ -371,6 +400,7 @@ const FrontstageApp: React.FC = () => {
             onZenModeChange={setIsZenMode}
             storyId={currentStory?.id}
             chapterId={currentChapter?.id}
+            chapterNumber={currentChapter?.chapter_number}
             isRevisionMode={isRevisionMode}
             onRevisionModeChange={setIsRevisionMode}
             showAnnotationPanel={showAnnotationPanel}
@@ -383,13 +413,13 @@ const FrontstageApp: React.FC = () => {
 
       {/* AI Suggestion Bubbles */}
       <AiSuggestionBubble 
-        enabled={showAI}
+        enabled={!isZenMode && showAI}
         interval={12000}
         duration={8000}
       />
 
       {/* Floating Ambient Hints */}
-      <FloatingAmbientHint enabled={showAI} />
+      <FloatingAmbientHint enabled={!isZenMode && showAI} />
 
       {/* 禅模式退出提示 */}
       {isZenMode && (
