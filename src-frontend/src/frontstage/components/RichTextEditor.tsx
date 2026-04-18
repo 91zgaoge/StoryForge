@@ -118,6 +118,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [showModelTooltip, setShowModelTooltip] = useState(false);
     const [isGeneratingCommentary, setIsGeneratingCommentary] = useState(false);
     
+    // ===== Kimi Code style input features =====
+    const [ghostText, setGhostText] = useState('');
+    const [showSlashMenu, setShowSlashMenu] = useState(false);
+    const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+    const [inputHistory, setInputHistory] = useState<string[]>(() => loadInputHistory());
+    const [historyIndex, setHistoryIndex] = useState(-1);
+    
     // 文本批注状态
     const [selectedRange, setSelectedRange] = useState<{ from: number; to: number; text: string } | null>(null);
     const [annotationContent, setAnnotationContent] = useState('');
@@ -487,6 +494,72 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       return () => (editorElement as HTMLElement).removeEventListener('click', handleClick);
     }, [editor, characters]);
 
+    // ===== Input History Helpers =====
+    const HISTORY_KEY = 'storyforge-chat-history';
+    const MAX_HISTORY = 20;
+    
+    function loadInputHistory(): string[] {
+      try {
+        const saved = localStorage.getItem(HISTORY_KEY);
+        if (saved) return JSON.parse(saved);
+      } catch { /* ignore */ }
+      return [];
+    }
+    
+    function saveInputHistory(history: string[]) {
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+      } catch { /* ignore */ }
+    }
+    
+    function addToHistory(text: string) {
+      if (!text.trim()) return;
+      setInputHistory(prev => {
+        const filtered = prev.filter(h => h !== text.trim());
+        const next = [text.trim(), ...filtered].slice(0, MAX_HISTORY);
+        saveInputHistory(next);
+        return next;
+      });
+    }
+    
+    // ===== Slash Commands =====
+    const slashCommands = [
+      { id: 'continue', name: '/续写', description: '自动续写当前段落', instruction: '续写' },
+      { id: 'revise', name: '/修订', description: '进入修订模式审阅文本', instruction: '修订当前段落' },
+      { id: 'chapter', name: '/生成章节', description: '基于故事生成新章节', instruction: '生成新章节' },
+      { id: 'scene', name: '/补充场景', description: '补充环境/动作描写', instruction: '补充场景描写' },
+      { id: 'ancient', name: '/改写古风', description: '改写成古风文风', instruction: '改写成古风' },
+      { id: 'polish', name: '/润色', description: '润色当前段落', instruction: '润色' },
+    ];
+    
+    // ===== Ghost Text Generation =====
+    useEffect(() => {
+      if (showSlashMenu) {
+        setGhostText('');
+        return;
+      }
+      const input = chatInput.trim();
+      if (!input) {
+        setGhostText('输入指令，按 / 查看快捷命令');
+        return;
+      }
+      const suggestions: Record<string, string> = {
+        '续': '写当前段落',
+        '改': '写当前段落',
+        '润': '色当前段落',
+        '扩': '展这段描写',
+        '生': '成新章节',
+        '补': '充场景描写',
+      };
+      for (const [prefix, suffix] of Object.entries(suggestions)) {
+        if (input === prefix) {
+          setGhostText(suffix);
+          return;
+        }
+      }
+      setGhostText('');
+    }, [chatInput, showSlashMenu]);
+    
     // 发送消息（正文助手指令栏）
     const executeWriterAgent = useCallback(async (instruction: string) => {
       if (isAiThinking) return;
@@ -521,7 +594,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const handleSendMessage = useCallback(async () => {
       if (!chatInput.trim() || isAiThinking) return;
       const instruction = chatInput.trim();
+      addToHistory(instruction);
+      setHistoryIndex(-1);
       setChatInput('');
+      setGhostText('');
+      setShowSlashMenu(false);
       await executeWriterAgent(instruction);
     }, [chatInput, isAiThinking, executeWriterAgent]);
 
@@ -1182,12 +1259,87 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   </div>
                 </div>
 
-                {/* 中间：输入框 */}
-                <div className="chat-input-middle">
+                {/* 中间：输入框 + Ghost Text + Slash Menu */}
+                <div className="chat-input-middle relative">
+                  {/* Ghost text overlay */}
+                  {ghostText && !showSlashMenu && (
+                    <div className="chat-ghost-text" aria-hidden="true">
+                      <span style={{ opacity: 0 }}>{chatInput}</span>
+                      <span className="ghost-suffix">{ghostText}</span>
+                    </div>
+                  )}
+                  
                   <textarea
                     value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setChatInput(val);
+                      setHistoryIndex(-1);
+                      // Show slash menu when typing /
+                      if (val === '/') {
+                        setShowSlashMenu(true);
+                        setSlashMenuIndex(0);
+                      } else if (showSlashMenu && !val.startsWith('/')) {
+                        setShowSlashMenu(false);
+                      }
+                    }}
                     onKeyDown={(e) => {
+                      // Slash menu navigation
+                      if (showSlashMenu) {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setSlashMenuIndex(i => (i + 1) % slashCommands.length);
+                          return;
+                        }
+                        if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setSlashMenuIndex(i => (i - 1 + slashCommands.length) % slashCommands.length);
+                          return;
+                        }
+                        if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault();
+                          const cmd = slashCommands[slashMenuIndex];
+                          if (cmd) {
+                            setChatInput(cmd.instruction);
+                            setShowSlashMenu(false);
+                            setGhostText('');
+                          }
+                          return;
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setShowSlashMenu(false);
+                          return;
+                        }
+                      }
+                      
+                      // Ghost text accept with →
+                      if (e.key === 'ArrowRight' && ghostText && !e.shiftKey && !showSlashMenu) {
+                        e.preventDefault();
+                        setChatInput(prev => prev + ghostText);
+                        setGhostText('');
+                        return;
+                      }
+                      
+                      // History browsing with ↑↓
+                      if (e.key === 'ArrowUp' && !e.shiftKey && !showSlashMenu) {
+                        e.preventDefault();
+                        if (historyIndex < inputHistory.length - 1) {
+                          const newIndex = historyIndex + 1;
+                          setHistoryIndex(newIndex);
+                          setChatInput(inputHistory[newIndex] || '');
+                        }
+                        return;
+                      }
+                      if (e.key === 'ArrowDown' && !e.shiftKey && !showSlashMenu && historyIndex >= 0) {
+                        e.preventDefault();
+                        const newIndex = historyIndex - 1;
+                        setHistoryIndex(newIndex);
+                        setChatInput(newIndex >= 0 ? inputHistory[newIndex] : '');
+                        return;
+                      }
+                      
+                      // Send with Enter
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSendMessage();
@@ -1198,6 +1350,29 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                     rows={1}
                     disabled={status === 'disconnected' || isAiThinking}
                   />
+                  
+                  {/* Slash command menu */}
+                  {showSlashMenu && (
+                    <div className="slash-command-menu">
+                      {slashCommands.map((cmd, i) => (
+                        <div
+                          key={cmd.id}
+                          className={cn(
+                            'slash-command-item',
+                            i === slashMenuIndex && 'active'
+                          )}
+                          onClick={() => {
+                            setChatInput(cmd.instruction);
+                            setShowSlashMenu(false);
+                            setGhostText('');
+                          }}
+                        >
+                          <span className="slash-cmd-name">{cmd.name}</span>
+                          <span className="slash-cmd-desc">{cmd.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* 右侧：发送按钮 */}
@@ -1221,7 +1396,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
               {/* 提示文字 */}
               <div className="chat-hint">
-                <span>Enter 发送 · Shift+Enter 换行</span>
+                <span>Enter 发送 · Shift+Enter 换行 · → 接受建议 · ↑ 历史 · / 命令</span>
                 {aiEnabled && !isZenMode && (
                   <span className="hint-wensi">
                     <Sparkles className="w-3 h-3" />

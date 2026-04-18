@@ -1,8 +1,9 @@
 /**
  * ColorThemeDot - 幕前色调主题切换器
  *
- * 平时：右下角半透明小圆点（当前主题 accent 色）
- * 悬停：展开 4 色选择面板
+ * 嵌入在顶部 header 中，"开启文思"按钮左侧
+ * 平时：12px 半透明小圆点
+ * 悬停：展开 4 色选择面板（向下）
  * Zen 模式：隐藏
  */
 
@@ -67,7 +68,7 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* 选择面板 */}
+      {/* 选择面板 - 向下展开 */}
       <div
         className={cn(
           'color-theme-panel',
@@ -103,6 +104,7 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
           isHovered && 'hovered'
         )}
         style={{ backgroundColor: currentTheme.terracotta }}
+        title="切换色调主题"
       />
     </div>
   );

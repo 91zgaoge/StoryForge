@@ -1365,23 +1365,20 @@ body {
 }
 
 
-/* ===== Color Theme Dot ===== */
+/* ===== Color Theme Dot (Header embedded) ===== */
 .color-theme-dot-wrapper {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 50;
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 0;
 }
 
 .color-theme-dot {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  opacity: 0.25;
+  opacity: 0.3;
   cursor: pointer;
   transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 0 0 2px var(--parchment);
@@ -1391,22 +1388,26 @@ body {
 .color-theme-dot:hover,
 .color-theme-dot.hovered {
   opacity: 1;
-  transform: scale(1.15);
+  transform: scale(1.2);
   box-shadow: 0 0 0 3px var(--parchment), 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* 选择面板 */
+/* 选择面板 - 向下展开 */
 .color-theme-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
   background: var(--parchment-dark);
   border: 1px solid var(--warm-sand);
   border-radius: 10px;
   padding: 10px 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   opacity: 0;
-  transform: translateY(6px) scale(0.96);
+  transform: translateY(-6px) scale(0.96);
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
   min-width: 100px;
+  z-index: 100;
 }
 
 .color-theme-panel.open {
@@ -1467,4 +1468,70 @@ body {
 
 .color-theme-label {
   white-space: nowrap;
+}
+
+
+/* ===== Ghost Text (Kimi Code style) ===== */
+.chat-ghost-text {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.chat-ghost-text .ghost-suffix {
+  color: var(--stone-gray);
+  opacity: 0.35;
+}
+
+/* ===== Slash Command Menu ===== */
+.slash-command-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--parchment-dark);
+  border: 1px solid var(--warm-sand);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  z-index: 60;
+}
+
+.slash-command-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.15s ease;
+}
+
+.slash-command-item:hover,
+.slash-command-item.active {
+  background-color: var(--warm-sand);
+}
+
+.slash-command-item .slash-cmd-name {
+  color: var(--terracotta);
+  font-weight: 500;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.slash-command-item .slash-cmd-desc {
+  color: var(--stone-gray);
+  font-size: 11px;
+  font-family: var(--font-sans);
 }
