@@ -114,6 +114,11 @@ impl AgentService {
         }
     }
 
+    /// 获取 AppHandle 引用（用于上下文构建等场景）
+    pub fn app_handle(&self) -> &AppHandle {
+        &self.app_handle
+    }
+
     /// 执行Agent任务
     pub async fn execute_task(&self, task: AgentTask) -> Result<AgentResult, String> {
         let task_id = task.id.clone();
@@ -449,116 +454,141 @@ impl AgentService {
         Ok(AgentResult::with_score(response.content, 0.9))
     }
 
-    // ==================== 提示词构建 ====================
+    // ==================== 提示词构建（模板化） ====================
 
     fn build_writer_prompt(&self, task: &AgentTask) -> String {
+        use crate::prompts::{TemplateEngine, PromptLibrary};
+        use std::collections::HashMap;
+
         let ctx = &task.context;
         let has_selection = ctx.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
 
-        if has_selection {
-            format!(r#"【故事信息】
-标题: {}
-类型: {}
-风格: {} / 节奏: {}
+        // 构建模板变量
+        let mut vars = HashMap::new();
+        vars.insert("story_title".to_string(), ctx.story_title.clone());
+        vars.insert("genre".to_string(), ctx.genre.clone());
+        vars.insert("tone".to_string(), ctx.tone.clone());
+        vars.insert("pacing".to_string(), ctx.pacing.clone());
+        vars.insert("characters".to_string(), ctx.format_characters());
+        vars.insert("previous_chapters".to_string(), ctx.format_previous_chapters());
+        vars.insert("current_content".to_string(), ctx.current_content.clone().unwrap_or_else(|| "无".to_string()));
+        vars.insert("instruction".to_string(), task.input.clone());
+        vars.insert("world_rules".to_string(), ctx.world_rules.clone().unwrap_or_default());
+        vars.insert("scene_structure".to_string(), ctx.scene_structure.clone().unwrap_or_default());
 
-【当前章节内容】
-{}
+        let mut system_prompt = TemplateEngine::render_with_conditions(
+            PromptLibrary::writer_system_template(),
+            &vars
+        );
 
-【用户选中的文本】
-{}
+        // 注入创作方法论扩展（如果配置了）
+        if let Some(ref method_id) = ctx.methodology_id {
+            use crate::creative_engine::methodology::{MethodologyConfig, MethodologyType, MethodologyEngine};
+            let method_type = match method_id.as_str() {
+                "snowflake" => Some(MethodologyType::Snowflake),
+                "scene_structure" => Some(MethodologyType::SceneStructure),
+                "hero_journey" => Some(MethodologyType::HeroJourney),
+                "character_depth" => Some(MethodologyType::CharacterDepth),
+                _ => None,
+            };
+            if let Some(mt) = method_type {
+                let config = MethodologyConfig {
+                    methodology_type: mt,
+                    is_active: true,
+                    current_step: ctx.methodology_step.clone(),
+                    custom_params: serde_json::json!({}),
+                };
+                let extension = MethodologyEngine::build_prompt_extension(&config);
+                if !extension.is_empty() {
+                    system_prompt.push_str("\n\n【创作方法论约束】\n");
+                    system_prompt.push_str(&extension);
+                }
+            }
+        }
 
-【修改要求】
-{}
+        // 注入风格 DNA（如果配置了）
+        if let Some(ref style_id) = ctx.style_dna_id {
+            use crate::db::DbPool;
+            use crate::db::repositories_v3::StyleDnaRepository;
+            use crate::creative_engine::style::dna::StyleDNA;
+            use tauri::Manager;
 
-【角色信息】
-{}
+            let pool = self.app_handle.state::<DbPool>();
+            let repo = StyleDnaRepository::new(pool.inner().clone());
+            if let Ok(Some(db_dna)) = repo.get_by_id(style_id) {
+                if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                    let extension = dna.to_prompt_extension();
+                    if !extension.is_empty() {
+                        system_prompt.push_str("\n\n");
+                        system_prompt.push_str(&extension);
+                    }
+                }
+            }
+        }
 
-请根据以上上下文，对用户选中的文本进行修改。要求：
-1. 保持文风一致
-2. 情节连贯自然
-3. 人物行为符合性格设定
-4. 只输出修改后的文本，不要添加解释或重复上下文
+        // 注入个性化偏好（自适应学习）
+        {
+            use crate::db::DbPool;
+            use crate::creative_engine::adaptive::PromptPersonalizer;
+            use tauri::Manager;
 
-直接输出修改后的内容："#,
-                ctx.story_title,
-                ctx.genre,
-                ctx.tone,
-                ctx.pacing,
-                ctx.current_content.as_deref().unwrap_or("无"),
-                ctx.selected_text.as_deref().unwrap_or(""),
-                task.input,
-                ctx.format_characters()
+            let pool = self.app_handle.state::<DbPool>();
+            let personalizer = PromptPersonalizer::new(pool.inner().clone());
+            if let Ok(extension) = personalizer.build_prompt_extension(&ctx.story_id) {
+                if !extension.is_empty() {
+                    system_prompt.push_str("\n\n");
+                    system_prompt.push_str(&extension);
+                }
+            }
+        }
+
+        let user_prompt = if has_selection {
+            vars.insert("selected_text".to_string(), ctx.selected_text.clone().unwrap_or_default());
+            TemplateEngine::render_with_conditions(
+                PromptLibrary::writer_rewrite_template(),
+                &vars
             )
         } else {
-            format!(r#"【故事信息】
-标题: {}
-类型: {}
-风格: {} / 节奏: {}
-
-【前文内容】
-{}
-
-【当前章节已有内容】
-{}
-
-【写作要求】
-{}
-
-【角色信息】
-{}
-
-请根据以上上下文，续写或扩展接下来的内容。要求：
-1. 保持文风一致
-2. 情节连贯自然
-3. 人物行为符合性格设定
-4. 适当加入环境描写和对话
-
-直接输出续写内容，不要添加解释。"#,
-                ctx.story_title,
-                ctx.genre,
-                ctx.tone,
-                ctx.pacing,
-                ctx.format_previous_chapters(),
-                ctx.current_content.as_deref().unwrap_or("无"),
-                task.input,
-                ctx.format_characters()
+            TemplateEngine::render_with_conditions(
+                PromptLibrary::writer_continue_template(),
+                &vars
             )
-        }
+        };
+
+        format!("{}\n\n{}", system_prompt, user_prompt)
     }
 
     fn build_inspector_prompt(&self, task: &AgentTask) -> String {
-        format!(r#"【待检查内容】
-{}
+        use crate::prompts::{TemplateEngine, PromptLibrary};
+        use std::collections::HashMap;
 
-【检查维度】
-1. 逻辑连贯性 - 情节是否通顺，有无矛盾
-2. 人物一致性 - 角色行为是否符合设定
-3. 文笔质量 - 语言是否流畅，描写是否生动
-4. 节奏把控 - 快慢是否得当，有无冗余
+        let ctx = &task.context;
+        let mut vars = HashMap::new();
+        vars.insert("story_title".to_string(), ctx.story_title.clone());
+        vars.insert("genre".to_string(), ctx.genre.clone());
+        vars.insert("characters".to_string(), ctx.format_characters());
+        vars.insert("content".to_string(), task.input.clone());
 
-请提供：
-1. 总体评分（0-100）
-2. 各维度评分
-3. 具体问题指出
-4. 改进建议"#,
-            task.input
-        )
+        let system_prompt = TemplateEngine::render_with_conditions(
+            PromptLibrary::inspector_system_template(),
+            &vars
+        );
+
+        format!("{}\n\n【待检查内容】\n{}", system_prompt, task.input)
     }
 
     fn build_outline_prompt(&self, task: &AgentTask) -> String {
-        format!(r#"【故事创意】
-{}
+        use crate::prompts::{TemplateEngine, PromptLibrary};
+        use std::collections::HashMap;
 
-【要求】
-设计一个完整的故事大纲，包括：
-1. 故事主线（起承转合）
-2. 主要章节划分（建议10-20章）
-3. 每章核心情节
-4. 关键情节点
-5. 角色成长弧线
+        let ctx = &task.context;
+        let mut vars = HashMap::new();
+        vars.insert("premise".to_string(), task.input.clone());
+        vars.insert("characters".to_string(), ctx.format_characters());
 
-请用清晰的层次结构输出。"#,
-            task.input
+        TemplateEngine::render_with_conditions(
+            PromptLibrary::outline_planner_template(),
+            &vars
         )
     }
 

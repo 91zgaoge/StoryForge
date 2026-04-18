@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v3.3.0-in-progress
+- **版本**: v3.4.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite
 
@@ -148,27 +148,18 @@ npm test
 
 ### 最近完成的功能
 
-- **品牌 Logo 全面应用** (2026-04-15)
-  - `LOGO.jpg` 生成 Tauri 全平台图标包（Windows / macOS / iOS / Android）
-  - 前端 favicon 从 `feather.svg` 替换为 `favicon.ico` + `apple-touch-icon.png`
-  - `docs/images/logo.png` 作为 README 品牌展示图
-  - README / CHANGELOG / PROJECT_STATUS 品牌描述同步更新
-
-- **幕前右键菜单修复与暖色重构** (2026-04-15)
-  - 修复 `frontstage.css` 缺失 Tailwind utilities 导致菜单 `fixed`/`z-[9999]` 类不生效的问题
-  - WebView2 禁用 Windows 默认系统右键菜单
-  - 菜单 UI 全面适配幕前暖色纸张设计规范
+- **v3.4.0 智能化创作系统** (2026-04-18) — 5 阶段重构
+  - Phase 1 地基重构: `StoryContextBuilder` 真实 DB 上下文, `QueryPipeline` 四阶段检索, `ContinuityEngine`, `ForeshadowingTracker` — 27 tests ✅
+  - Phase 2 方法论注入: 雪花法/场景节拍/英雄之旅/人物深度 + `MethodologyEngine` + `AgentOrchestrator`(Writer→Inspector 闭环) — 34 tests ✅
+  - Phase 3 风格深度化: `StyleDNA` 六维模型, `StyleAnalyzer`, `StyleChecker`, 10 经典作家 DNA, `StyleDnaRepository` — 45 tests ✅
+  - Phase 4 自适应学习: `FeedbackRecorder`, `PreferenceMiner`(5 维启发式), `AdaptiveGenerator`(动态 temperature/top-p), `PromptPersonalizer` — 54 tests ✅
+  - Phase 5 工作流闭环: `CreationWorkflowEngine`(7 阶段), `QualityChecker`(4 维评估) — 63 tests ✅
+  - 版本号统一 3.3.0→3.4.0，Logo 生成全平台图标包
 
 - **幕前排版与 AI 续写优化** (2026-04-17)
-  - 段落间距：`.ProseMirror p` `margin-bottom` 从 `1.5em` 降至 `0`，统一增加 `text-indent: 2em`
-  - 底部栏不再遮挡：编辑器 `padding-bottom` 增至 `10rem`
-  - 自动续写：接受 AI 生成（`Tab`）后自动触发下一轮 `executeWriterAgent('续写')`
-  - Zen 模式纯净：隐藏所有 AI UI（气泡、指示器、接受/拒绝按钮及快捷键）
-
-- **P3 修订模式与变更追踪** (`8a13661` ~ `b26ca51`)
-  - Phase 1: ChangeTrack 数据库 + TipTap `trackInsert`/`trackDelete` Mark + 实时 diff 检测
-  - Phase 2: `comment_threads` / `comment_messages` + `commentAnchor` Mark + 右侧评论面板
-  - Phase 3: 版本集成（保存场景/接受拒绝变更时自动生成版本快照 + diff ChangeTrack）
+  - 段落间距收紧 + 首行缩进 2em，底部栏 padding-bottom 增至 10rem
+  - 自动续写：接受 AI 生成后自动触发下一轮续写
+  - Zen 模式绝对纯净：隐藏所有 AI UI 元素
 
 ### 编译状态
 
@@ -202,4 +193,89 @@ npm test
 
 ---
 
-*最后更新: 2026-04-17 - 幕前排版与自动续写优化完成，版本号统一为 3.3.0*
+## 🏛️ Spec-Kit 集成 (Spec-Driven Development)
+
+本项目已集成 **GitHub Spec-Kit**，使用 Spec-Driven Development (SDD) 方法论管理功能开发。
+
+### Spec-Kit 技能命令
+
+在 Kimi Code 中使用以下 `/skill:` 命令：
+
+| 命令 | 用途 | 阶段 |
+|------|------|------|
+| `/skill:speckit-constitution` | 查看/更新项目宪法 |  anytime |
+| `/skill:speckit-specify` | 创建功能规格说明 | Phase 1 |
+| `/skill:speckit-plan` | 生成技术实现计划 | Phase 2 |
+| `/skill:speckit-tasks` | 分解为可执行任务 | Phase 3 |
+| `/skill:speckit-implement` | 执行实现 | Phase 4 |
+| `/skill:speckit-clarify` | 澄清需求模糊点 | Optional |
+| `/skill:speckit-analyze` | 跨工件一致性检查 | Optional |
+| `/skill:speckit-checklist` | 生成质量检查清单 | Optional |
+
+### 文件结构
+
+```
+.specify/
+├── memory/
+│   └── constitution.md      # 项目宪法
+├── templates/
+│   ├── constitution-template.md
+│   ├── spec-template.md
+│   ├── plan-template.md
+│   ├── tasks-template.md
+│   └── checklist-template.md
+├── scripts/
+│   └── powershell/          # PowerShell 工作流脚本
+│       ├── check-prerequisites.ps1
+│       ├── create-new-feature.ps1
+│       └── setup-plan.ps1
+├── workflows/
+│   └── speckit/
+│       └── workflow.yml     # 完整 SDD 工作流定义
+├── init-options.json
+└── integration.json
+
+.kimi/
+└── skills/                  # Kimi Code 技能文件
+    ├── speckit-constitution/SKILL.md
+    ├── speckit-specify/SKILL.md
+    ├── speckit-plan/SKILL.md
+    ├── speckit-tasks/SKILL.md
+    ├── speckit-implement/SKILL.md
+    └── ...
+
+specs/                       # 功能规格目录（按功能分支组织）
+└── NNN-feature-name/
+    ├── spec.md              # 功能规格
+    ├── plan.md              # 实现计划
+    ├── tasks.md             # 任务列表
+    ├── checklists/
+    │   └── requirements.md  # 质量检查清单
+    ├── research.md          # 技术研究 (可选)
+    ├── data-model.md        # 数据模型 (可选)
+    └── contracts/           # 接口契约 (可选)
+```
+
+### 快速开始一个新功能
+
+```powershell
+# 1. 创建新功能分支和规格目录
+.specify/scripts/powershell/create-new-feature.ps1 '功能描述'
+
+# 2. 在 Kimi Code 中执行
+/skill:speckit-specify 功能描述...
+/skill:speckit-plan
+/skill:speckit-tasks
+/skill:speckit-implement
+```
+
+### 配置
+
+- **AI 助手**: kimi (Kimi Code CLI)
+- **脚本类型**: PowerShell (ps)
+- **分支编号**: sequential (001, 002, ...)
+- **项目宪法**: `.specify/memory/constitution.md`
+
+---
+
+*最后更新: 2026-04-17 - Spec-Kit 集成完成，项目宪法已建立，版本号统一为 3.3.0*

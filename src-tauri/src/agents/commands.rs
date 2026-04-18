@@ -249,107 +249,32 @@ pub async fn writer_agent_execute(
 
 /// 构建Agent上下文
 /// 
-/// 从数据库中获取故事、角色、文风以及前场景信息，为Agent提供完整上下文
+/// 使用 StoryContextBuilder 从数据库读取真实故事数据，
+/// 为Agent提供完整的创作上下文（包含世界观规则、场景结构等）。
 pub(crate) async fn build_agent_context(
     app_handle: &AppHandle,
     request: &ExecuteAgentRequest,
 ) -> Result<super::AgentContext, String> {
-    use super::{ChapterSummary, CharacterInfo};
     use crate::db::DbPool;
-    use crate::db::repositories::{StoryRepository, CharacterRepository};
-    use crate::db::repositories_v3::{WritingStyleRepository, SceneRepository};
+    use crate::creative_engine::StoryContextBuilder;
     use tauri::Manager;
 
     let pool = app_handle.state::<DbPool>();
     let story_id = request.story_id.clone();
     let chapter_number = request.chapter_number.unwrap_or(1);
 
-    // 获取故事信息
-    let story_repo = StoryRepository::new(pool.inner().clone());
-    let story = match story_repo.get_by_id(&story_id) {
-        Ok(Some(s)) => s,
-        _ => {
-            return Ok(super::AgentContext {
-                story_id,
-                story_title: "未命名作品".to_string(),
-                genre: "小说".to_string(),
-                tone: "中性".to_string(),
-                pacing: "正常".to_string(),
-                chapter_number,
-                characters: vec![],
-                previous_chapters: vec![],
-                current_content: None,
-                selected_text: None,
-            });
+    let builder = StoryContextBuilder::new(pool.inner().clone());
+    let mut context = match builder.build_with_query(&story_id, Some(chapter_number as i32), None, None).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            log::warn!("[build_agent_context] StoryContextBuilder failed: {}, falling back to minimal", e);
+            return Ok(super::AgentContext::minimal(story_id, String::new()));
         }
     };
 
-    // 获取角色信息
-    let char_repo = CharacterRepository::new(pool.inner().clone());
-    let characters = match char_repo.get_by_story(&story_id) {
-        Ok(chars) => chars.into_iter().map(|c| {
-            let role = if let Some(first_trait) = c.dynamic_traits.first() {
-                first_trait.trait_name.clone()
-            } else {
-                c.background.clone().unwrap_or_else(|| "主要角色".to_string())
-            };
-            CharacterInfo {
-                name: c.name,
-                personality: c.personality.unwrap_or_else(|| "性格未定".to_string()),
-                role,
-            }
-        }).collect(),
-        Err(_) => vec![],
-    };
+    // 注入当前内容和选中文本（来自请求）
+    context.current_content = None; // 由调用方填充
+    context.selected_text = None;   // 由调用方填充
 
-    // 获取文风信息（用于 tone / pacing 回退）
-    let style_repo = WritingStyleRepository::new(pool.inner().clone());
-    let style = style_repo.get_by_story(&story_id).ok().flatten();
-
-    let tone = story.tone.clone()
-        .or_else(|| style.as_ref().and_then(|s| s.tone.clone()))
-        .unwrap_or_else(|| "中性".to_string());
-    let pacing = story.pacing.clone()
-        .or_else(|| style.as_ref().and_then(|s| s.pacing.clone()))
-        .unwrap_or_else(|| "正常".to_string());
-
-    // 获取前场景摘要（V3 使用 scene 替代 chapter）
-    let scene_repo = SceneRepository::new(pool.inner().clone());
-    let previous_chapters = match scene_repo.get_by_story(&story_id) {
-        Ok(scenes) => {
-            let mut prev = scenes.into_iter()
-                .filter(|s| s.sequence_number < chapter_number as i32)
-                .collect::<Vec<_>>();
-            prev.sort_by_key(|s| s.sequence_number);
-            prev.into_iter().map(|s| {
-                let summary = s.content.clone()
-                    .or(s.dramatic_goal.clone())
-                    .unwrap_or_else(|| "无内容".to_string());
-                let preview = if summary.chars().count() > 200 {
-                    format!("{}...", summary.chars().take(200).collect::<String>())
-                } else {
-                    summary
-                };
-                ChapterSummary {
-                    title: s.title.unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
-                    number: s.sequence_number.max(0) as u32,
-                    summary: preview,
-                }
-            }).collect()
-        }
-        Err(_) => vec![],
-    };
-
-    Ok(super::AgentContext {
-        story_id,
-        story_title: story.title.clone(),
-        genre: story.genre.clone().unwrap_or_else(|| "小说".to_string()),
-        tone,
-        pacing,
-        chapter_number,
-        characters,
-        previous_chapters,
-        current_content: None,
-        selected_text: None,
-    })
+    Ok(context)
 }

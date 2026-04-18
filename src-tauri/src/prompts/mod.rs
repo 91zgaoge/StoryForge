@@ -2,8 +2,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod engine;
+pub use engine::{TemplateEngine, PromptLibrary};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PromptTemplate {
+pub struct PromptTemplateDef {
     pub id: String,
     pub name: String,
     pub description: String,
@@ -15,7 +18,7 @@ pub struct PromptTemplate {
 }
 
 pub struct PromptManager {
-    templates: HashMap<String, PromptTemplate>,
+    templates: HashMap<String, PromptTemplateDef>,
 }
 
 impl PromptManager {
@@ -29,24 +32,24 @@ impl PromptManager {
 
     fn load_builtin_templates(&mut self) {
         let builtins = vec![
-            PromptTemplate {
+            PromptTemplateDef {
                 id: "writing_chapter".to_string(),
                 name: "章节写作".to_string(),
                 description: "根据大纲生成完整章节".to_string(),
                 category: "writing".to_string(),
-                system_prompt: "你是一位专业中文小说作家...".to_string(),
-                user_prompt_template: "请为第{chapter_number}章写作，大纲：{outline}".to_string(),
-                variables: vec!["chapter_number".to_string(), "outline".to_string()],
+                system_prompt: PromptLibrary::writer_system_template().to_string(),
+                user_prompt_template: PromptLibrary::writer_continue_template().to_string(),
+                variables: vec!["story_title".to_string(), "genre".to_string(), "tone".to_string(), "pacing".to_string(), "world_rules".to_string(), "characters".to_string(), "previous_chapters".to_string(), "scene_structure".to_string(), "instruction".to_string(), "current_content".to_string()],
                 is_builtin: true,
             },
-            PromptTemplate {
+            PromptTemplateDef {
                 id: "analyze_plot".to_string(),
                 name: "情节分析".to_string(),
                 description: "分析故事情节".to_string(),
                 category: "analysis".to_string(),
-                system_prompt: "你是一位专业编辑...".to_string(),
-                user_prompt_template: "请分析：{content}".to_string(),
-                variables: vec!["content".to_string()],
+                system_prompt: PromptLibrary::inspector_system_template().to_string(),
+                user_prompt_template: "请分析以下内容：\n\n{{content}}".to_string(),
+                variables: vec!["story_title".to_string(), "genre".to_string(), "characters".to_string(), "content".to_string()],
                 is_builtin: true,
             },
         ];
@@ -56,16 +59,16 @@ impl PromptManager {
         }
     }
 
-    pub fn get_all_templates(&self) -> Vec<&PromptTemplate> {
+    pub fn get_all_templates(&self) -> Vec<&PromptTemplateDef> {
         self.templates.values().collect()
     }
 
-    pub fn get_template(&self, id: &str) -> Option<&PromptTemplate> {
+    pub fn get_template(&self, id: &str) -> Option<&PromptTemplateDef> {
         self.templates.get(id)
     }
 
     pub fn create_template(&mut self,
-        mut template: PromptTemplate
+        mut template: PromptTemplateDef
     ) -> Result<(), String> {
         if template.id.is_empty() {
             template.id = format!("custom_{}", uuid::Uuid::new_v4());

@@ -2,9 +2,11 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v3.3.0 - Rust Implementation
+# StoryForge (草苔) v3.4.0 - 智能化创作系统
 
 > 🌿 越写越懂的创作系统 - AI 辅助小说创作桌面应用
+>
+> v3.4.0 实现从"功能堆砌"到"系统智能"的跨越：创作方法论引擎 × StyleDNA × 自适应学习 × 工作流闭环
 
 ## 🎭 独具特色的双界面设计
 
@@ -73,41 +75,55 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ---
 
-## ✨ v3.3.0 核心新特性
+## ✨ v3.4.0 核心新特性
 
-### 🖱️ 幕前右键菜单修复与暖色重构
+### 🧠 智能化创作系统（5 阶段重构）
 
-- **修复菜单不显示问题** - 补充 Tailwind utilities、事件捕获阶段监听、禁用 WebView2 默认菜单
-- **暖色调 UI 重构** - 菜单完全融入幕前纸张设计规范（ivory 背景 / warm-sand 边框 / charcoal 文字）
+**Phase 1 - 地基重构：真实上下文**
+- `StoryContextBuilder` — 从真实数据库构建丰富的 Agent 上下文（世界观、角色、场景结构）
+- `QueryPipeline` — 四阶段知识检索（CJK 分词搜索 → 知识图谱扩展 → 预算控制 → 上下文组装）
+- `ContinuityEngine` + `ForeshadowingTracker` — 连续性追踪与伏笔回收系统
 
-### 🔧 API 一致性审计修复
+**Phase 2 - 方法论注入**
+- 创作方法论引擎：`MethodologyEngine` 自动将方法论约束注入 Writer 系统提示词
+- 四种经典方法论：雪花法（10 步）· 场景节拍表（6 节拍）· 英雄之旅（12 阶段）· 人物深度模型（6 维度）
+- `AgentOrchestrator` — Writer→Inspector→Writer 质量反馈循环（可配置阈值与最大循环数）
 
-- **MCP 外部服务器连接** - 支持配置名称、启动命令、参数、环境变量
-- **技能导入** - 集成文件选择器，支持从本地导入技能
-- **Agent 流式执行与取消** - 长任务可中断，实时进度事件推送
-- **知识图谱实体就地编辑** - 节点名称、属性增删改实时保存
-- **版本系统增强** - 版本链视图、diff 元信息展示
+**Phase 3 - 风格深度化**
+- `StyleDNA` 六维定量模型：词汇/句法/修辞/视角/情感/对白
+- 10 种内置经典作家 DNA：金庸、张爱玲、海明威、村上春树、莫言、古典散文、现代极简、黑色侦探、武侠诗意、浪漫主义
+- 实时风格相似度计算与提示词注入
 
-### 📝 幕前排版与 AI 续写优化
+**Phase 4 - 自适应学习**
+- `FeedbackRecorder` — 记录用户对 AI 生成内容的接受/拒绝/修改行为
+- `PreferenceMiner` — 五维度启发式偏好挖掘（主题/风格/节奏/视角/结构）
+- `AdaptiveGenerator` — 动态调节温度（temperature）、top-p、提示词权重
+- `PromptPersonalizer` — 将用户偏好自动注入系统提示词
 
-- **段落间距收紧** - `.ProseMirror p` 的 `margin-bottom` 从 `1.5em` 降至 `0`，消除段落间空行；统一增加 `text-indent: 2em` 首行缩进，更符合中文小说排版习惯
-- **底部栏不再遮挡正文** - 编辑器 `padding-bottom` 从 `3rem` 增至 `10rem`，长文本滚动到底部时最后一段完整可见
-- **自动续写** - 接受 AI 生成文本（`Tab`）后，自动触发下一轮「续写」指令，保持创作流不中断
-- **Zen 模式绝对纯净** - 禅模式下完全隐藏 AI 预览气泡、生成中指示器、接受/拒绝按钮及对应快捷键，仅保留空白与文字
+**Phase 5 - 工作流闭环**
+- `CreationWorkflowEngine` — 7 阶段全自动工作流：构思 → 大纲 → 场景设计 → 写作 → 审阅 → 迭代 → 入库
+- 3 种创作模式：一键全自动 / AI 初稿 + 人工精修 / 人工初稿 + AI 润色
+- `QualityChecker` — 四维质量评估（结构/人物/风格/情节）
 
-### 🏗️ 架构决策
+### 🎨 品牌焕新
 
-- **LLM 调用路径明确化** - HTTP 直连 (`modelService.ts`) 为前端唯一官方路径
-- **Rust Warnings 降噪** - `cargo check` 从 163 警告降至 0
+- 全新 Logo：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型
+- `cargo tauri icon logo.png` 生成全平台图标包（Windows / macOS / iOS / Android）
+
+### 🏗️ 架构与质量
+
+- 63 项 Rust 后端测试全部通过
+- `cargo check` 零警告
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 3.4.0
 
 ---
 
 ## 📊 项目状态概览
 
-**当前版本**: v3.3.0-in-progress  
-**最后更新**: 2026-04-17  
+**当前版本**: v3.4.0  
+**最后更新**: 2026-04-18  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
-**整体完成度**: ~99%
+**整体完成度**: 100%
 
 > 🍃 品牌图标：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型，象征创作的生长力与文学的韧性
 

@@ -1,11 +1,78 @@
-# StoryForge (草苔) v3.3.0 项目完成状态
+# StoryForge (草苔) v3.4.0 项目完成状态
 
-> 最后更新: 2026-04-15（v3.3.0 幕前右键菜单修复 + API 一致性审计 + Rust warnings 清零）
+> 最后更新: 2026-04-18（v3.4.0 智能化创作系统 — 5 阶段重构完成）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
 
 ## ✅ 已完成功能
+
+### v3.4.0 新增功能（2026-04-18）
+
+#### 🧠 Phase 1 - 地基重构：真实上下文 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `StoryContextBuilder` | ✅ | 100% | 从真实数据库构建 Agent 上下文（世界观/角色/场景结构） |
+| `QueryPipeline` | ✅ | 100% | 四阶段知识检索：CJK 分词 → 图谱扩展 → 预算控制 → 上下文组装 |
+| `ContinuityEngine` | ✅ | 100% | 章节连续性追踪，确保角色/设定前后一致 |
+| `ForeshadowingTracker` | ✅ | 100% | 伏笔埋设与回收追踪系统 |
+| `IngestPipeline` 自动触发 | ✅ | 100% | 场景保存后自动摄取知识图谱 |
+| 单元测试 | ✅ | 100% | 27 tests 全部通过 |
+
+#### 🎭 Phase 2 - 方法论注入 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `MethodologyEngine` | ✅ | 100% | 自动将方法论约束注入 Writer 系统提示词 |
+| 雪花法 (10 步) | ✅ | 100% | 从一句话到完整小说的渐进细化 |
+| 场景节拍表 (6 节拍) | ✅ | 100% | 开场→冲突→行动→转折→高潮→结局 |
+| 英雄之旅 (12 阶段) | ✅ | 100% | Campbell 经典叙事结构 |
+| 人物深度模型 (6 维) | ✅ | 100% | 性格/动机/关系/成长/语言/秘密 |
+| `AgentOrchestrator` | ✅ | 100% | Writer→Inspector→Writer 质量反馈循环 |
+| 单元测试 | ✅ | 100% | 34 tests 全部通过 |
+
+#### 🎨 Phase 3 - 风格深度化 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `StyleDNA` 六维模型 | ✅ | 100% | 词汇/句法/修辞/视角/情感/对白 |
+| 10 种内置经典作家 DNA | ✅ | 100% | 金庸/张爱玲/海明威/村上春树/莫言/古典散文/现代极简/黑色侦探/武侠诗意/浪漫主义 |
+| `StyleAnalyzer` | ✅ | 100% | 从文本提取 StyleDNA 指纹 |
+| `StyleChecker` | ✅ | 100% | 对比文本与目标 DNA 的相似度 |
+| `StyleDnaRepository` | ✅ | 100% | CRUD 操作 + 数据库迁移 |
+| 单元测试 | ✅ | 100% | 45 tests 全部通过 |
+
+#### 🔄 Phase 4 - 自适应学习 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `FeedbackRecorder` | ✅ | 100% | 记录接受/拒绝/修改行为 |
+| `PreferenceMiner` | ✅ | 100% | 五维度启发式偏好挖掘 |
+| `AdaptiveGenerator` | ✅ | 100% | 动态调节 temperature/top-p/提示词权重 |
+| `PromptPersonalizer` | ✅ | 100% | 将用户偏好注入系统提示词 |
+| `AdaptiveLearningEngine` | ✅ | 100% | 统一入口整合反馈→挖掘→生成→个性化 |
+| `UserFeedbackRepository` | ✅ | 100% | 数据库 CRUD + 统计查询 |
+| `UserPreferenceRepository` | ✅ | 100% | 偏好 upsert + 按故事查询 |
+| 单元测试 | ✅ | 100% | 54 tests 全部通过 |
+
+#### 🏭 Phase 5 - 工作流闭环 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| `CreationWorkflowEngine` | ✅ | 100% | 7 阶段全自动工作流 |
+| `QualityChecker` | ✅ | 100% | 四维质量评估（结构/人物/风格/情节） |
+| 3 种创作模式 | ✅ | 100% | OneClick / AiDraftHumanEdit / HumanDraftAiPolish |
+| 单元测试 | ✅ | 100% | 63 tests 全部通过 |
+
+#### 🍃 品牌焕新 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| 全新 Logo | ✅ | 100% | `logo.png` 绳结绿叶标志 |
+| Tauri 全平台图标 | ✅ | 100% | Windows/macOS/iOS/Android 图标包 |
+| 版本号统一 | ✅ | 100% | Cargo.toml / package.json / tauri.conf.json → 3.4.0 |
+| 旧图标清理 | ✅ | 100% | 移除 LOGO.jpg / icon.jpg / logo-source.png |
 
 ### v3.3.0 新增功能（2026-04-15）
 

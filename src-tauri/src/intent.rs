@@ -264,7 +264,7 @@ impl IntentExecutor {
             });
         }
 
-        let context = Self::build_context(&story_id, &intent);
+        let context = Self::build_context(&story_id, &intent, self.agent_service.app_handle());
         let steps = match intent.execution_mode {
             ExecutionMode::Serial => {
                 self.execute_serial(agents, context, &intent).await
@@ -305,18 +305,30 @@ impl IntentExecutor {
     }
 
     /// 构建 Agent 执行上下文
-    fn build_context(story_id: &str, _intent: &Intent) -> AgentContext {
-        AgentContext {
-            story_id: story_id.to_string(),
-            story_title: "未命名作品".to_string(),
-            genre: "小说".to_string(),
-            tone: "中性".to_string(),
-            pacing: "正常".to_string(),
-            chapter_number: 1,
-            characters: vec![],
-            previous_chapters: vec![],
-            current_content: None,
-            selected_text: None,
+    ///
+    /// 使用 StoryContextBuilder 从数据库读取真实故事数据，
+    /// 替代原有的硬编码默认值。
+    fn build_context(story_id: &str, _intent: &Intent, app_handle: &tauri::AppHandle) -> AgentContext {
+        use crate::db::DbPool;
+        use crate::creative_engine::StoryContextBuilder;
+        use tauri::Manager;
+
+        match app_handle.try_state::<DbPool>() {
+            Some(pool_state) => {
+                let pool = pool_state.inner().clone();
+                let builder = StoryContextBuilder::new(pool);
+                match builder.build_quick(story_id) {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        log::warn!("[IntentExecutor] Failed to build context from DB: {}, falling back to minimal", e);
+                        AgentContext::minimal(story_id.to_string(), String::new())
+                    }
+                }
+            }
+            None => {
+                log::warn!("[IntentExecutor] DbPool not available, using minimal context");
+                AgentContext::minimal(story_id.to_string(), String::new())
+            }
         }
     }
 

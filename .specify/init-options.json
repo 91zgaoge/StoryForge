@@ -1,0 +1,11 @@
+{
+  "ai": "kimi",
+  "ai_skills": true,
+  "branch_numbering": "sequential",
+  "context_file": "KIMI.md",
+  "here": true,
+  "integration": "kimi",
+  "preset": null,
+  "script": "ps",
+  "speckit_version": "0.7.4.dev0"
+}

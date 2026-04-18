@@ -43,3 +43,7 @@ test-results/
 
 # Test screenshots (keep in repo but ignore new ones)
 # e2e/screenshots/*.png
+
+# Spec-Kit / Kimi Code agent credentials
+.kimi/
+.specify/feature.json

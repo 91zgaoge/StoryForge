@@ -1,0 +1,432 @@
+//! StoryContextBuilder - 创作上下文构建器
+//!
+//! 从数据库中读取真实故事数据，为 Agent 提供完整的创作上下文。
+//! 解决 intent.rs 中硬编码 "未命名作品"/"小说"/"中性" 的问题。
+
+use crate::agents::{AgentContext, CharacterInfo, ChapterSummary};
+use crate::db::{DbPool, Story, Character};
+use crate::db::repositories::{StoryRepository, CharacterRepository};
+use crate::db::repositories_v3::{SceneRepository, WritingStyleRepository, WorldBuildingRepository};
+
+/// 知识图谱实体摘要（用于注入提示词）
+#[derive(Debug, Clone)]
+pub struct RelevantEntity {
+    pub name: String,
+    pub entity_type: String,
+    pub description: String,
+    pub relation_hint: Option<String>,
+}
+
+/// 世界观规则摘要
+#[derive(Debug, Clone)]
+pub struct WorldRuleSummary {
+    pub name: String,
+    pub description: String,
+    pub rule_type: String,
+    pub importance: i32,
+}
+
+/// 场景结构信息
+#[derive(Debug, Clone)]
+pub struct SceneStructure {
+    pub scene_id: String,
+    pub sequence_number: i32,
+    pub title: Option<String>,
+    pub dramatic_goal: Option<String>,
+    pub external_pressure: Option<String>,
+    pub conflict_type: Option<String>,
+    pub setting_location: Option<String>,
+    pub setting_time: Option<String>,
+    pub characters_present: Vec<String>,
+}
+
+/// 上下文构建器
+pub struct StoryContextBuilder {
+    pool: DbPool,
+}
+
+impl StoryContextBuilder {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    /// 构建完整的 Agent 上下文
+    ///
+    /// # Arguments
+    /// * `story_id` - 故事 ID
+    /// * `scene_number` - 当前场景序号（用于获取前文和当前场景结构）
+    /// * `current_content` - 当前已写内容（可选）
+    /// * `selected_text` - 用户选中的文本（可选）
+    pub fn build(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_content: Option<String>,
+        selected_text: Option<String>,
+    ) -> Result<AgentContext, String> {
+        let story = self.fetch_story(story_id)?;
+        let characters = self.fetch_characters(story_id)?;
+        let previous_scenes = self.fetch_previous_scenes(story_id, scene_number)?;
+        let world_rules = self.fetch_world_rules(story_id)?;
+        let style = self.fetch_writing_style(story_id)?;
+        let current_scene = scene_number.and_then(|n| self.fetch_current_scene(story_id, n).ok());
+        let relevant_entities = self.fetch_relevant_entities(story_id, 10).unwrap_or_default();
+
+        // 构建角色信息（增强版：包含目标、背景）
+        let character_infos: Vec<CharacterInfo> = characters
+            .into_iter()
+            .map(|c| {
+                let role = if let Some(first_trait) = c.dynamic_traits.first() {
+                    first_trait.trait_name.clone()
+                } else {
+                    c.background.clone().unwrap_or_else(|| "主要角色".to_string())
+                };
+                // 合并 personality + goals 作为更丰富的描述
+                let personality = match (c.personality.as_ref(), c.goals.as_ref()) {
+                    (Some(p), Some(g)) => format!("{}；目标：{}", p, g),
+                    (Some(p), None) => p.clone(),
+                    (None, Some(g)) => format!("目标：{}", g),
+                    (None, None) => "性格未定".to_string(),
+                };
+                CharacterInfo {
+                    name: c.name,
+                    personality,
+                    role,
+                }
+            })
+            .collect();
+
+        // 构建前文摘要
+        let previous_chapters: Vec<ChapterSummary> = previous_scenes
+            .into_iter()
+            .map(|s| {
+                let summary = s.content.clone()
+                    .or(s.dramatic_goal.clone())
+                    .unwrap_or_else(|| "无内容".to_string());
+                let preview = if summary.chars().count() > 200 {
+                    format!("{}...", summary.chars().take(200).collect::<String>())
+                } else {
+                    summary
+                };
+                ChapterSummary {
+                    title: s.title.unwrap_or_else(|| format!("场景 {}", s.sequence_number)),
+                    number: s.sequence_number.max(0) as u32,
+                    summary: preview,
+                }
+            })
+            .collect();
+
+        // 构建独立的上下文组件（分别注入系统提示词的不同部分）
+        let world_rules_text = Self::format_world_rules(&world_rules);
+        let scene_structure_text = Self::format_scene_structure(
+            current_scene.as_ref(),
+            &relevant_entities,
+        );
+
+        Ok(AgentContext {
+            story_id: story_id.to_string(),
+            story_title: story.title,
+            genre: story.genre.unwrap_or_else(|| "小说".to_string()),
+            tone: style.as_ref().and_then(|s| s.tone.clone())
+                .or(story.tone)
+                .unwrap_or_else(|| "中性".to_string()),
+            pacing: style.as_ref().and_then(|s| s.pacing.clone())
+                .or(story.pacing)
+                .unwrap_or_else(|| "正常".to_string()),
+            chapter_number: scene_number.map(|n| n.max(0) as u32).unwrap_or(1),
+            characters: character_infos,
+            previous_chapters,
+            current_content,
+            selected_text,
+            world_rules: world_rules_text,
+            scene_structure: scene_structure_text,
+            methodology_id: None,
+            methodology_step: None,
+            style_dna_id: None,
+        })
+    }
+
+    /// 快速构建（用于 intent 执行等场景）
+    pub fn build_quick(&self, story_id: &str) -> Result<AgentContext, String> {
+        self.build(story_id, None, None, None)
+    }
+
+    /// 带当前场景号的构建
+    pub fn build_for_scene(
+        &self,
+        story_id: &str,
+        scene_number: i32,
+        current_content: Option<String>,
+    ) -> Result<AgentContext, String> {
+        self.build(story_id, Some(scene_number), current_content, None)
+    }
+
+    /// 异步构建，使用 QueryPipeline 根据当前内容智能检索相关知识
+    /// 
+    /// 这是 StoryContextBuilder 的增强版本，在基础上下文之上，
+    /// 通过四阶段查询管线（CJK分词→图谱扩展→预算控制→上下文组装）
+    /// 动态检索与当前写作内容最相关的记忆和实体。
+    pub async fn build_with_query(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+        current_content: Option<String>,
+        selected_text: Option<String>,
+    ) -> Result<AgentContext, String> {
+        let mut context = self.build(story_id, scene_number, current_content.clone(), selected_text)?;
+
+        let query_text = current_content.unwrap_or_default();
+        if query_text.len() < 10 {
+            // 内容太短，不需要查询
+            return Ok(context);
+        }
+
+        use crate::memory::query::{QueryPipeline, DbVectorStore, BudgetConfig};
+        use crate::db::repositories_v3::KnowledgeGraphRepository;
+
+        let pipeline = QueryPipeline::new(BudgetConfig::default());
+        let vector_store = DbVectorStore::new(self.pool.clone());
+        let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
+
+        match pipeline.query(&query_text, story_id, &vector_store, &kg_repo).await {
+            Ok(result) => {
+                if !result.context.is_empty() {
+                    // 将 QueryPipeline 结果合并到 scene_structure 中
+                    let enhanced = format!(
+                        "{}\n\n【相关记忆检索】\n{}",
+                        context.scene_structure.unwrap_or_default(),
+                        result.context
+                    );
+                    context.scene_structure = Some(enhanced);
+                }
+            }
+            Err(e) => {
+                log::warn!("[StoryContextBuilder] QueryPipeline 查询失败: {}, 使用基础上下文", e);
+            }
+        }
+
+        Ok(context)
+    }
+
+    // ==================== 数据获取 ====================
+
+    fn fetch_story(&self, story_id: &str) -> Result<Story, String> {
+        let repo = StoryRepository::new(self.pool.clone());
+        repo.get_by_id(story_id)
+            .map_err(|e| format!("获取故事失败: {}", e))?
+            .ok_or_else(|| "故事不存在".to_string())
+    }
+
+    fn fetch_characters(&self, story_id: &str) -> Result<Vec<Character>, String> {
+        let repo = CharacterRepository::new(self.pool.clone());
+        repo.get_by_story(story_id)
+            .map_err(|e| format!("获取角色失败: {}", e))
+    }
+
+    fn fetch_previous_scenes(
+        &self,
+        story_id: &str,
+        scene_number: Option<i32>,
+    ) -> Result<Vec<crate::db::models_v3::Scene>, String> {
+        let repo = SceneRepository::new(self.pool.clone());
+        let all_scenes = repo.get_by_story(story_id)
+            .map_err(|e| format!("获取场景失败: {}", e))?;
+
+        let cutoff = scene_number.unwrap_or(i32::MAX);
+        let mut prev: Vec<_> = all_scenes.into_iter()
+            .filter(|s| s.sequence_number < cutoff)
+            .collect();
+        prev.sort_by_key(|s| s.sequence_number);
+
+        // 只保留最近 5 个场景（避免提示词过长）
+        if prev.len() > 5 {
+            prev = prev.into_iter().rev().take(5).rev().collect();
+        }
+
+        Ok(prev)
+    }
+
+    fn fetch_current_scene(
+        &self,
+        story_id: &str,
+        scene_number: i32,
+    ) -> Result<crate::db::models_v3::Scene, String> {
+        let repo = SceneRepository::new(self.pool.clone());
+        let scenes = repo.get_by_story(story_id)
+            .map_err(|e| format!("获取场景失败: {}", e))?;
+
+        scenes.into_iter()
+            .find(|s| s.sequence_number == scene_number)
+            .ok_or_else(|| "当前场景不存在".to_string())
+    }
+
+    fn fetch_world_rules(&self, story_id: &str) -> Result<Vec<WorldRuleSummary>, String> {
+        let wb_repo = WorldBuildingRepository::new(self.pool.clone());
+        let world_building = match wb_repo.get_by_story(story_id) {
+            Ok(Some(wb)) => wb,
+            _ => return Ok(vec![]),
+        };
+
+        Ok(world_building.rules.into_iter().map(|r| WorldRuleSummary {
+            name: r.name,
+            description: r.description.unwrap_or_default(),
+            rule_type: r.rule_type.to_string(),
+            importance: r.importance,
+        }).collect())
+    }
+
+    fn fetch_writing_style(
+        &self,
+        story_id: &str,
+    ) -> Result<Option<crate::db::models_v3::WritingStyle>, String> {
+        let repo = WritingStyleRepository::new(self.pool.clone());
+        repo.get_by_story(story_id)
+            .map_err(|e| format!("获取文风失败: {}", e))
+    }
+
+    fn fetch_relevant_entities(&self, story_id: &str, limit: usize) -> Result<Vec<RelevantEntity>, String> {
+        use crate::db::repositories_v3::KnowledgeGraphRepository;
+
+        let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
+        let entities = kg_repo.get_entities_by_story(story_id)
+            .map_err(|e| format!("获取知识图谱实体失败: {}", e))?;
+
+        let mut results: Vec<RelevantEntity> = entities.into_iter()
+            .filter(|e| !e.is_archived)
+            .map(|e| {
+                let description = e.attributes.get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("无描述")
+                    .to_string();
+                RelevantEntity {
+                    name: e.name,
+                    entity_type: e.entity_type.to_string(),
+                    description,
+                    relation_hint: None,
+                }
+            })
+            .collect();
+
+        // 按访问次数排序（优先返回重要实体）
+        results.sort_by(|a, b| b.entity_type.cmp(&a.entity_type));
+        results.truncate(limit);
+
+        Ok(results)
+    }
+
+    // ==================== 上下文格式化 ====================
+
+    /// 格式化世界观规则为系统提示词可用文本
+    fn format_world_rules(world_rules: &[WorldRuleSummary]) -> Option<String> {
+        if world_rules.is_empty() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        for rule in world_rules.iter().take(5) {
+            parts.push(format!("- {}（{}）: {}", rule.name, rule.rule_type, rule.description));
+        }
+        Some(parts.join("\n"))
+    }
+
+    /// 格式化场景结构为系统提示词可用文本
+    fn format_scene_structure(
+        scene: Option<&crate::db::models_v3::Scene>,
+        relevant_entities: &[RelevantEntity],
+    ) -> Option<String> {
+        let mut parts = Vec::new();
+
+        // 当前场景结构
+        if let Some(s) = scene {
+            if let Some(ref goal) = s.dramatic_goal {
+                parts.push(format!("戏剧目标: {}", goal));
+            }
+            if let Some(ref pressure) = s.external_pressure {
+                parts.push(format!("外部压迫: {}", pressure));
+            }
+            if let Some(ref ct) = s.conflict_type {
+                parts.push(format!("冲突类型: {}", ct));
+            }
+            if let Some(ref loc) = s.setting_location {
+                parts.push(format!("地点: {}", loc));
+            }
+            if let Some(ref time) = s.setting_time {
+                parts.push(format!("时间: {}", time));
+            }
+            if !s.characters_present.is_empty() {
+                parts.push(format!("出场角色: {}", s.characters_present.join(", ")));
+            }
+        }
+
+        // 知识图谱实体（关键设定）
+        if !relevant_entities.is_empty() {
+            if !parts.is_empty() {
+                parts.push(String::new());
+            }
+            parts.push("【相关设定】".to_string());
+            for entity in relevant_entities.iter().take(10) {
+                parts.push(format!("- {}（{}）: {}", entity.name, entity.entity_type, entity.description));
+            }
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_world_rules() {
+        let rules = vec![
+            WorldRuleSummary {
+                name: "灵力体系".to_string(),
+                description: "炼气→筑基→金丹".to_string(),
+                rule_type: "Magic".to_string(),
+                importance: 10,
+            },
+        ];
+
+        let text = StoryContextBuilder::format_world_rules(&rules).unwrap();
+        assert!(text.contains("灵力体系"));
+        assert!(text.contains("炼气→筑基→金丹"));
+    }
+
+    #[test]
+    fn test_format_scene_structure() {
+        let scene = crate::db::models_v3::Scene {
+            id: "s1".to_string(),
+            story_id: "story1".to_string(),
+            sequence_number: 3,
+            title: Some("决战".to_string()),
+            dramatic_goal: Some("主角必须击败反派".to_string()),
+            external_pressure: Some("时间限制：日出前".to_string()),
+            conflict_type: Some(crate::db::models_v3::ConflictType::ManVsMan),
+            characters_present: vec!["张三".to_string(), "李四".to_string()],
+            character_conflicts: vec![],
+            content: None,
+            setting_location: Some("古城钟楼".to_string()),
+            setting_time: Some("深夜".to_string()),
+            setting_atmosphere: Some("紧张".to_string()),
+            previous_scene_id: None,
+            next_scene_id: None,
+            model_used: None,
+            cost: None,
+            created_at: chrono::Local::now(),
+            updated_at: chrono::Local::now(),
+            confidence_score: None,
+        };
+
+        let text = StoryContextBuilder::format_scene_structure(Some(&scene), &[]).unwrap();
+        assert!(text.contains("戏剧目标"));
+        assert!(text.contains("主角必须击败反派"));
+        assert!(text.contains("外部压迫"));
+        assert!(text.contains("时间限制：日出前"));
+        assert!(text.contains("出场角色"));
+        assert!(text.contains("张三"));
+    }
+}

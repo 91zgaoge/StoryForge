@@ -1136,6 +1136,100 @@ impl KnowledgeGraphRepository {
             archived_at: entity.archived_at,
         })
     }
+
+    /// 根据名称查找实体（用于 QueryPipeline 图谱扩展）
+    pub fn find_entity_by_name(&self, name: &str) -> Result<Option<Entity>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, entity_type, attributes, embedding, first_seen, last_updated,
+                    confidence_score, access_count, last_accessed, is_archived, archived_at
+             FROM kg_entities WHERE name = ?1 AND is_archived = 0 LIMIT 1"
+        )?;
+
+        let entity = stmt.query_row([name], |row| {
+            let type_str: String = row.get(3)?;
+            let entity_type = type_str.parse().map_err(|_| rusqlite::Error::InvalidParameterName("Invalid entity type".to_string()))?;
+            let attrs_json: String = row.get(4)?;
+            let attributes: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
+            let embedding_blob: Option<Vec<u8>> = row.get(5)?;
+            let embedding = embedding_blob.map(|bytes| {
+                bytes.chunks_exact(4)
+                    .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap_or([0;4])))
+                    .collect()
+            });
+            let first_str: String = row.get(6)?;
+            let updated_str: String = row.get(7)?;
+            let last_accessed: Option<String> = row.get(10)?;
+            let is_archived: i32 = row.get(11)?;
+            let archived_at: Option<String> = row.get(12)?;
+
+            Ok(Entity {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                entity_type,
+                attributes,
+                embedding,
+                first_seen: first_str.parse().unwrap_or_else(|_| Local::now()),
+                last_updated: updated_str.parse().unwrap_or_else(|_| Local::now()),
+                confidence_score: row.get(8)?,
+                access_count: row.get(9)?,
+                last_accessed: last_accessed.and_then(|s| s.parse().ok()),
+                is_archived: is_archived != 0,
+                archived_at: archived_at.and_then(|s| s.parse().ok()),
+            })
+        }).optional()?;
+
+        Ok(entity)
+    }
+
+    /// 获取与指定实体相关的实体及其关系强度
+    pub fn get_related_entities(&self, entity_id: &str, min_strength: f32) -> Result<Vec<(Entity, f32)>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT source_id, target_id, strength FROM kg_relations 
+             WHERE (source_id = ?1 OR target_id = ?1) AND strength >= ?2"
+        )?;
+
+        let rows = stmt.query_map(params![entity_id, min_strength], |row| {
+            let source_id: String = row.get(0)?;
+            let target_id: String = row.get(1)?;
+            let strength: f32 = row.get(2)?;
+            let other_id = if source_id == entity_id { target_id } else { source_id };
+            Ok((other_id, strength))
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        let mut results = Vec::new();
+        for (other_id, strength) in rows {
+            if let Ok(Some(entity)) = self.get_entity_by_id(&other_id) {
+                results.push((entity, strength));
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+// 为 KnowledgeGraphRepository 实现 memory::query::KnowledgeGraph trait
+#[async_trait::async_trait]
+impl crate::memory::query::KnowledgeGraph for KnowledgeGraphRepository {
+    async fn find_entity_by_name(
+        &self,
+        name: &str,
+    ) -> Result<crate::db::models_v3::Entity, Box<dyn std::error::Error + Send + Sync>> {
+        self.find_entity_by_name(name)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> { "Entity not found".into() })
+    }
+
+    async fn get_related_entities(
+        &self,
+        entity_id: &str,
+        min_strength: f32,
+    ) -> Result<Vec<(crate::db::models_v3::Entity, f32)>, Box<dyn std::error::Error + Send + Sync>> {
+        self.get_related_entities(entity_id, min_strength)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
 }
 
 // ==================== 场景批注 Repository ====================
@@ -1951,6 +2045,412 @@ impl CommentThreadRepository {
         conn.execute(
             "DELETE FROM comment_threads WHERE id = ?1",
             params![thread_id],
+        )
+    }
+}
+
+
+// ==================== StyleDNA Repository ====================
+
+pub struct StyleDnaRepository {
+    pool: DbPool,
+}
+
+impl StyleDnaRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(&self, name: &str, author: Option<&str>, dna_json: &str, is_builtin: bool) -> Result<super::models_v3::StyleDNA, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now().to_rfc3339();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO style_dnas (id, name, author, dna_json, is_builtin, is_user_created, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![&id, name, author, dna_json, is_builtin as i32, !is_builtin as i32, now],
+        )?;
+
+        Ok(super::models_v3::StyleDNA {
+            id,
+            name: name.to_string(),
+            author: author.map(|s| s.to_string()),
+            dna_json: dna_json.to_string(),
+            is_builtin,
+            is_user_created: !is_builtin,
+            created_at: Local::now(),
+        })
+    }
+
+    pub fn get_by_id(&self, id: &str) -> Result<Option<super::models_v3::StyleDNA>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
+             FROM style_dnas WHERE id = ?1"
+        )?;
+
+        let result = stmt.query_row([id], |row| {
+            let is_builtin: i32 = row.get(4)?;
+            let is_user_created: i32 = row.get(5)?;
+            let created_str: String = row.get(6)?;
+            Ok(super::models_v3::StyleDNA {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                author: row.get(2)?,
+                dna_json: row.get(3)?,
+                is_builtin: is_builtin != 0,
+                is_user_created: is_user_created != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(result)
+    }
+
+    pub fn get_all(&self) -> Result<Vec<super::models_v3::StyleDNA>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
+             FROM style_dnas ORDER BY is_builtin DESC, name ASC"
+        )?;
+
+        let dnas = stmt.query_map([], |row| {
+            let is_builtin: i32 = row.get(4)?;
+            let is_user_created: i32 = row.get(5)?;
+            let created_str: String = row.get(6)?;
+            Ok(super::models_v3::StyleDNA {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                author: row.get(2)?,
+                dna_json: row.get(3)?,
+                is_builtin: is_builtin != 0,
+                is_user_created: is_user_created != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(dnas)
+    }
+
+    pub fn get_builtin(&self) -> Result<Vec<super::models_v3::StyleDNA>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, author, dna_json, is_builtin, is_user_created, created_at
+             FROM style_dnas WHERE is_builtin = 1 ORDER BY name ASC"
+        )?;
+
+        let dnas = stmt.query_map([], |row| {
+            let is_builtin: i32 = row.get(4)?;
+            let is_user_created: i32 = row.get(5)?;
+            let created_str: String = row.get(6)?;
+            Ok(super::models_v3::StyleDNA {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                author: row.get(2)?,
+                dna_json: row.get(3)?,
+                is_builtin: is_builtin != 0,
+                is_user_created: is_user_created != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(dnas)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM style_dnas WHERE id = ?1 AND is_builtin = 0",
+            params![id],
+        )
+    }
+}
+
+
+// ==================== UserFeedback Repository ====================
+
+pub struct UserFeedbackRepository {
+    pool: DbPool,
+}
+
+impl UserFeedbackRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        chapter_id: Option<&str>,
+        feedback_type: &str,
+        agent_type: Option<&str>,
+        original_ai_text: &str,
+        final_text: &str,
+        ai_score: Option<f32>,
+        user_satisfaction: Option<i32>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<super::models_v3::UserFeedbackLog, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now().to_rfc3339();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO user_feedback_log (id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                &id, story_id, scene_id, chapter_id, feedback_type,
+                agent_type, original_ai_text, final_text,
+                ai_score, user_satisfaction,
+                metadata.map(|m| m.to_string()), now
+            ],
+        )?;
+
+        Ok(super::models_v3::UserFeedbackLog {
+            id,
+            story_id: story_id.to_string(),
+            scene_id: scene_id.map(|s| s.to_string()),
+            chapter_id: chapter_id.map(|s| s.to_string()),
+            feedback_type: feedback_type.parse().unwrap_or(super::models_v3::FeedbackType::Accept),
+            agent_type: agent_type.map(|s| s.to_string()),
+            original_ai_text: original_ai_text.to_string(),
+            final_text: final_text.to_string(),
+            ai_score,
+            user_satisfaction,
+            metadata: metadata.cloned(),
+            created_at: Local::now(),
+        })
+    }
+
+    pub fn get_by_story(&self, story_id: &str, limit: Option<i64>) -> Result<Vec<super::models_v3::UserFeedbackLog>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let sql = if let Some(lim) = limit {
+            format!(
+                "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
+                 FROM user_feedback_log WHERE story_id = ?1 ORDER BY created_at DESC LIMIT {}",
+                lim
+            )
+        } else {
+            "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
+             FROM user_feedback_log WHERE story_id = ?1 ORDER BY created_at DESC".to_string()
+        };
+        let mut stmt = conn.prepare(&sql)?;
+
+        let logs = stmt.query_map([story_id], |row| {
+            let meta_str: Option<String> = row.get(10)?;
+            let meta = meta_str.and_then(|s| serde_json::from_str(&s).ok());
+            let created_str: String = row.get(11)?;
+            Ok(super::models_v3::UserFeedbackLog {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                scene_id: row.get(2)?,
+                chapter_id: row.get(3)?,
+                feedback_type: row.get::<_, String>(4)?.parse().unwrap_or(super::models_v3::FeedbackType::Accept),
+                agent_type: row.get(5)?,
+                original_ai_text: row.get(6)?,
+                final_text: row.get(7)?,
+                ai_score: row.get(8)?,
+                user_satisfaction: row.get(9)?,
+                metadata: meta,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(logs)
+    }
+
+    pub fn get_recent(&self, story_id: &str, days: i64) -> Result<Vec<super::models_v3::UserFeedbackLog>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let cutoff = (Local::now() - chrono::Duration::days(days)).to_rfc3339();
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, scene_id, chapter_id, feedback_type, agent_type, original_ai_text, final_text, ai_score, user_satisfaction, metadata, created_at
+             FROM user_feedback_log WHERE story_id = ?1 AND created_at >= ?2 ORDER BY created_at DESC"
+        )?;
+
+        let logs = stmt.query_map(params![story_id, cutoff], |row| {
+            let meta_str: Option<String> = row.get(10)?;
+            let meta = meta_str.and_then(|s| serde_json::from_str(&s).ok());
+            let created_str: String = row.get(11)?;
+            Ok(super::models_v3::UserFeedbackLog {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                scene_id: row.get(2)?,
+                chapter_id: row.get(3)?,
+                feedback_type: row.get::<_, String>(4)?.parse().unwrap_or(super::models_v3::FeedbackType::Accept),
+                agent_type: row.get(5)?,
+                original_ai_text: row.get(6)?,
+                final_text: row.get(7)?,
+                ai_score: row.get(8)?,
+                user_satisfaction: row.get(9)?,
+                metadata: meta,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(logs)
+    }
+
+    pub fn get_stats(&self, story_id: &str) -> Result<FeedbackStats, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT feedback_type, COUNT(*) FROM user_feedback_log WHERE story_id = ?1 GROUP BY feedback_type"
+        )?;
+
+        let mut accept = 0;
+        let mut reject = 0;
+        let mut modify = 0;
+
+        let rows = stmt.query_map([story_id], |row| {
+            let ft: String = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            Ok((ft, count))
+        })?;
+
+        for row in rows {
+            let (ft, count) = row?;
+            match ft.as_str() {
+                "accept" => accept = count,
+                "reject" => reject = count,
+                "modify" => modify = count,
+                _ => {}
+            }
+        }
+
+        Ok(FeedbackStats { accept, reject, modify })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FeedbackStats {
+    pub accept: i64,
+    pub reject: i64,
+    pub modify: i64,
+}
+
+// ==================== UserPreference Repository ====================
+
+pub struct UserPreferenceRepository {
+    pool: DbPool,
+}
+
+impl UserPreferenceRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn upsert(
+        &self,
+        story_id: &str,
+        preference_type: &str,
+        preference_key: &str,
+        preference_value: &str,
+        confidence: f32,
+        evidence_count: i32,
+    ) -> Result<super::models_v3::UserPreference, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+
+        // 先检查是否已存在
+        let existing: Option<String> = conn.query_row(
+            "SELECT id FROM user_preferences WHERE story_id = ?1 AND preference_type = ?2 AND preference_key = ?3",
+            params![story_id, preference_type, preference_key],
+            |row| row.get(0),
+        ).optional()?;
+
+        if let Some(id) = existing {
+            // 更新
+            conn.execute(
+                "UPDATE user_preferences SET preference_value = ?4, confidence = ?5, evidence_count = ?6, updated_at = ?7
+                 WHERE id = ?1",
+                params![&id, preference_value, confidence, evidence_count, now],
+            )?;
+
+            Ok(super::models_v3::UserPreference {
+                id,
+                story_id: story_id.to_string(),
+                preference_type: preference_type.parse().unwrap_or(super::models_v3::PreferenceType::Content),
+                preference_key: preference_key.to_string(),
+                preference_value: preference_value.to_string(),
+                confidence,
+                evidence_count,
+                updated_at: Local::now(),
+            })
+        } else {
+            // 创建
+            let id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO user_preferences (id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![&id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, now],
+            )?;
+
+            Ok(super::models_v3::UserPreference {
+                id,
+                story_id: story_id.to_string(),
+                preference_type: preference_type.parse().unwrap_or(super::models_v3::PreferenceType::Content),
+                preference_key: preference_key.to_string(),
+                preference_value: preference_value.to_string(),
+                confidence,
+                evidence_count,
+                updated_at: Local::now(),
+            })
+        }
+    }
+
+    pub fn get_by_story(&self, story_id: &str) -> Result<Vec<super::models_v3::UserPreference>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, updated_at
+             FROM user_preferences WHERE story_id = ?1 ORDER BY confidence DESC"
+        )?;
+
+        let prefs = stmt.query_map([story_id], |row| {
+            let updated_str: String = row.get(7)?;
+            Ok(super::models_v3::UserPreference {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                preference_type: row.get::<_, String>(2)?.parse().unwrap_or(super::models_v3::PreferenceType::Content),
+                preference_key: row.get(3)?,
+                preference_value: row.get(4)?,
+                confidence: row.get(5)?,
+                evidence_count: row.get(6)?,
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(prefs)
+    }
+
+    pub fn get_by_type(&self, story_id: &str, pref_type: &str) -> Result<Vec<super::models_v3::UserPreference>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, preference_type, preference_key, preference_value, confidence, evidence_count, updated_at
+             FROM user_preferences WHERE story_id = ?1 AND preference_type = ?2 ORDER BY confidence DESC"
+        )?;
+
+        let prefs = stmt.query_map(params![story_id, pref_type], |row| {
+            let updated_str: String = row.get(7)?;
+            Ok(super::models_v3::UserPreference {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                preference_type: row.get::<_, String>(2)?.parse().unwrap_or(super::models_v3::PreferenceType::Content),
+                preference_key: row.get(3)?,
+                preference_value: row.get(4)?,
+                confidence: row.get(5)?,
+                evidence_count: row.get(6)?,
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(prefs)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM user_preferences WHERE id = ?1",
+            params![id],
         )
     }
 }

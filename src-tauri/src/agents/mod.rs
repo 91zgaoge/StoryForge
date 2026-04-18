@@ -19,6 +19,7 @@ pub mod novel_creation;
 pub mod memory_compressor;
 pub mod commentator;
 pub mod distiller;
+pub mod orchestrator;
 
 // ==================== 核心Trait ====================
 
@@ -52,8 +53,13 @@ pub struct AgentContext {
     pub chapter_number: u32,
     pub characters: Vec<CharacterInfo>,
     pub previous_chapters: Vec<ChapterSummary>,
-    pub current_content: Option<String>, // 当前章节全文
+    pub current_content: Option<String>, // 当前章节全文（已过滤元信息，保留纯内容）
     pub selected_text: Option<String>,   // 用户选中的文本
+    pub world_rules: Option<String>,     // 世界观规则（注入系统提示词）
+    pub scene_structure: Option<String>, // 场景结构（注入系统提示词）
+    pub methodology_id: Option<String>,  // 创作方法论ID（如 snowflake, scene_structure）
+    pub methodology_step: Option<String>, // 方法论当前步骤
+    pub style_dna_id: Option<String>,    // 风格DNA ID
 }
 
 /// 角色信息
@@ -96,6 +102,11 @@ impl AgentContext {
             previous_chapters: vec![],
             current_content: None,
             selected_text: None,
+            world_rules: None,
+            scene_structure: None,
+            methodology_id: None,
+            methodology_step: None,
+            style_dna_id: None,
         }
     }
     

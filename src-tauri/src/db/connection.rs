@@ -585,6 +585,169 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             [],
         )?;
     }
+
+    // Migration 7: 创建角色状态追踪表 (v4.0 - 智能化创作)
+    let character_state_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='character_states'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if character_state_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE character_states (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                character_id TEXT NOT NULL,
+                current_location TEXT,
+                current_emotion TEXT,
+                active_goal TEXT,
+                secrets_known TEXT,
+                secrets_unknown TEXT,
+                arc_progress REAL,
+                last_updated TEXT,
+                FOREIGN KEY (character_id) REFERENCES characters(id)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_character_states_story ON character_states(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_character_states_character ON character_states(character_id)",
+            [],
+        )?;
+    }
+
+    // Migration 8: 创建伏笔追踪表 (v4.0 - 智能化创作)
+    let foreshadowing_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='foreshadowing_tracker'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if foreshadowing_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE foreshadowing_tracker (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                setup_scene_id TEXT,
+                payoff_scene_id TEXT,
+                status TEXT NOT NULL DEFAULT 'setup',
+                importance INTEGER,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_foreshadowing_story ON foreshadowing_tracker(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_foreshadowing_status ON foreshadowing_tracker(status)",
+            [],
+        )?;
+    }
+
+    // Migration 9: 创建用户偏好表 (v4.0 - 自适应学习)
+    let preference_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if preference_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE user_preferences (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                preference_type TEXT,
+                preference_key TEXT,
+                preference_value TEXT,
+                confidence REAL,
+                evidence_count INTEGER,
+                updated_at TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_user_preferences_story ON user_preferences(story_id)",
+            [],
+        )?;
+    }
+
+    // Migration 10: 创建风格 DNA 表 (v4.0 - 深度风格系统)
+    let style_dna_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='style_dnas'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if style_dna_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE style_dnas (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                author TEXT,
+                dna_json TEXT NOT NULL,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                is_user_created INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_style_dnas_builtin ON style_dnas(is_builtin)",
+            [],
+        )?;
+    }
+
+    // Migration 11: 创建用户反馈日志表 (v4.0 - 自适应学习)
+    let feedback_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback_log'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if feedback_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE user_feedback_log (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                scene_id TEXT,
+                chapter_id TEXT,
+                feedback_type TEXT NOT NULL,    -- accept / reject / modify
+                agent_type TEXT,                -- writer / inspector / etc
+                original_ai_text TEXT,          -- AI 生成的原始文本
+                final_text TEXT,                -- 用户最终接受的文本
+                ai_score REAL,                  -- AI 自评分数
+                user_satisfaction INTEGER,      -- 用户满意度 1-5（如提供）
+                metadata TEXT,                  -- JSON: 额外上下文
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_feedback_story ON user_feedback_log(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_feedback_type ON user_feedback_log(feedback_type)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_feedback_created ON user_feedback_log(created_at)",
+            [],
+        )?;
+    }
     
     Ok(())
 }

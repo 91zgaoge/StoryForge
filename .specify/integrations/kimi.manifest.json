@@ -1,0 +1,16 @@
+{
+  "integration": "kimi",
+  "version": "0.7.4.dev0",
+  "installed_at": "2026-04-18T01:01:51.526861+00:00",
+  "files": {
+    ".kimi/skills/speckit-analyze/SKILL.md": "a6cce8cacc71572a60a2a81d6e9de778fd948ac4353b7be2ab6bc392b6a27625",
+    ".kimi/skills/speckit-checklist/SKILL.md": "9a71567ee76ebd332139d33c8a70d9d1925079f2e2b3469ce1729582ef59f278",
+    ".kimi/skills/speckit-clarify/SKILL.md": "3d3889843d4ad95021d9ba2e16e8107a57bf72ccc576a6dbafad41a96e290015",
+    ".kimi/skills/speckit-constitution/SKILL.md": "7310adee465ee6a439a689518e6c133ce851d808c7a6e64d66f659ad8b4bd56e",
+    ".kimi/skills/speckit-implement/SKILL.md": "24eb9c9293bb867302bce76a37186c465703ff4e18b3c9096e5bb6291da6cb10",
+    ".kimi/skills/speckit-plan/SKILL.md": "5f49812f7b789a600c928952592286b166e84a931bc5dfab48150d2f82f934a5",
+    ".kimi/skills/speckit-specify/SKILL.md": "019e30edd3f31267b48a9c846311ac07e78661b7599d3a96e94bded5b8f646fe",
+    ".kimi/skills/speckit-tasks/SKILL.md": "3ae247890607630c61558c153d10858f37e1b7ce8aaefe9e486fd4b41980b600",
+    ".kimi/skills/speckit-taskstoissues/SKILL.md": "93cacb7c23e4cb4e1c954ac6681389be8a3862f4eb22f9f710de8299a219aadf"
+  }
+}

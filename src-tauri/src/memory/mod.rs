@@ -88,6 +88,11 @@ impl ShortTermMemory {
             characters: character_infos,
             current_content: None,
             selected_text: None,
+            world_rules: None,
+            scene_structure: None,
+            methodology_id: None,
+            methodology_step: None,
+            style_dna_id: None,
         }
     }
 

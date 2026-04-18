@@ -2,6 +2,63 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v3.4.0] - 智能化创作系统（2026-04-18）
+
+### 🧠 智能化创作系统（5 阶段重构）
+
+**Phase 1 - 地基重构：真实上下文**
+- `StoryContextBuilder` — 从真实数据库构建丰富的 Agent 上下文（世界观、角色、场景结构）
+- `QueryPipeline` — 四阶段知识检索（CJK 分词搜索 → 知识图谱扩展 → 预算控制 → 上下文组装）
+- `ContinuityEngine` + `ForeshadowingTracker` — 连续性追踪与伏笔回收系统
+- `IngestPipeline` 自动触发 — 场景保存后自动摄取知识图谱
+
+**Phase 2 - 方法论注入**
+- 创作方法论引擎：`MethodologyEngine` 自动将方法论约束注入 Writer 系统提示词
+- 四种经典方法论：
+  - **雪花法**（10 步渐进细化）
+  - **场景节拍表**（6 节拍：开场→冲突→行动→转折→高潮→结局）
+  - **英雄之旅**（12 阶段：平凡世界→冒险召唤→拒绝→导师→跨越→考验→深渊→蜕变→奖赏→归途→复活→携宝归乡）
+  - **人物深度模型**（6 维度：性格/动机/关系/成长/语言/秘密）
+- `AgentOrchestrator` — Writer→Inspector→Writer 质量反馈循环
+  - 可配置质量阈值（默认 0.75）和最大循环数（默认 2）
+  - Inspector 评分未达标时自动生成重写反馈
+
+**Phase 3 - 风格深度化**
+- `StyleDNA` 六维定量模型：词汇/句法/修辞/视角/情感/对白
+- 10 种内置经典作家 DNA：金庸、张爱玲、海明威、村上春树、莫言、古典散文、现代极简、黑色侦探、武侠诗意、浪漫主义
+- `StyleAnalyzer` — 从文本提取 StyleDNA 指纹
+- `StyleChecker` — 对比文本与目标 DNA 的相似度
+- 实时风格相似度计算与提示词注入
+
+**Phase 4 - 自适应学习**
+- `FeedbackRecorder` — 记录用户对 AI 生成内容的接受/拒绝/修改行为
+- `PreferenceMiner` — 五维度启发式偏好挖掘（主题/风格/节奏/视角/结构）
+- `AdaptiveGenerator` — 动态调节温度（temperature）、top-p、提示词权重
+- `PromptPersonalizer` — 将用户偏好自动注入系统提示词
+- `AdaptiveLearningEngine` — 统一入口，整合反馈→挖掘→生成→个性化全流程
+
+**Phase 5 - 工作流闭环**
+- `CreationWorkflowEngine` — 7 阶段全自动工作流
+  - Conception（构思）→ Outlining（大纲）→ SceneDesign（场景设计）→ Writing（写作）→ Review（审阅）→ Iteration（迭代）→ Ingestion（入库）
+- 3 种创作模式：
+  - `OneClick` — 一键全自动
+  - `AiDraftHumanEdit` — AI 初稿 + 人工精修
+  - `HumanDraftAiPolish` — 人工初稿 + AI 润色
+- `QualityChecker` — 四维质量评估（结构/人物/风格/情节）
+
+### 🎨 品牌焕新
+
+- 全新 Logo：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型
+- `cargo tauri icon logo.png` 生成全平台图标包（Windows / macOS / iOS / Android）
+- 清理旧图标：`LOGO.jpg`、`icon.jpg`、`logo-source.png`
+
+### 🏗️ 架构与质量
+
+- 63 项 Rust 后端测试全部通过
+- `cargo check` 零警告
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 3.4.0
+- `Box<dyn std::error::Error + Send + Sync>` 全链路修复 — Tauri 异步命令 Send 要求
+
 ## [Unreleased] - v3.3.0 功能断层修复与架构清理
 
 ### 🍃 品牌 Logo 全面应用（2026-04-15）

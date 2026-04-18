@@ -7,6 +7,7 @@
 
 use super::tokenizer::CJKTokenizer;
 use crate::db::models_v3::Entity;
+use rusqlite::params;
 
 /// 查询管道
 pub struct QueryPipeline {
@@ -105,7 +106,7 @@ impl QueryPipeline {
         story_id: &str,
         vector_store: &dyn VectorStore,
         knowledge_graph: &dyn KnowledgeGraph,
-    ) -> Result<QueryResult, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResult, Box<dyn std::error::Error + Send + Sync>> {
         // Stage 1: CJK二元组分词搜索
         let search_results = self.token_search(query, story_id, vector_store).await?;
         
@@ -127,7 +128,7 @@ impl QueryPipeline {
         query: &str,
         story_id: &str,
         vector_store: &dyn VectorStore,
-    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
         // 对查询进行CJK二元组分词
         let tokens = self.tokenizer.tokenize(query);
         
@@ -152,7 +153,7 @@ impl QueryPipeline {
         &self,
         search_results: &[SearchResult],
         knowledge_graph: &dyn KnowledgeGraph,
-    ) -> Result<Vec<GraphResult>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<GraphResult>, Box<dyn std::error::Error + Send + Sync>> {
         let mut expanded = vec![];
         let mut processed_entities = std::collections::HashSet::new();
         
@@ -200,7 +201,7 @@ impl QueryPipeline {
         &self,
         search_results: &[SearchResult],
         graph_expansion: &[GraphResult],
-    ) -> Result<Vec<SelectedContext>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<SelectedContext>, Box<dyn std::error::Error + Send + Sync>> {
         let total_budget = self.budget_config.total_budget;
         let search_budget = (total_budget as f32 * self.budget_config.search_budget_pct) as usize;
         let graph_budget = (total_budget as f32 * self.budget_config.graph_budget_pct) as usize;
@@ -281,7 +282,7 @@ impl QueryPipeline {
     fn assemble_context(
         &self,
         selected: &[SelectedContext],
-    ) -> Result<QueryResult, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResult, Box<dyn std::error::Error + Send + Sync>> {
         let mut context_parts = vec![];
         let mut citations = vec![];
         let mut total_tokens = 0;
@@ -315,7 +316,92 @@ pub trait VectorStore: Send + Sync {
         story_id: &str,
         token: &str,
         limit: usize,
-    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// 基于数据库文本搜索的 VectorStore 适配器
+/// 
+/// 使用 SQLite LIKE 查询在场景内容和实体名称/描述中搜索匹配的 token。
+/// 作为 LanceVectorStore 的轻量级替代，无需 embedding 即可工作。
+pub struct DbVectorStore {
+    pool: crate::db::DbPool,
+}
+
+impl DbVectorStore {
+    pub fn new(pool: crate::db::DbPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl VectorStore for DbVectorStore {
+    async fn search_with_token(
+        &self,
+        story_id: &str,
+        token: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut results = Vec::new();
+        let like_pattern = format!("%{}%", token);
+
+        // 1. 搜索场景内容
+        let conn = self.pool.get().map_err(|e| format!("DB pool error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, content FROM scenes WHERE story_id = ?1 AND content LIKE ?2 LIMIT ?3"
+        )?;
+        let scene_rows = stmt.query_map(params![story_id, &like_pattern, limit as i32], |row| {
+            let id: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            Ok((id, content))
+        })?;
+        for row in scene_rows {
+            let (id, content) = row?;
+            results.push(SearchResult {
+                id,
+                content: content.chars().take(300).collect::<String>(),
+                score: 0.8,
+                source_type: SourceType::Scene,
+                metadata: serde_json::json!({}),
+            });
+        }
+
+        // 2. 搜索实体名称
+        let mut stmt = conn.prepare(
+            "SELECT id, name, attributes FROM kg_entities WHERE story_id = ?1 AND name LIKE ?2 AND is_archived = 0 LIMIT ?3"
+        )?;
+        let entity_rows = stmt.query_map(params![story_id, &like_pattern, limit as i32], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let attrs_json: String = row.get(2)?;
+            Ok((id, name, attrs_json))
+        })?;
+        for row in entity_rows {
+            let (id, name, attrs_json) = row?;
+            let attrs: serde_json::Value = serde_json::from_str(&attrs_json).unwrap_or_default();
+            let description = attrs.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let content = if description.is_empty() {
+                name.clone()
+            } else {
+                format!("{}: {}", name, description)
+            };
+            results.push(SearchResult {
+                id,
+                content,
+                score: 0.9,
+                source_type: SourceType::Entity,
+                metadata: attrs,
+            });
+        }
+
+        // 去重并截断
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        results.dedup_by(|a, b| a.id == b.id);
+        results.truncate(limit);
+
+        Ok(results)
+    }
 }
 
 /// 知识图谱接口（用于查询）
@@ -324,11 +410,11 @@ pub trait KnowledgeGraph: Send + Sync {
     async fn find_entity_by_name(
         &self,
         name: &str,
-    ) -> Result<Entity, Box<dyn std::error::Error>>;
+    ) -> Result<Entity, Box<dyn std::error::Error + Send + Sync>>;
     
     async fn get_related_entities(
         &self,
         entity_id: &str,
         min_strength: f32,
-    ) -> Result<Vec<(Entity, f32)>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<(Entity, f32)>, Box<dyn std::error::Error + Send + Sync>>;
 }

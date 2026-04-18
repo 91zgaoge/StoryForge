@@ -50,10 +50,93 @@ pub async fn update_scene(
     scene_id: String,
     updates: SceneUpdate,
     pool: State<'_, DbPool>,
+    app_handle: AppHandle,
 ) -> Result<usize, String> {
     let repo = SceneRepository::new(pool.inner().clone());
-    repo.update(&scene_id, &updates)
-        .map_err(|e| e.to_string())
+    let result = repo.update(&scene_id, &updates)
+        .map_err(|e| e.to_string())?;
+
+    // 自动 Ingest：当场景内容被更新时，后台分析并更新知识图谱
+    if updates.content.is_some() {
+        let pool_clone = pool.inner().clone();
+        let scene_id_clone = scene_id.clone();
+        let app_handle_clone = app_handle.clone();
+
+        tauri::async_runtime::spawn(async move {
+            // 获取场景信息以确定 story_id
+            let scene_repo = SceneRepository::new(pool_clone.clone());
+            if let Ok(Some(scene)) = scene_repo.get_by_id(&scene_id_clone) {
+                let story_id = scene.story_id;
+                let content = scene.content.unwrap_or_default();
+                if content.len() > 50 {
+                    let llm_service = LlmService::new(app_handle_clone);
+                    let pipeline = IngestPipeline::new(llm_service);
+                    let ingest_content = IngestContent {
+                        text: content,
+                        source: format!("scene:{}", scene_id_clone),
+                        story_id: story_id.clone(),
+                        scene_id: Some(scene_id_clone.clone()),
+                    };
+
+                    match pipeline.ingest(&ingest_content).await {
+                        Ok(ingest_result) => {
+                            let kg_repo = KnowledgeGraphRepository::new(pool_clone.clone());
+                            let mut saved_entities = 0usize;
+                            let mut saved_relations = 0usize;
+
+                            // 保存实体
+                            for entity in &ingest_result.entities {
+                                if let Ok(_) = kg_repo.create_entity(
+                                    &story_id,
+                                    &entity.name,
+                                    &entity.entity_type.to_string(),
+                                    &entity.attributes,
+                                    entity.embedding.clone(),
+                                ) {
+                                    saved_entities += 1;
+                                }
+                            }
+
+                            // 建立关系映射
+                            let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result.entities
+                                .iter()
+                                .map(|e| (e.name.clone(), e.id.clone()))
+                                .collect();
+
+                            for relation in &ingest_result.relations {
+                                if let (Some(source_id), Some(target_id)) = (
+                                    entity_name_to_id.get(&relation.source_id),
+                                    entity_name_to_id.get(&relation.target_id),
+                                ) {
+                                    if let Ok(_) = kg_repo.create_relation(
+                                        &story_id,
+                                        source_id,
+                                        target_id,
+                                        &relation.relation_type.to_string(),
+                                        relation.strength,
+                                    ) {
+                                        saved_relations += 1;
+                                    }
+                                }
+                            }
+
+                            log::info!(
+                                "[AutoIngest] Scene {}: {} entities, {} relations saved to KG",
+                                scene_id_clone,
+                                saved_entities,
+                                saved_relations
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("[AutoIngest] Scene {}: ingest failed: {}", scene_id_clone, e);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    Ok(result)
 }
 
 #[command]
@@ -489,6 +572,11 @@ pub async fn generate_paragraph_commentaries(
         previous_chapters: vec![],
         current_content: None,
         selected_text: None,
+        world_rules: None,
+        scene_structure: None,
+        methodology_id: None,
+        methodology_step: None,
+        style_dna_id: None,
     };
 
     let llm_service = LlmService::new(app_handle);

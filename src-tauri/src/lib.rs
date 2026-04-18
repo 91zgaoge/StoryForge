@@ -25,6 +25,7 @@ mod window;
 mod updater;
 mod commands_v3;
 mod intent;
+mod creative_engine;
 
 use tauri::{Manager, AppHandle};
 
@@ -522,6 +523,11 @@ fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -
         previous_chapters: vec![],
         current_content: None,
         selected_text: None,
+        world_rules: None,
+        scene_structure: None,
+        methodology_id: None,
+        methodology_step: None,
+        style_dna_id: None,
     };
     let result = manager.execute_skill(&skill_id, &context, params)?;
     serde_json::to_value(result).map_err(|e| e.to_string())
