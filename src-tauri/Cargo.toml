@@ -45,7 +45,7 @@ log = "0.4"
 tokio-tungstenite = { version = "0.29.0", features = ["native-tls"] }
 futures-util = "0.3.32"
 
-# LanceDB - 向量数据�?(待依赖冲突解决后启用)
+# LanceDB - 向量数据库(待依赖冲突解决后启用)
 # lancedb = "0.18"
 # arrow-array = "54"
 # arrow-schema = "54"
