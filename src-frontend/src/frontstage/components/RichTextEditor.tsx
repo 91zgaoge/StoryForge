@@ -74,6 +74,8 @@ interface RichTextEditorProps {
   onShowAnnotationPanelChange?: (v: boolean) => void;
   showCommentPanel?: boolean;
   onShowCommentPanelChange?: (v: boolean) => void;
+  /** 智能文思 Ghost Text 建议（来自感知层分析） */
+  smartGhostText?: string;
 }
 
 export interface RichTextEditorRef {
@@ -109,6 +111,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     onShowAnnotationPanelChange,
     showCommentPanel: externalShowCommentPanel = false,
     onShowCommentPanelChange,
+    smartGhostText,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -120,6 +123,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     
     // ===== Kimi Code style input features =====
     const [ghostText, setGhostText] = useState('');
+    const [smartGhost, setSmartGhost] = useState('');
     const [showSlashMenu, setShowSlashMenu] = useState(false);
     const [slashMenuIndex, setSlashMenuIndex] = useState(0);
     const [inputHistory, setInputHistory] = useState<string[]>(() => loadInputHistory());
@@ -532,10 +536,24 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       { id: 'polish', name: '/润色', description: '润色当前段落', instruction: '润色' },
     ];
     
+    // ===== Smart Ghost Text from perception layer =====
+    useEffect(() => {
+      if (smartGhostText && !chatInput.trim()) {
+        setSmartGhost(smartGhostText);
+      } else {
+        setSmartGhost('');
+      }
+    }, [smartGhostText, chatInput]);
+
     // ===== Ghost Text Generation =====
     useEffect(() => {
       if (showSlashMenu) {
         setGhostText('');
+        return;
+      }
+      // 优先显示智能 Ghost Text
+      if (smartGhost) {
+        setGhostText(smartGhost);
         return;
       }
       const input = chatInput.trim();
@@ -558,7 +576,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         }
       }
       setGhostText('');
-    }, [chatInput, showSlashMenu]);
+    }, [chatInput, showSlashMenu, smartGhost]);
     
     // 发送消息（正文助手指令栏）
     const executeWriterAgent = useCallback(async (instruction: string) => {

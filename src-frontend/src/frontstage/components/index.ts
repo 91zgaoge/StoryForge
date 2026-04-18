@@ -1,6 +1,6 @@
 // Frontstage Components Export
 export { StreamingText } from './StreamingText';
-export { AiSuggestionBubble, FloatingAmbientHint } from './AiSuggestionBubble';
+export { SmartHintSystem } from '../ai-perception';
 export { FrontstageToolbar } from './FrontstageToolbar';
 export { AiHintOverlay } from './AiHintOverlay';
 export { default as RichTextEditor } from './RichTextEditor';

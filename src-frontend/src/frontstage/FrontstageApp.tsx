@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
-import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
+import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 import ColorThemeDot from './components/ColorThemeDot';
@@ -52,6 +52,7 @@ const FrontstageApp: React.FC = () => {
   const [isRevisionMode, setIsRevisionMode] = useState(false);
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
+  const [smartGhostText, setSmartGhostText] = useState('');
   const editorRef = useRef<RichTextEditorRef>(null);
 
   // 加载当前故事的角色
@@ -76,7 +77,7 @@ const FrontstageApp: React.FC = () => {
             }
             break;
           case 'AiHint':
-            // AI hints are now handled by AiSuggestionBubble component
+            // AI hints are now handled by SmartHintSystem (ai-perception layer)
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
@@ -410,19 +411,18 @@ const FrontstageApp: React.FC = () => {
             onShowAnnotationPanelChange={setShowAnnotationPanel}
             showCommentPanel={showCommentPanel}
             onShowCommentPanelChange={setShowCommentPanel}
+            smartGhostText={smartGhostText}
           />
         </main>
       </div>
 
-      {/* AI Suggestion Bubbles */}
-      <AiSuggestionBubble 
-        enabled={!isZenMode && showAI}
-        interval={12000}
-        duration={8000}
+      {/* 智能文思 — 统一提示系统 */}
+      <SmartHintSystem
+        htmlContent={content}
+        isEnabled={!isZenMode && showAI}
+        isZenMode={isZenMode}
+        onGhostSuggestion={setSmartGhostText}
       />
-
-      {/* Floating Ambient Hints */}
-      <FloatingAmbientHint enabled={!isZenMode && showAI} />
 
       {/* 禅模式退出提示 */}
       {isZenMode && (

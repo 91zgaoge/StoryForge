@@ -1535,3 +1535,89 @@ body {
   font-size: 11px;
   font-family: var(--font-sans);
 }
+
+
+/* ===== Smart Hint System (智能文思 — 表达层) ===== */
+
+.smart-hint-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.smart-hint-bubble {
+  position: absolute;
+  max-width: 220px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.smart-hint-bubble.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.smart-hint-bubble:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+/* 环境提示 */
+.smart-ambient-hint {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%) translateX(-10px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--parchment-dark);
+  border: 1px solid var(--warm-sand);
+  border-radius: 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  z-index: 25;
+  pointer-events: none;
+  max-width: 180px;
+}
+
+.smart-ambient-hint.visible {
+  opacity: 0.7;
+  transform: translateY(-50%) translateX(0);
+}
+
+.smart-ambient-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--terracotta);
+  opacity: 0.5;
+  animation: ambient-pulse 3s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.smart-ambient-text {
+  font-size: 11px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+@keyframes ambient-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.3); }
+}
