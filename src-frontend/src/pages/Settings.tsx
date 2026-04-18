@@ -29,7 +29,7 @@ import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
-import { getModelProviders, getProviderDefaultModels, testModelConnection } from '@/services/settings';
+import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi } from '@/services/settings';
 
 type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'general';
 
@@ -427,7 +427,7 @@ function ModelModal({
     enabled: true,
   };
   
-  const { register, handleSubmit, watch } = useForm({
+  const { register, handleSubmit, watch, setValue, getValues } = useForm({
     defaultValues: model 
       ? { ...defaultValues, ...model, api_key: model.api_key === '***' ? '' : (model.api_key || '') } 
       : defaultValues
@@ -441,6 +441,9 @@ function ModelModal({
   
   const createModelMutation = useCreateModel();
   const updateModelMutation = useUpdateModel();
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
   
   const onSubmit = (data: any) => {
     const payload: any = {
@@ -529,6 +532,26 @@ function ModelModal({
                 <datalist id="model-suggestions">
                   {defaultModels.map(m => <option key={m} value={m} />)}
                 </datalist>
+                {fetchedModels.length > 0 && (
+                  <div className="mt-2">
+                    <label className="text-xs text-gray-500 mb-1 block">检测到以下可用模型：</label>
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                      {fetchedModels.map(m => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setValue('model', m, { shouldValidate: true })}
+                          className="px-2 py-1 text-xs bg-cinema-700 hover:bg-cinema-600 text-gray-300 rounded-md transition-colors"
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {fetchModelsError && (
+                  <p className="text-xs text-red-400 mt-1">{fetchModelsError}</p>
+                )}
               </div>
             </div>
             
@@ -549,13 +572,46 @@ function ModelModal({
                 </div>
               )}
               
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">API Base (可选)</label>
-                <input
-                  {...register('api_base')}
-                  className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                  placeholder="https://api.openai.com/v1"
-                />
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="block text-sm text-gray-400 mb-1">API Base (可选)</label>
+                  <input
+                    {...register('api_base')}
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const baseUrl = getValues('api_base');
+                    const apiKey = getValues('api_key');
+                    if (!baseUrl) {
+                      setFetchModelsError('请先填写 API Base 地址');
+                      return;
+                    }
+                    setIsFetchingModels(true);
+                    setFetchModelsError(null);
+                    setFetchedModels([]);
+                    try {
+                      const models = await fetchModelsFromApi(baseUrl, apiKey);
+                      setFetchedModels(models);
+                      if (models.length === 0) {
+                        setFetchModelsError('未找到可用模型');
+                      }
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : String(err);
+                      setFetchModelsError(msg);
+                    } finally {
+                      setIsFetchingModels(false);
+                    }
+                  }}
+                  disabled={isFetchingModels}
+                  className="px-3 py-2 bg-cinema-700 hover:bg-cinema-600 disabled:opacity-50 text-gray-300 text-sm rounded-xl transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isFetchingModels ? 'animate-spin' : ''}`} />
+                  {isFetchingModels ? '获取中...' : '获取模型'}
+                </button>
               </div>
             </div>
             

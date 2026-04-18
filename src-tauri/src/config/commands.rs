@@ -607,3 +607,53 @@ pub async fn test_model_connection(model_id: String, app_handle: AppHandle) -> R
         }))
     }
 }
+
+/// 从 API 地址获取可用模型列表
+#[command]
+pub async fn fetch_models(base_url: String, api_key: Option<String>) -> Result<Vec<String>, String> {
+    if base_url.is_empty() {
+        return Err("API Base 地址不能为空".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let urls = if base_url.ends_with("/v1") {
+        vec![format!("{}/models", base_url)]
+    } else {
+        vec![format!("{}/v1/models", base_url), format!("{}/models", base_url)]
+    };
+
+    for url in urls {
+        let mut req = client.get(&url);
+        if let Some(ref key) = api_key {
+            if !key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+
+        match req.send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(data) => {
+                        let ids: Vec<String> = data.get("data")
+                            .and_then(|d| d.as_array())
+                            .map(|arr| arr.iter()
+                                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(|s| s.to_string()))
+                                .collect())
+                            .unwrap_or_default();
+                        if !ids.is_empty() {
+                            return Ok(ids);
+                        }
+                    }
+                    Err(_) => continue,
+                }
+            }
+            _ => continue,
+        }
+    }
+
+    Err("无法从该 API 地址获取模型列表，请检查地址和密钥是否正确".to_string())
+}

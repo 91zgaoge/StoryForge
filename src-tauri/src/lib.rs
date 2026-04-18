@@ -176,6 +176,7 @@ pub fn run() {
             config::get_agent_mappings,
             config::update_agent_mapping,
             config::test_model_connection,
+            config::fetch_models,
             // LLM commands
             llm::commands::llm_generate,
             llm::commands::llm_generate_stream,

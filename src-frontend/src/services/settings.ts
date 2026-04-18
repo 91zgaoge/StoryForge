@@ -219,6 +219,27 @@ export async function testModelConnection(modelId: string): Promise<{ success: b
   }
 }
 
+// 从 API 地址获取可用模型列表
+export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Promise<string[]> {
+  try {
+    return await invoke<string[]>('fetch_models', { baseUrl, apiKey });
+  } catch (e) {
+    const isTauri = !!(window as any).__TAURI__;
+    if (!isTauri) {
+      try {
+        const headers: Record<string, string> = {};
+        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+        const resp = await fetch(`${baseUrl}/v1/models`, { headers });
+        const data = await resp.json();
+        return data.data?.map((m: any) => m.id) || [];
+      } catch {
+        return [];
+      }
+    }
+    throw e;
+  }
+}
+
 // 获取模型提供商列表
 export function getModelProviders(): Array<{ id: string; name: string; requiresApiKey: boolean; supports: ModelConfig['type'][] }> {
   return [
