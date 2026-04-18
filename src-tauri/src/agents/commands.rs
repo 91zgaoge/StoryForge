@@ -13,6 +13,45 @@ use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
 use crate::db::{DbPool, CreateStoryRequest, CreateChapterRequest};
 use crate::db::repositories::{StoryRepository, ChapterRepository};
+use crate::subscription::{SubscriptionService, SubscriptionTier};
+
+/// 检查 AI 配额并在不足时返回错误
+fn check_ai_quota_sync(app_handle: &AppHandle) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>();
+    let service = SubscriptionService::new(pool.inner().clone());
+    let user_id = get_user_id(app_handle);
+    let result = service.check_ai_quota(&user_id)?;
+    if !result.allowed {
+        return Err(result.message.unwrap_or_else(|| "今日 AI 创作次数已用完".to_string()));
+    }
+    Ok(())
+}
+
+/// 消费一次 AI 配额
+fn consume_ai_quota_sync(app_handle: &AppHandle) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>();
+    let service = SubscriptionService::new(pool.inner().clone());
+    let user_id = get_user_id(app_handle);
+    let result = service.consume_ai_quota(&user_id)?;
+    if !result.allowed {
+        return Err(result.message.unwrap_or_else(|| "今日 AI 创作次数已用完".to_string()));
+    }
+    Ok(())
+}
+
+/// 获取用户 ID
+fn get_user_id(app_handle: &AppHandle) -> String {
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let machine_id_path = app_dir.join(".machine_id");
+    if machine_id_path.exists() {
+        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+    } else {
+        let id = uuid::Uuid::new_v4().to_string();
+        let _ = std::fs::create_dir_all(&app_dir);
+        let _ = std::fs::write(&machine_id_path, &id);
+        id
+    }
+}
 
 static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -41,6 +80,8 @@ pub async fn agent_execute(
     request: ExecuteAgentRequest,
     app_handle: AppHandle,
 ) -> Result<ExecuteAgentResponse, String> {
+    check_ai_quota_sync(&app_handle)?;
+    consume_ai_quota_sync(&app_handle)?;
     let task_id = Uuid::new_v4().to_string();
     
     // 构建上下文
@@ -76,6 +117,8 @@ pub async fn agent_execute_stream(
     request: ExecuteAgentRequest,
     app_handle: AppHandle,
 ) -> Result<String, String> {
+    check_ai_quota_sync(&app_handle)?;
+    consume_ai_quota_sync(&app_handle)?;
     let task_id = Uuid::new_v4().to_string();
 
     // 构建上下文
@@ -155,6 +198,8 @@ pub async fn writer_agent_execute(
     request: WriterAgentRequest,
     app_handle: AppHandle,
 ) -> Result<WriterAgentResponse, String> {
+    check_ai_quota_sync(&app_handle)?;
+    consume_ai_quota_sync(&app_handle)?;
     let mut story_id = request.story_id.clone();
     let mut chapter_number = request.chapter_number.unwrap_or(1);
     let mut created_chapter_id: Option<String> = None;

@@ -26,6 +26,7 @@ mod updater;
 mod commands_v3;
 mod intent;
 mod creative_engine;
+mod subscription;
 
 use tauri::{Manager, AppHandle};
 
@@ -192,6 +193,11 @@ pub fn run() {
             agents::commands::agent_cancel_task,
             agents::commands::writer_agent_execute,
             agents::service::get_available_agents,
+            // Subscription commands
+            subscription::commands::get_subscription_status,
+            subscription::commands::check_ai_quota,
+            subscription::commands::dev_upgrade_subscription,
+            subscription::commands::dev_downgrade_subscription,
             // Updater commands
             updater::check_update,
             updater::install_update,

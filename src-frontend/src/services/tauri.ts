@@ -273,3 +273,37 @@ export const updateStorySummary = (summaryId: string, content: string) =>
 
 export const deleteStorySummary = (summaryId: string) =>
   invoke<number>('delete_story_summary', { summary_id: summaryId });
+
+
+// ==================== Subscription (Freemium) ====================
+
+export interface SubscriptionStatus {
+  user_id: string;
+  tier: string;
+  status: string;
+  daily_used: number;
+  daily_limit: number;
+  quota_resets_at: string;
+  expires_at?: string;
+}
+
+export interface QuotaCheckResult {
+  allowed: boolean;
+  remaining: number;
+  daily_limit: number;
+  daily_used: number;
+  resets_at: string;
+  message?: string;
+}
+
+export const getSubscriptionStatus = () =>
+  invoke<SubscriptionStatus>('get_subscription_status');
+
+export const checkAiQuota = () =>
+  invoke<QuotaCheckResult>('check_ai_quota');
+
+export const devUpgradeSubscription = (tier: string) =>
+  invoke<SubscriptionStatus>('dev_upgrade_subscription', { tier });
+
+export const devDowngradeSubscription = () =>
+  invoke<SubscriptionStatus>('dev_downgrade_subscription');

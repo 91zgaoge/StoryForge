@@ -39,3 +39,4 @@ export {
   useAgentMappings,
   useUpdateAgentMapping,
 } from './useSettings';
+export { useSubscription } from './useSubscription';

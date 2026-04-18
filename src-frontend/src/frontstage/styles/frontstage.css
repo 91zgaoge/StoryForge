@@ -1719,3 +1719,118 @@ body {
 .ai-suggestion-action-reject:hover {
   background: var(--warm-sand);
 }
+
+
+/* ===== Free User Analysis Hint Toast (免费用户分析提示) ===== */
+
+.free-hint-toast {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  max-width: 320px;
+  background: var(--parchment-dark);
+  border: 1px solid var(--warm-sand);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  animation: hint-slide-in 0.4s ease-out;
+}
+
+@keyframes hint-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.free-hint-content {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.free-hint-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.free-hint-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--charcoal);
+  font-family: var(--font-serif);
+  margin-bottom: 4px;
+}
+
+.free-hint-message {
+  font-size: 12px;
+  color: var(--stone-gray);
+  line-height: 1.5;
+  font-family: var(--font-sans);
+}
+
+.free-hint-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.free-hint-upgrade {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--terracotta);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.free-hint-upgrade:hover {
+  background: var(--terracotta-dark);
+}
+
+.free-hint-dismiss {
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--stone-gray);
+  border: 1px solid var(--warm-sand);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.free-hint-dismiss:hover {
+  background: var(--warm-sand);
+}
+
+/* ===== Subscription Status Indicator (订阅状态指示器) ===== */
+
+.subscription-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+
+.subscription-status.free {
+  color: var(--stone-gray);
+  background: var(--warm-sand);
+}
+
+.subscription-status.pro {
+  color: var(--terracotta);
+  background: var(--terracotta-light, rgba(180, 90, 60, 0.1));
+}

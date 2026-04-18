@@ -7,6 +7,7 @@ import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
+import { useSubscription } from '@/hooks/useSubscription';
 import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 import ColorThemeDot from './components/ColorThemeDot';
 
@@ -55,6 +56,8 @@ const FrontstageApp: React.FC = () => {
   const [showCommentPanel, setShowCommentPanel] = useState(false);
   const [smartGhostText, setSmartGhostText] = useState('');
   const [inlineSuggestion, setInlineSuggestion] = useState<{ instruction: string; targetText: string; category: string; targetParagraphIndex: number } | null>(null);
+  const [freeHint, setFreeHint] = useState<{ title: string; message: string; visible: boolean } | null>(null);
+  const subscription = useSubscription();
   const editorRef = useRef<RichTextEditorRef>(null);
 
   // 加载当前故事的角色
@@ -323,6 +326,12 @@ const FrontstageApp: React.FC = () => {
         
         {!isZenMode && (
           <div className="frontstage-header-right">
+            {/* 订阅状态指示 */}
+            {!subscription.isLoading && (
+              <span className={`subscription-status ${subscription.isPro ? 'pro' : 'free'}`}>
+                {subscription.isPro ? '✨ 专业版' : `🌱 免费版 · ${subscription.dailyLimit - subscription.dailyUsed}次`}
+              </span>
+            )}
             <ColorThemeDot isZenMode={isZenMode} />
             <button
               className={`frontstage-ai-toggle ${showAI ? 'active' : ''}`}
@@ -424,19 +433,52 @@ const FrontstageApp: React.FC = () => {
             showCommentPanel={showCommentPanel}
             onShowCommentPanelChange={setShowCommentPanel}
             smartGhostText={smartGhostText}
-            inlineSuggestion={inlineSuggestion}
+            inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
             onClearInlineSuggestion={() => setInlineSuggestion(null)}
+            subscription={subscription}
           />
         </main>
       </div>
+
+      {/* 免费用户分析提示浮层 */}
+      {freeHint?.visible && subscription.isFree && (
+        <div className="free-hint-toast">
+          <div className="free-hint-content">
+            <span className="free-hint-icon">💡</span>
+            <div>
+              <p className="free-hint-title">{freeHint.title}</p>
+              <p className="free-hint-message">{freeHint.message}</p>
+            </div>
+          </div>
+          <div className="free-hint-actions">
+            <button
+              className="free-hint-upgrade"
+              onClick={() => {
+                setFreeHint(null);
+                // TODO: 打开付费引导面板
+              }}
+            >
+              🔒 查看 AI 改写
+            </button>
+            <button
+              className="free-hint-dismiss"
+              onClick={() => setFreeHint(null)}
+            >
+              稍后
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 智能文思 — 统一提示系统 */}
       <SmartHintSystem
         htmlContent={content}
         isEnabled={!isZenMode && showAI}
         isZenMode={isZenMode}
-        onGhostSuggestion={setSmartGhostText}
-        onInlineSuggestion={handleInlineSuggestion}
+        onGhostSuggestion={subscription.isPro ? setSmartGhostText : undefined}
+        onInlineSuggestion={subscription.isPro ? handleInlineSuggestion : undefined}
+        onFreeHint={subscription.isFree ? (title, message) => setFreeHint({ title, message, visible: true }) : undefined}
+        subscription={subscription}
       />
 
       {/* 禅模式退出提示 */}

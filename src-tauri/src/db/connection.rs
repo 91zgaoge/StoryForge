@@ -748,6 +748,105 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             [],
         )?;
     }
+
+    // Migration 12: 创建订阅表 (v3.5.0 - Freemium 付费系统)
+    let subscription_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='subscriptions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if subscription_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE subscriptions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                tier TEXT NOT NULL DEFAULT 'free',
+                status TEXT NOT NULL DEFAULT 'active',
+                started_at TEXT NOT NULL,
+                expires_at TEXT,
+                payment_provider TEXT,
+                payment_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_subscriptions_user ON subscriptions(user_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_subscriptions_tier ON subscriptions(tier)",
+            [],
+        )?;
+    }
+
+    // Migration 13: 创建 AI 使用配额表 (v3.5.0 - Freemium)
+    let quota_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_quota'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if quota_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE ai_usage_quota (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                tier TEXT NOT NULL DEFAULT 'free',
+                daily_limit INTEGER NOT NULL DEFAULT 10,
+                daily_used INTEGER NOT NULL DEFAULT 0,
+                quota_reset_at TEXT NOT NULL,
+                total_used INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_quota_user ON ai_usage_quota(user_id)",
+            [],
+        )?;
+    }
+
+    // Migration 14: 创建 AI 调用日志表 (v3.5.0 - Freemium)
+    let usage_log_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ai_usage_logs'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if usage_log_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE ai_usage_logs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                story_id TEXT,
+                chapter_id TEXT,
+                agent_type TEXT NOT NULL,
+                instruction TEXT,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                model_used TEXT,
+                cost REAL,
+                duration_ms INTEGER,
+                tier_at_time TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_usage_logs_user ON ai_usage_logs(user_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_usage_logs_created ON ai_usage_logs(created_at)",
+            [],
+        )?;
+    }
     
     Ok(())
 }

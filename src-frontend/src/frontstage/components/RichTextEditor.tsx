@@ -85,6 +85,15 @@ interface RichTextEditorProps {
     targetParagraphIndex: number;
   } | null;
   onClearInlineSuggestion?: () => void;
+  /** 订阅状态（用于付费功能控制） */
+  subscription?: {
+    tier: string;
+    isPro: boolean;
+    isFree: boolean;
+    dailyUsed: number;
+    dailyLimit: number;
+    hasQuota: () => Promise<boolean>;
+  };
 }
 
 export interface RichTextEditorRef {
@@ -123,6 +132,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     smartGhostText,
     inlineSuggestion,
     onClearInlineSuggestion,
+    subscription,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -646,6 +656,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 发送消息（正文助手指令栏）
     const executeWriterAgent = useCallback(async (instruction: string) => {
       if (isAiThinking) return;
+      // 付费版配额检查
+      if (subscription?.isFree) {
+        const hasQuota = await subscription.hasQuota();
+        if (!hasQuota) {
+          toast.error('今日 AI 创作次数已用完，升级专业版解锁无限次');
+          return;
+        }
+      }
       setLastInstruction(instruction);
       setIsAiThinking(true);
 
