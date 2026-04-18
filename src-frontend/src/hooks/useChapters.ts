@@ -4,7 +4,8 @@ import {
   getChapter,
   createChapter,
   updateChapter,
-  deleteChapter
+  deleteChapter,
+  notifyFrontstageDataRefresh,
 } from '@services/tauri';
 import type { Chapter } from '@/types/index';
 import toast from 'react-hot-toast';
@@ -36,6 +37,7 @@ export function useCreateChapter() {
       queryClient.invalidateQueries({ 
         queryKey: [CHAPTERS_KEY, variables.story_id] 
       });
+      notifyFrontstageDataRefresh('chapters').catch(() => {});
       toast.success('章节创建成功');
     },
     onError: (error: Error) => {

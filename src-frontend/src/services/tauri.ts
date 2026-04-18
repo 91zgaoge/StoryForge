@@ -307,3 +307,7 @@ export const devUpgradeSubscription = (tier: string) =>
 
 export const devDowngradeSubscription = () =>
   invoke<SubscriptionStatus>('dev_downgrade_subscription');
+
+// Window communication
+export const notifyFrontstageDataRefresh = (entity: string) =>
+  invoke<void>('notify_frontstage_data_refresh', { entity });

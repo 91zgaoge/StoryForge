@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { Sidebar } from '@/components/Sidebar';
 import { Dashboard } from '@/pages/Dashboard';
 import { Stories } from '@/pages/Stories';
@@ -15,6 +16,7 @@ import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
 import type { ViewType } from '@/types';
+import toast from 'react-hot-toast';
 
 function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
@@ -43,6 +45,40 @@ function App() {
     };
 
     checkFrontstage();
+  }, []);
+
+  // 监听 backstage-update 事件（幕前 → 幕后联动）
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      try {
+        unlisten = await listen('backstage-update', (event: any) => {
+          const { type, payload } = event.payload || {};
+          switch (type) {
+            case 'ContentChanged':
+              toast('幕前内容已更新', { icon: '📝' });
+              break;
+            case 'GenerationRequested':
+              toast('幕前请求生成内容', { icon: '✨' });
+              break;
+            case 'FrontstageClosed':
+              setIsFrontstageOpen(false);
+              break;
+            case 'FrontstageFocused':
+              setIsFrontstageOpen(true);
+              break;
+          }
+        });
+      } catch (e) {
+        console.error('Failed to setup backstage listener:', e);
+      }
+    };
+
+    setupListener();
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   const renderView = () => {

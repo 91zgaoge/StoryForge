@@ -119,6 +119,8 @@ pub enum FrontstageEvent {
     ChapterSwitch { story_id: String, chapter_id: String, title: String },
     /// 保存状态更新
     SaveStatus { saved: bool, timestamp: Option<String> },
+    /// 数据刷新通知（幕后数据变更，幕前需重新加载）
+    DataRefresh { entity: String },
 }
 
 /// 发送给幕后窗口的事件

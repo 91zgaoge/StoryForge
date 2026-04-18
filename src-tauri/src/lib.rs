@@ -164,6 +164,7 @@ pub fn run() {
             notify_backstage_content_changed,
             notify_backstage_generation_requested,
             notify_frontstage_content_changed,
+            notify_frontstage_data_refresh,
             show_backstage,
             // Settings commands
             config::get_settings,
@@ -761,6 +762,13 @@ fn notify_backstage_generation_requested(chapter_id: String, context: String, ap
 #[tauri::command]
 fn notify_frontstage_content_changed(text: String, chapter_id: String, app: AppHandle) -> Result<(), String> {
     let event = window::FrontstageEvent::ContentUpdate { text, chapter_id };
+    window::WindowManager::send_to_frontstage(&app, event)
+}
+
+/// 通知 frontstage 数据已刷新（幕后创建/修改了故事、章节等）
+#[tauri::command]
+fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<(), String> {
+    let event = window::FrontstageEvent::DataRefresh { entity };
     window::WindowManager::send_to_frontstage(&app, event)
 }
 

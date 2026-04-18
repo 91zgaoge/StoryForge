@@ -105,6 +105,10 @@ const FrontstageApp: React.FC = () => {
           case 'AiHint':
             // AI hints are now handled by SmartHintSystem (ai-perception layer)
             break;
+          case 'DataRefresh':
+            // 幕后数据变更，刷新故事/章节列表
+            loadStories();
+            break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
               if (payload?.story_id && payload.story_id !== currentStory?.id) {
