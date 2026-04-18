@@ -197,6 +197,16 @@ npm test
 .\scripts\build-local.ps1 -All
 ```
 
+**构建产物位置**（执行 `cargo tauri build` 后）：
+```
+target/x86_64-pc-windows-msvc/release/
+├── storyforge.exe                          ← 30MB+，可直接运行
+└── bundle/
+    ├── msi/StoryForge_3.4.0_x64_en-US.msi  ← MSI安装包
+    └── nsis/StoryForge_3.4.0_x64-setup.exe ← NSIS安装程序
+```
+> 为方便取用，每次构建后应将产物复制到项目根目录：`StoryForge.exe` 和 `StoryForge_3.4.0_x64-setup.exe`
+
 **现实限制**:
 - Windows 主机 ✅ 可本地构建 Windows (.msi/.exe)
 - Linux 主机 ⚠️ 需 WSL 或 Linux 虚拟机
