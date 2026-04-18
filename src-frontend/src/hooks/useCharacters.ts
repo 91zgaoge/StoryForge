@@ -3,14 +3,28 @@ import {
   getStoryCharacters, 
   createCharacter, 
   updateCharacter, 
-  deleteCharacter 
+  deleteCharacter,
+  notifyFrontstageDataRefresh
 } from '@services/tauri';
 import type { CreateCharacterRequest, Character } from '@/types/index';
 import toast from 'react-hot-toast';
+import { useEffect } from 'react';
 
 const CHARACTERS_KEY = 'characters';
 
 export function useCharacters(storyId: string | null) {
+  const queryClient = useQueryClient();
+  
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (storyId) {
+        queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY, storyId] });
+      }
+    };
+    window.addEventListener('characters-refreshed', handleRefresh);
+    return () => window.removeEventListener('characters-refreshed', handleRefresh);
+  }, [storyId, queryClient]);
+  
   return useQuery<Character[]>({
     queryKey: [CHARACTERS_KEY, storyId],
     queryFn: () => storyId ? getStoryCharacters(storyId) : Promise.resolve([]),
@@ -43,6 +57,7 @@ export function useUpdateCharacter() {
       updateCharacter(id, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY] });
+      notifyFrontstageDataRefresh('characters').catch(() => {});
       toast.success('角色更新成功');
     },
     onError: (error: Error) => {
@@ -58,6 +73,7 @@ export function useDeleteCharacter() {
     mutationFn: deleteCharacter,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [CHARACTERS_KEY] });
+      notifyFrontstageDataRefresh('characters').catch(() => {});
       toast.success('角色已删除');
     },
     onError: (error: Error) => {

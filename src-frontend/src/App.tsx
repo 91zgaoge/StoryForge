@@ -68,6 +68,11 @@ function App() {
             case 'FrontstageFocused':
               setIsFrontstageOpen(true);
               break;
+            case 'DataRefresh':
+              const entity = payload?.entity || 'data';
+              toast(`幕后${entity}已更新`, { icon: '🔄' });
+              window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: entity }));
+              break;
           }
         });
       } catch (e) {

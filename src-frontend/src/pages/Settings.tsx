@@ -24,6 +24,7 @@ import {
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel } from '@/hooks/useSettings';
+import { colorThemeList, applyColorTheme, loadColorTheme, type ColorThemeId } from '@/frontstage/config/colorThemes';
 import { useUpdater } from '@/hooks/useUpdater';
 import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
@@ -711,6 +712,45 @@ function AgentConfig() {
   );
 }
 
+// 颜色主题选择器组件
+function ColorThemeSelector() {
+  const [currentTheme, setCurrentTheme] = useState<ColorThemeId>(() => loadColorTheme());
+
+  const handleSelect = (themeId: ColorThemeId) => {
+    setCurrentTheme(themeId);
+    applyColorTheme(themeId);
+    localStorage.setItem('storyforge-color-theme', themeId);
+  };
+
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm text-gray-400">颜色主题</label>
+      <div className="flex flex-wrap gap-3">
+        {colorThemeList.map((theme) => (
+          <button
+            key={theme.id}
+            onClick={() => handleSelect(theme.id)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all',
+              currentTheme === theme.id
+                ? 'border-cinema-gold bg-cinema-gold/10'
+                : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-600'
+            )}
+            title={theme.description}
+          >
+            <div
+              className="w-5 h-5 rounded-full border border-white/10"
+              style={{ backgroundColor: theme.terracotta }}
+            />
+            <span className="text-sm text-white">{theme.name}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-gray-500">选择后即时生效，同步影响幕前写作界面</p>
+    </div>
+  );
+}
+
 // 通用设置组件
 function GeneralSettings() {
   const { 
@@ -799,6 +839,22 @@ function GeneralSettings() {
             </div>
           </div>
           <EditorSettings />
+        </CardContent>
+      </Card>
+
+      {/* 颜色主题 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <Settings2 className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">颜色主题</h3>
+              <p className="text-sm text-gray-500">幕前写作界面的冷暖撞色色调</p>
+            </div>
+          </div>
+          <ColorThemeSelector />
         </CardContent>
       </Card>
     </div>

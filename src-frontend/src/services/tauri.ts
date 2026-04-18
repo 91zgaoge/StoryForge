@@ -103,7 +103,8 @@ export const embedChapter = (chapterId: string, content: string) =>
 // Settings (兼容旧接口，内部映射到 get_settings / save_settings)
 export const getConfig = async () => {
   const settings = await invoke<AppSettings>('get_settings');
-  const chatModel = settings.models.chat?.find((m: any) => m.id === settings.active_models.chat) || settings.models.chat?.[0];
+  const chatModel = settings.models.chat?.find((m: any) => m.id === settings.active_models.chat)
+    || settings.models.chat?.[0];
   if (!chatModel) {
     throw new Error('No chat model configured');
   }
@@ -119,7 +120,8 @@ export const getConfig = async () => {
 
 export const updateConfig = async (config: { llm: LlmConfig }) => {
   const settings = await invoke<AppSettings>('get_settings');
-  const chatModel = settings.models.chat?.find((m: any) => m.id === settings.active_models.chat) || settings.models.chat?.[0];
+  const chatModel = settings.models.chat?.find((m: any) => m.id === settings.active_models.chat)
+    || settings.models.chat?.[0];
   if (chatModel) {
     chatModel.provider = config.llm.provider;
     chatModel.api_key = config.llm.api_key || '';

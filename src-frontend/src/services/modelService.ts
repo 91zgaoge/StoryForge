@@ -6,7 +6,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { ModelConfig, getChatModel, getEmbeddingModel } from '@/config/models';
+import { ModelConfig, getEmbeddingModel } from '@/config/models';
+import { getConfig } from './tauri';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -54,36 +55,37 @@ export interface EmbeddingResponse {
 }
 
 class ModelService {
-  private currentModelId: string;
   private abortController: AbortController | null = null;
 
-  constructor() {
-    this.currentModelId = 'qwen35'; // 默认使用 Qwen 3.5
+  // 获取当前模型配置（从后端获取）
+  async getCurrentModel(): Promise<ModelConfig> {
+    const config = await getConfig();
+    return {
+      id: config.model || 'default',
+      name: `${config.provider} - ${config.model}`,
+      type: 'language',
+      baseUrl: config.base_url || '',
+      apiKey: config.api_key,
+      useApiKey: !!config.api_key,
+      description: '后端配置模型',
+      maxTokens: config.max_tokens,
+      temperature: config.temperature,
+    };
   }
 
-  // 设置当前使用的模型
-  setCurrentModel(modelId: string) {
-    this.currentModelId = modelId;
-  }
-
-  // 获取当前模型配置
-  getCurrentModel(): ModelConfig {
-    return getChatModel(this.currentModelId);
-  }
-
-  // 获取当前模型ID
-  getCurrentModelId(): string {
-    return this.currentModelId;
+  // 获取当前模型ID（从后端获取）
+  async getCurrentModelId(): Promise<string> {
+    const config = await getConfig();
+    return config.model || 'default';
   }
 
   // 检查模型连接状态（通过后端 Rust 代理，绕过 CSP/CORS 限制）
-  async checkModelStatus(modelId?: string): Promise<'connected' | 'disconnected' | 'connecting'> {
-    const config = modelId ? getChatModel(modelId) : this.getCurrentModel();
-
+  async checkModelStatus(): Promise<'connected' | 'disconnected' | 'connecting'> {
     try {
+      const config = await getConfig();
       const status = await invoke<string>('check_model_status', {
-        baseUrl: config.baseUrl,
-        apiKey: config.useApiKey && config.apiKey ? config.apiKey : undefined,
+        baseUrl: config.base_url,
+        apiKey: config.api_key || undefined,
       });
       return status as 'connected' | 'disconnected';
     } catch (error) {
@@ -102,14 +104,14 @@ class ModelService {
       onStream?: (chunk: string) => void;
     }
   ): Promise<ChatCompletionResponse> {
-    const config = this.getCurrentModel();
+    const config = await getConfig();
 
     const data = await invoke<ChatCompletionResponse>('chat_completion', {
-      baseUrl: config.baseUrl,
-      apiKey: config.useApiKey && config.apiKey ? config.apiKey : undefined,
-      model: config.id,
+      baseUrl: config.base_url,
+      apiKey: config.api_key || undefined,
+      model: config.model,
       messages,
-      maxTokens: options?.maxTokens || config.maxTokens || 8192,
+      maxTokens: options?.maxTokens || config.max_tokens || 4096,
       temperature: options?.temperature || config.temperature || 0.8,
     });
 

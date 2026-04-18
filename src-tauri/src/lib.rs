@@ -158,7 +158,6 @@ pub fn run() {
             window::hide_frontstage,
             window::toggle_frontstage,
             window::get_window_state,
-            window::send_ai_hint,
             window::update_frontstage_content,
             // Backstage communication commands
             notify_backstage_content_changed,
@@ -461,8 +460,12 @@ fn get_chapter(id: String) -> Result<Option<db::Chapter>, String> {
 }
 
 #[tauri::command]
-fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>) -> Result<(), String> {
-    db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, title, outline, content).map_err(|e| e.to_string()).map(|_| ())
+fn update_chapter(id: String, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>, app: AppHandle) -> Result<(), String> {
+    let result = db::ChapterRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, title, outline, content, word_count).map_err(|e| e.to_string());
+    if result.is_ok() {
+        let _ = window::WindowManager::send_to_frontstage(&app, window::FrontstageEvent::SaveStatus { saved: true, timestamp: Some(chrono::Local::now().to_rfc3339()) });
+    }
+    result.map(|_| ())
 }
 
 #[tauri::command]

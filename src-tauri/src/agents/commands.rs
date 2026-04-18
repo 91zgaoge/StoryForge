@@ -271,6 +271,12 @@ pub async fn writer_agent_execute(
             title: "第一章".to_string(),
         };
         let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
+
+        // 通知幕后作品列表刷新
+        let _ = crate::window::WindowManager::send_to_backstage(
+            &app_handle,
+            crate::window::BackstageEvent::DataRefresh { entity: "stories".to_string() }
+        );
     }
 
     let mut context = build_agent_context(
@@ -314,6 +320,7 @@ pub async fn writer_agent_execute(
                     Some("第一章".to_string()),
                     None,
                     Some(result.content.clone()),
+                    None,
                 );
 
                 // 同时推送内容更新事件到幕前

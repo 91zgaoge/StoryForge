@@ -37,6 +37,9 @@ interface FrontstageEvent {
     hint?: string;
     position?: { line: number; column: number };
     duration_ms?: number;
+    saved?: boolean;
+    timestamp?: string;
+    entity?: string;
   };
 }
 
@@ -102,12 +105,15 @@ const FrontstageApp: React.FC = () => {
               setContent(payload.text);
             }
             break;
-          case 'AiHint':
-            // AI hints are now handled by SmartHintSystem (ai-perception layer)
-            break;
           case 'DataRefresh':
             // 幕后数据变更，刷新故事/章节列表
             loadStories();
+            if (payload?.entity === 'characters') {
+              window.dispatchEvent(new CustomEvent('characters-refreshed'));
+            }
+            break;
+          case 'SaveStatus':
+            setIsSaved(payload?.saved ?? true);
             break;
           case 'ChapterSwitch':
             if (payload?.chapter_id) {
@@ -203,7 +209,8 @@ const FrontstageApp: React.FC = () => {
           await invoke('update_chapter', {
             id: currentChapter.id,
             title: currentChapter.title,
-            content: newContent
+            content: newContent,
+            wordCount: wordCount
           });
           setIsSaved(true);
         } catch (e) {

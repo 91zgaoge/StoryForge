@@ -180,9 +180,14 @@ npm test
 
 > **每次推送到 GitHub 前，必须先在本地执行构建，然后再推送。**
 > **每次推送到 GitHub 后，必须确保 GitHub Actions 自动触发全平台构建。**
+> **推送 GitHub 的同时，必须在本地打包生成 Windows `.exe` / `.msi` 安装包。**
 > **Git tag、Cargo.toml、tauri.conf.json、package.json 中的版本号必须保持统一。**
 
 **本地构建脚本**: `scripts/build-local.ps1`
+```powershell
+# 推送前必执行：生成本地 Windows 安装包
+.\scripts\build-local.ps1 -Windows
+```
 ```powershell
 # Windows 本地构建
 .\scripts\build-local.ps1

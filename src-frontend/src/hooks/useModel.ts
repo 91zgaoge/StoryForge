@@ -5,8 +5,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { ModelConfig, getAvailableModels, getChatModel, DEFAULT_MODEL_ID } from '@/config/models';
+import { ModelConfig } from '@/config/models';
 import { modelService, ChatMessage } from '@/services/modelService';
+import { getConfig } from '@/services/tauri';
 
 export interface ModelState {
   currentModel: ModelConfig;
@@ -14,11 +15,20 @@ export interface ModelState {
   availableModels: ModelConfig[];
 }
 
+const DEFAULT_MODEL: ModelConfig = {
+  id: 'default',
+  name: '默认模型',
+  type: 'language',
+  baseUrl: '',
+  useApiKey: false,
+  description: '等待后端配置...',
+};
+
 export function useModel() {
   const [state, setState] = useState<ModelState>({
-    currentModel: getChatModel(DEFAULT_MODEL_ID),
+    currentModel: DEFAULT_MODEL,
     status: 'connecting',
-    availableModels: getAvailableModels(),
+    availableModels: [],
   });
 
   // 检查模型状态
@@ -29,13 +39,11 @@ export function useModel() {
     return status;
   }, []);
 
-  // 切换模型
+  // 切换模型（通过后端设置更新）
   const switchModel = useCallback((modelId: string) => {
-    const newModel = getChatModel(modelId);
-    modelService.setCurrentModel(modelId);
     setState(prev => ({
       ...prev,
-      currentModel: newModel,
+      currentModel: { ...prev.currentModel, id: modelId, name: modelId },
       status: 'connecting',
     }));
     // 切换后检查新模型状态
@@ -55,7 +63,29 @@ export function useModel() {
 
   // 初始检查状态
   useEffect(() => {
-    checkStatus();
+    // 先获取后端配置
+    getConfig().then((config) => {
+      const adaptedModel: ModelConfig = {
+        id: config.model || 'default',
+        name: `${config.provider} - ${config.model}`,
+        type: 'language',
+        baseUrl: config.base_url || '',
+        apiKey: config.api_key,
+        useApiKey: !!config.api_key,
+        description: '后端配置模型',
+        maxTokens: config.max_tokens,
+        temperature: config.temperature,
+      };
+      setState(prev => ({
+        ...prev,
+        currentModel: adaptedModel,
+      }));
+    }).catch((err) => {
+      console.warn('Failed to load backend model config:', err);
+    }).finally(() => {
+      checkStatus();
+    });
+
     // 每30秒检查一次状态
     const interval = setInterval(checkStatus, 30000);
     return () => clearInterval(interval);

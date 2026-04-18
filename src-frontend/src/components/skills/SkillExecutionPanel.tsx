@@ -115,10 +115,11 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   useEffect(() => {
     if (!taskId) return;
 
-    const unlisteners: (() => void)[] = [];
+    let unlisteners: (() => void)[] = [];
+    let cancelled = false;
 
-    const setupListeners = async () => {
-      const eventUnlisten = await listen<{
+    Promise.all([
+      listen<{
         task_id: string;
         agent_type: string;
         stage: string;
@@ -139,29 +140,29 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
           message: payload.message,
           progress: payload.progress,
         });
-      });
-      unlisteners.push(eventUnlisten);
-
-      const completeUnlisten = await listen<ExecutionResult>(`agent-complete-${taskId}`, (event) => {
+      }),
+      listen<ExecutionResult>(`agent-complete-${taskId}`, (event) => {
         setResult(event.payload);
         setProgress({ stage: 'completed', message: '执行完成', progress: 1 });
         setIsExecuting(false);
         setTaskId(null);
-      });
-      unlisteners.push(completeUnlisten);
-
-      const errorUnlisten = await listen<string>(`agent-error-${taskId}`, (event) => {
+      }),
+      listen<string>(`agent-error-${taskId}`, (event) => {
         setError(event.payload);
         setProgress({ stage: 'failed', message: '执行失败', progress: 0 });
         setIsExecuting(false);
         setTaskId(null);
-      });
-      unlisteners.push(errorUnlisten);
-    };
-
-    setupListeners();
+      }),
+    ]).then((unlistens) => {
+      if (cancelled) {
+        unlistens.forEach((u) => u());
+        return;
+      }
+      unlisteners = unlistens;
+    });
 
     return () => {
+      cancelled = true;
       unlisteners.forEach((u) => u());
     };
   }, [taskId]);

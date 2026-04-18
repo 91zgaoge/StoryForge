@@ -197,7 +197,7 @@ export function Dashboard() {
                         {story.title}
                       </h3>
                       <p className="text-sm text-gray-500 mt-1">
-                        {story.genre || '未分类'} · {story.chapter_count || 0} 章
+                        {story.genre || '未分类'} · {story.chapter_count || 0} 章{(story as any).word_count > 0 && ` · ${(story as any).word_count} 字`}
                       </p>
                       <p className="text-xs text-gray-600 mt-2">
                         更新于 {formatDate(story.updated_at)}

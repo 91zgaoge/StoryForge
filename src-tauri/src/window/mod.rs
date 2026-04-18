@@ -107,12 +107,6 @@ impl WindowManager {
 pub enum FrontstageEvent {
     /// 更新正文内容
     ContentUpdate { text: String, chapter_id: String },
-    /// AI 提示浮现
-    AiHint {
-        hint: String,
-        position: HintPosition,
-        duration_ms: u64,
-    },
     /// AI 生成段落预览
     AiPreview { text: String, insert_position: usize },
     /// 章节切换
@@ -135,6 +129,8 @@ pub enum BackstageEvent {
     FrontstageClosed,
     /// 幕前窗口获得焦点
     FrontstageFocused,
+    /// 数据刷新通知
+    DataRefresh { entity: String },
 }
 
 /// AI 提示位置
@@ -164,25 +160,6 @@ pub fn toggle_frontstage(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub fn get_window_state(app: AppHandle) -> Result<WindowState, String> {
     WindowManager::get_window_state(&app)
-}
-
-#[tauri::command]
-pub fn send_ai_hint(
-    app: AppHandle,
-    hint: String,
-    line: usize,
-    column: usize,
-) -> Result<(), String> {
-    let event = FrontstageEvent::AiHint {
-        hint,
-        position: HintPosition {
-            line,
-            column,
-            offset: 0,
-        },
-        duration_ms: 5000,
-    };
-    WindowManager::send_to_frontstage(&app, event)
 }
 
 #[tauri::command]

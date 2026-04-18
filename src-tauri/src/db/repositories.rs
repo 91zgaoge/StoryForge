@@ -302,10 +302,10 @@ impl ChapterRepository {
         Ok(chapter)
     }
 
-    pub fn update(&self, id: &str, title: Option<String>, outline: Option<String>, content: Option<String>) -> Result<usize, rusqlite::Error> {
+    pub fn update(&self, id: &str, title: Option<String>, outline: Option<String>, content: Option<String>, word_count: Option<i32>) -> Result<usize, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
-        let word_count = content.as_ref().map(|c| c.len() as i32);
+        let word_count = word_count.or_else(|| content.as_ref().map(|c| c.len() as i32));
 
         let count = conn.execute(
             "UPDATE chapters SET title = COALESCE(?2, title), outline = COALESCE(?3, outline),
