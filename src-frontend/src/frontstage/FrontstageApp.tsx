@@ -5,7 +5,9 @@ import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote } from 'lucide-rea
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { AiSuggestionBubble, FloatingAmbientHint } from './components/AiSuggestionBubble';
+import ColorThemeDot from './components/ColorThemeDot';
 import { useCharacters } from '@/hooks/useCharacters';
+import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 
 interface Story {
   id: string;
@@ -59,6 +61,8 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => { 
     loadStories();
     setupEventListeners();
+    // Apply saved color theme
+    applyColorTheme(loadColorTheme());
   }, []);
 
   // Setup Tauri event listeners
@@ -433,6 +437,9 @@ const FrontstageApp: React.FC = () => {
           退出禅模式 (F11)
         </button>
       )}
+
+      {/* 色调主题切换器 */}
+      <ColorThemeDot isZenMode={isZenMode} />
     </div>
   );
 };

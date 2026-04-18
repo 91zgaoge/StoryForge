@@ -21,6 +21,7 @@ import {
   styleList,
   defaultStyle 
 } from '@/frontstage/config/writingStyles';
+import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 
 // 编辑器配置接口
 export interface EditorConfig {
@@ -96,6 +97,7 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
   const [newFontFamily, setNewFontFamily] = useState('');
 
   const currentStyle = styleList.find(s => s.id === config.styleId) || defaultStyle;
+  const themeColors = getCurrentEditorColors();
   const allFonts = [...PRESET_FONTS, ...config.customFonts];
 
   const updateConfig = (updates: Partial<EditorConfig>) => {
@@ -157,7 +159,7 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
             <div className="flex items-center gap-3">
               <div 
                 className="w-8 h-8 rounded-lg"
-                style={{ backgroundColor: currentStyle.paperColor, border: `2px solid ${currentStyle.accentColor}` }}
+                style={{ backgroundColor: themeColors.paperColor, border: `2px solid ${themeColors.accentColor}` }}
               />
               <div className="text-left">
                 <div className="font-medium">{currentStyle.name}</div>
@@ -184,12 +186,12 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
                     <div 
                       className="w-6 h-6 rounded border-2 flex-shrink-0"
                       style={{ 
-                        backgroundColor: style.paperColor, 
-                        borderColor: style.accentColor 
+                        backgroundColor: themeColors.paperColor, 
+                        borderColor: themeColors.accentColor 
                       }}
                     >
                       {config.styleId === style.id && (
-                        <Check className="w-4 h-4 m-0.5" style={{ color: style.accentColor }} />
+                        <Check className="w-4 h-4 m-0.5" style={{ color: themeColors.accentColor }} />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -344,8 +346,8 @@ export function EditorSettings({ onChange }: EditorSettingsProps) {
             fontFamily: config.fontFamily,
             fontSize: `${config.fontSize}px`,
             lineHeight: config.lineHeight,
-            backgroundColor: currentStyle.paperColor,
-            color: currentStyle.inkColor,
+            backgroundColor: themeColors.paperColor,
+            color: themeColors.inkColor,
           }}
         >
           <p>文字是心灵的窗户，每一笔都流淌着思想的温度。</p>

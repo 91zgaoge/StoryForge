@@ -36,6 +36,7 @@ import {
   type EditorConfig 
 } from '@/components/EditorSettings';
 import { defaultStyle } from '@/frontstage/config/writingStyles';
+import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useModel } from '@/hooks/useModel';
 import type { ParagraphCommentary } from '@/types/v3';
 import toast from 'react-hot-toast';
@@ -774,8 +775,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     if (!editor) return null;
 
-    // 获取当前风格
+    // 获取当前风格与色调
     const currentStyle = defaultStyle;
+    const themeColors = getCurrentEditorColors();
 
     // 生成CSS变量
     const styleVars = {
@@ -784,9 +786,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       '--fs-line-height': editorConfig.lineHeight,
       '--fs-letter-spacing': 'normal',
       '--fs-paragraph-spacing': '1.5em',
-      '--fs-paper-color': currentStyle.paperColor,
-      '--fs-ink-color': currentStyle.inkColor,
-      '--fs-accent-color': currentStyle.accentColor,
+      '--fs-paper-color': themeColors.paperColor,
+      '--fs-ink-color': themeColors.inkColor,
+      '--fs-accent-color': themeColors.accentColor,
     } as React.CSSProperties;
 
     return (
