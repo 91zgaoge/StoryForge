@@ -10,6 +10,7 @@ import { useCharacters } from '@/hooks/useCharacters';
 import { useSubscription } from '@/hooks/useSubscription';
 import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 import ColorThemeDot from './components/ColorThemeDot';
+import { UpgradePanel } from './components/UpgradePanel';
 
 interface Story {
   id: string;
@@ -57,8 +58,17 @@ const FrontstageApp: React.FC = () => {
   const [smartGhostText, setSmartGhostText] = useState('');
   const [inlineSuggestion, setInlineSuggestion] = useState<{ instruction: string; targetText: string; category: string; targetParagraphIndex: number } | null>(null);
   const [freeHint, setFreeHint] = useState<{ title: string; message: string; visible: boolean } | null>(null);
+  const [showUpgradePanel, setShowUpgradePanel] = useState(false);
+  const [upgradeTrigger, setUpgradeTrigger] = useState('');
+  const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
+
+  // 稳定回调引用，避免 SmartHintSystem 的 useEffect 被频繁重置
+  const handleFreeHint = useCallback((title: string, message: string) => {
+    setFreeHint({ title, message, visible: true });
+  }, []);
   const editorRef = useRef<RichTextEditorRef>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 加载当前故事的角色
   const { data: characters = [] } = useCharacters(currentStory?.id || null);
@@ -148,6 +158,11 @@ const FrontstageApp: React.FC = () => {
   };
 
   const selectChapter = (chapter: Chapter) => {
+    // 清理待执行的 auto-save，避免保存到错误章节
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     setCurrentChapter(chapter);
     setContent(chapter.content || '');
     setIsSaved(true);
@@ -165,7 +180,10 @@ const FrontstageApp: React.FC = () => {
     
     // Auto-save after 2 seconds of inactivity
     if (currentChapter) {
-      setTimeout(async () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+      autoSaveTimerRef.current = setTimeout(async () => {
         try {
           await invoke('update_chapter', {
             id: currentChapter.id,
@@ -436,6 +454,7 @@ const FrontstageApp: React.FC = () => {
             inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
             onClearInlineSuggestion={() => setInlineSuggestion(null)}
             subscription={subscription}
+            onQuotaExhausted={() => setQuotaExhausted(true)}
           />
         </main>
       </div>
@@ -455,7 +474,8 @@ const FrontstageApp: React.FC = () => {
               className="free-hint-upgrade"
               onClick={() => {
                 setFreeHint(null);
-                // TODO: 打开付费引导面板
+                setUpgradeTrigger('AI 智能改写');
+                setShowUpgradePanel(true);
               }}
             >
               🔒 查看 AI 改写
@@ -477,8 +497,44 @@ const FrontstageApp: React.FC = () => {
         isZenMode={isZenMode}
         onGhostSuggestion={subscription.isPro ? setSmartGhostText : undefined}
         onInlineSuggestion={subscription.isPro ? handleInlineSuggestion : undefined}
-        onFreeHint={subscription.isFree ? (title, message) => setFreeHint({ title, message, visible: true }) : undefined}
+        onFreeHint={subscription.isFree ? handleFreeHint : undefined}
         subscription={subscription}
+      />
+
+      {/* 配额用尽提示 */}
+      {quotaExhausted && subscription.isFree && (
+        <div className="quota-exhausted-toast">
+          <p className="quota-exhausted-title">⚡ 今日配额已用完</p>
+          <p className="quota-exhausted-message">
+            免费用户每日可使用 10 次 AI 创作。升级专业版，享受无限次文思泉涌。
+          </p>
+          <div className="quota-exhausted-actions">
+            <button
+              className="quota-exhausted-upgrade"
+              onClick={() => {
+                setQuotaExhausted(false);
+                setUpgradeTrigger('AI 创作配额');
+                setShowUpgradePanel(true);
+              }}
+            >
+              升级专业版
+            </button>
+            <button
+              className="quota-exhausted-dismiss"
+              onClick={() => setQuotaExhausted(false)}
+            >
+              我知道了
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 付费引导面板 */}
+      <UpgradePanel
+        isOpen={showUpgradePanel}
+        onClose={() => setShowUpgradePanel(false)}
+        trigger={upgradeTrigger}
+        onUpgraded={() => subscription.fetchStatus()}
       />
 
       {/* 禅模式退出提示 */}

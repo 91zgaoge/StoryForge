@@ -74,6 +74,22 @@
 | 版本号统一 | ✅ | 100% | Cargo.toml / package.json / tauri.conf.json → 3.4.0 |
 | 旧图标清理 | ✅ | 100% | 移除 LOGO.jpg / icon.jpg / logo-source.png |
 
+#### 💎 Freemium 付费系统 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| 数据库表 | ✅ | 100% | `subscriptions` / `ai_usage_quota` / `ai_usage_logs` |
+| `SubscriptionService` | ✅ | 100% | 订阅状态 / 配额检查 / 消费 / 日志记录 |
+| Tauri IPC 命令 | ✅ | 100% | `get_subscription_status` / `check_ai_quota` / `dev_upgrade_subscription` |
+| `useSubscription` Hook | ✅ | 100% | 全局状态 + `localStorage` 离线缓存 |
+| `SubscriptionStatus` 指示器 | ✅ | 100% | Header 显示免费剩余次数 / 专业版标识 |
+| 配额中间件 | ✅ | 100% | `check_ai_quota_sync` + `consume_ai_quota_sync` 统一拦截 |
+| 转化漏斗 UI | ✅ | 100% | 免费提示浮层 / `UpgradePanel` / 配额用尽提示 |
+| Agent 质量分层 | ✅ | 100% | 免费版 token 限制 1000 + 简化 prompt |
+| 原子扣减 | ✅ | 100% | 事务内查询+扣减，消除竞态 |
+| 成功后扣费 | ✅ | 100% | Agent 执行成功后才消耗配额 |
+| session 冷却 | ✅ | 100% | 30s 最小间隔 + dismiss 去重 |
+
 ### v3.3.0 新增功能（2026-04-15）
 
 #### 🖱️ 幕前右键菜单修复与暖色重构 (100%)

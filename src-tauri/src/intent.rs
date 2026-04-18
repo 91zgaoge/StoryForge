@@ -349,6 +349,7 @@ impl IntentExecutor {
                 context: context.clone(),
                 input: current_input.clone(),
                 parameters: Self::build_parameters(intent),
+                tier: None,
             };
 
             match self.agent_service.execute_task(task).await {
@@ -394,6 +395,7 @@ impl IntentExecutor {
                 context: context.clone(),
                 input: intent.raw_input.clone(),
                 parameters: Self::build_parameters(intent),
+                tier: None,
             };
 
             let service_clone = service.clone();

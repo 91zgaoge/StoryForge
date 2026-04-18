@@ -156,6 +156,13 @@ npm test
   - Phase 5 工作流闭环: `CreationWorkflowEngine`(7 阶段), `QualityChecker`(4 维评估) — 63 tests ✅
   - 版本号统一 3.3.0→3.4.0，Logo 生成全平台图标包
 
+- **Freemium 付费系统** (2026-04-18)
+  - 后端: `subscriptions`/`ai_usage_quota`/`ai_usage_logs` 表 + `SubscriptionService` + Tauri IPC 命令
+  - 前端: `useSubscription` Hook + `SubscriptionStatus` 指示器 + `UpgradePanel` 付费引导 + 配额用尽提示
+  - 策略: "分析免费，修改收费" — 免费用户看提示，Pro 用户享内联改写 + 风格 DNA + 方法论
+  - Agent 分层: 免费版 max_tokens 1000 + 简化 prompt；专业版完整能力
+  - 优化: 原子扣减 / 成功后扣费 / session 冷却 / 离线缓存 / 防抖修复 — 9 项
+
 - **幕前排版与 AI 续写优化** (2026-04-17)
   - 段落间距收紧 + 首行缩进 2em，底部栏 padding-bottom 增至 10rem
   - 自动续写：接受 AI 生成后自动触发下一轮续写
@@ -165,7 +172,7 @@ npm test
 
 - `cargo check` ✅ | 警告: 0
 - `npm run build` ✅
-- `cargo test` ✅ 20/20
+- `cargo test` ✅ 63/63
 
 ---
 

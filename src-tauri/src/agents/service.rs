@@ -8,6 +8,7 @@
 use super::{Agent, AgentContext, AgentResult};
 use crate::config::settings::AppConfig;
 use crate::llm::service::LlmService;
+use crate::subscription::{SubscriptionService, SubscriptionTier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager};
@@ -75,6 +76,8 @@ pub struct AgentTask {
     pub context: AgentContext,
     pub input: String,
     pub parameters: HashMap<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<SubscriptionTier>,
 }
 
 /// Agent执行事件
@@ -163,36 +166,86 @@ impl AgentService {
             .and_then(|m| m.chat_model_id.clone())
     }
 
+    /// 获取当前用户的订阅层级（fallback 查询，优先使用 task.tier）
+    fn get_user_tier(&self) -> SubscriptionTier {
+        let app_dir = match self.app_handle.path().app_data_dir() {
+            Ok(d) => d,
+            Err(e) => {
+                log::warn!("[AgentService] Failed to get app_data_dir: {}, defaulting to Free", e);
+                return SubscriptionTier::Free;
+            }
+        };
+        let machine_id_path = app_dir.join(".machine_id");
+        let user_id = if machine_id_path.exists() {
+            std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+        } else {
+            log::warn!("[AgentService] .machine_id not found, defaulting to Free");
+            return SubscriptionTier::Free;
+        };
+
+        if user_id.is_empty() {
+            log::warn!("[AgentService] user_id is empty, defaulting to Free");
+            return SubscriptionTier::Free;
+        }
+
+        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            let service = SubscriptionService::new(pool.inner().clone());
+            match service.get_or_create_subscription(&user_id) {
+                Ok(status) => match status.tier.parse() {
+                    Ok(tier) => return tier,
+                    Err(e) => log::warn!("[AgentService] Failed to parse tier '{}': {}, defaulting to Free", status.tier, e),
+                },
+                Err(e) => log::warn!("[AgentService] DB query failed: {}, defaulting to Free", e),
+            }
+        } else {
+            log::warn!("[AgentService] DbPool not available, defaulting to Free");
+        }
+        SubscriptionTier::Free
+    }
+
+    /// 从 task 或 fallback 获取 tier
+    fn resolve_tier(&self, task: &AgentTask) -> SubscriptionTier {
+        task.tier.unwrap_or_else(|| self.get_user_tier())
+    }
+
     /// 为Agent生成内容，优先使用映射的模型
+    /// 免费版限制 max_tokens 以控制成本与质量
     async fn generate_for_agent(
         &self,
         agent_type: AgentType,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
+        tier: SubscriptionTier,
     ) -> Result<crate::llm::GenerateResponse, String> {
+        let effective_max = match tier {
+            SubscriptionTier::Free => max_tokens.map(|m| m.min(1000)).or(Some(1000)),
+            _ => max_tokens,
+        };
         if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
-            self.llm_service.generate_with_profile(&model_id, prompt, max_tokens, temperature).await
+            self.llm_service.generate_with_profile(&model_id, prompt, effective_max, temperature).await
         } else {
-            self.llm_service.generate(prompt, max_tokens, temperature).await
+            self.llm_service.generate(prompt, effective_max, temperature).await
         }
     }
 
     /// 执行写作助手
     async fn execute_writer(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
         
-        // 构建写作提示词
-        let prompt = self.build_writer_prompt(&task);
+        // 构建写作提示词（根据 tier 决定是否注入高级扩展）
+        let prompt = self.build_writer_prompt(&task, tier);
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成内容", 0.3);
         
-        // 调用LLM生成（根据Agent映射选择模型）
+        // 调用LLM生成（根据Agent映射选择模型，免费版限制 token）
         let response = self.generate_for_agent(
             task.agent_type,
             prompt,
             Some(2000),
             Some(0.8),
+            tier,
         ).await?;
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Reviewing, "检查生成质量", 0.8);
@@ -215,6 +268,7 @@ impl AgentService {
 
     /// 执行质检员
     async fn execute_inspector(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析内容质量", 0.1);
         
         let prompt = self.build_inspector_prompt(&task);
@@ -226,6 +280,7 @@ impl AgentService {
             prompt,
             Some(1500),
             Some(0.3), // 低temperature以获得更确定的分析
+            tier,
         ).await?;
         
         // 解析质检结果
@@ -240,6 +295,7 @@ impl AgentService {
 
     /// 执行大纲规划师
     async fn execute_outline_planner(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析故事需求", 0.1);
         
         let prompt = self.build_outline_prompt(&task);
@@ -251,6 +307,7 @@ impl AgentService {
             prompt,
             Some(3000),
             Some(0.9),
+            tier,
         ).await?;
         
         Ok(AgentResult {
@@ -262,6 +319,7 @@ impl AgentService {
 
     /// 执行风格模仿师
     async fn execute_style_mimic(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析文风特征", 0.1);
         
         let prompt = self.build_style_prompt(&task);
@@ -273,6 +331,7 @@ impl AgentService {
             prompt,
             Some(2000),
             Some(0.85),
+            tier,
         ).await?;
         
         Ok(AgentResult {
@@ -284,6 +343,7 @@ impl AgentService {
 
     /// 执行情节分析师
     async fn execute_plot_analyzer(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析情节结构", 0.1);
         
         let prompt = self.build_plot_prompt(&task);
@@ -295,6 +355,7 @@ impl AgentService {
             prompt,
             Some(2000),
             Some(0.4),
+            tier,
         ).await?;
         
         let (score, suggestions) = self.parse_plot_analysis(&response.content);
@@ -308,6 +369,7 @@ impl AgentService {
 
     /// 执行古典评点家
     async fn execute_commentator(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "品读文本", 0.1);
         
         let ctx = &task.context;
@@ -342,6 +404,7 @@ impl AgentService {
             prompt,
             Some(2048),
             Some(0.85),
+            tier,
         ).await?;
         
         Ok(AgentResult::simple(response.content))
@@ -349,6 +412,7 @@ impl AgentService {
 
     /// 执行记忆压缩师
     async fn execute_memory_compressor(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析待压缩内容", 0.1);
         
         let ctx = &task.context;
@@ -392,6 +456,7 @@ impl AgentService {
             prompt,
             Some(2048),
             Some(0.3),
+            tier,
         ).await?;
         
         let original_len = task.input.chars().count();
@@ -412,6 +477,7 @@ impl AgentService {
 
     /// 执行知识蒸馏师
     async fn execute_knowledge_distiller(&self, task: AgentTask) -> Result<AgentResult, String> {
+        let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析知识图谱结构", 0.1);
         
         let ctx = &task.context;
@@ -449,6 +515,7 @@ impl AgentService {
             prompt,
             Some(2048),
             Some(0.4),
+            tier,
         ).await?;
         
         Ok(AgentResult::with_score(response.content, 0.9))
@@ -456,12 +523,13 @@ impl AgentService {
 
     // ==================== 提示词构建（模板化） ====================
 
-    fn build_writer_prompt(&self, task: &AgentTask) -> String {
+    fn build_writer_prompt(&self, task: &AgentTask, tier: SubscriptionTier) -> String {
         use crate::prompts::{TemplateEngine, PromptLibrary};
         use std::collections::HashMap;
 
         let ctx = &task.context;
         let has_selection = ctx.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+        let is_pro = tier != SubscriptionTier::Free;
 
         // 构建模板变量
         let mut vars = HashMap::new();
@@ -481,63 +549,65 @@ impl AgentService {
             &vars
         );
 
-        // 注入创作方法论扩展（如果配置了）
-        if let Some(ref method_id) = ctx.methodology_id {
-            use crate::creative_engine::methodology::{MethodologyConfig, MethodologyType, MethodologyEngine};
-            let method_type = match method_id.as_str() {
-                "snowflake" => Some(MethodologyType::Snowflake),
-                "scene_structure" => Some(MethodologyType::SceneStructure),
-                "hero_journey" => Some(MethodologyType::HeroJourney),
-                "character_depth" => Some(MethodologyType::CharacterDepth),
-                _ => None,
-            };
-            if let Some(mt) = method_type {
-                let config = MethodologyConfig {
-                    methodology_type: mt,
-                    is_active: true,
-                    current_step: ctx.methodology_step.clone(),
-                    custom_params: serde_json::json!({}),
+        // 注入创作方法论扩展（仅专业版）
+        if is_pro {
+            if let Some(ref method_id) = ctx.methodology_id {
+                use crate::creative_engine::methodology::{MethodologyConfig, MethodologyType, MethodologyEngine};
+                let method_type = match method_id.as_str() {
+                    "snowflake" => Some(MethodologyType::Snowflake),
+                    "scene_structure" => Some(MethodologyType::SceneStructure),
+                    "hero_journey" => Some(MethodologyType::HeroJourney),
+                    "character_depth" => Some(MethodologyType::CharacterDepth),
+                    _ => None,
                 };
-                let extension = MethodologyEngine::build_prompt_extension(&config);
-                if !extension.is_empty() {
-                    system_prompt.push_str("\n\n【创作方法论约束】\n");
-                    system_prompt.push_str(&extension);
-                }
-            }
-        }
-
-        // 注入风格 DNA（如果配置了）
-        if let Some(ref style_id) = ctx.style_dna_id {
-            use crate::db::DbPool;
-            use crate::db::repositories_v3::StyleDnaRepository;
-            use crate::creative_engine::style::dna::StyleDNA;
-            use tauri::Manager;
-
-            let pool = self.app_handle.state::<DbPool>();
-            let repo = StyleDnaRepository::new(pool.inner().clone());
-            if let Ok(Some(db_dna)) = repo.get_by_id(style_id) {
-                if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
-                    let extension = dna.to_prompt_extension();
+                if let Some(mt) = method_type {
+                    let config = MethodologyConfig {
+                        methodology_type: mt,
+                        is_active: true,
+                        current_step: ctx.methodology_step.clone(),
+                        custom_params: serde_json::json!({}),
+                    };
+                    let extension = MethodologyEngine::build_prompt_extension(&config);
                     if !extension.is_empty() {
-                        system_prompt.push_str("\n\n");
+                        system_prompt.push_str("\n\n【创作方法论约束】\n");
                         system_prompt.push_str(&extension);
                     }
                 }
             }
-        }
 
-        // 注入个性化偏好（自适应学习）
-        {
-            use crate::db::DbPool;
-            use crate::creative_engine::adaptive::PromptPersonalizer;
-            use tauri::Manager;
+            // 注入风格 DNA（仅专业版）
+            if let Some(ref style_id) = ctx.style_dna_id {
+                use crate::db::DbPool;
+                use crate::db::repositories_v3::StyleDnaRepository;
+                use crate::creative_engine::style::dna::StyleDNA;
+                use tauri::Manager;
 
-            let pool = self.app_handle.state::<DbPool>();
-            let personalizer = PromptPersonalizer::new(pool.inner().clone());
-            if let Ok(extension) = personalizer.build_prompt_extension(&ctx.story_id) {
-                if !extension.is_empty() {
-                    system_prompt.push_str("\n\n");
-                    system_prompt.push_str(&extension);
+                let pool = self.app_handle.state::<DbPool>();
+                let repo = StyleDnaRepository::new(pool.inner().clone());
+                if let Ok(Some(db_dna)) = repo.get_by_id(style_id) {
+                    if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                        let extension = dna.to_prompt_extension();
+                        if !extension.is_empty() {
+                            system_prompt.push_str("\n\n");
+                            system_prompt.push_str(&extension);
+                        }
+                    }
+                }
+            }
+
+            // 注入个性化偏好（自适应学习，仅专业版）
+            {
+                use crate::db::DbPool;
+                use crate::creative_engine::adaptive::PromptPersonalizer;
+                use tauri::Manager;
+
+                let pool = self.app_handle.state::<DbPool>();
+                let personalizer = PromptPersonalizer::new(pool.inner().clone());
+                if let Ok(extension) = personalizer.build_prompt_extension(&ctx.story_id) {
+                    if !extension.is_empty() {
+                        system_prompt.push_str("\n\n");
+                        system_prompt.push_str(&extension);
+                    }
                 }
             }
         }

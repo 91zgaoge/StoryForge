@@ -94,6 +94,8 @@ interface RichTextEditorProps {
     dailyLimit: number;
     hasQuota: () => Promise<boolean>;
   };
+  /** 配额用尽时的回调 */
+  onQuotaExhausted?: () => void;
 }
 
 export interface RichTextEditorRef {
@@ -133,6 +135,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     inlineSuggestion,
     onClearInlineSuggestion,
     subscription,
+    onQuotaExhausted,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -661,6 +664,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         const hasQuota = await subscription.hasQuota();
         if (!hasQuota) {
           toast.error('今日 AI 创作次数已用完，升级专业版解锁无限次');
+          onQuotaExhausted?.();
           return;
         }
       }

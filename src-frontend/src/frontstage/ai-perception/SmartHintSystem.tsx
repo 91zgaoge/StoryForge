@@ -30,6 +30,9 @@ interface SmartHintSystemProps {
   };
 }
 
+const MIN_HINT_INTERVAL_MS = 30000; // 同一 session 内最小提示间隔 30 秒
+const MIN_TARGET_TEXT_LENGTH = 10;
+
 export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
   htmlContent,
   isEnabled,
@@ -42,6 +45,9 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
   const analysisTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAnalyzedRef = useRef<string>('');
   const pendingSuggestionRef = useRef<Set<string>>(new Set());
+  // Session 级冷却：已 dismiss 的 hint ID + 上次提示时间
+  const dismissedHintIdsRef = useRef<Set<string>>(new Set());
+  const lastHintTimeRef = useRef<number>(0);
 
   const performAnalysis = useCallback(() => {
     if (!isEnabled || isZenMode) return;
@@ -76,7 +82,7 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
 
         const targetText = paragraphs[targetIndex] || '';
 
-        if (targetText.length > 10) {
+        if (targetText.length >= MIN_TARGET_TEXT_LENGTH) {
           onInlineSuggestion(topSuggestion, targetText);
         }
       }
@@ -89,15 +95,20 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
         onGhostSuggestion(ghostSuggestions[0].message);
       }
     } else if (subscription?.isFree) {
-      // 免费用户：只显示分析提示（不生成修改）
-      const allHints = decision.suggestions.filter(s => s.priority !== 'low');
+      // 免费用户：只显示分析提示（不生成修改），带 session 冷却
+      const now = Date.now();
+      if (now - lastHintTimeRef.current < MIN_HINT_INTERVAL_MS) return;
+
+      const allHints = decision.suggestions.filter(
+        s => s.priority !== 'low' && !dismissedHintIdsRef.current.has(s.id)
+      );
       if (allHints.length > 0 && onFreeHint) {
-        // 每次只提示一个最重要的问题
         const topHint = allHints[0];
+        lastHintTimeRef.current = now;
         onFreeHint(topHint.title, topHint.message);
       }
     }
-  }, [htmlContent, isEnabled, isZenMode, onInlineSuggestion, onGhostSuggestion]);
+  }, [htmlContent, isEnabled, isZenMode, onInlineSuggestion, onGhostSuggestion, onFreeHint, subscription]);
 
   // 防抖分析：用户停止输入 3 秒后触发
   useEffect(() => {

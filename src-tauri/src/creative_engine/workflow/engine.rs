@@ -215,6 +215,7 @@ impl CreationWorkflowEngine {
                     context: context.clone(),
                     input: input.to_string(),
                     parameters: HashMap::new(),
+                    tier: None,
                 };
                 self.agent_service.execute_task(task).await
             }
@@ -226,6 +227,7 @@ impl CreationWorkflowEngine {
                     context: context.clone(),
                     input: input.to_string(),
                     parameters: HashMap::new(),
+                    tier: None,
                 };
                 // 注入雪花法方法论
                 task.context.methodology_id = Some("snowflake".to_string());
@@ -240,6 +242,7 @@ impl CreationWorkflowEngine {
                     context: context.clone(),
                     input: format!("请根据以下大纲设计场景结构：\n\n{}", input),
                     parameters: HashMap::new(),
+                    tier: None,
                 };
                 task.context.methodology_id = Some("scene_structure".to_string());
                 self.agent_service.execute_task(task).await
@@ -252,6 +255,7 @@ impl CreationWorkflowEngine {
                     context: context.clone(),
                     input: input.to_string(),
                     parameters: HashMap::new(),
+                    tier: None,
                 };
                 self.agent_service.execute_task(task).await
             }
@@ -263,6 +267,7 @@ impl CreationWorkflowEngine {
                     context: context.clone(),
                     input: input.to_string(),
                     parameters: HashMap::new(),
+                    tier: None,
                 };
                 self.agent_service.execute_task(task).await
             }
@@ -274,6 +279,7 @@ impl CreationWorkflowEngine {
                     context: context.clone(),
                     input: input.to_string(),
                     parameters: HashMap::new(),
+                    tier: None,
                 };
                 self.agent_service.execute_task(task).await
             }

@@ -1834,3 +1834,312 @@ body {
   color: var(--terracotta);
   background: var(--terracotta-light, rgba(180, 90, 60, 0.1));
 }
+
+/* ===== Upgrade Panel (付费引导面板) ===== */
+
+.upgrade-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.upgrade-panel {
+  position: relative;
+  width: 420px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--parchment);
+  border: 1px solid var(--warm-sand);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.15);
+  animation: panel-scale-in 0.3s ease;
+}
+
+@keyframes panel-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.upgrade-panel-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--stone-gray);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.upgrade-panel-close:hover {
+  background: var(--warm-sand);
+  color: var(--charcoal);
+}
+
+.upgrade-panel-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.upgrade-panel-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--terracotta), var(--terracotta-dark, #a05040));
+  color: white;
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(180, 90, 60, 0.3);
+}
+
+.upgrade-panel-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--charcoal);
+  font-family: var(--font-serif);
+  margin-bottom: 8px;
+}
+
+.upgrade-panel-subtitle {
+  font-size: 13px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+.upgrade-panel-features {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.upgrade-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--parchment-dark, #f5f0e8);
+  border-radius: 12px;
+  border: 1px solid var(--warm-sand);
+}
+
+.upgrade-feature-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--terracotta-light, rgba(180, 90, 60, 0.1));
+  color: var(--terracotta);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.upgrade-feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upgrade-feature-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--charcoal);
+  font-family: var(--font-sans);
+}
+
+.upgrade-feature-desc {
+  font-size: 12px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  line-height: 1.4;
+}
+
+.upgrade-panel-pricing {
+  text-align: center;
+  padding: 16px;
+  background: linear-gradient(135deg, var(--terracotta-light, rgba(180, 90, 60, 0.08)), transparent);
+  border-radius: 14px;
+  margin-bottom: 20px;
+  border: 1px dashed var(--terracotta);
+}
+
+.upgrade-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+}
+
+.upgrade-price-amount {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--terracotta);
+  font-family: var(--font-serif);
+}
+
+.upgrade-price-unit {
+  font-size: 14px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+}
+
+.upgrade-price-note {
+  font-size: 12px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  margin-top: 4px;
+}
+
+.upgrade-panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upgrade-btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--terracotta), var(--terracotta-dark, #a05040));
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 4px 16px rgba(180, 90, 60, 0.3);
+}
+
+.upgrade-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(180, 90, 60, 0.4);
+}
+
+.upgrade-btn-secondary {
+  padding: 12px 24px;
+  background: transparent;
+  color: var(--stone-gray);
+  border: 1px solid var(--warm-sand);
+  border-radius: 12px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.upgrade-btn-secondary:hover {
+  background: var(--warm-sand);
+}
+
+.upgrade-panel-footer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  margin-top: 16px;
+  opacity: 0.7;
+}
+
+/* ===== Quota Exhausted Toast (配额用尽提示) ===== */
+
+.quota-exhausted-toast {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  max-width: 320px;
+  background: var(--parchment);
+  border: 1px solid var(--terracotta);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  animation: hint-slide-in 0.4s ease-out;
+}
+
+.quota-exhausted-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--terracotta);
+  font-family: var(--font-serif);
+  margin-bottom: 6px;
+}
+
+.quota-exhausted-message {
+  font-size: 12px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.quota-exhausted-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.quota-exhausted-upgrade {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--terracotta);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.quota-exhausted-upgrade:hover {
+  background: var(--terracotta-dark);
+}
+
+.quota-exhausted-dismiss {
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--stone-gray);
+  border: 1px solid var(--warm-sand);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.quota-exhausted-dismiss:hover {
+  background: var(--warm-sand);
+}

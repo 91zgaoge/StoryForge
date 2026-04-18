@@ -621,6 +621,7 @@ pub async fn compress_content(
         context,
         input: content,
         parameters: parameters.unwrap_or_default(),
+        tier: None,
     };
 
     let service = AgentService::new(app_handle);
@@ -670,6 +671,7 @@ pub async fn compress_scene(
         context,
         input: content,
         parameters: parameters.unwrap_or_default(),
+        tier: None,
     };
 
     let service = AgentService::new(app_handle);
@@ -732,6 +734,7 @@ pub async fn distill_story_knowledge(
         context,
         input: kg_input.to_string(),
         parameters: std::collections::HashMap::new(),
+        tier: None,
     };
 
     let service = AgentService::new(app_handle);

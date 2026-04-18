@@ -193,29 +193,60 @@ impl SubscriptionService {
         })
     }
 
-    /// 消费一次 AI 配额
+    /// 消费一次 AI 配额（原子操作：查询+扣减在一个事务内完成）
     pub fn consume_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
-        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        // 先确保订阅和配额记录存在，并处理过期重置
+        let status = self.get_or_create_subscription(user_id)?;
 
-        // 先获取当前配额
-        let check = self.check_ai_quota(user_id)?;
-        if !check.allowed {
-            return Ok(check);
+        if status.tier == "pro" || status.tier == "enterprise" {
+            return Ok(QuotaCheckResult {
+                allowed: true,
+                remaining: 999999,
+                daily_limit: status.daily_limit,
+                daily_used: status.daily_used,
+                resets_at: status.quota_resets_at,
+                message: None,
+            });
         }
 
-        // 增加使用量
-        let new_used = check.daily_used + 1;
-        conn.execute(
-            "UPDATE ai_usage_quota SET daily_used = ?1, total_used = total_used + 1, updated_at = ?2 WHERE user_id = ?3",
-            params![new_used, chrono::Local::now().to_rfc3339(), user_id],
+        let mut conn = self.pool.get().map_err(|e| e.to_string())?;
+        let now = chrono::Local::now().to_rfc3339();
+
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        // 在事务内原子查询当前配额
+        let (daily_used, daily_limit, resets_at): (i32, i32, String) = tx.query_row(
+            "SELECT daily_used, daily_limit, quota_reset_at FROM ai_usage_quota WHERE user_id = ?1",
+            params![user_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).map_err(|e| e.to_string())?;
+
+        if daily_used >= daily_limit {
+            tx.commit().map_err(|e| e.to_string())?;
+            return Ok(QuotaCheckResult {
+                allowed: false,
+                remaining: 0,
+                daily_limit,
+                daily_used,
+                resets_at,
+                message: Some("今日 AI 创作次数已用完，升级专业版解锁无限次".to_string()),
+            });
+        }
+
+        // 原子扣减
+        tx.execute(
+            "UPDATE ai_usage_quota SET daily_used = daily_used + 1, total_used = total_used + 1, updated_at = ?1 WHERE user_id = ?2",
+            params![now, user_id],
+        ).map_err(|e| e.to_string())?;
+
+        tx.commit().map_err(|e| e.to_string())?;
 
         Ok(QuotaCheckResult {
             allowed: true,
-            remaining: check.daily_limit - new_used,
-            daily_limit: check.daily_limit,
-            daily_used: new_used,
-            resets_at: check.resets_at,
+            remaining: daily_limit - daily_used - 1,
+            daily_limit,
+            daily_used: daily_used + 1,
+            resets_at,
             message: None,
         })
     }

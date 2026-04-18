@@ -15,6 +15,30 @@ use crate::db::{DbPool, CreateStoryRequest, CreateChapterRequest};
 use crate::db::repositories::{StoryRepository, ChapterRepository};
 use crate::subscription::{SubscriptionService, SubscriptionTier};
 
+/// 获取当前用户订阅层级（同步）
+fn get_user_tier_sync(app_handle: &AppHandle) -> SubscriptionTier {
+    let app_dir = match app_handle.path().app_data_dir() {
+        Ok(d) => d,
+        Err(_) => return SubscriptionTier::Free,
+    };
+    let machine_id_path = app_dir.join(".machine_id");
+    let user_id = if machine_id_path.exists() {
+        std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
+    } else {
+        return SubscriptionTier::Free;
+    };
+    if user_id.is_empty() {
+        return SubscriptionTier::Free;
+    }
+    if let Some(pool) = app_handle.try_state::<DbPool>() {
+        let service = SubscriptionService::new(pool.inner().clone());
+        if let Ok(status) = service.get_or_create_subscription(&user_id) {
+            return status.tier.parse().unwrap_or(SubscriptionTier::Free);
+        }
+    }
+    SubscriptionTier::Free
+}
+
 /// 检查 AI 配额并在不足时返回错误
 fn check_ai_quota_sync(app_handle: &AppHandle) -> Result<(), String> {
     let pool = app_handle.state::<DbPool>();
@@ -81,28 +105,35 @@ pub async fn agent_execute(
     app_handle: AppHandle,
 ) -> Result<ExecuteAgentResponse, String> {
     check_ai_quota_sync(&app_handle)?;
-    consume_ai_quota_sync(&app_handle)?;
     let task_id = Uuid::new_v4().to_string();
     
     // 构建上下文
     let context = build_agent_context(&app_handle, &request).await?;
     
+    let tier = get_user_tier_sync(&app_handle);
     let task = AgentTask {
         id: task_id.clone(),
         agent_type: request.agent_type,
         context,
         input: request.input,
         parameters: request.parameters.unwrap_or_default(),
+        tier: Some(tier),
     };
     
-    let service = AgentService::new(app_handle);
+    let service = AgentService::new(app_handle.clone());
     
     match service.execute_task(task).await {
-        Ok(result) => Ok(ExecuteAgentResponse {
-            task_id,
-            result: Some(result),
-            error: None,
-        }),
+        Ok(result) => {
+            // 执行成功后才扣费，避免用户为失败请求买单
+            if let Err(e) = consume_ai_quota_sync(&app_handle) {
+                log::warn!("[agent_execute] Quota consume failed after success: {}", e);
+            }
+            Ok(ExecuteAgentResponse {
+                task_id,
+                result: Some(result),
+                error: None,
+            })
+        }
         Err(e) => Ok(ExecuteAgentResponse {
             task_id,
             result: None,
@@ -118,27 +149,33 @@ pub async fn agent_execute_stream(
     app_handle: AppHandle,
 ) -> Result<String, String> {
     check_ai_quota_sync(&app_handle)?;
-    consume_ai_quota_sync(&app_handle)?;
     let task_id = Uuid::new_v4().to_string();
 
     // 构建上下文
     let context = build_agent_context(&app_handle, &request).await?;
 
+    let tier = get_user_tier_sync(&app_handle);
     let task = AgentTask {
         id: task_id.clone(),
         agent_type: request.agent_type.clone(),
         context,
         input: request.input.clone(),
         parameters: request.parameters.unwrap_or_default(),
+        tier: Some(tier),
     };
 
     // 在后台执行
     let service = AgentService::new(app_handle.clone());
     let task_id_clone = task_id.clone();
+    let app_handle_for_consume = app_handle.clone();
 
     let handle = tokio::spawn(async move {
         match service.execute_task(task).await {
             Ok(result) => {
+                // 执行成功后才扣费
+                if let Err(e) = consume_ai_quota_sync(&app_handle_for_consume) {
+                    log::warn!("[agent_execute_stream] Quota consume failed after success: {}", e);
+                }
                 let _ = app_handle.emit(&format!("agent-complete-{}", task_id_clone), result);
             }
             Err(e) => {
@@ -199,7 +236,6 @@ pub async fn writer_agent_execute(
     app_handle: AppHandle,
 ) -> Result<WriterAgentResponse, String> {
     check_ai_quota_sync(&app_handle)?;
-    consume_ai_quota_sync(&app_handle)?;
     let mut story_id = request.story_id.clone();
     let mut chapter_number = request.chapter_number.unwrap_or(1);
     let mut created_chapter_id: Option<String> = None;
@@ -251,18 +287,24 @@ pub async fn writer_agent_execute(
     context.current_content = Some(request.current_content);
     context.selected_text = request.selected_text;
 
+    let tier = get_user_tier_sync(&app_handle);
     let task = AgentTask {
         id: Uuid::new_v4().to_string(),
         agent_type: AgentType::Writer,
         context,
         input: request.instruction,
         parameters: std::collections::HashMap::new(),
+        tier: Some(tier),
     };
 
     let service = AgentService::new(app_handle.clone());
 
     match service.execute_task(task).await {
         Ok(result) => {
+            // 执行成功后才扣费
+            if let Err(e) = consume_ai_quota_sync(&app_handle) {
+                log::warn!("[writer_agent_execute] Quota consume failed after success: {}", e);
+            }
             // 如果创建了新区间，把生成的内容保存到数据库
             if let Some(ref chapter_id) = created_chapter_id {
                 let pool = app_handle.state::<DbPool>();

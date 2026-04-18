@@ -52,6 +52,39 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - `cargo tauri icon logo.png` 生成全平台图标包（Windows / macOS / iOS / Android）
 - 清理旧图标：`LOGO.jpg`、`icon.jpg`、`logo-source.png`
 
+### 💎 Freemium 付费系统（2026-04-18）
+
+**Phase 1 — 后端基础设施**
+- 数据库迁移：`subscriptions`、`ai_usage_quota`、`ai_usage_logs` 表
+- `SubscriptionService`：订阅状态管理、配额检查与消费、调用日志记录
+- Tauri 命令：`get_subscription_status`、`check_ai_quota`、`record_ai_usage`、`dev_upgrade_subscription`
+
+**Phase 2 — 前端付费开关**
+- `useSubscription` Hook：全局订阅状态 + `canUseFeature` + `hasQuota`
+- `SubscriptionStatus` 组件：Header 订阅状态指示器（免费版显示剩余配额，专业版显示"文思泉涌中"）
+- 后端配额中间件：`check_ai_quota_sync` + `consume_ai_quota_sync` 统一拦截
+
+**Phase 3 — 转化漏斗 UI**
+- `SmartHintSystem` tier 感知：免费用户只显示分析提示（不生成内联修改）
+- `free-hint-toast`：免费用户看到"句式单调"等提示，点击"查看 AI 改写"打开付费引导
+- `UpgradePanel`：功能对比 + ¥19/月定价 + 立即升级按钮（开发测试模式）
+- `quota-exhausted-toast`：配额用尽时引导升级
+
+**Phase 4 — Agent 质量分层**
+- 免费版：`max_tokens` 强制上限 1000，跳过创作方法论/风格 DNA/个性化偏好注入
+- 专业版：完整 `max_tokens` + 全部高级提示词扩展
+
+**9 项优化修复**
+1. `get_user_tier` 缓存：通过 `AgentTask.tier` 避免每次调用重复查库
+2. 配额先扣后执行 → 成功后扣费：避免用户为失败请求买单
+3. 内联回调防抖修复：`useCallback` 包裹 `onFreeHint`，稳定引用避免定时器重置
+4. `consume_ai_quota` 原子化：事务内查询+扣减，消除竞态窗口
+5. 免费提示 session 冷却：`MIN_HINT_INTERVAL_MS = 30s` + `dismissedHintIdsRef` 去重
+6. auto-save 定时器清理：`autoSaveTimerRef` 避免保存到错误章节
+7. UpgradePanel 替换原生 `alert`：`react-hot-toast` + 加载状态
+8. 配额检查失败策略：乐观策略 `allowed: true`，后端做最终校验
+9. 离线 Pro 降级修复：`localStorage` 缓存订阅状态
+
 ### 🏗️ 架构与质量
 
 - 63 项 Rust 后端测试全部通过

@@ -23,12 +23,37 @@ export interface SubscriptionState {
   error: string | null;
 }
 
+const STORAGE_KEY = 'storyforge_subscription_cache';
+
+function loadCachedState(): Partial<SubscriptionState> | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return null;
+}
+
+function saveCachedState(state: SubscriptionState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      tier: state.tier,
+      status: state.status,
+      dailyUsed: state.dailyUsed,
+      dailyLimit: state.dailyLimit,
+      quotaResetsAt: state.quotaResetsAt,
+      expiresAt: state.expiresAt,
+    }));
+  } catch { /* ignore */ }
+}
+
+const cached = loadCachedState();
 const DEFAULT_STATE: SubscriptionState = {
-  tier: 'free',
-  status: 'active',
-  dailyUsed: 0,
-  dailyLimit: 10,
-  quotaResetsAt: '',
+  tier: cached?.tier || 'free',
+  status: cached?.status || 'active',
+  dailyUsed: cached?.dailyUsed ?? 0,
+  dailyLimit: cached?.dailyLimit ?? 10,
+  quotaResetsAt: cached?.quotaResetsAt || '',
+  expiresAt: cached?.expiresAt,
   isLoading: true,
   error: null,
 };
@@ -39,7 +64,7 @@ export function useSubscription() {
   const fetchStatus = useCallback(async () => {
     try {
       const status = await getSubscriptionStatus();
-      setState({
+      const newState: SubscriptionState = {
         tier: (status.tier as 'free' | 'pro' | 'enterprise') || 'free',
         status: status.status,
         dailyUsed: status.daily_used,
@@ -48,7 +73,9 @@ export function useSubscription() {
         expiresAt: status.expires_at,
         isLoading: false,
         error: null,
-      });
+      };
+      saveCachedState(newState);
+      setState(newState);
     } catch (err) {
       console.error('Failed to fetch subscription status:', err);
       setState(prev => ({ ...prev, isLoading: false, error: '获取订阅状态失败' }));
@@ -61,13 +88,15 @@ export function useSubscription() {
       return await checkAiQuota();
     } catch (err) {
       console.error('Failed to check AI quota:', err);
+      // 乐观策略：前端检查失败时允许继续，后端会做最终校验
+      // 避免网络/DB 抖动时免费用户被误杀
       return {
-        allowed: false,
-        remaining: 0,
+        allowed: true,
+        remaining: Math.max(0, state.dailyLimit - state.dailyUsed),
         daily_limit: state.dailyLimit,
         daily_used: state.dailyUsed,
         resets_at: state.quotaResetsAt,
-        message: '配额检查失败',
+        message: '配额检查异常，已允许本次使用',
       };
     }
   }, [state.dailyLimit, state.dailyUsed, state.quotaResetsAt]);

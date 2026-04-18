@@ -122,6 +122,7 @@ impl AgentOrchestrator {
                 context: task.context.clone(),
                 input: current_content.clone(),
                 parameters: task.parameters.clone(),
+                tier: None,
             };
 
             let inspect_result = self.service.execute_task(inspect_task).await?;
@@ -170,6 +171,7 @@ impl AgentOrchestrator {
                     );
                     params
                 },
+                tier: None,
             };
 
             let rewrite_result = self.service.execute_task(rewrite_task).await?;
