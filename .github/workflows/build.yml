@@ -147,16 +147,25 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      - name: Get version from package.json
+        id: get_version
+        if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+        working-directory: src-frontend
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Write-Output "version=$version" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
       - name: Build Tauri app and release (nightly)
         if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v3.3.0-nightly
-          releaseName: 'StoryForge v3.3.0 Nightly'
+          tagName: v${{ steps.get_version.outputs.version }}-nightly
+          releaseName: 'StoryForge v${{ steps.get_version.outputs.version }} Nightly'
           releaseBody: |
-            🌿 StoryForge (草苔) 最新构建版本
+            🌿 StoryForge (草苔) v${{ steps.get_version.outputs.version }} 最新构建版本
 
             此版本为自动构建产物，包含三个平台的安装包：
             - Windows (.msi / .exe)
