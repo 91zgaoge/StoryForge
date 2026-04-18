@@ -154,6 +154,8 @@ export interface WritingSuggestion {
   createdAt: number;
   /** 用户反馈：null=未反馈, true=有用, false=无用 */
   userFeedback: boolean | null;
+  /** 传给 LLM 的修改指令 */
+  instruction: string;
 }
 
 /** 决策层输出 */

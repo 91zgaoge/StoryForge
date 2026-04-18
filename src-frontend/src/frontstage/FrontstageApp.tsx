@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+
 import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
@@ -53,6 +54,7 @@ const FrontstageApp: React.FC = () => {
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
   const [smartGhostText, setSmartGhostText] = useState('');
+  const [inlineSuggestion, setInlineSuggestion] = useState<{ instruction: string; targetText: string; category: string; targetParagraphIndex: number } | null>(null);
   const editorRef = useRef<RichTextEditorRef>(null);
 
   // 加载当前故事的角色
@@ -238,6 +240,16 @@ const FrontstageApp: React.FC = () => {
     setGeneratedText(text);
   }, []);
 
+  // 处理内联修改建议：将分析结果传给 RichTextEditor，由编辑器内部调用 Writer Agent
+  const handleInlineSuggestion = useCallback((suggestion: any, targetText: string) => {
+    setInlineSuggestion({
+      instruction: suggestion.instruction || '润色这段文字',
+      targetText,
+      category: suggestion.category,
+      targetParagraphIndex: suggestion.targetParagraphIndex ?? -1,
+    });
+  }, []);
+
   // AI toggle shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -412,6 +424,8 @@ const FrontstageApp: React.FC = () => {
             showCommentPanel={showCommentPanel}
             onShowCommentPanelChange={setShowCommentPanel}
             smartGhostText={smartGhostText}
+            inlineSuggestion={inlineSuggestion}
+            onClearInlineSuggestion={() => setInlineSuggestion(null)}
           />
         </main>
       </div>
@@ -422,6 +436,7 @@ const FrontstageApp: React.FC = () => {
         isEnabled={!isZenMode && showAI}
         isZenMode={isZenMode}
         onGhostSuggestion={setSmartGhostText}
+        onInlineSuggestion={handleInlineSuggestion}
       />
 
       {/* 禅模式退出提示 */}

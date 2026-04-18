@@ -44,6 +44,7 @@ import { generateParagraphCommentaries, writerAgentExecute } from '@/services/ta
 import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { CommentAnchorMark } from '@/frontstage/extensions/CommentAnchor';
+import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnnotation, TEXT_ANNOTATION_TYPE_COLORS, TEXT_ANNOTATION_TYPE_LABELS } from '@/hooks/useTextAnnotations';
 import { EditorContextMenu } from './EditorContextMenu';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
@@ -76,6 +77,14 @@ interface RichTextEditorProps {
   onShowCommentPanelChange?: (v: boolean) => void;
   /** 智能文思 Ghost Text 建议（来自感知层分析） */
   smartGhostText?: string;
+  /** 内联修改建议（需要调用 Writer Agent 生成修改文本并插入 aiSuggestion 节点） */
+  inlineSuggestion?: {
+    instruction: string;
+    targetText: string;
+    category: string;
+    targetParagraphIndex: number;
+  } | null;
+  onClearInlineSuggestion?: () => void;
 }
 
 export interface RichTextEditorRef {
@@ -112,6 +121,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     showCommentPanel: externalShowCommentPanel = false,
     onShowCommentPanelChange,
     smartGhostText,
+    inlineSuggestion,
+    onClearInlineSuggestion,
   }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editorConfig, setEditorConfig] = useState<EditorConfig>(loadEditorConfig());
@@ -203,6 +214,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         TrackInsertMark,
         TrackDeleteMark,
         CommentAnchorMark,
+        AiSuggestionNode,
       ],
       content,
       onUpdate: ({ editor }) => {
@@ -578,6 +590,59 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setGhostText('');
     }, [chatInput, showSlashMenu, smartGhost]);
     
+    // ===== 内联修改建议处理 =====
+    useEffect(() => {
+      if (!inlineSuggestion || !editor || isAiThinking) return;
+      
+      const generateInlineSuggestion = async () => {
+        setIsAiThinking(true);
+        try {
+          const result = await writerAgentExecute({
+            story_id: storyId || '',
+            chapter_number: chapterNumber,
+            current_content: editor.getHTML() || '',
+            selected_text: inlineSuggestion.targetText,
+            instruction: inlineSuggestion.instruction,
+          });
+          
+          if (result.content) {
+            // 找到目标段落的索引
+            const paragraphs: { pos: number; nodeSize: number }[] = [];
+            editor.state.doc.descendants((node, pos) => {
+              if (node.type.name === 'paragraph') {
+                paragraphs.push({ pos, nodeSize: node.nodeSize });
+              }
+            });
+            
+            // 确定目标段落索引（从末尾开始找包含目标文本的段落）
+            let targetIndex = inlineSuggestion.targetParagraphIndex;
+            if (targetIndex < 0 || targetIndex >= paragraphs.length) {
+              targetIndex = paragraphs.length - 1;
+            }
+            
+            // 插入 aiSuggestion 节点
+            editor.commands.insertAiSuggestion(
+              {
+                suggestionId: `inline-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                category: inlineSuggestion.category,
+                priority: 'high',
+                originalText: inlineSuggestion.targetText,
+                targetParagraphIndex: targetIndex,
+              },
+              result.content
+            );
+          }
+        } catch (err) {
+          console.error('Inline suggestion generation failed:', err);
+        } finally {
+          setIsAiThinking(false);
+          onClearInlineSuggestion?.();
+        }
+      };
+      
+      generateInlineSuggestion();
+    }, [inlineSuggestion, editor, storyId, chapterNumber, isAiThinking, onClearInlineSuggestion]);
+
     // 发送消息（正文助手指令栏）
     const executeWriterAgent = useCallback(async (instruction: string) => {
       if (isAiThinking) return;

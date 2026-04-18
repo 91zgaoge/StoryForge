@@ -22,6 +22,8 @@ interface SuggestionTemplate {
   presentation: SuggestionPresentation;
   title: string;
   messages: string[]; // 多条候选，随机选一条避免单调
+  /** 传给 LLM 的修改指令（可选，未提供时使用默认值） */
+  instruction?: string;
   condition: (p: PerceptionResult) => boolean;
   score: (p: PerceptionResult) => number; // 0-1，匹配度
 }
@@ -287,6 +289,18 @@ export function generateSuggestions(perception: PerceptionResult): DecisionResul
       finalMessage = finalMessage.replace('{starter}', perception.sentencePattern.topStarters[0].word);
     }
 
+    // 默认指令映射
+    const defaultInstructions: Record<string, string> = {
+      pacing: '改写这段文字，调整叙事节奏。增加对话与描写的交替变化，避免单一节奏的疲劳感。',
+      dialogue: '改写这段对话，在人物说话时加入动作、神态或环境细节，让对话更立体生动。',
+      description: '改写这段描写，增加感官细节（声音、气味、触觉等），让画面更加具体可感。',
+      vocabulary: '润色这段文字，替换重复使用的词汇，使用更丰富多样的表达方式。',
+      sentence: '改写这段文字，增加句式多样性。尝试长短句交替、倒装、省略等不同句式。',
+      emotion: '改写这段文字，深入描写人物的内心活动和情感变化，增强读者的情感共鸣。',
+      plot: '改写这段文字，增加情节张力。可以加入伏笔、转折或冲突升级的元素。',
+      structure: '改写这段文字，将零散的句子整合为结构更完整的段落，让叙述更连贯。',
+    };
+
     suggestions.push({
       id: `${template.category}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       category: template.category,
@@ -298,6 +312,7 @@ export function generateSuggestions(perception: PerceptionResult): DecisionResul
       triggerReason: `score=${score.toFixed(2)}, condition matched`,
       createdAt: Date.now(),
       userFeedback: null,
+      instruction: (template as any).instruction || defaultInstructions[template.category] || '润色这段文字，提升写作质量。',
     });
   }
 
