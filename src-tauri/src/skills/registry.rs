@@ -133,6 +133,16 @@ impl SkillRegistry {
         self.hooks.clear();
     }
     
+    /// Update skill manifest
+    pub fn update_manifest(&mut self, skill_id: &str, manifest: SkillManifest) -> Result<(), String> {
+        if let Some(skill) = self.skills.get_mut(skill_id) {
+            skill.manifest = manifest;
+            Ok(())
+        } else {
+            Err("Skill not found".to_string())
+        }
+    }
+    
     /// Check if skill exists
     pub fn contains(&self,
         skill_id: &str,

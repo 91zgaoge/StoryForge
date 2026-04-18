@@ -149,7 +149,7 @@ pub fn run() {
             health_check, check_model_status, chat_completion, get_state, list_stories, create_story, update_story, delete_story,
             get_story_characters, create_character, update_character, delete_character,
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
-            get_skills, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill,
+            get_skills, get_skill, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill, update_skill, format_text,
             connect_mcp_server, call_mcp_tool, list_mcp_tools, execute_mcp_tool,
             search_similar, text_search_vectors, hybrid_search_vectors, embed_chapter,
             export_story,
@@ -520,6 +520,17 @@ fn uninstall_skill(skill_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_skill(skill_id: String) -> Result<SkillInfo, String> {
+    let skill = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.get_skill(&skill_id);
+    skill.map(SkillInfo::from).ok_or_else(|| "Skill not found".to_string())
+}
+
+#[tauri::command]
+fn update_skill(skill_id: String, manifest: skills::SkillManifest) -> Result<(), String> {
+    SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?.update_skill(&skill_id, manifest)
+}
+
+#[tauri::command]
 fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
     let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
     let context = agents::AgentContext {
@@ -541,6 +552,97 @@ fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -
     };
     let result = manager.execute_skill(&skill_id, &context, params)?;
     serde_json::to_value(result).map_err(|e| e.to_string())
+}
+
+/// 使用 text_formatter skill 对文本进行智能排版
+#[tauri::command]
+async fn format_text(content: String, _app: AppHandle) -> Result<String, String> {
+    // 1. 获取 text_formatter skill 并生成 prompt
+    let (system_prompt, user_prompt) = {
+        let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
+        let context = agents::AgentContext {
+            story_id: String::new(),
+            story_title: String::new(),
+            genre: String::new(),
+            tone: String::new(),
+            pacing: String::new(),
+            chapter_number: 0,
+            characters: vec![],
+            previous_chapters: vec![],
+            current_content: Some(content.clone()),
+            selected_text: None,
+            world_rules: None,
+            scene_structure: None,
+            methodology_id: None,
+            methodology_step: None,
+            style_dna_id: None,
+        };
+        let result = manager.execute_skill("builtin.text_formatter", &context, {
+            let mut p = HashMap::new();
+            p.insert("content".to_string(), serde_json::Value::String(content));
+            p
+        })?;
+        
+        let data = result.data;
+        let system = data.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("你是一个专业的小说排版编辑").to_string();
+        let user = data.get("user_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        (system, user)
+    };
+    
+    // 2. 获取 LLM 配置
+    let config = {
+        let cfg = APP_CONFIG.lock().unwrap();
+        cfg.clone().ok_or("App config not initialized")?
+    };
+    
+    // 3. 调用 LLM
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    
+    let base_url = config.llm.api_base.clone().unwrap_or_else(|| format!("https://api.openai.com/v1"));
+    let api_key = config.llm.api_key.clone();
+    let model = config.llm.model.clone();
+    let max_tokens = config.llm.max_tokens;
+    let temperature = config.llm.temperature;
+    
+    let mut request = client
+        .post(format!("{}/chat/completions", base_url))
+        .header("Content-Type", "application/json");
+    
+    if !api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", api_key));
+    }
+    
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": false,
+    });
+    
+    let response = request.json(&body).send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("HTTP {}: {}", status, text));
+    }
+    
+    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let formatted = data.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    
+    Ok(formatted)
 }
 
 #[tauri::command]

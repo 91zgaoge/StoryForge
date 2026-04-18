@@ -40,7 +40,7 @@ import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useModel } from '@/hooks/useModel';
 import type { ParagraphCommentary } from '@/types/v3';
 import toast from 'react-hot-toast';
-import { generateParagraphCommentaries, writerAgentExecute } from '@/services/tauri';
+import { generateParagraphCommentaries, writerAgentExecute, formatText } from '@/services/tauri';
 import { TextAnnotationMark } from '@/frontstage/extensions/TextAnnotationMark';
 import { TrackInsertMark, TrackDeleteMark } from '@/frontstage/extensions/TrackChanges';
 import { CommentAnchorMark } from '@/frontstage/extensions/CommentAnchor';
@@ -562,6 +562,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const slashCommands = [
       { id: 'continue', name: '/续写', description: '自动续写当前段落', instruction: '续写' },
       { id: 'revise', name: '/修订', description: '进入修订模式审阅文本', instruction: '修订当前段落' },
+      { id: 'format', name: '/排版', description: '对当前内容进行智能排版', instruction: '排版' },
       { id: 'chapter', name: '/生成章节', description: '基于故事生成新章节', instruction: '生成新章节' },
       { id: 'scene', name: '/补充场景', description: '补充环境/动作描写', instruction: '补充场景描写' },
       { id: 'ancient', name: '/改写古风', description: '改写成古风文风', instruction: '改写成古风' },
@@ -713,6 +714,30 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setShowSlashMenu(false);
       await executeWriterAgent(instruction);
     }, [chatInput, isAiThinking, executeWriterAgent]);
+
+    // 智能排版（调用 text_formatter skill）
+    const handleFormatText = useCallback(async () => {
+      if (!editor || isAiThinking) return;
+      const text = editor.getText();
+      if (!text.trim()) {
+        toast.error('编辑器内容为空，无法排版');
+        return;
+      }
+      setIsAiThinking(true);
+      setShowSlashMenu(false);
+      setChatInput('');
+      try {
+        const formatted = await formatText(text);
+        editor.commands.setContent(`<p>${formatted.replace(/\n/g, '</p><p>')}</p>`);
+        toast.success('排版完成');
+      } catch (error) {
+        console.error('Format text error:', error);
+        const msg = error instanceof Error ? error.message : String(error);
+        toast.error(`排版失败：${msg}`);
+      } finally {
+        setIsAiThinking(false);
+      }
+    }, [editor, isAiThinking]);
 
     const handleAcceptAndContinue = useCallback(() => {
       onAcceptGeneration?.();
@@ -1412,9 +1437,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                           e.preventDefault();
                           const cmd = slashCommands[slashMenuIndex];
                           if (cmd) {
-                            setChatInput(cmd.instruction);
-                            setShowSlashMenu(false);
-                            setGhostText('');
+                            if (cmd.id === 'format') {
+                              handleFormatText();
+                            } else {
+                              setChatInput(cmd.instruction);
+                              setShowSlashMenu(false);
+                              setGhostText('');
+                            }
                           }
                           return;
                         }
@@ -1474,9 +1503,13 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                             i === slashMenuIndex && 'active'
                           )}
                           onClick={() => {
-                            setChatInput(cmd.instruction);
-                            setShowSlashMenu(false);
-                            setGhostText('');
+                            if (cmd.id === 'format') {
+                              handleFormatText();
+                            } else {
+                              setChatInput(cmd.instruction);
+                              setShowSlashMenu(false);
+                              setGhostText('');
+                            }
                           }}
                         >
                           <span className="slash-cmd-name">{cmd.name}</span>

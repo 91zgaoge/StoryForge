@@ -256,6 +256,33 @@ impl SkillManager {
         self.registry.lock().unwrap().get(skill_id)
     }
     
+    pub fn update_skill(&self, skill_id: &str, manifest: SkillManifest) -> Result<(), String> {
+        let skill = self.registry.lock().unwrap().get(skill_id)
+            .ok_or_else(|| "Skill not found".to_string())?;
+        
+        // Update manifest in registry
+        self.registry.lock().unwrap().update_manifest(skill_id, manifest.clone())?;
+        
+        // Save to file for non-builtin skills
+        if skill.path.to_string_lossy() != "builtin" {
+            let skill_dir = if skill.path.is_dir() {
+                skill.path.clone()
+            } else {
+                self.skills_dir.join(skill_id)
+            };
+            let updated_skill = Skill {
+                manifest: manifest,
+                path: skill_dir.clone(),
+                is_enabled: skill.is_enabled,
+                loaded_at: skill.loaded_at,
+                runtime: skill.runtime.clone(),
+            };
+            self.loader.save_to_directory(&updated_skill, &skill_dir)?;
+        }
+        
+        Ok(())
+    }
+    
     pub fn enable_skill(&self, skill_id: &str) -> Result<(), String> {
         self.registry.lock().unwrap().enable(skill_id)
     }

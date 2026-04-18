@@ -64,6 +64,9 @@ export const createChapter = (req: { story_id: string; chapter_number: number; t
 export const getSkills = () => 
   invoke<Skill[]>('get_skills');
 
+export const getSkill = (skillId: string) => 
+  invoke<Skill>('get_skill', { skillId });
+
 /** @deprecated 暂时保留 — Skills 页面使用前端本地分类筛选 */
 export const getSkillsByCategory = (category: string) => 
   invoke<Skill[]>('get_skills_by_category', { category });
@@ -80,8 +83,14 @@ export const disableSkill = (skillId: string) =>
 export const uninstallSkill = (skillId: string) => 
   invoke<void>('uninstall_skill', { skillId });
 
+export const updateSkill = (skillId: string, manifest: Skill) => 
+  invoke<void>('update_skill', { skillId, manifest });
+
 export const executeSkill = (skillId: string, params: Record<string, unknown>) => 
   invoke<unknown>('execute_skill', { skillId, params });
+
+export const formatText = (content: string) =>
+  invoke<string>('format_text', { content });
 
 // MCP
 /** @deprecated 暂时保留 — 待 MCP 外部服务器 UI 完成后启用 */
