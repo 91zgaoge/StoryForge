@@ -124,6 +124,7 @@ body {
 .ProseMirror {
   outline: none;
   font-family: var(--fs-font-family, var(--font-serif));
+  font-size: var(--fs-font-size, 18px);
   color: var(--fs-ink-color, var(--charcoal));
   line-height: var(--fs-line-height, var(--line-height));
   letter-spacing: var(--fs-letter-spacing, normal);

@@ -10,6 +10,7 @@ import { useCharacters } from '@/hooks/useCharacters';
 import { useSubscription } from '@/hooks/useSubscription';
 import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 import ColorThemeDot from './components/ColorThemeDot';
+import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
 
 interface Story {
@@ -50,7 +51,7 @@ const FrontstageApp: React.FC = () => {
   const [isSaved, setIsSaved] = useState(true);
   const [generatedText, setGeneratedText] = useState('');
   const [wordCount, setWordCount] = useState(0);
-  const [fontSize, setFontSize] = useState(18);
+  const [fontSize, setFontSize] = useState(() => loadEditorConfig().fontSize);
   const [isZenMode, setIsZenMode] = useState(false);
   const [isRevisionMode, setIsRevisionMode] = useState(false);
   const [showAnnotationPanel, setShowAnnotationPanel] = useState(false);
@@ -69,6 +70,16 @@ const FrontstageApp: React.FC = () => {
   }, []);
   const editorRef = useRef<RichTextEditorRef>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 监听编辑器配置变化（同步幕后设置到幕前）
+  useEffect(() => {
+    const handleConfigChange = (e: CustomEvent) => {
+      const config = e.detail;
+      if (config?.fontSize) setFontSize(config.fontSize);
+    };
+    window.addEventListener('editor-config-changed', handleConfigChange as EventListener);
+    return () => window.removeEventListener('editor-config-changed', handleConfigChange as EventListener);
+  }, []);
 
   // 加载当前故事的角色
   const { data: characters = [] } = useCharacters(currentStory?.id || null);

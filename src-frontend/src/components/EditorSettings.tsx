@@ -80,6 +80,8 @@ export function loadEditorConfig(): EditorConfig {
 export function saveEditorConfig(config: EditorConfig) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    // 同一窗口内 dispatch 自定义事件，通知所有监听者配置已变更
+    window.dispatchEvent(new CustomEvent('editor-config-changed', { detail: config }));
   } catch {
     console.error('Failed to save editor config');
   }

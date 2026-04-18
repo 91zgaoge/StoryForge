@@ -290,13 +290,20 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       },
     });
 
-    // 监听配置变化
+    // 监听配置变化（跨标签页 + 同一窗口内）
     useEffect(() => {
       const handleStorageChange = () => {
         setEditorConfig(loadEditorConfig());
       };
+      const handleConfigChange = (e: CustomEvent<EditorConfig>) => {
+        setEditorConfig(e.detail);
+      };
       window.addEventListener('storage', handleStorageChange);
-      return () => window.removeEventListener('storage', handleStorageChange);
+      window.addEventListener('editor-config-changed', handleConfigChange as EventListener);
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+        window.removeEventListener('editor-config-changed', handleConfigChange as EventListener);
+      };
     }, []);
 
     // 编辑器区域右键菜单（直接绑定到编辑器容器，避免捕获阶段 stopPropagation 副作用）
