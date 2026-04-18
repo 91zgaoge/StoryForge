@@ -115,7 +115,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ### 🎨 品牌焕新
 
-- 全新 Logo：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型
+- 全新 Logo：「草苔」立方体标志 —— 融合自然叶脉纹理的几何立方体造型
 - `cargo tauri icon logo.png` 生成全平台图标包（Windows / macOS / iOS / Android）
 
 ### 🏗️ 架构与质量
@@ -133,7 +133,7 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
-> 🍃 品牌图标：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型，象征创作的生长力与文学的韧性
+> 🍃 品牌图标：「草苔」立方体标志 —— 融合自然叶脉纹理的几何立方体造型，象征创作的结构化生长与文学的立体纵深
 
 | 模块 | 状态 | 完成度 |
 |------|------|--------|
@@ -432,7 +432,7 @@ v2-rust/
 - **Phase 3 风格深度化** - `StyleDNA` 六维模型, 10 经典作家 DNA, `StyleAnalyzer`, `StyleChecker` (45 tests)
 - **Phase 4 自适应学习** - `FeedbackRecorder`, `PreferenceMiner`, `AdaptiveGenerator`, `PromptPersonalizer` (54 tests)
 - **Phase 5 工作流闭环** - `CreationWorkflowEngine` 7 阶段工作流, `QualityChecker` 四维评估, 3 种创作模式 (63 tests)
-- **品牌焕新** - `logo.png` 绳结绿叶标志生成全平台图标包
+- **品牌焕新** - `logo.png` 立方体标志生成全平台图标包
 - **版本统一** - Cargo.toml / package.json / tauri.conf.json → 3.4.0
 
 ### v3.3.0 (2026-04-15) - 功能断层修复与架构清理

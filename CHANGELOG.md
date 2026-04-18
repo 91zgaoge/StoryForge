@@ -48,7 +48,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 🎨 品牌焕新
 
-- 全新 Logo：「草苔」绳结绿叶标志 —— 以自然绳结纹理编织而成的叶片造型
+- 全新 Logo：「草苔」立方体标志 —— 融合自然叶脉纹理的几何立方体造型
 - `cargo tauri icon logo.png` 生成全平台图标包（Windows / macOS / iOS / Android）
 - 清理旧图标：`LOGO.jpg`、`icon.jpg`、`logo-source.png`
 
@@ -64,7 +64,7 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 ### 🍃 品牌 Logo 全面应用（2026-04-15）
 
 - **应用全新品牌标志**
-  - 将项目根目录 `LOGO.jpg`（草苔绳结绿叶标志）生成全平台图标包
+  - 将项目根目录 `logo.png`（草苔立方体标志）生成全平台图标包
   - `cargo tauri icon` 重新生成 Windows / macOS / iOS / Android 全尺寸图标
   - 前端 `index.html` / `frontstage.html` favicon 从 `feather.svg` 替换为 `favicon.ico`
   - 生成 `apple-touch-icon.png`、`icon-192.png`、`icon-512.png` 供多设备使用

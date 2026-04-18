@@ -69,7 +69,7 @@
 
 | 功能模块 | 状态 | 完成度 | 备注 |
 |---------|------|--------|------|
-| 全新 Logo | ✅ | 100% | `logo.png` 绳结绿叶标志 |
+| 全新 Logo | ✅ | 100% | `logo.png` 立方体标志 |
 | Tauri 全平台图标 | ✅ | 100% | Windows/macOS/iOS/Android 图标包 |
 | 版本号统一 | ✅ | 100% | Cargo.toml / package.json / tauri.conf.json → 3.4.0 |
 | 旧图标清理 | ✅ | 100% | 移除 LOGO.jpg / icon.jpg / logo-source.png |
