@@ -88,6 +88,73 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         CREATE INDEX IF NOT EXISTS idx_chapters_number ON chapters(story_id, chapter_number);
         "#
     )?;
+    // Migration 17: 创建任务表和任务日志表 (v3.5.0)
+    let task_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if task_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE tasks (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                task_type TEXT NOT NULL DEFAULT 'custom',
+                schedule_type TEXT NOT NULL DEFAULT 'once',
+                cron_pattern TEXT,
+                payload TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                progress INTEGER NOT NULL DEFAULT 0,
+                result TEXT,
+                error_message TEXT,
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run_at TEXT,
+                next_run_at TEXT,
+                last_heartbeat_at TEXT,
+                heartbeat_timeout_seconds INTEGER NOT NULL DEFAULT 300,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_tasks_status ON tasks(status)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_tasks_type ON tasks(task_type)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_tasks_enabled ON tasks(enabled)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_tasks_next_run ON tasks(next_run_at)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE task_logs (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                log_level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_task_logs_task ON task_logs(task_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 

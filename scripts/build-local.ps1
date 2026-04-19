@@ -34,7 +34,7 @@ function Build-Linux {
         return
     }
     Write-Host "⚠️ Linux 本地构建需通过 WSL 执行，当前环境暂不支持自动交叉编译" -ForegroundColor Yellow
-    Write-Host "   请手动在 WSL 中运行: cd $tauriDir && cargo tauri build" -ForegroundColor DarkGray
+    Write-Host "   请手动在 WSL 中运行: cd $tauriDir ; cargo tauri build" -ForegroundColor DarkGray
 }
 
 function Build-MacOS {

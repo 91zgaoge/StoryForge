@@ -2,7 +2,8 @@ import {
   LayoutDashboard, BookOpen, Users, Clapperboard,
   Wand2, Plug, Settings, Film, Sparkles, MonitorPlay,
   Network,
-  BookMarked
+  BookMarked,
+  ListChecks
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
@@ -24,6 +25,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'skills', label: '技能', icon: Wand2 },
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'book-deconstruction', label: '拆书', icon: BookMarked },
+  { id: 'tasks', label: '任务', icon: ListChecks },
   { id: 'settings', label: '设置', icon: Settings },
 ];
 

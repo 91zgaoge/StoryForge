@@ -10,6 +10,7 @@ pub mod analyzer;
 pub mod repository;
 pub mod service;
 pub mod commands;
+pub mod executor;
 
 // Module exports
 #[allow(unused_imports)]

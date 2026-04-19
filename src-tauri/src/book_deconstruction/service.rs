@@ -11,6 +11,8 @@ use crate::db::DbPool;
 use crate::db::{CreateCharacterRequest, CreateStoryRequest, StoryRepository};
 use crate::db::repositories_v3::{SceneRepository, WorldBuildingRepository};
 use crate::llm::LlmService;
+use crate::task_system::service::TaskService;
+use crate::task_system::models::CreateTaskRequest;
 use chrono::Local;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -104,23 +106,51 @@ impl BookDeconstructionService {
             .create(&book)
             .map_err(|e| ParseError::StorageError(format!("Failed to create book record: {}", e)))?;
 
-        // 8. 启动后台异步分析
-        let pool = self.pool.clone();
-        let llm_service = self.llm_service.clone();
-        let app_handle = self.app_handle.clone();
-        let book_id_clone = book_id.clone();
-        let chunks = create_chunks(&parsed);
-        let word_count = parsed.word_count;
+        // 8. 创建任务，由任务系统执行分析
+        let payload = serde_json::json!({
+            "book_id": book_id,
+            "file_path": dest_path.to_string_lossy().to_string(),
+        }).to_string();
 
-        tauri::async_runtime::spawn(async move {
-            let service = BookDeconstructionService::new(pool.clone(), llm_service.clone(), app_handle.clone());
-            if let Err(e) = service.run_analysis(&book_id_clone, &chunks, word_count).await {
-                log::error!("[BookDeconstruction] Analysis failed for {}: {}", book_id_clone, e);
-                let repo = ReferenceBookRepository::new(pool.clone());
-                let _ = repo.update_error(&book_id_clone, &e.to_string());
-                let _ = service.emit_progress(&book_id_clone, "failed", 0, &format!("分析失败: {}", e)).await;
+        let task_req = CreateTaskRequest {
+            name: format!("拆书: {}", parsed.title.clone().unwrap_or_else(|| "未命名".to_string())),
+            description: Some(format!("分析 {} 字的小说文件", parsed.word_count)),
+            task_type: "book_deconstruction".to_string(),
+            schedule_type: "once".to_string(),
+            cron_pattern: None,
+            payload: Some(payload),
+            enabled: Some(true),
+            max_retries: Some(3),
+            heartbeat_timeout_seconds: Some(300),
+        };
+
+        let task_service = TaskService::new(self.pool.clone(), self.app_handle.clone());
+        match task_service.create_task(task_req) {
+            Ok(task) => {
+                log::info!("[BookDeconstruction] Created task {} for book {}", task.id, book_id);
+                // 更新 book 记录关联 task_id
+                let repo = ReferenceBookRepository::new(self.pool.clone());
+                let _ = repo.update_status(&book_id, AnalysisStatus::Pending, 0);
             }
-        });
+            Err(e) => {
+                log::error!("[BookDeconstruction] Failed to create task for book {}: {}", book_id, e);
+                // 回退：直接后台分析
+                let pool = self.pool.clone();
+                let llm_service = self.llm_service.clone();
+                let app_handle = self.app_handle.clone();
+                let book_id_clone = book_id.clone();
+                let chunks = create_chunks(&parsed);
+                let word_count = parsed.word_count;
+                tauri::async_runtime::spawn(async move {
+                    let service = BookDeconstructionService::new(pool.clone(), llm_service.clone(), app_handle.clone());
+                    if let Err(e) = service.run_analysis(&book_id_clone, &chunks, word_count).await {
+                        log::error!("[BookDeconstruction] Fallback analysis failed for {}: {}", book_id_clone, e);
+                        let repo = ReferenceBookRepository::new(pool.clone());
+                        let _ = repo.update_error(&book_id_clone, &e.to_string());
+                    }
+                });
+            }
+        }
 
         Ok(book_id)
     }
@@ -146,7 +176,7 @@ impl BookDeconstructionService {
             self.pool.clone(),
         );
 
-        let result = analyzer.analyze(book_id, chunks, word_count).await?;
+        let result = analyzer.analyze(book_id, chunks, word_count, None).await?;
 
         // 保存分析结果到数据库
         repo.update_analysis_result(
@@ -350,12 +380,76 @@ impl BookDeconstructionService {
     async fn store_embeddings(
         &self,
         book_id: &str,
-        _result: &BookAnalysisResult,
+        result: &BookAnalysisResult,
     ) -> Result<(), AnalysisError> {
-        // 向量存储集成（简化版：记录到现有 vector store）
-        // 实际实现需要调用 LanceVectorStore
-        // 这里预留接口，待向量存储模块完善后接入
-        log::info!("[BookDeconstruction] Embedding storage for {} (placeholder)", book_id);
+        use crate::vector::VectorRecord;
+        use crate::embeddings::embed_text;
+
+        let store = match crate::VECTOR_STORE.get() {
+            Some(s) => s,
+            None => {
+                log::warn!("[BookDeconstruction] Vector store not initialized, skipping embeddings");
+                return Ok(());
+            }
+        };
+
+        log::info!("[BookDeconstruction] Storing embeddings for book {}", book_id);
+
+        // 为场景生成 embedding
+        let mut scene_records = Vec::new();
+        for (idx, scene) in result.scenes.iter().enumerate() {
+            let text = format!("{}\n{}", scene.title.as_deref().unwrap_or(""), scene.summary.as_deref().unwrap_or(""));
+            if text.trim().is_empty() {
+                continue;
+            }
+            if let Ok(embedding) = embed_text(&text) {
+                scene_records.push(VectorRecord {
+                    id: format!("{}_scene_{}", book_id, idx),
+                    story_id: book_id.to_string(),
+                    chapter_id: scene.id.clone(),
+                    chapter_number: scene.sequence_number as i32,
+                    text,
+                    record_type: "reference_scene".to_string(),
+                    embedding,
+                });
+            }
+        }
+        for record in scene_records {
+            if let Err(e) = store.upsert(record).await {
+                log::warn!("[BookDeconstruction] Failed to upsert scene embedding: {}", e);
+            }
+        }
+
+        // 为人物生成 embedding
+        let mut char_records = Vec::new();
+        for (idx, character) in result.characters.iter().enumerate() {
+            let text = format!(
+                "{}\n{}",
+                character.name,
+                character.personality.as_deref().unwrap_or("")
+            );
+            if text.trim().is_empty() {
+                continue;
+            }
+            if let Ok(embedding) = embed_text(&text) {
+                char_records.push(VectorRecord {
+                    id: format!("{}_char_{}", book_id, idx),
+                    story_id: book_id.to_string(),
+                    chapter_id: character.id.clone(),
+                    chapter_number: 0,
+                    text,
+                    record_type: "reference_character".to_string(),
+                    embedding,
+                });
+            }
+        }
+        for record in char_records {
+            if let Err(e) = store.upsert(record).await {
+                log::warn!("[BookDeconstruction] Failed to upsert character embedding: {}", e);
+            }
+        }
+
+        log::info!("[BookDeconstruction] Embeddings stored for book {}", book_id);
         Ok(())
     }
 

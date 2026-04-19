@@ -33,39 +33,52 @@ impl BookAnalyzer {
     }
 
     /// 执行完整分析 Pipeline
+    /// 
+    /// `heartbeat_callback`: 可选的心跳回调，每完成一个主要步骤调用一次
     pub async fn analyze(
         &self,
         book_id: &str,
         chunks: &[TextChunk],
         total_word_count: usize,
+        heartbeat_callback: Option<Box<dyn Fn() + Send + Sync>>,
     ) -> Result<BookAnalysisResult, AnalysisError> {
         log::info!("[BookAnalyzer] Starting analysis for book {}", book_id);
 
         // Step 1: 元信息识别 (10%)
         self.emit_progress(book_id, "extracting", 5, "正在提取文本信息...").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
         let sample_text = extract_sample(&chunks.first().map(|c| c.content.clone()).unwrap_or_default(), 3000);
         let metadata = self.extract_metadata(&sample_text).await?;
         self.emit_progress(book_id, "analyzing", 10, "正在识别小说类型...").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
 
         // Step 2: 世界观提取 (25%)
         self.emit_progress(book_id, "analyzing", 15, "正在分析世界观设定...").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
         let world_setting = self.extract_world_setting(chunks, total_word_count).await?;
         self.emit_progress(book_id, "analyzing", 25, "世界观分析完成").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
 
         // Step 3: 人物拆解 (50%)
         self.emit_progress(book_id, "analyzing", 30, "正在拆解人物角色...").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
         let characters = self.extract_characters(book_id, chunks).await?;
         self.emit_progress(book_id, "analyzing", 50, "人物拆解完成").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
 
         // Step 4: 章节概要 (75%)
         self.emit_progress(book_id, "analyzing", 55, "正在生成章节概要...").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
         let scenes = self.extract_scene_summaries(book_id, chunks).await?;
         self.emit_progress(book_id, "analyzing", 75, "章节概要完成").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
 
         // Step 5: 故事线生成 (90%)
         self.emit_progress(book_id, "analyzing", 80, "正在生成故事线...").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
         let story_arc = self.extract_story_arc(&scenes).await?;
         self.emit_progress(book_id, "analyzing", 90, "故事线生成完成").await;
+        if let Some(ref cb) = heartbeat_callback { cb(); }
 
         // 构建结果
         let book = self.build_book_result(

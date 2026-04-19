@@ -179,6 +179,7 @@ export type ViewType =
   | 'skills' 
   | 'mcp' 
   | 'book-deconstruction'
+  | 'tasks'
   | 'settings';
 
 // ===== Intent Engine Types =====

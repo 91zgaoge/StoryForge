@@ -1,0 +1,310 @@
+//! Task Service
+//!
+//! 业务服务层：整合 Repository + Scheduler + Heartbeat + ExecutorRegistry
+//! 参考 memoh-X internal/schedule/service.go 设计。
+
+use super::executor::{ExecutorRegistry, TaskExecutionContext};
+use super::heartbeat::HeartbeatMonitor;
+use super::models::*;
+use super::repository::TaskRepository;
+
+use crate::db::DbPool;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
+
+pub struct TaskService {
+    pool: DbPool,
+    app_handle: AppHandle,
+    scheduler: Arc<TaskScheduler>,
+    heartbeat: Arc<std::sync::Mutex<HeartbeatMonitor>>,
+    executors: Arc<std::sync::Mutex<ExecutorRegistry>>,
+}
+
+impl TaskService {
+    pub fn new(pool: DbPool, app_handle: AppHandle) -> Self {
+        let scheduler = Arc::new(TaskScheduler::new());
+        let heartbeat = Arc::new(std::sync::Mutex::new(HeartbeatMonitor::new(pool.clone())));
+        let executors = Arc::new(std::sync::Mutex::new(ExecutorRegistry::new()));
+
+        Self {
+            pool,
+            app_handle,
+            scheduler,
+            heartbeat,
+            executors,
+        }
+    }
+
+    /// 注册执行器
+    pub fn register_executor(&self, executor: Arc<dyn super::executor::TaskExecutor>) {
+        let mut executors = self.executors.lock().unwrap();
+        executors.register(executor);
+    }
+
+    /// 启动服务：加载所有启用的定时任务，启动心跳检测
+    pub fn bootstrap(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let repo = TaskRepository::new(self.pool.clone());
+        let tasks = repo.list_enabled_scheduled()?;
+
+        let mut registered = 0;
+        for task in tasks {
+            if let Err(e) = self.register_scheduled_task(&task) {
+                log::error!("[TaskService] Failed to register scheduled task {}: {}", task.id, e);
+            } else {
+                registered += 1;
+            }
+        }
+
+        // 启动心跳检测
+        {
+            let mut heartbeat = self.heartbeat.lock().unwrap();
+            heartbeat.start();
+        }
+
+        log::info!(
+            "[TaskService] Bootstrapped: {} scheduled tasks registered, heartbeat monitor started",
+            registered
+        );
+
+        Ok(())
+    }
+
+    /// 关闭服务
+    pub fn shutdown(&self) {
+        self.scheduler.stop_all();
+        {
+            let mut heartbeat = self.heartbeat.lock().unwrap();
+            heartbeat.stop();
+        }
+        log::info!("[TaskService] Shutdown complete");
+    }
+
+    // ==================== CRUD ====================
+
+    pub fn create_task(&self, req: CreateTaskRequest) -> Result<Task, String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        let task = repo.create(&req).map_err(|e| e.to_string())?;
+
+        // 如果启用了且不是一次性任务，注册到调度器
+        if task.enabled && task.schedule_type != ScheduleType::Once {
+            if let Err(e) = self.register_scheduled_task(&task) {
+                log::error!("[TaskService] Failed to register new scheduled task: {}", e);
+            }
+        }
+
+        // 如果是一次性任务且启用，立即触发
+        if task.enabled && task.schedule_type == ScheduleType::Once && task.status == TaskStatus::Pending {
+            let task_id = task.id.clone();
+            let pool = self.pool.clone();
+            let app_handle = self.app_handle.clone();
+            let executors = self.executors.clone();
+            tokio::spawn(async move {
+                if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await {
+                    log::error!("[TaskService] Failed to run once task {}: {}", task_id, e);
+                }
+            });
+        }
+
+        // 发送事件
+        let _ = self.app_handle.emit("task-created", &serde_json::json!({
+            "task_id": &task.id,
+            "name": &task.name,
+        }));
+
+        Ok(task)
+    }
+
+    pub fn update_task(&self, id: &str, req: UpdateTaskRequest) -> Result<Task, String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        let old_task = repo.get_by_id(id).map_err(|e| e.to_string())?
+            .ok_or_else(|| "Task not found".to_string())?;
+
+        let was_scheduled = old_task.enabled && old_task.schedule_type != ScheduleType::Once;
+
+        let task = repo.update(id, &req).map_err(|e| e.to_string())?;
+
+        let is_scheduled = task.enabled && task.schedule_type != ScheduleType::Once;
+
+        // 重新注册定时任务
+        if was_scheduled || is_scheduled {
+            self.scheduler.unregister(id);
+        }
+        if is_scheduled {
+            if let Err(e) = self.register_scheduled_task(&task) {
+                log::error!("[TaskService] Failed to re-register scheduled task: {}", e);
+            }
+        }
+
+        Ok(task)
+    }
+
+    pub fn delete_task(&self, id: &str) -> Result<(), String> {
+        self.scheduler.unregister(id);
+        let repo = TaskRepository::new(self.pool.clone());
+        repo.delete(id).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_tasks(&self, status_filter: Option<String>) -> Result<Vec<Task>, String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        let filter = status_filter.as_deref();
+        repo.list(filter, None).map_err(|e| e.to_string())
+    }
+
+    pub fn get_task(&self, id: &str) -> Result<Option<Task>, String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        repo.get_by_id(id).map_err(|e| e.to_string())
+    }
+
+    pub fn get_task_logs(&self, task_id: &str) -> Result<Vec<TaskLog>, String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        repo.list_logs(task_id).map_err(|e| e.to_string())
+    }
+
+    // ==================== Execution ====================
+
+    /// 手动触发任务执行
+    pub fn trigger_task(&self, id: &str) -> Result<(), String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        let task = repo.get_by_id(id).map_err(|e| e.to_string())?
+            .ok_or_else(|| "Task not found".to_string())?;
+
+        if task.status == TaskStatus::Running {
+            return Err("Task is already running".to_string());
+        }
+
+        let task_id = id.to_string();
+        let pool = self.pool.clone();
+        let app_handle = self.app_handle.clone();
+        let executors = self.executors.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await {
+                log::error!("[TaskService] Manual trigger failed for {}: {}", task_id, e);
+            }
+        });
+
+        Ok(())
+    }
+
+    /// 取消任务
+    pub fn cancel_task(&self, id: &str) -> Result<(), String> {
+        let repo = TaskRepository::new(self.pool.clone());
+        let task = repo.get_by_id(id).map_err(|e| e.to_string())?
+            .ok_or_else(|| "Task not found".to_string())?;
+
+        if task.status != TaskStatus::Running {
+            return Err("Task is not running".to_string());
+        }
+
+        repo.update_status(id, &TaskStatus::Cancelled, None, None, Some("用户手动取消".to_string()))
+            .map_err(|e| e.to_string())?;
+
+        repo.create_log(id, "warn", "任务被用户手动取消").map_err(|e| e.to_string())?;
+
+        let event = TaskStatusChangedEvent {
+            task_id: id.to_string(),
+            status: "cancelled".to_string(),
+            progress: task.progress,
+            message: Some("任务已取消".to_string()),
+        };
+        let _ = self.app_handle.emit("task-status-changed", &event);
+
+        Ok(())
+    }
+
+    // ==================== Internal ====================
+
+    /// 注册定时任务到调度器
+    fn register_scheduled_task(&self, task: &Task) -> Result<(), Box<dyn std::error::Error>> {
+        let task_id = task.id.clone();
+        let pool = self.pool.clone();
+        let app_handle = self.app_handle.clone();
+        let executors = self.executors.clone();
+
+        self.scheduler.register(task, move || {
+            let tid = task_id.clone();
+            let p = pool.clone();
+            let ah = app_handle.clone();
+            let ex = executors.clone();
+            tokio::spawn(async move {
+                if let Err(e) = Self::run_task_internal(&tid, p, ah, ex).await {
+                    log::error!("[TaskService] Scheduled task execution failed for {}: {}", tid, e);
+                }
+            });
+        })?;
+
+        Ok(())
+    }
+
+    /// 内部执行任务
+    async fn run_task_internal(
+        task_id: &str,
+        pool: DbPool,
+        app_handle: AppHandle,
+        executors: Arc<std::sync::Mutex<ExecutorRegistry>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repo = TaskRepository::new(pool.clone());
+
+        let task = repo.get_by_id(task_id)?
+            .ok_or_else(|| format!("Task {} not found", task_id))?;
+
+        // 获取执行器
+        let executor = {
+            let registry = executors.lock().unwrap();
+            registry.find_executor(&task.task_type)
+        };
+
+        let executor = match executor {
+            Some(e) => e,
+            None => {
+                let err_msg = format!("No executor found for task type: {}", task.task_type.to_string());
+                repo.update_status(task_id, &TaskStatus::Failed, None, None, Some(err_msg.clone()))?;
+                repo.create_log(task_id, "error", &err_msg)?;
+                return Err(err_msg.into());
+            }
+        };
+
+        // 获取执行锁（防止重叠执行）
+        let scheduler = TaskScheduler::new();
+        let lock = scheduler.ensure_lock(task_id);
+        let _guard = lock.lock().await;
+
+        // 创建执行上下文
+        let ctx = TaskExecutionContext::new(task_id.to_string(), pool.clone(), app_handle.clone());
+
+        // 开始执行
+        if let Err(e) = ctx.start() {
+            log::error!("[TaskService] Failed to start task {}: {}", task_id, e);
+            return Err(e);
+        }
+
+        // 执行任务
+        let result = executor.execute(&task).await;
+
+        match result {
+            Ok(task_result) => {
+                if task_result.success {
+                    if let Err(e) = ctx.complete(task_result.result_json) {
+                        log::error!("[TaskService] Failed to complete task {}: {}", task_id, e);
+                    }
+                } else {
+                    let err = task_result.error_message.unwrap_or_else(|| "Unknown error".to_string());
+                    if let Err(e) = ctx.fail(&err) {
+                        log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                let err_msg = format!("Execution error: {}", e);
+                if let Err(e2) = ctx.fail(&err_msg) {
+                    log::error!("[TaskService] Failed to mark task {} as failed: {}", task_id, e2);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+use super::scheduler::TaskScheduler;

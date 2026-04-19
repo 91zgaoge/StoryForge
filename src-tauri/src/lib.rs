@@ -28,6 +28,7 @@ mod intent;
 mod creative_engine;
 mod subscription;
 mod book_deconstruction;
+mod task_system;
 
 use tauri::{Manager, AppHandle};
 
@@ -84,7 +85,23 @@ pub fn run() {
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
 
-
+            // Bootstrap task system
+            if let Some(pool) = get_pool() {
+                let app_handle = app.handle().clone();
+                let task_service = task_system::service::TaskService::new(pool.clone(), app_handle.clone());
+                let llm_service = llm::LlmService::new(app_handle.clone());
+                let executor = std::sync::Arc::new(book_deconstruction::executor::BookDeconstructionExecutor::new(
+                    pool.clone(),
+                    llm_service,
+                    app_handle.clone(),
+                ));
+                task_service.register_executor(executor);
+                if let Err(e) = task_service.bootstrap() {
+                    log::error!("Failed to bootstrap task system: {}", e);
+                } else {
+                    log::info!("Task system bootstrapped successfully");
+                }
+            }
 
             // Initialize LanceDB vector store
             let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
@@ -303,6 +320,15 @@ pub fn run() {
             book_deconstruction::commands::list_reference_books,
             book_deconstruction::commands::delete_reference_book,
             book_deconstruction::commands::convert_book_to_story,
+            // Task system commands
+            task_system::commands::create_task,
+            task_system::commands::update_task,
+            task_system::commands::delete_task,
+            task_system::commands::list_tasks,
+            task_system::commands::get_task,
+            task_system::commands::trigger_task,
+            task_system::commands::cancel_task,
+            task_system::commands::get_task_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
