@@ -46,16 +46,28 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `HumanDraftAiPolish` — 人工初稿 + AI 润色
 - `QualityChecker` — 四维质量评估（结构/人物/风格/情节）
 
-### 📖 拆书功能（2026-04-19）
+### 📖 拆书功能 + 任务系统（2026-04-19）
 
+**拆书功能**
 - **文件解析**: 支持 txt/pdf/epub 三种格式，txt 自动检测 UTF-8/GBK 编码
-- **智能分块**: 三层分析策略 — 短篇(<10万字)全文分析 / 中篇(10-50万字)按章节分块 / 长篇(>50万字)均匀采样(最多50块)
+- **智能分块**: 短篇全文分析 / 中篇按章节 / 长篇固定大小(~5000字)全量覆盖，不采样跳过
 - **LLM 分析 Pipeline**: 5 步深度分析 — 元信息识别 → 世界观提取 → 人物拆解 → 章节概要 → 故事线生成
 - **分析结果**: 小说类型、基本信息(标题/作者)、世界观设定、人物角色与性格、章节大纲、故事线(主线/支线/高潮/转折)
 - **参考素材库**: 独立 `reference_books`/`reference_characters`/`reference_scenes` 表存储，支持 file_hash 去重
-- **向量化预留**: 分析结果自动存入向量数据库接口（待 LanceVectorStore embedding 接入后启用）
 - **一键转故事**: 拆书结果可一键转化为 StoryForge 故事项目
 - **前端界面**: 幕后界面新增「拆书」页面，支持上传/列表/搜索/详情查看（概览/人物/章节/故事线标签页）
+
+**任务系统（参考 memoh-X 设计）**
+- **任务调度器**: 基于 tokio::time 的共享调度器，支持 once/daily/weekly/cron 四种调度类型
+- **心跳检测**: 任务执行中每步更新心跳，检测器每60秒扫描，超时5分钟自动标记失败并重试
+- **防重叠执行**: 每个任务独立互斥锁，避免同一任务并发执行
+- **拆书改为任务**: 每次拆书自动创建为 `book_deconstruction` 类型任务，由任务系统调度执行
+- **前端任务页面**: 幕后界面新增「任务」页面，状态分组、心跳指示器、进度条、执行日志
+- **IPC 命令**: 8个 Tauri 命令 — create/update/delete/list/get/trigger/cancel_task + get_task_logs
+
+**向量化存储**
+- **拆书结果入库**: 分析完成后自动为场景(summary)和人物(personality)生成 embedding
+- **接入 LanceVectorStore**: 使用现有 `embeddings::embed_text` + `LanceVectorStore::upsert`
 - **进度实时推送**: Tauri 事件 `book-analysis-progress` 实时推送分析进度到前端
 
 ### 🎨 品牌焕新

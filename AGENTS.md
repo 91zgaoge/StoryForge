@@ -175,11 +175,19 @@ npm test
   - 一键转为故事项目，参考素材库独立存储，向量化接口预留
   - 新增 3 张数据库表 + 4 个索引 + Migration 16，6 个单元测试
 
+- **任务系统 + 拆书改任务 + 向量化存储** (2026-04-19)
+  - 后端: `task_system` 模块 — models/repository/scheduler/heartbeat/executor/service/commands (8 IPC 命令)
+  - 前端: `Tasks` 页面 + `useTasks` Hooks，状态分组/心跳指示器/进度条/执行日志
+  - tokio::time 调度器支持 once/daily/weekly/cron，每任务互斥锁防重叠，心跳检测60秒扫描
+  - 拆书分析改为 `BookDeconstructionExecutor` 任务执行，每步分析后心跳保活
+  - 向量化存储接入 LanceVectorStore：场景/人物 embedding 自动生成并入库
+  - 新增 2 张数据库表 (tasks + task_logs) + 5 个索引 + Migration 17
+
 ### 编译状态
 
 - `cargo check` ✅ | 警告: 0
 - `npm run build` ✅
-- `cargo test` ✅ 69/69
+- `cargo test` ✅ 71/71
 
 ---
 
