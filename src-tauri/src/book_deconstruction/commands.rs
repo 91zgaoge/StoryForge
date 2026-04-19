@@ -1,0 +1,84 @@
+//! Book Deconstruction Tauri Commands
+//!
+//! IPC 命令层，暴露给前端调用。
+
+use super::models::*;
+use super::service::{AnalysisStatusResponse, BookDeconstructionService};
+use crate::db::DbPool;
+use crate::llm::LlmService;
+use tauri::{command, AppHandle, Manager};
+
+/// 上传文件并开始分析
+#[command]
+pub async fn upload_book(file_path: String, app_handle: AppHandle) -> Result<String, String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service
+        .upload_and_analyze(std::path::Path::new(&file_path))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 获取分析状态
+#[command]
+pub async fn get_analysis_status(
+    book_id: String,
+    app_handle: AppHandle,
+) -> Result<AnalysisStatusResponse, String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service.get_status(&book_id)
+}
+
+/// 获取完整分析结果
+#[command]
+pub async fn get_book_analysis(
+    book_id: String,
+    app_handle: AppHandle,
+) -> Result<BookAnalysisResult, String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service.get_analysis(&book_id)
+}
+
+/// 获取已拆书籍列表
+#[command]
+pub async fn list_reference_books(app_handle: AppHandle) -> Result<Vec<ReferenceBookSummary>, String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service.list_books()
+}
+
+/// 删除参考书籍
+#[command]
+pub async fn delete_reference_book(
+    book_id: String,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service.delete_book(&book_id)
+}
+
+/// 一键转为故事项目
+#[command]
+pub async fn convert_book_to_story(
+    book_id: String,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service.convert_to_story(&book_id).await
+}

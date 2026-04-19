@@ -53,6 +53,15 @@ futures-util = "0.3.32"
 # ZIP file handling (配置导出)
 zip = "0.6"
 
+# Book deconstruction - file parsing
+pdf-extract = "0.7"
+epub = "2.1"
+encoding = "0.2"
+
+# File hashing
+sha2 = "0.10"
+hex = "0.4"
+
 # Tauri plugins (v2.x)
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"

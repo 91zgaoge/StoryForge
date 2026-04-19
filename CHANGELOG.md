@@ -46,6 +46,18 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
   - `HumanDraftAiPolish` — 人工初稿 + AI 润色
 - `QualityChecker` — 四维质量评估（结构/人物/风格/情节）
 
+### 📖 拆书功能（2026-04-19）
+
+- **文件解析**: 支持 txt/pdf/epub 三种格式，txt 自动检测 UTF-8/GBK 编码
+- **智能分块**: 三层分析策略 — 短篇(<10万字)全文分析 / 中篇(10-50万字)按章节分块 / 长篇(>50万字)均匀采样(最多50块)
+- **LLM 分析 Pipeline**: 5 步深度分析 — 元信息识别 → 世界观提取 → 人物拆解 → 章节概要 → 故事线生成
+- **分析结果**: 小说类型、基本信息(标题/作者)、世界观设定、人物角色与性格、章节大纲、故事线(主线/支线/高潮/转折)
+- **参考素材库**: 独立 `reference_books`/`reference_characters`/`reference_scenes` 表存储，支持 file_hash 去重
+- **向量化预留**: 分析结果自动存入向量数据库接口（待 LanceVectorStore embedding 接入后启用）
+- **一键转故事**: 拆书结果可一键转化为 StoryForge 故事项目
+- **前端界面**: 幕后界面新增「拆书」页面，支持上传/列表/搜索/详情查看（概览/人物/章节/故事线标签页）
+- **进度实时推送**: Tauri 事件 `book-analysis-progress` 实时推送分析进度到前端
+
 ### 🎨 品牌焕新
 
 - 全新 Logo：「草苔」立方体标志 —— 融合自然叶脉纹理的几何立方体造型

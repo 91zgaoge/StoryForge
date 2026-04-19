@@ -1,11 +1,12 @@
 /**
- * 付费引导面板 — 转化漏斗核心 UI
+ * 付费引导面板 — 转化漏斗核心 UI (V2)
  *
- * 当免费用户触发 Pro 功能时弹出，展示升级价值并引导转化。
+ * V2: 仅限制 auto_write / auto_revise，其余功能全部免费。
+ * 引导文案聚焦于两个杀手级功能的价值。
  */
 
 import React, { useState } from 'react';
-import { Sparkles, Zap, Palette, BookOpen, Infinity, X, Loader2 } from 'lucide-react';
+import { Sparkles, Zap, BookOpen, Infinity, X, Loader2, PenTool, Wand2 } from 'lucide-react';
 import { devUpgradeSubscription } from '@/services/tauri';
 import toast from 'react-hot-toast';
 
@@ -17,10 +18,9 @@ interface UpgradePanelProps {
 }
 
 const features = [
-  { icon: Zap, title: '无限 AI 创作', desc: '突破每日 10 次限制，文思泉涌不间断' },
-  { icon: Palette, title: '风格 DNA 植入', desc: '让 AI 学习并模仿你的专属文风' },
-  { icon: BookOpen, title: '创作方法论', desc: '雪花法、英雄之旅等结构化创作辅助' },
-  { icon: Sparkles, title: '智能内联改写', desc: '选中文字一键 AI 润色，Tab 接受修改' },
+  { icon: Zap, title: '🔥 自动续写', desc: '一口气写上 50 万字不停歇，AI 替你持续创作' },
+  { icon: Wand2, title: '🎯 智能修改', desc: '基于故事设定全文润色，专业级修改建议' },
+  { icon: Infinity, title: '💎 其余功能已免费', desc: '单次续写、排版、斜杠命令等全部免费开放' },
 ];
 
 export const UpgradePanel: React.FC<UpgradePanelProps> = ({
@@ -58,7 +58,7 @@ export const UpgradePanel: React.FC<UpgradePanelProps> = ({
 
         <div className="upgrade-panel-header">
           <div className="upgrade-panel-icon">
-            <Infinity size={32} />
+            <Sparkles size={32} />
           </div>
           <h2 className="upgrade-panel-title">解锁文思泉涌</h2>
           <p className="upgrade-panel-subtitle">

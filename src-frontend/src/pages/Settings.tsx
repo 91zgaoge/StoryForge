@@ -19,7 +19,7 @@ import {
   Settings2, Key, Globe, Database, 
   Plus, Trash2, Edit2, Download, Upload,
   Check, X, Bot, Sparkles, Image, MessageSquare,
-  RefreshCw
+  RefreshCw, Star
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -30,7 +30,7 @@ import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
-import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi } from '@/services/settings';
+import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi, setActiveModel } from '@/services/settings';
 
 type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'general';
 
@@ -41,6 +41,14 @@ export function Settings() {
   
   const { data: settings, isLoading: settingsLoading } = useSettings();
   const { data: models = [], isLoading: modelsLoading } = useModels();
+  const [activeModelIds, setActiveModelIds] = useState<Record<string, string>>({});
+  
+  // 同步活跃模型状态
+  useEffect(() => {
+    if (settings?.active_models) {
+      setActiveModelIds(settings.active_models);
+    }
+  }, [settings]);
   const exportSettings = useExportSettings();
   const importSettings = useImportSettings();
   
@@ -168,36 +176,56 @@ export function Settings() {
             <ModelList 
               type="chat" 
               models={filteredModels}
+              activeModelId={activeModelIds.chat}
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
+              onSetActive={async (modelId) => {
+                await setActiveModel('chat', modelId);
+                setActiveModelIds(prev => ({ ...prev, chat: modelId }));
+              }}
             />
           )}
           {activeTab === 'embedding' && (
             <ModelList 
               type="embedding" 
               models={filteredModels}
+              activeModelId={activeModelIds.embedding}
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
+              onSetActive={async (modelId) => {
+                await setActiveModel('embedding', modelId);
+                setActiveModelIds(prev => ({ ...prev, embedding: modelId }));
+              }}
             />
           )}
           {activeTab === 'multimodal' && (
             <ModelList 
               type="multimodal" 
               models={filteredModels}
+              activeModelId={activeModelIds.multimodal}
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
+              onSetActive={async (modelId) => {
+                await setActiveModel('multimodal', modelId);
+                setActiveModelIds(prev => ({ ...prev, multimodal: modelId }));
+              }}
             />
           )}
           {activeTab === 'image' && (
             <ModelList 
               type="image" 
               models={filteredModels}
+              activeModelId={activeModelIds.image}
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
+              onSetActive={async (modelId) => {
+                await setActiveModel('image', modelId);
+                setActiveModelIds(prev => ({ ...prev, image: modelId }));
+              }}
             />
           )}
           {activeTab === 'agents' && <AgentConfig />}
@@ -247,15 +275,19 @@ function TabButton({ active, onClick, icon, label }: {
 function ModelList({ 
   type, 
   models,
+  activeModelId,
   connectionStatus,
   onAdd,
   onEdit,
+  onSetActive,
 }: { 
   type: ModelType;
   models: ModelConfig[];
+  activeModelId?: string;
   connectionStatus: Record<string, { loading: boolean; success?: boolean; latency?: number; error?: string }>;
   onAdd: () => void;
   onEdit: (model: ModelConfig) => void;
+  onSetActive: (modelId: string) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -290,8 +322,10 @@ function ModelList({
             <ModelCard 
               key={model.id} 
               model={model} 
+              isActive={model.id === activeModelId}
               connectionStatus={connectionStatus[model.id]}
               onEdit={() => onEdit(model)}
+              onSetActive={() => onSetActive(model.id)}
             />
           ))}
         </div>
@@ -301,10 +335,12 @@ function ModelList({
 }
 
 // 模型卡片组件
-function ModelCard({ model, connectionStatus, onEdit }: { 
+function ModelCard({ model, isActive, connectionStatus, onEdit, onSetActive }: { 
   model: ModelConfig; 
+  isActive?: boolean;
   connectionStatus?: { loading: boolean; success?: boolean; latency?: number; error?: string };
   onEdit: () => void;
+  onSetActive: () => void;
 }) {
   const isDefault = model.is_default;
   const providerMeta = getModelProviders().find(p => p.id === model.provider);
@@ -312,25 +348,34 @@ function ModelCard({ model, connectionStatus, onEdit }: {
   const hasApiKey = model.api_key && model.api_key !== '***' && model.api_key.length > 0;
   
   return (
-    <Card className={cn(isDefault && 'border-cinema-gold')}> 
+    <Card className={cn(isActive && 'border-cinema-gold ring-1 ring-cinema-gold/30')}> 
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             {/* 提供商图标 */}
-            <div className="w-12 h-12 rounded-xl bg-cinema-800 flex items-center justify-center">
-              {model.provider === 'openai' && <span className="text-green-400 font-bold text-lg">O</span>}
-              {model.provider === 'anthropic' && <span className="text-orange-400 font-bold text-lg">A</span>}
-              {model.provider === 'ollama' && <span className="text-blue-400 font-bold text-lg">L</span>}
-              {model.provider === 'azure' && <span className="text-blue-500 font-bold text-lg">Az</span>}
+            <div className={cn(
+              'w-12 h-12 rounded-xl flex items-center justify-center',
+              isActive ? 'bg-cinema-gold/20' : 'bg-cinema-800'
+            )}>
+              {model.provider === 'openai' && <span className={cn('font-bold text-lg', isActive ? 'text-cinema-gold' : 'text-green-400')}>O</span>}
+              {model.provider === 'anthropic' && <span className={cn('font-bold text-lg', isActive ? 'text-cinema-gold' : 'text-orange-400')}>A</span>}
+              {model.provider === 'ollama' && <span className={cn('font-bold text-lg', isActive ? 'text-cinema-gold' : 'text-blue-400')}>L</span>}
+              {model.provider === 'azure' && <span className={cn('font-bold text-lg', isActive ? 'text-cinema-gold' : 'text-blue-500')}>Az</span>}
               {!['openai', 'anthropic', 'ollama', 'azure'].includes(model.provider) && (
-                <Globe className="w-6 h-6 text-gray-400" />
+                <Globe className={cn('w-6 h-6', isActive ? 'text-cinema-gold' : 'text-gray-400')} />
               )}
             </div>
             
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-white text-lg">{model.name}</h3>
-                {isDefault && (
+                {isActive && (
+                  <span className="px-2 py-0.5 bg-cinema-gold text-black text-xs rounded-full font-medium flex items-center gap-1">
+                    <Star className="w-3 h-3" />
+                    当前使用
+                  </span>
+                )}
+                {!isActive && isDefault && (
                   <span className="px-2 py-0.5 bg-cinema-gold/20 text-cinema-gold text-xs rounded-full">
                     默认
                   </span>
@@ -374,6 +419,16 @@ function ModelCard({ model, connectionStatus, onEdit }: {
                 <Key className="w-4 h-4" />
                 需配置API Key
               </span>
+            )}
+            {!isActive && (
+              <button
+                onClick={onSetActive}
+                className="px-3 py-1.5 text-xs font-medium text-cinema-gold bg-cinema-gold/10 hover:bg-cinema-gold/20 rounded-lg transition-colors flex items-center gap-1"
+                title="设为当前使用"
+              >
+                <Star className="w-3.5 h-3.5" />
+                设为当前
+              </button>
             )}
             <Button variant="ghost" size="sm" onClick={onEdit}>
               <Edit2 className="w-4 h-4" />

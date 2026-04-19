@@ -178,6 +178,7 @@ export type ViewType =
   | 'knowledge-graph'
   | 'skills' 
   | 'mcp' 
+  | 'book-deconstruction'
   | 'settings';
 
 // ===== Intent Engine Types =====

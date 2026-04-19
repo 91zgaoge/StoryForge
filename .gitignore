@@ -28,6 +28,10 @@ Thumbs.db
 # Project specific
 *.db
 *.db-journal
+*.exe
+*.msi
+*-setup.exe
+e2e/screenshots/
 exports/
 vector_db/
 config.json

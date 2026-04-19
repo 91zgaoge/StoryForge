@@ -168,11 +168,18 @@ npm test
   - 自动续写：接受 AI 生成后自动触发下一轮续写
   - Zen 模式绝对纯净：隐藏所有 AI UI 元素
 
+- **拆书功能** (2026-04-19)
+  - 后端: `book_deconstruction` 模块 — parser/chunker/analyzer/repository/service/commands
+  - 前端: `BookDeconstruction` 页面 + 6 个子组件 + `useBookDeconstruction` Hooks
+  - 支持 txt/pdf/epub 解析，三层 LLM 分块分析策略，生成小说类型/世界观/人物/章节/故事线
+  - 一键转为故事项目，参考素材库独立存储，向量化接口预留
+  - 新增 3 张数据库表 + 4 个索引 + Migration 16，6 个单元测试
+
 ### 编译状态
 
 - `cargo check` ✅ | 警告: 0
 - `npm run build` ✅
-- `cargo test` ✅ 63/63
+- `cargo test` ✅ 69/69
 
 ---
 

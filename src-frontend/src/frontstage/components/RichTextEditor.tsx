@@ -38,6 +38,7 @@ import {
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useModel } from '@/hooks/useModel';
+import { useSubscription } from '@/hooks/useSubscription';
 import type { ParagraphCommentary } from '@/types/v3';
 import toast from 'react-hot-toast';
 import { generateParagraphCommentaries, writerAgentExecute, formatText } from '@/services/tauri';
@@ -47,6 +48,7 @@ import { CommentAnchorMark } from '@/frontstage/extensions/CommentAnchor';
 import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnnotation, TEXT_ANNOTATION_TYPE_COLORS, TEXT_ANNOTATION_TYPE_LABELS } from '@/hooks/useTextAnnotations';
 import { EditorContextMenu } from './EditorContextMenu';
+import { WenSiPanel } from './WenSiPanel';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
 import { useCommentThreads, useCreateCommentThread, useAddCommentMessage, useResolveCommentThread, useDeleteCommentThread } from '@/hooks/useCommentThreads';
 import type { TextAnnotation, ChangeTrack, CommentThreadWithMessages } from '@/types/v3';
@@ -85,7 +87,7 @@ interface RichTextEditorProps {
     targetParagraphIndex: number;
   } | null;
   onClearInlineSuggestion?: () => void;
-  /** 订阅状态（用于付费功能控制） */
+  /** 订阅状态（用于付费功能控制）V2 */
   subscription?: {
     tier: string;
     isPro: boolean;
@@ -93,6 +95,9 @@ interface RichTextEditorProps {
     dailyUsed: number;
     dailyLimit: number;
     hasQuota: () => Promise<boolean>;
+    hasAutoWriteQuota?: (chars: number) => Promise<boolean>;
+    hasAutoReviseQuota?: (chars: number) => Promise<boolean>;
+    getQuotaText?: () => string;
   };
   /** 配额用尽时的回调 */
   onQuotaExhausted?: () => void;
@@ -670,15 +675,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 发送消息（正文助手指令栏）
     const executeWriterAgent = useCallback(async (instruction: string) => {
       if (isAiThinking) return;
-      // 付费版配额检查
-      if (subscription?.isFree) {
-        const hasQuota = await subscription.hasQuota();
-        if (!hasQuota) {
-          toast.error('今日 AI 创作次数已用完，升级专业版解锁无限次');
-          onQuotaExhausted?.();
-          return;
-        }
-      }
+      // V2: 手工续写已免费开放，无需配额检查
       setLastInstruction(instruction);
       setIsAiThinking(true);
 
@@ -1160,6 +1157,21 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               'opacity-100 translate-y-0'
             )}
           >
+            {/* 文思泉涌面板 */}
+            <WenSiPanel
+              storyId={storyId}
+              chapterId={chapterId}
+              isPro={subscription?.isPro ?? false}
+              quotaText={subscription?.getQuotaText ? subscription.getQuotaText() : (subscription?.tier ? (subscription.isPro ? 'Pro · 无限' : `免费版`) : '加载中...')}
+              onShowUpgrade={(trigger) => onQuotaExhausted?.()}
+              hasAutoWriteQuota={subscription?.hasAutoWriteQuota || (async () => true)}
+              hasAutoReviseQuota={subscription?.hasAutoReviseQuota || (async () => true)}
+              editorContent={editor?.getText()}
+              selectedText={editor && !editor.state.selection.empty
+                ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
+                : undefined}
+            />
+
             {/* AI 生成状态 / 预览 */}
             {isAiThinking && (
               <div className="mx-2 mb-3 p-4 bg-[var(--warm-sand)] rounded-xl relative overflow-hidden border border-[var(--terracotta)]/10">

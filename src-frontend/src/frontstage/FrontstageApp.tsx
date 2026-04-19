@@ -105,6 +105,11 @@ const FrontstageApp: React.FC = () => {
               setContent(payload.text);
             }
             break;
+          case 'AppendContent':
+            if (payload?.text !== undefined) {
+              setContent(prev => prev + '\n\n' + payload.text);
+            }
+            break;
           case 'DataRefresh':
             // 幕后数据变更，刷新故事/章节列表
             loadStories();
@@ -476,7 +481,10 @@ const FrontstageApp: React.FC = () => {
             inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
             onClearInlineSuggestion={() => setInlineSuggestion(null)}
             subscription={subscription}
-            onQuotaExhausted={() => setQuotaExhausted(true)}
+            onQuotaExhausted={() => {
+              setUpgradeTrigger('文思泉涌专业版');
+              setShowUpgradePanel(true);
+            }}
           />
         </main>
       </div>

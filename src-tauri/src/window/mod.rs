@@ -105,8 +105,10 @@ impl WindowManager {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum FrontstageEvent {
-    /// 更新正文内容
+    /// 更新正文内容（完全替换）
     ContentUpdate { text: String, chapter_id: String },
+    /// 追加内容到正文末尾
+    AppendContent { text: String, chapter_id: String },
     /// AI 生成段落预览
     AiPreview { text: String, insert_position: usize },
     /// 章节切换

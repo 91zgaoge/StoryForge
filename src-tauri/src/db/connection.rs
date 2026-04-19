@@ -345,6 +345,62 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
         CREATE INDEX IF NOT EXISTS idx_text_annotations_resolved ON text_annotations(resolved_at);
         CREATE INDEX IF NOT EXISTS idx_story_summaries_story ON story_summaries(story_id);
         CREATE INDEX IF NOT EXISTS idx_story_summaries_type ON story_summaries(story_id, summary_type);
+
+        -- 参考小说表（拆书功能）
+        CREATE TABLE IF NOT EXISTS reference_books (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            author TEXT,
+            genre TEXT,
+            word_count INTEGER,
+            file_format TEXT,
+            file_hash TEXT UNIQUE,
+            file_path TEXT,
+            world_setting TEXT,
+            plot_summary TEXT,
+            story_arc TEXT,
+            analysis_status TEXT NOT NULL DEFAULT 'pending',
+            analysis_progress INTEGER DEFAULT 0,
+            analysis_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        -- 参考人物表
+        CREATE TABLE IF NOT EXISTS reference_characters (
+            id TEXT PRIMARY KEY,
+            book_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role_type TEXT,
+            personality TEXT,
+            appearance TEXT,
+            relationships TEXT,
+            key_scenes TEXT,
+            importance_score REAL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
+        );
+
+        -- 参考场景/章节表
+        CREATE TABLE IF NOT EXISTS reference_scenes (
+            id TEXT PRIMARY KEY,
+            book_id TEXT NOT NULL,
+            sequence_number INTEGER NOT NULL,
+            title TEXT,
+            summary TEXT,
+            characters_present TEXT,
+            key_events TEXT,
+            conflict_type TEXT,
+            emotional_tone TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
+        );
+
+        -- 拆书功能索引
+        CREATE INDEX IF NOT EXISTS idx_ref_books_hash ON reference_books(file_hash);
+        CREATE INDEX IF NOT EXISTS idx_ref_books_status ON reference_books(analysis_status);
+        CREATE INDEX IF NOT EXISTS idx_ref_characters_book ON reference_characters(book_id);
+        CREATE INDEX IF NOT EXISTS idx_ref_scenes_book ON reference_scenes(book_id);
         "#
     )?;
     Ok(())
@@ -847,6 +903,126 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
             [],
         )?;
     }
-    
+
+    // Migration 15: AI 使用配额表 V2 (v3.6.0 - 文思泉涌)
+    // 添加按功能区分和字数限制的新字段
+    let quota_columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(ai_usage_quota)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !quota_columns.iter().any(|c| c == "auto_write_used") {
+        conn.execute(
+            "ALTER TABLE ai_usage_quota ADD COLUMN auto_write_used INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !quota_columns.iter().any(|c| c == "auto_write_limit") {
+        conn.execute(
+            "ALTER TABLE ai_usage_quota ADD COLUMN auto_write_limit INTEGER NOT NULL DEFAULT 10",
+            [],
+        )?;
+    }
+    if !quota_columns.iter().any(|c| c == "auto_revise_used") {
+        conn.execute(
+            "ALTER TABLE ai_usage_quota ADD COLUMN auto_revise_used INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !quota_columns.iter().any(|c| c == "auto_revise_limit") {
+        conn.execute(
+            "ALTER TABLE ai_usage_quota ADD COLUMN auto_revise_limit INTEGER NOT NULL DEFAULT 10",
+            [],
+        )?;
+    }
+    if !quota_columns.iter().any(|c| c == "max_chars_per_call") {
+        conn.execute(
+            "ALTER TABLE ai_usage_quota ADD COLUMN max_chars_per_call INTEGER NOT NULL DEFAULT 1000",
+            [],
+        )?;
+    }
+
+    // Migration 16: 创建拆书功能参考表 (v3.5.0)
+    let ref_book_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='reference_books'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if ref_book_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE reference_books (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                author TEXT,
+                genre TEXT,
+                word_count INTEGER,
+                file_format TEXT,
+                file_hash TEXT UNIQUE,
+                file_path TEXT,
+                world_setting TEXT,
+                plot_summary TEXT,
+                story_arc TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending',
+                analysis_progress INTEGER DEFAULT 0,
+                analysis_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ref_books_hash ON reference_books(file_hash)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ref_books_status ON reference_books(analysis_status)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE reference_characters (
+                id TEXT PRIMARY KEY,
+                book_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                role_type TEXT,
+                personality TEXT,
+                appearance TEXT,
+                relationships TEXT,
+                key_scenes TEXT,
+                importance_score REAL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ref_characters_book ON reference_characters(book_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE reference_scenes (
+                id TEXT PRIMARY KEY,
+                book_id TEXT NOT NULL,
+                sequence_number INTEGER NOT NULL,
+                title TEXT,
+                summary TEXT,
+                characters_present TEXT,
+                key_events TEXT,
+                conflict_type TEXT,
+                emotional_tone TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (book_id) REFERENCES reference_books(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ref_scenes_book ON reference_scenes(book_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }

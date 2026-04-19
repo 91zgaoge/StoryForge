@@ -2144,3 +2144,236 @@ body {
 .quota-exhausted-dismiss:hover {
   background: var(--warm-sand);
 }
+
+/* ===== 文思泉涌面板 ===== */
+
+.wensi-panel {
+  margin: 0 8px 12px;
+  background: var(--parchment-dark);
+  border: 1px solid var(--warm-sand);
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.wensi-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--warm-sand);
+  border-bottom: 1px solid var(--border-cream);
+}
+
+.wensi-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.wensi-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--charcoal-light);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.wensi-tab:hover {
+  background: var(--parchment);
+  color: var(--charcoal);
+}
+
+.wensi-tab-active {
+  background: var(--parchment);
+  color: var(--terracotta);
+  border-color: var(--terracotta-light);
+}
+
+.wensi-tab-running {
+  color: var(--terracotta);
+  animation: pulse-glow 2s ease infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.wensi-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wensi-quota {
+  font-size: 11px;
+  color: var(--stone-gray);
+}
+
+.wensi-quota-text {
+  background: var(--parchment);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+}
+
+.wensi-section {
+  padding: 12px;
+}
+
+.wensi-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.wensi-label {
+  font-size: 12px;
+  color: var(--charcoal-light);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.wensi-input {
+  width: 70px;
+  padding: 4px 8px;
+  border: 1px solid var(--warm-sand);
+  border-radius: 6px;
+  background: var(--parchment);
+  color: var(--charcoal);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  text-align: center;
+  transition: border-color 0.15s ease;
+}
+
+.wensi-input:focus {
+  outline: none;
+  border-color: var(--terracotta-light);
+}
+
+.wensi-input:disabled {
+  opacity: 0.5;
+}
+
+.wensi-select {
+  padding: 4px 8px;
+  border: 1px solid var(--warm-sand);
+  border-radius: 6px;
+  background: var(--parchment);
+  color: var(--charcoal);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.wensi-select:focus {
+  outline: none;
+  border-color: var(--terracotta-light);
+}
+
+.wensi-select:disabled {
+  opacity: 0.5;
+}
+
+.wensi-unit {
+  font-size: 11px;
+  color: var(--stone-gray);
+}
+
+.wensi-hint {
+  font-size: 11px;
+  color: var(--terracotta);
+}
+
+.wensi-progress-area {
+  margin-bottom: 10px;
+}
+
+.wensi-progress-bar-bg {
+  height: 6px;
+  background: var(--warm-sand);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.wensi-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--terracotta), var(--terracotta-light));
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.wensi-progress-text {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+}
+
+.wensi-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.wensi-btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  background: var(--terracotta);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.wensi-btn-primary:hover {
+  background: var(--terracotta-dark);
+}
+
+.wensi-btn-primary:active {
+  transform: scale(0.97);
+}
+
+.wensi-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wensi-btn-danger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  background: oklch(55% 0.15 25);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.wensi-btn-danger:hover {
+  background: oklch(48% 0.15 25);
+}
+
+.wensi-btn-danger:active {
+  transform: scale(0.97);
+}

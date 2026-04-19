@@ -39,30 +39,6 @@ fn get_user_tier_sync(app_handle: &AppHandle) -> SubscriptionTier {
     SubscriptionTier::Free
 }
 
-/// 检查 AI 配额并在不足时返回错误
-fn check_ai_quota_sync(app_handle: &AppHandle) -> Result<(), String> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(app_handle);
-    let result = service.check_ai_quota(&user_id)?;
-    if !result.allowed {
-        return Err(result.message.unwrap_or_else(|| "今日 AI 创作次数已用完".to_string()));
-    }
-    Ok(())
-}
-
-/// 消费一次 AI 配额
-fn consume_ai_quota_sync(app_handle: &AppHandle) -> Result<(), String> {
-    let pool = app_handle.state::<DbPool>();
-    let service = SubscriptionService::new(pool.inner().clone());
-    let user_id = get_user_id(app_handle);
-    let result = service.consume_ai_quota(&user_id)?;
-    if !result.allowed {
-        return Err(result.message.unwrap_or_else(|| "今日 AI 创作次数已用完".to_string()));
-    }
-    Ok(())
-}
-
 /// 获取用户 ID
 fn get_user_id(app_handle: &AppHandle) -> String {
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
@@ -75,6 +51,54 @@ fn get_user_id(app_handle: &AppHandle) -> String {
         let _ = std::fs::write(&machine_id_path, &id);
         id
     }
+}
+
+/// 检查自动续写配额
+fn check_auto_write_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>();
+    let service = SubscriptionService::new(pool.inner().clone());
+    let user_id = get_user_id(app_handle);
+    let result = service.check_auto_write_quota(&user_id, requested_chars)?;
+    if !result.allowed {
+        return Err(result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string()));
+    }
+    Ok(())
+}
+
+/// 消费一次自动续写配额
+fn consume_auto_write_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>();
+    let service = SubscriptionService::new(pool.inner().clone());
+    let user_id = get_user_id(app_handle);
+    let result = service.consume_auto_write_quota(&user_id, _actual_chars)?;
+    if !result.allowed {
+        return Err(result.message.unwrap_or_else(|| "今日自动续写次数已用完".to_string()));
+    }
+    Ok(())
+}
+
+/// 检查自动修改配额
+fn check_auto_revise_quota_sync(app_handle: &AppHandle, requested_chars: i32) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>();
+    let service = SubscriptionService::new(pool.inner().clone());
+    let user_id = get_user_id(app_handle);
+    let result = service.check_auto_revise_quota(&user_id, requested_chars)?;
+    if !result.allowed {
+        return Err(result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string()));
+    }
+    Ok(())
+}
+
+/// 消费一次自动修改配额
+fn consume_auto_revise_quota_sync(app_handle: &AppHandle, _actual_chars: i32) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>();
+    let service = SubscriptionService::new(pool.inner().clone());
+    let user_id = get_user_id(app_handle);
+    let result = service.consume_auto_revise_quota(&user_id, _actual_chars)?;
+    if !result.allowed {
+        return Err(result.message.unwrap_or_else(|| "今日自动修改次数已用完".to_string()));
+    }
+    Ok(())
 }
 
 static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
@@ -98,13 +122,12 @@ pub struct ExecuteAgentResponse {
     pub error: Option<String>,
 }
 
-/// 同步执行Agent
+/// 同步执行Agent（所有功能已免费，不限制配额）
 #[command]
 pub async fn agent_execute(
     request: ExecuteAgentRequest,
     app_handle: AppHandle,
 ) -> Result<ExecuteAgentResponse, String> {
-    check_ai_quota_sync(&app_handle)?;
     let task_id = Uuid::new_v4().to_string();
     
     // 构建上下文
@@ -124,10 +147,6 @@ pub async fn agent_execute(
     
     match service.execute_task(task).await {
         Ok(result) => {
-            // 执行成功后才扣费，避免用户为失败请求买单
-            if let Err(e) = consume_ai_quota_sync(&app_handle) {
-                log::warn!("[agent_execute] Quota consume failed after success: {}", e);
-            }
             Ok(ExecuteAgentResponse {
                 task_id,
                 result: Some(result),
@@ -148,7 +167,6 @@ pub async fn agent_execute_stream(
     request: ExecuteAgentRequest,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    check_ai_quota_sync(&app_handle)?;
     let task_id = Uuid::new_v4().to_string();
 
     // 构建上下文
@@ -167,15 +185,10 @@ pub async fn agent_execute_stream(
     // 在后台执行
     let service = AgentService::new(app_handle.clone());
     let task_id_clone = task_id.clone();
-    let app_handle_for_consume = app_handle.clone();
 
     let handle = tokio::spawn(async move {
         match service.execute_task(task).await {
             Ok(result) => {
-                // 执行成功后才扣费
-                if let Err(e) = consume_ai_quota_sync(&app_handle_for_consume) {
-                    log::warn!("[agent_execute_stream] Quota consume failed after success: {}", e);
-                }
                 let _ = app_handle.emit(&format!("agent-complete-{}", task_id_clone), result);
             }
             Err(e) => {
@@ -229,13 +242,12 @@ pub struct WriterAgentResponse {
     pub chapter_id: Option<String>,
 }
 
-/// 执行正文助手任务（直接操作编辑器内容）
+/// 执行正文助手任务（手工续写 — 已免费开放，不限制配额）
 #[command]
 pub async fn writer_agent_execute(
     request: WriterAgentRequest,
     app_handle: AppHandle,
 ) -> Result<WriterAgentResponse, String> {
-    check_ai_quota_sync(&app_handle)?;
     let mut story_id = request.story_id.clone();
     let mut chapter_number = request.chapter_number.unwrap_or(1);
     let mut created_chapter_id: Option<String> = None;
@@ -307,10 +319,6 @@ pub async fn writer_agent_execute(
 
     match service.execute_task(task).await {
         Ok(result) => {
-            // 执行成功后才扣费
-            if let Err(e) = consume_ai_quota_sync(&app_handle) {
-                log::warn!("[writer_agent_execute] Quota consume failed after success: {}", e);
-            }
             // 如果创建了新区间，把生成的内容保存到数据库
             if let Some(ref chapter_id) = created_chapter_id {
                 let pool = app_handle.state::<DbPool>();
@@ -337,6 +345,304 @@ pub async fn writer_agent_execute(
                 chapter_id: created_chapter_id,
             })
         },
+        Err(e) => Err(e),
+    }
+}
+
+// ==================== 文思泉涌：自动续写 ====================
+
+/// 自动续写请求
+#[derive(Debug, Deserialize)]
+pub struct AutoWriteRequest {
+    pub story_id: String,
+    pub chapter_id: String,
+    pub target_chars: i32,
+    pub chars_per_loop: i32,
+}
+
+/// 自动续写响应
+#[derive(Debug, Serialize)]
+pub struct AutoWriteResponse {
+    pub task_id: String,
+    pub actual_chars: i32,
+    pub loops: i32,
+    pub status: String,
+}
+
+/// 自动续写进度事件
+#[derive(Debug, Clone, Serialize)]
+pub struct AutoWriteProgressEvent {
+    pub task_id: String,
+    pub current_chars: i32,
+    pub target_chars: i32,
+    pub percentage: i32,
+    pub current_loop: i32,
+    pub status: String,
+}
+
+/// 开始自动续写（循环调用 WriterAgent，直到达到目标字数或用户取消）
+#[command]
+pub async fn auto_write(
+    request: AutoWriteRequest,
+    app_handle: AppHandle,
+) -> Result<AutoWriteResponse, String> {
+    let task_id = Uuid::new_v4().to_string();
+    let _user_id = get_user_id(&app_handle);
+
+    // 检查配额：Pro 用户无限，Free 用户检查次数+字数
+    let requested_chars = request.chars_per_loop.min(request.target_chars);
+    check_auto_write_quota_sync(&app_handle, requested_chars)?;
+
+    let pool = app_handle.state::<DbPool>();
+    let chapter_repo = ChapterRepository::new(pool.inner().clone());
+
+    // 读取当前章节内容作为上下文
+    let _current_content = chapter_repo.get_by_id(&request.chapter_id)
+        .map_err(|e| e.to_string())?
+        .map(|c| c.content.unwrap_or_default())
+        .unwrap_or_default();
+
+    let task_id_clone = task_id.clone();
+    let app_handle_clone = app_handle.clone();
+    let story_id = request.story_id.clone();
+    let chapter_id = request.chapter_id.clone();
+    let target_chars = request.target_chars;
+    let chars_per_loop = request.chars_per_loop;
+
+    // 在后台执行循环续写
+    let handle = tokio::spawn(async move {
+        let mut total_written = 0i32;
+        let mut loop_count = 0i32;
+        let service = AgentService::new(app_handle_clone.clone());
+
+        while total_written < target_chars {
+            // 检查是否被取消
+            if !TASK_HANDLES.lock().unwrap().contains_key(&task_id_clone) {
+                log::info!("[auto_write] Task {} cancelled", task_id_clone);
+                break;
+            }
+
+            let remaining = target_chars - total_written;
+            let this_loop_chars = chars_per_loop.min(remaining);
+
+            // 每次循环前检查配额
+            if let Err(e) = check_auto_write_quota_sync(&app_handle_clone, this_loop_chars) {
+                log::warn!("[auto_write] Quota check failed: {}", e);
+                let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
+                break;
+            }
+
+            // 构建续写 prompt
+            let instruction = format!("请继续续写以下内容，续写约 {} 字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。", this_loop_chars);
+
+            let context = build_agent_context(
+                &app_handle_clone,
+                &ExecuteAgentRequest {
+                    agent_type: AgentType::Writer,
+                    story_id: story_id.clone(),
+                    chapter_number: None,
+                    input: instruction.clone(),
+                    parameters: None,
+                },
+            ).await.unwrap_or_else(|_| super::AgentContext::minimal(story_id.clone(), String::new()));
+
+            let task = AgentTask {
+                id: Uuid::new_v4().to_string(),
+                agent_type: AgentType::Writer,
+                context,
+                input: instruction,
+                parameters: std::collections::HashMap::new(),
+                tier: Some(get_user_tier_sync(&app_handle_clone)),
+            };
+
+            match service.execute_task(task).await {
+                Ok(result) => {
+                    let generated = result.content;
+                    let generated_len = generated.chars().count() as i32;
+                    total_written += generated_len;
+                    loop_count += 1;
+
+                    // 循环成功后消费一次配额
+                    if let Err(e) = consume_auto_write_quota_sync(&app_handle_clone, generated_len) {
+                        log::warn!("[auto_write] Quota consume failed: {}", e);
+                    }
+
+                    // 推送内容追加事件到幕前
+                    let event = crate::window::FrontstageEvent::AppendContent {
+                        text: generated,
+                        chapter_id: chapter_id.clone(),
+                    };
+                    let _ = crate::window::WindowManager::send_to_frontstage(&app_handle_clone, event);
+
+                    // 推送进度事件
+                    let percentage = ((total_written as f32 / target_chars as f32) * 100.0) as i32;
+                    let progress = AutoWriteProgressEvent {
+                        task_id: task_id_clone.clone(),
+                        current_chars: total_written,
+                        target_chars,
+                        percentage,
+                        current_loop: loop_count,
+                        status: "writing".to_string(),
+                    };
+                    let _ = app_handle_clone.emit(&format!("auto-write-progress-{}", task_id_clone), progress);
+                }
+                Err(e) => {
+                    log::error!("[auto_write] Loop {} failed: {}", loop_count, e);
+                    let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
+                    break;
+                }
+            }
+        }
+
+        // 推送完成事件
+        let _ = app_handle_clone.emit(&format!("auto-write-complete-{}", task_id_clone), AutoWriteProgressEvent {
+            task_id: task_id_clone.clone(),
+            current_chars: total_written,
+            target_chars,
+            percentage: 100,
+            current_loop: loop_count,
+            status: "completed".to_string(),
+        });
+
+        // 清理句柄
+        let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
+    });
+
+    TASK_HANDLES.lock().unwrap().insert(task_id.clone(), handle.abort_handle());
+
+    Ok(AutoWriteResponse {
+        task_id,
+        actual_chars: 0,
+        loops: 0,
+        status: "started".to_string(),
+    })
+}
+
+/// 取消自动续写
+#[command]
+pub async fn auto_write_cancel(task_id: String) -> Result<(), String> {
+    let mut handles = TASK_HANDLES.lock().unwrap();
+    if let Some(handle) = handles.remove(&task_id) {
+        handle.abort();
+        log::info!("[auto_write] Task {} cancelled by user", task_id);
+    }
+    Ok(())
+}
+
+// ==================== 文思泉涌：自动修改 ====================
+
+/// 自动修改请求
+#[derive(Debug, Deserialize)]
+pub struct AutoReviseRequest {
+    pub story_id: String,
+    pub chapter_id: Option<String>,
+    pub scope: String,          // "full" | "chapter" | "selection"
+    pub selected_text: Option<String>,
+    pub revision_type: String,  // "style" | "plot" | "dialogue" | "description" | "comprehensive"
+}
+
+/// 自动修改响应
+#[derive(Debug, Serialize)]
+pub struct AutoReviseResponse {
+    pub task_id: String,
+    pub revised_text: String,
+    pub status: String,
+}
+
+/// 自动修改指令映射
+fn get_revision_instruction(revision_type: &str) -> &'static str {
+    match revision_type {
+        "style" => "优化语言风格，提升文学性和节奏感，让文字更流畅优美。",
+        "plot" => "强化情节张力，增加伏笔和转折，让故事更加引人入胜。",
+        "dialogue" => "让人物对话更生动立体，加入动作神态描写，避免干巴巴的对话。",
+        "description" => "增加感官细节，让画面更具体可感，调动读者的五感。",
+        _ => "综合以上所有方面进行全面修改，提升整体质量。",
+    }
+}
+
+/// 执行自动修改
+#[command]
+pub async fn auto_revise(
+    request: AutoReviseRequest,
+    app_handle: AppHandle,
+) -> Result<AutoReviseResponse, String> {
+    let task_id = Uuid::new_v4().to_string();
+
+    // 读取目标文本
+    let pool = app_handle.state::<DbPool>();
+    let chapter_repo = ChapterRepository::new(pool.inner().clone());
+
+    let target_text = match request.scope.as_str() {
+        "chapter" => {
+            if let Some(ref cid) = request.chapter_id {
+                chapter_repo.get_by_id(cid)
+                    .map_err(|e| e.to_string())?
+                    .map(|c| c.content.unwrap_or_default())
+                    .unwrap_or_default()
+            } else {
+                return Err("chapter_id is required for chapter scope".to_string());
+            }
+        }
+        "selection" => request.selected_text.unwrap_or_default(),
+        _ => {
+            // full: 读取所有章节内容
+            let chapters = chapter_repo.get_by_story(&request.story_id)
+                .map_err(|e| e.to_string())?;
+            chapters.into_iter()
+                .filter_map(|c| c.content)
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        }
+    };
+
+    let text_len = target_text.chars().count() as i32;
+
+    // 检查配额
+    check_auto_revise_quota_sync(&app_handle, text_len)?;
+
+    // 构建修改 prompt
+    let revision_instruction = get_revision_instruction(&request.revision_type);
+    let instruction = format!(
+        "你是一个专业的小说编辑。请根据以下要求对文本进行修改：\n\n【修改要求】{}\n\n【原文】\n{}\n\n请输出修改后的完整文本。保持原文结构和段落，只修改需要改进的地方。",
+        revision_instruction,
+        target_text
+    );
+
+    let context = build_agent_context(
+        &app_handle,
+        &ExecuteAgentRequest {
+            agent_type: AgentType::Writer,
+            story_id: request.story_id.clone(),
+            chapter_number: None,
+            input: instruction.clone(),
+            parameters: None,
+        },
+    ).await?;
+
+    let task = AgentTask {
+        id: task_id.clone(),
+        agent_type: AgentType::Writer,
+        context,
+        input: instruction,
+        parameters: std::collections::HashMap::new(),
+        tier: Some(get_user_tier_sync(&app_handle)),
+    };
+
+    let service = AgentService::new(app_handle.clone());
+
+    match service.execute_task(task).await {
+        Ok(result) => {
+            // 消费配额
+            if let Err(e) = consume_auto_revise_quota_sync(&app_handle, text_len) {
+                log::warn!("[auto_revise] Quota consume failed: {}", e);
+            }
+
+            Ok(AutoReviseResponse {
+                task_id,
+                revised_text: result.content,
+                status: "completed".to_string(),
+            })
+        }
         Err(e) => Err(e),
     }
 }

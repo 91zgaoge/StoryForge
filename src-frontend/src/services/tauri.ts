@@ -319,6 +319,46 @@ export const devUpgradeSubscription = (tier: string) =>
 export const devDowngradeSubscription = () =>
   invoke<SubscriptionStatus>('dev_downgrade_subscription');
 
+// V2 Quota (按功能区分)
+export interface QuotaDetail {
+  auto_write_used: number;
+  auto_write_limit: number;
+  auto_revise_used: number;
+  auto_revise_limit: number;
+  max_chars_per_call: number;
+}
+
+export const getQuotaDetail = () =>
+  invoke<QuotaDetail>('get_quota_detail');
+
+export const checkAutoWriteQuota = (requestedChars: number) =>
+  invoke<QuotaCheckResult>('check_auto_write_quota', { requestedChars });
+
+export const checkAutoReviseQuota = (requestedChars: number) =>
+  invoke<QuotaCheckResult>('check_auto_revise_quota', { requestedChars });
+
+// ==================== 文思泉涌 ====================
+
+export const autoWrite = (params: {
+  story_id: string;
+  chapter_id: string;
+  target_chars: number;
+  chars_per_loop: number;
+}) =>
+  invoke<{ task_id: string; actual_chars: number; loops: number; status: string }>('auto_write', { request: params });
+
+export const autoWriteCancel = (taskId: string) =>
+  invoke<void>('auto_write_cancel', { taskId });
+
+export const autoRevise = (params: {
+  story_id: string;
+  chapter_id?: string;
+  scope: string;
+  selected_text?: string;
+  revision_type: string;
+}) =>
+  invoke<{ task_id: string; revised_text: string; status: string }>('auto_revise', { request: params });
+
 // Window communication
 export const notifyFrontstageDataRefresh = (entity: string) =>
   invoke<void>('notify_frontstage_data_refresh', { entity });

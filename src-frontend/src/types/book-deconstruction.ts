@@ -1,0 +1,75 @@
+// Book Deconstruction Types
+
+export interface ReferenceBook {
+  id: string;
+  title: string;
+  author?: string;
+  genre?: string;
+  word_count?: number;
+  file_format?: string;
+  analysis_status: 'pending' | 'extracting' | 'analyzing' | 'completed' | 'failed';
+  analysis_progress: number;
+  analysis_error?: string;
+  world_setting?: string;
+  plot_summary?: string;
+  story_arc?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReferenceBookSummary {
+  id: string;
+  title: string;
+  author?: string;
+  genre?: string;
+  word_count?: number;
+  file_format?: string;
+  analysis_status: string;
+  analysis_progress: number;
+  created_at: string;
+}
+
+export interface ReferenceCharacter {
+  id: string;
+  book_id: string;
+  name: string;
+  role_type?: string;
+  personality?: string;
+  appearance?: string;
+  relationships?: string;
+  importance_score?: number;
+}
+
+export interface ReferenceScene {
+  id: string;
+  book_id: string;
+  sequence_number: number;
+  title?: string;
+  summary?: string;
+  characters_present?: string;
+  key_events?: string;
+  conflict_type?: string;
+  emotional_tone?: string;
+}
+
+export interface BookAnalysisResult {
+  book: ReferenceBook;
+  characters: ReferenceCharacter[];
+  scenes: ReferenceScene[];
+}
+
+export interface AnalysisStatusResponse {
+  book_id: string;
+  status: string;
+  progress: number;
+  current_step?: string;
+  error?: string;
+}
+
+export interface BookAnalysisProgressEvent {
+  book_id: string;
+  status: string;
+  progress: number;
+  current_step: string;
+  message?: string;
+}

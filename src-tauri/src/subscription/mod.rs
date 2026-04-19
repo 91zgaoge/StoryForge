@@ -1,6 +1,7 @@
 //! Subscription Service — Freemium 付费订阅系统
 //!
 //! 管理用户订阅状态、AI 使用配额追踪、付费功能权限检查。
+//! V2: 按功能区分配额（仅 auto_write / auto_revise 收费，其余免费）
 
 use crate::db::DbPool;
 use rusqlite::{params, OptionalExtension};
@@ -50,6 +51,16 @@ pub struct SubscriptionStatus {
     pub daily_limit: i32,
     pub quota_resets_at: String,
     pub expires_at: Option<String>,
+}
+
+/// V2 配额详情（按功能区分）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotaDetail {
+    pub auto_write_used: i32,
+    pub auto_write_limit: i32,
+    pub auto_revise_used: i32,
+    pub auto_revise_limit: i32,
+    pub max_chars_per_call: i32,
 }
 
 /// AI 使用配额检查结果
@@ -114,7 +125,7 @@ impl SubscriptionService {
         })
     }
 
-    /// 获取或创建配额记录
+    /// 获取或创建配额记录 (V2: 包含按功能区分的字段)
     fn get_or_create_quota(&self, user_id: &str, tier: &str) -> Result<(i32, i32, String), String> {
         let conn = self.pool.get().map_err(|e| e.to_string())?;
 
@@ -131,6 +142,9 @@ impl SubscriptionService {
         let reset_time = now.date_naive().succ_opt().unwrap_or(now.date_naive());
         let reset_at = format!("{}T00:00:00+08:00", reset_time);
 
+        let is_pro = tier == "pro" || tier == "enterprise";
+        let new_limit = if is_pro { 999999 } else { 10 };
+
         if let Some((used, limit, old_reset, old_tier)) = existing {
             // 检查是否需要重置配额（过了重置时间）
             let should_reset = if let Ok(old) = chrono::DateTime::parse_from_rfc3339(&old_reset) {
@@ -140,10 +154,9 @@ impl SubscriptionService {
             };
 
             if should_reset || old_tier != tier {
-                let new_limit = if tier == "pro" { 999999 } else { 10 };
                 conn.execute(
-                    "UPDATE ai_usage_quota SET daily_used = 0, daily_limit = ?1, quota_reset_at = ?2, tier = ?3, updated_at = ?4 WHERE user_id = ?5",
-                    params![new_limit, reset_at, tier, now.to_rfc3339(), user_id],
+                    "UPDATE ai_usage_quota SET daily_used = 0, daily_limit = ?1, quota_reset_at = ?2, tier = ?3, updated_at = ?4, auto_write_used = 0, auto_write_limit = ?5, auto_revise_used = 0, auto_revise_limit = ?5, max_chars_per_call = ?6 WHERE user_id = ?7",
+                    params![new_limit, reset_at, tier, now.to_rfc3339(), new_limit, if is_pro { 999999 } else { 1000 }, user_id],
                 ).map_err(|e| e.to_string())?;
                 Ok((0, new_limit, reset_at))
             } else {
@@ -152,58 +165,133 @@ impl SubscriptionService {
         } else {
             // 创建新配额记录
             let id = uuid::Uuid::new_v4().to_string();
-            let limit = if tier == "pro" { 999999 } else { 10 };
             conn.execute(
-                "INSERT INTO ai_usage_quota (id, user_id, tier, daily_limit, daily_used, quota_reset_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
-                params![id, user_id, tier, limit, reset_at, now.to_rfc3339()],
+                "INSERT INTO ai_usage_quota (id, user_id, tier, daily_limit, daily_used, quota_reset_at, updated_at, auto_write_used, auto_write_limit, auto_revise_used, auto_revise_limit, max_chars_per_call) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, 0, ?4, 0, ?4, ?7)",
+                params![id, user_id, tier, new_limit, reset_at, now.to_rfc3339(), if is_pro { 999999 } else { 1000 }],
             ).map_err(|e| e.to_string())?;
-            Ok((0, limit, reset_at))
+            Ok((0, new_limit, reset_at))
         }
     }
 
-    /// 检查 AI 配额
-    pub fn check_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
+    /// 获取 V2 配额详情
+    pub fn get_quota_detail(&self, user_id: &str) -> Result<QuotaDetail, String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+
+        let row: Option<(i32, i32, i32, i32, i32)> = conn
+            .query_row(
+                "SELECT auto_write_used, auto_write_limit, auto_revise_used, auto_revise_limit, max_chars_per_call FROM ai_usage_quota WHERE user_id = ?1",
+                params![user_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if let Some((aw_used, aw_limit, ar_used, ar_limit, max_chars)) = row {
+            Ok(QuotaDetail {
+                auto_write_used: aw_used,
+                auto_write_limit: aw_limit,
+                auto_revise_used: ar_used,
+                auto_revise_limit: ar_limit,
+                max_chars_per_call: max_chars,
+            })
+        } else {
+            // 记录不存在，返回默认值
+            let status = self.get_or_create_subscription(user_id)?;
+            let is_pro = status.tier == "pro" || status.tier == "enterprise";
+            Ok(QuotaDetail {
+                auto_write_used: 0,
+                auto_write_limit: if is_pro { 999999 } else { 10 },
+                auto_revise_used: 0,
+                auto_revise_limit: if is_pro { 999999 } else { 10 },
+                max_chars_per_call: if is_pro { 999999 } else { 1000 },
+            })
+        }
+    }
+
+    /// 检查自动续写配额
+    pub fn check_auto_write_quota(&self, user_id: &str, requested_chars: i32) -> Result<QuotaCheckResult, String> {
         let status = self.get_or_create_subscription(user_id)?;
 
         if status.tier == "pro" || status.tier == "enterprise" {
             return Ok(QuotaCheckResult {
                 allowed: true,
                 remaining: 999999,
-                daily_limit: status.daily_limit,
-                daily_used: status.daily_used,
+                daily_limit: 999999,
+                daily_used: 0,
                 resets_at: status.quota_resets_at,
                 message: None,
             });
         }
 
-        let remaining = status.daily_limit - status.daily_used;
-        let allowed = remaining > 0;
+        let detail = self.get_quota_detail(user_id)?;
+        let remaining = detail.auto_write_limit - detail.auto_write_used;
+        let allowed = remaining > 0 && requested_chars <= detail.max_chars_per_call;
+
+        let message = if remaining <= 0 {
+            Some("今日自动续写次数已用完，升级专业版解锁无限次".to_string())
+        } else if requested_chars > detail.max_chars_per_call {
+            Some(format!("免费用户每次最多 {} 字，升级专业版解锁无限", detail.max_chars_per_call))
+        } else {
+            None
+        };
 
         Ok(QuotaCheckResult {
             allowed,
             remaining: remaining.max(0),
-            daily_limit: status.daily_limit,
-            daily_used: status.daily_used,
+            daily_limit: detail.auto_write_limit,
+            daily_used: detail.auto_write_used,
             resets_at: status.quota_resets_at,
-            message: if allowed {
-                None
-            } else {
-                Some("今日 AI 创作次数已用完，升级专业版解锁无限次".to_string())
-            },
+            message,
         })
     }
 
-    /// 消费一次 AI 配额（原子操作：查询+扣减在一个事务内完成）
-    pub fn consume_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
-        // 先确保订阅和配额记录存在，并处理过期重置
+    /// 检查自动修改配额
+    pub fn check_auto_revise_quota(&self, user_id: &str, requested_chars: i32) -> Result<QuotaCheckResult, String> {
         let status = self.get_or_create_subscription(user_id)?;
 
         if status.tier == "pro" || status.tier == "enterprise" {
             return Ok(QuotaCheckResult {
                 allowed: true,
                 remaining: 999999,
-                daily_limit: status.daily_limit,
-                daily_used: status.daily_used,
+                daily_limit: 999999,
+                daily_used: 0,
+                resets_at: status.quota_resets_at,
+                message: None,
+            });
+        }
+
+        let detail = self.get_quota_detail(user_id)?;
+        let remaining = detail.auto_revise_limit - detail.auto_revise_used;
+        let allowed = remaining > 0 && requested_chars <= detail.max_chars_per_call;
+
+        let message = if remaining <= 0 {
+            Some("今日自动修改次数已用完，升级专业版解锁无限次".to_string())
+        } else if requested_chars > detail.max_chars_per_call {
+            Some(format!("免费用户每次最多 {} 字，升级专业版解锁无限", detail.max_chars_per_call))
+        } else {
+            None
+        };
+
+        Ok(QuotaCheckResult {
+            allowed,
+            remaining: remaining.max(0),
+            daily_limit: detail.auto_revise_limit,
+            daily_used: detail.auto_revise_used,
+            resets_at: status.quota_resets_at,
+            message,
+        })
+    }
+
+    /// 消费一次自动续写配额（原子操作）
+    pub fn consume_auto_write_quota(&self, user_id: &str, _actual_chars: i32) -> Result<QuotaCheckResult, String> {
+        let status = self.get_or_create_subscription(user_id)?;
+
+        if status.tier == "pro" || status.tier == "enterprise" {
+            return Ok(QuotaCheckResult {
+                allowed: true,
+                remaining: 999999,
+                daily_limit: 999999,
+                daily_used: 0,
                 resets_at: status.quota_resets_at,
                 message: None,
             });
@@ -211,31 +299,29 @@ impl SubscriptionService {
 
         let mut conn = self.pool.get().map_err(|e| e.to_string())?;
         let now = chrono::Local::now().to_rfc3339();
-
         let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-        // 在事务内原子查询当前配额
-        let (daily_used, daily_limit, resets_at): (i32, i32, String) = tx.query_row(
-            "SELECT daily_used, daily_limit, quota_reset_at FROM ai_usage_quota WHERE user_id = ?1",
+        let (aw_used, aw_limit, resets_at, _max_chars): (i32, i32, String, i32) = tx.query_row(
+            "SELECT auto_write_used, auto_write_limit, quota_reset_at, max_chars_per_call FROM ai_usage_quota WHERE user_id = ?1",
             params![user_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         ).map_err(|e| e.to_string())?;
 
-        if daily_used >= daily_limit {
+        if aw_used >= aw_limit {
             tx.commit().map_err(|e| e.to_string())?;
             return Ok(QuotaCheckResult {
                 allowed: false,
                 remaining: 0,
-                daily_limit,
-                daily_used,
+                daily_limit: aw_limit,
+                daily_used: aw_used,
                 resets_at,
-                message: Some("今日 AI 创作次数已用完，升级专业版解锁无限次".to_string()),
+                message: Some("今日自动续写次数已用完，升级专业版解锁无限次".to_string()),
             });
         }
 
         // 原子扣减
         tx.execute(
-            "UPDATE ai_usage_quota SET daily_used = daily_used + 1, total_used = total_used + 1, updated_at = ?1 WHERE user_id = ?2",
+            "UPDATE ai_usage_quota SET auto_write_used = auto_write_used + 1, total_used = total_used + 1, updated_at = ?1 WHERE user_id = ?2",
             params![now, user_id],
         ).map_err(|e| e.to_string())?;
 
@@ -243,10 +329,91 @@ impl SubscriptionService {
 
         Ok(QuotaCheckResult {
             allowed: true,
-            remaining: daily_limit - daily_used - 1,
-            daily_limit,
-            daily_used: daily_used + 1,
+            remaining: aw_limit - aw_used - 1,
+            daily_limit: aw_limit,
+            daily_used: aw_used + 1,
             resets_at,
+            message: None,
+        })
+    }
+
+    /// 消费一次自动修改配额（原子操作）
+    pub fn consume_auto_revise_quota(&self, user_id: &str, _actual_chars: i32) -> Result<QuotaCheckResult, String> {
+        let status = self.get_or_create_subscription(user_id)?;
+
+        if status.tier == "pro" || status.tier == "enterprise" {
+            return Ok(QuotaCheckResult {
+                allowed: true,
+                remaining: 999999,
+                daily_limit: 999999,
+                daily_used: 0,
+                resets_at: status.quota_resets_at,
+                message: None,
+            });
+        }
+
+        let mut conn = self.pool.get().map_err(|e| e.to_string())?;
+        let now = chrono::Local::now().to_rfc3339();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        let (ar_used, ar_limit, resets_at, _max_chars): (i32, i32, String, i32) = tx.query_row(
+            "SELECT auto_revise_used, auto_revise_limit, quota_reset_at, max_chars_per_call FROM ai_usage_quota WHERE user_id = ?1",
+            params![user_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).map_err(|e| e.to_string())?;
+
+        if ar_used >= ar_limit {
+            tx.commit().map_err(|e| e.to_string())?;
+            return Ok(QuotaCheckResult {
+                allowed: false,
+                remaining: 0,
+                daily_limit: ar_limit,
+                daily_used: ar_used,
+                resets_at,
+                message: Some("今日自动修改次数已用完，升级专业版解锁无限次".to_string()),
+            });
+        }
+
+        // 原子扣减
+        tx.execute(
+            "UPDATE ai_usage_quota SET auto_revise_used = auto_revise_used + 1, total_used = total_used + 1, updated_at = ?1 WHERE user_id = ?2",
+            params![now, user_id],
+        ).map_err(|e| e.to_string())?;
+
+        tx.commit().map_err(|e| e.to_string())?;
+
+        Ok(QuotaCheckResult {
+            allowed: true,
+            remaining: ar_limit - ar_used - 1,
+            daily_limit: ar_limit,
+            daily_used: ar_used + 1,
+            resets_at,
+            message: None,
+        })
+    }
+
+    /// 【已弃用】通用 AI 配额检查 — 现为向后兼容保留，所有功能已免费开放
+    pub fn check_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
+        let status = self.get_or_create_subscription(user_id)?;
+        Ok(QuotaCheckResult {
+            allowed: true,
+            remaining: 999999,
+            daily_limit: status.daily_limit,
+            daily_used: status.daily_used,
+            resets_at: status.quota_resets_at,
+            message: None,
+        })
+    }
+
+    /// 【已弃用】通用 AI 配额消费 — 现为向后兼容保留，不实际扣减
+    pub fn consume_ai_quota(&self, user_id: &str) -> Result<QuotaCheckResult, String> {
+        let status = self.get_or_create_subscription(user_id)?;
+        Ok(QuotaCheckResult {
+            allowed: true,
+            remaining: 999999,
+            daily_limit: status.daily_limit,
+            daily_used: status.daily_used,
+            resets_at: status.quota_resets_at,
             message: None,
         })
     }
@@ -309,8 +476,8 @@ impl SubscriptionService {
         let reset_at = format!("{}T00:00:00+08:00", reset_time);
 
         conn.execute(
-            "UPDATE ai_usage_quota SET tier = ?1, daily_limit = ?2, daily_used = 0, quota_reset_at = ?3, updated_at = ?4 WHERE user_id = ?5",
-            params![tier, new_limit, reset_at, now.to_rfc3339(), user_id],
+            "UPDATE ai_usage_quota SET tier = ?1, daily_limit = ?2, daily_used = 0, quota_reset_at = ?3, updated_at = ?4, auto_write_used = 0, auto_write_limit = ?2, auto_revise_used = 0, auto_revise_limit = ?2, max_chars_per_call = ?5 WHERE user_id = ?6",
+            params![tier, new_limit, reset_at, now.to_rfc3339(), new_limit, user_id],
         ).map_err(|e| e.to_string())?;
 
         self.get_or_create_subscription(user_id)

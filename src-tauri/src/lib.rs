@@ -27,6 +27,7 @@ mod commands_v3;
 mod intent;
 mod creative_engine;
 mod subscription;
+mod book_deconstruction;
 
 use tauri::{Manager, AppHandle};
 
@@ -82,6 +83,8 @@ pub fn run() {
 
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
+
+
 
             // Initialize LanceDB vector store
             let vector_db_path = app_dir.join("vector_db").to_string_lossy().to_string();
@@ -192,10 +195,16 @@ pub fn run() {
             agents::commands::agent_execute_stream,
             agents::commands::agent_cancel_task,
             agents::commands::writer_agent_execute,
+            agents::commands::auto_write,
+            agents::commands::auto_write_cancel,
+            agents::commands::auto_revise,
             agents::service::get_available_agents,
             // Subscription commands
             subscription::commands::get_subscription_status,
             subscription::commands::check_ai_quota,
+            subscription::commands::get_quota_detail,
+            subscription::commands::check_auto_write_quota,
+            subscription::commands::check_auto_revise_quota,
             subscription::commands::dev_upgrade_subscription,
             subscription::commands::dev_downgrade_subscription,
             // Updater commands
@@ -287,6 +296,13 @@ pub fn run() {
             commands_v3::resolve_comment_thread,
             commands_v3::reopen_comment_thread,
             commands_v3::delete_comment_thread,
+            // Book deconstruction commands
+            book_deconstruction::commands::upload_book,
+            book_deconstruction::commands::get_analysis_status,
+            book_deconstruction::commands::get_book_analysis,
+            book_deconstruction::commands::list_reference_books,
+            book_deconstruction::commands::delete_reference_book,
+            book_deconstruction::commands::convert_book_to_story,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

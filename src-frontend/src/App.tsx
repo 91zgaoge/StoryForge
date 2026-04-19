@@ -9,6 +9,7 @@ import { KnowledgeGraph } from '@/pages/KnowledgeGraph';
 import { Skills } from '@/pages/Skills';
 import { Mcp } from '@/pages/Mcp';
 import { Settings } from '@/pages/Settings';
+import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -96,6 +97,7 @@ function App() {
       case 'skills': return <Skills />;
       case 'mcp': return <Mcp />;
       case 'settings': return <Settings />;
+      case 'book-deconstruction': return <BookDeconstruction />;
       default: return <Dashboard />;
     }
   };
