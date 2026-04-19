@@ -584,9 +584,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         setGhostText('');
         return;
       }
-      // 优先显示智能 Ghost Text
+      // 优先显示智能 Ghost Text（截断避免溢出）
       if (smartGhost) {
-        setGhostText(smartGhost);
+        const truncated = smartGhost.length > 40 ? smartGhost.slice(0, 40) + '…' : smartGhost;
+        setGhostText(truncated);
         return;
       }
       const input = chatInput.trim();
@@ -655,6 +656,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
         } catch (err) {
           console.error('Inline suggestion generation failed:', err);
+          const msg = err instanceof Error ? err.message : String(err);
+          toast.error(`文思生成失败：${msg}`);
         } finally {
           setIsAiThinking(false);
           onClearInlineSuggestion?.();

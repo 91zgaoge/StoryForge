@@ -446,5 +446,5 @@ export function analyzeRecent(htmlContent: string, lastAnalyzedText: string): Pe
  */
 export function hasEnoughContent(htmlContent: string): boolean {
   const text = htmlToText(htmlContent);
-  return text.length >= 50; // 至少 50 字才开始分析
+  return text.length >= 20; // 至少 20 字就开始分析，降低门槛
 }

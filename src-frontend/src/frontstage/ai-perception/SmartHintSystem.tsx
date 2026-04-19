@@ -30,8 +30,8 @@ interface SmartHintSystemProps {
   };
 }
 
-const MIN_HINT_INTERVAL_MS = 30000; // 同一 session 内最小提示间隔 30 秒
-const MIN_TARGET_TEXT_LENGTH = 10;
+const MIN_HINT_INTERVAL_MS = 15000; // 同一 session 内最小提示间隔 15 秒
+const MIN_TARGET_TEXT_LENGTH = 8;
 
 export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
   htmlContent,
@@ -55,13 +55,16 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
     if (htmlContent === lastAnalyzedRef.current) return;
 
     lastAnalyzedRef.current = htmlContent;
+    
+    // 清空已处理缓存，允许同类型建议在新内容下重新触发
+    pendingSuggestionRef.current.clear();
 
     const perception = analyzeText(htmlContent);
     const decision = generateSuggestions(perception);
 
     // 优先处理高优先级的内联修改建议
     const highPriority = decision.suggestions.filter(
-      s => s.priority === 'high' && !pendingSuggestionRef.current.has(s.id)
+      s => s.priority === 'high'
     );
 
     if (subscription?.isPro) {
@@ -120,7 +123,7 @@ export const SmartHintSystem: React.FC<SmartHintSystemProps> = ({
 
     analysisTimerRef.current = setTimeout(() => {
       performAnalysis();
-    }, 3000);
+    }, 1500);
 
     return () => {
       if (analysisTimerRef.current) {

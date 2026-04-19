@@ -517,7 +517,7 @@ const FrontstageApp: React.FC = () => {
         htmlContent={content}
         isEnabled={!isZenMode && showAI}
         isZenMode={isZenMode}
-        onGhostSuggestion={subscription.isPro ? setSmartGhostText : undefined}
+        onGhostSuggestion={setSmartGhostText}
         onInlineSuggestion={subscription.isPro ? handleInlineSuggestion : undefined}
         onFreeHint={subscription.isFree ? handleFreeHint : undefined}
         subscription={subscription}
