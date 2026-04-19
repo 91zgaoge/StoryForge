@@ -556,7 +556,7 @@ fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -
 
 /// 使用 text_formatter skill 对文本进行智能排版
 #[tauri::command]
-async fn format_text(content: String, _app: AppHandle) -> Result<String, String> {
+async fn format_text(content: String, app: AppHandle) -> Result<String, String> {
     // 1. 获取 text_formatter skill 并生成 prompt
     let (system_prompt, user_prompt) = {
         let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
@@ -589,11 +589,11 @@ async fn format_text(content: String, _app: AppHandle) -> Result<String, String>
         (system, user)
     };
     
-    // 2. 获取 LLM 配置
-    let config = {
-        let cfg = APP_CONFIG.lock().unwrap();
-        cfg.clone().ok_or("App config not initialized")?
-    };
+    // 2. 从文件加载 LLM 配置
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_config = config::AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+    let profile = app_config.get_active_llm_profile()
+        .ok_or("No active LLM profile configured")?;
     
     // 3. 调用 LLM
     let client = reqwest::Client::builder()
@@ -601,11 +601,11 @@ async fn format_text(content: String, _app: AppHandle) -> Result<String, String>
         .build()
         .map_err(|e| e.to_string())?;
     
-    let base_url = config.llm.api_base.clone().unwrap_or_else(|| format!("https://api.openai.com/v1"));
-    let api_key = config.llm.api_key.clone();
-    let model = config.llm.model.clone();
-    let max_tokens = config.llm.max_tokens;
-    let temperature = config.llm.temperature;
+    let base_url = profile.api_base.clone().unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+    let api_key = profile.api_key.clone();
+    let model = profile.model.clone();
+    let max_tokens = profile.max_tokens;
+    let temperature = profile.temperature;
     
     let mut request = client
         .post(format!("{}/chat/completions", base_url))
