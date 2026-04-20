@@ -186,6 +186,7 @@ npm test
 ### 编译状态
 
 - `cargo check` ✅ | 警告: 0
+- `cargo check --release` ✅ | 警告: 0
 - `npm run build` ✅
 - `cargo test` ✅ 71/71
 
