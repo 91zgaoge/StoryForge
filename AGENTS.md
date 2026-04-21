@@ -73,7 +73,7 @@ runTest(async (helper) => {
 
 - **版本**: v3.4.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
-- **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite
+- **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
 ### 双界面架构
 
@@ -167,6 +167,22 @@ npm test
   - 段落间距收紧 + 首行缩进 2em，底部栏 padding-bottom 增至 10rem
   - 自动续写：接受 AI 生成后自动触发下一轮续写
   - Zen 模式绝对纯净：隐藏所有 AI UI 元素
+
+- **TaskService 全局共享修复 + 集成测试建设** (2026-04-19)
+  - 关键 Bug: `TaskService` 未全局共享 → 每个 command 新建实例 → `BookDeconstructionExecutor` 丢失 → 拆书功能不可用
+  - 修复: `TaskService<R: Runtime>` 泛型化 + 手动 `Clone` + `app.manage(task_service)` + `State<'_, TaskService>`
+  - 缓存修复: `useSetActiveModel` `invalidateQueries({ queryKey: ['settings'] })`
+  - 单元测试: Rust 71 新增（settings 16 + task_system 13 + repositories 14 + validation 20）+ 前端 21 新增
+  - 集成测试: Rust 5 新增（executor registry 共享、任务生命周期、调度器、无执行器失败、拆书去重）
+  - 测试总计: Rust 139 + 前端 21 = 160 tests 全部通过
+
+- **拆书功能 + 任务系统 + 向量化存储** (2026-04-19)
+  - 后端: `book_deconstruction` 模块 — parser/chunker/analyzer/repository/service/commands
+  - 前端: `BookDeconstruction` 页面 + 6 个子组件 + `useBookDeconstruction` Hooks
+  - 任务系统: `task_system` 模块 — models/repository/scheduler/heartbeat/executor/service/commands (8 IPC 命令)
+  - 拆书改为 `BookDeconstructionExecutor` 任务执行，心跳保活 + 进度推送
+  - 向量化: 场景/人物 embedding 自动生成并入库 LanceVectorStore
+  - 数据库: 5 张新表 (tasks + task_logs + reference_books + reference_characters + reference_scenes) + 9 个索引 + Migration 16/17
 
 - **拆书功能** (2026-04-19)
   - 后端: `book_deconstruction` 模块 — parser/chunker/analyzer/repository/service/commands

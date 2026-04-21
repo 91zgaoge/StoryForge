@@ -23,14 +23,14 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel } from '@/hooks/useSettings';
+import { useSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel, useSetActiveModel } from '@/hooks/useSettings';
 import { colorThemeList, applyColorTheme, loadColorTheme, type ColorThemeId } from '@/frontstage/config/colorThemes';
 import { useUpdater } from '@/hooks/useUpdater';
 import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
-import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi, setActiveModel } from '@/services/settings';
+import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi } from '@/services/settings';
 
 type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'general';
 
@@ -51,6 +51,7 @@ export function Settings() {
   }, [settings]);
   const exportSettings = useExportSettings();
   const importSettings = useImportSettings();
+  const setActiveModelMutation = useSetActiveModel();
   
   const isLoading = settingsLoading || modelsLoading;
   
@@ -180,9 +181,8 @@ export function Settings() {
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
-              onSetActive={async (modelId) => {
-                await setActiveModel('chat', modelId);
-                setActiveModelIds(prev => ({ ...prev, chat: modelId }));
+              onSetActive={(modelId) => {
+                setActiveModelMutation.mutate({ type: 'chat', modelId });
               }}
             />
           )}
@@ -194,9 +194,8 @@ export function Settings() {
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
-              onSetActive={async (modelId) => {
-                await setActiveModel('embedding', modelId);
-                setActiveModelIds(prev => ({ ...prev, embedding: modelId }));
+              onSetActive={(modelId) => {
+                setActiveModelMutation.mutate({ type: 'embedding', modelId });
               }}
             />
           )}
@@ -208,9 +207,8 @@ export function Settings() {
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
-              onSetActive={async (modelId) => {
-                await setActiveModel('multimodal', modelId);
-                setActiveModelIds(prev => ({ ...prev, multimodal: modelId }));
+              onSetActive={(modelId) => {
+                setActiveModelMutation.mutate({ type: 'multimodal', modelId });
               }}
             />
           )}
@@ -222,9 +220,8 @@ export function Settings() {
               connectionStatus={connectionStatus}
               onAdd={() => setShowAddModal(true)}
               onEdit={setEditingModel}
-              onSetActive={async (modelId) => {
-                await setActiveModel('image', modelId);
-                setActiveModelIds(prev => ({ ...prev, image: modelId }));
+              onSetActive={(modelId) => {
+                setActiveModelMutation.mutate({ type: 'image', modelId });
               }}
             />
           )}

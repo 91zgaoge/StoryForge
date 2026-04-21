@@ -7,7 +7,7 @@ use super::models::*;
 use super::repository::TaskRepository;
 use crate::db::DbPool;
 use std::sync::Arc;
-use tauri::Emitter;
+use tauri::{Emitter, Runtime};
 
 /// 任务执行器 trait
 #[async_trait::async_trait]
@@ -50,14 +50,14 @@ impl Default for ExecutorRegistry {
 
 /// 通用的任务执行包装器
 /// 负责：状态流转、心跳记录、日志记录、进度推送
-pub struct TaskExecutionContext {
+pub struct TaskExecutionContext<R: Runtime = tauri::Wry> {
     pub task_id: String,
     pub pool: DbPool,
-    pub app_handle: tauri::AppHandle,
+    pub app_handle: tauri::AppHandle<R>,
 }
 
-impl TaskExecutionContext {
-    pub fn new(task_id: String, pool: DbPool, app_handle: tauri::AppHandle) -> Self {
+impl<R: Runtime> TaskExecutionContext<R> {
+    pub fn new(task_id: String, pool: DbPool, app_handle: tauri::AppHandle<R>) -> Self {
         Self { task_id, pool, app_handle }
     }
 

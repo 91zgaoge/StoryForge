@@ -468,6 +468,7 @@ pub fn set_active_model(model_type: String, model_id: String, app_handle: AppHan
     
     match model_type.as_str() {
         "chat" => config.set_active_llm_profile(&model_id).map_err(|e| e.to_string())?,
+        "multimodal" => config.set_active_llm_profile(&model_id).map_err(|e| e.to_string())?,
         "embedding" => config.set_active_embedding_profile(&model_id).map_err(|e| e.to_string())?,
         _ => return Err(format!("Unknown model type: {}", model_type)),
     }

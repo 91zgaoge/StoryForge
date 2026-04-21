@@ -30,6 +30,9 @@ mod subscription;
 mod book_deconstruction;
 mod task_system;
 
+#[cfg(test)]
+mod test_utils;
+
 use tauri::{Manager, AppHandle};
 
 use db::{DbPool, init_db, StoryRepository, CharacterRepository, ChapterRepository, CreateStoryRequest, CreateCharacterRequest, CreateChapterRequest};
@@ -101,6 +104,7 @@ pub fn run() {
                 } else {
                     log::info!("Task system bootstrapped successfully");
                 }
+                app.manage(task_service);
             }
 
             // Initialize LanceDB vector store

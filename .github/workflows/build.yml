@@ -87,13 +87,48 @@ jobs:
         working-directory: src-frontend
         run: npm run type-check
 
+      - name: Run frontend unit tests
+        working-directory: src-frontend
+        run: npm run test:run
+
       - name: Build frontend
         working-directory: src-frontend
         run: npm run build
 
+  # E2E tests
+  e2e-check:
+    needs: [frontend-check, rust-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: src-frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src-frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Run E2E tests
+        run: npx playwright test
+
+      - name: Upload E2E screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/screenshots/
+
   # Full Tauri build (matrix build for all platforms)
   tauri-build:
-    needs: [rust-check, frontend-check]
+    needs: [rust-check, frontend-check, e2e-check]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

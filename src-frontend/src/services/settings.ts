@@ -153,7 +153,7 @@ export async function deleteModel(id: string): Promise<void> {
 
 // 设置激活的模型
 export async function setActiveModel(type: ModelConfig['type'], modelId: string): Promise<void> {
-  return invoke('set_active_model', { type, modelId });
+  return invoke('set_active_model', { modelType: type, modelId });
 }
 
 // 获取Agent模型映射

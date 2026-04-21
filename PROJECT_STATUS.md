@@ -1,6 +1,6 @@
 # StoryForge (草苔) v3.4.0 项目完成状态
 
-> 最后更新: 2026-04-19（v3.4.0 + 拆书功能）
+> 最后更新: 2026-04-19（v3.4.0 + 拆书功能 + TaskService 全局共享修复 + 集成测试）
 > GitHub: https://github.com/91zgaoge/StoryForge
 
 ---
@@ -104,6 +104,28 @@
 | 进度推送 | ✅ | 100% | `book-analysis-progress` Tauri 事件 |
 | 数据库迁移 | ✅ | 100% | 3 张表 + 4 个索引 + Migration 16 |
 | 单元测试 | ✅ | 100% | 6 tests 全部通过 |
+
+#### 🔧 TaskService 全局共享修复 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| TaskService 泛型化 | ✅ | 100% | `<R: Runtime>` 默认 `Wry`，兼容 mock 测试 |
+| TaskService 手动 Clone | ✅ | 100% | 不依赖 `R: Clone`，`Arc<Mutex<ExecutorRegistry>>` 共享 |
+| commands.rs State 获取 | ✅ | 100% | 所有 command 改为 `tauri::State<'_, TaskService>` |
+| lib.rs app.manage | ✅ | 100% | setup 阶段注册 executor 后全局共享 |
+| 集成测试 | ✅ | 100% | 5 tests 验证端到端流程 |
+
+#### 🧪 测试基础设施 (100%)
+
+| 功能模块 | 状态 | 完成度 | 备注 |
+|---------|------|--------|------|
+| 前端 Vitest 环境 | ✅ | 100% | `vitest.config.ts` + `jsdom` + `@testing-library/react` |
+| Rust 测试工具 | ✅ | 100% | `tempfile` dev-dep + `test_utils.rs` |
+| 设置模块测试 | ✅ | 100% | Rust 16 tests + 前端 14 tests |
+| 任务系统测试 | ✅ | 100% | Rust 18 tests（13 单元 + 5 集成） |
+| 数据库仓库测试 | ✅ | 100% | Rust 14 tests |
+| 工具函数测试 | ✅ | 100% | Rust 20 tests |
+| 测试覆盖率 | ✅ | 100% | Rust 139 tests + 前端 21 tests 全部通过 |
 
 ### v3.3.0 新增功能（2026-04-15）
 

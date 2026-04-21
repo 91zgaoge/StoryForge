@@ -2,8 +2,6 @@
 
 use super::models::*;
 use super::service::TaskService;
-use crate::db::DbPool;
-use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub async fn create_task(
@@ -16,10 +14,8 @@ pub async fn create_task(
     enabled: Option<bool>,
     max_retries: Option<i32>,
     heartbeat_timeout_seconds: Option<i32>,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<Task, String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     let req = CreateTaskRequest {
         name,
         description,
@@ -43,10 +39,8 @@ pub async fn update_task(
     cron_pattern: Option<String>,
     max_retries: Option<i32>,
     heartbeat_timeout_seconds: Option<i32>,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<Task, String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     let req = UpdateTaskRequest {
         name,
         description,
@@ -61,30 +55,24 @@ pub async fn update_task(
 #[tauri::command]
 pub async fn delete_task(
     id: String,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<(), String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     service.delete_task(&id)
 }
 
 #[tauri::command]
 pub async fn list_tasks(
     status_filter: Option<String>,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<Vec<Task>, String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     service.list_tasks(status_filter)
 }
 
 #[tauri::command]
 pub async fn get_task(
     id: String,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<Task, String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     service.get_task(&id)
         .and_then(|opt| opt.ok_or_else(|| "Task not found".to_string()))
 }
@@ -92,29 +80,23 @@ pub async fn get_task(
 #[tauri::command]
 pub async fn trigger_task(
     id: String,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<(), String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     service.trigger_task(&id)
 }
 
 #[tauri::command]
 pub async fn cancel_task(
     id: String,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<(), String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     service.cancel_task(&id)
 }
 
 #[tauri::command]
 pub async fn get_task_logs(
     task_id: String,
-    pool: State<'_, DbPool>,
-    app_handle: AppHandle,
+    service: tauri::State<'_, TaskService>,
 ) -> Result<Vec<TaskLog>, String> {
-    let service = TaskService::new(pool.inner().clone(), app_handle);
     service.get_task_logs(&task_id)
 }

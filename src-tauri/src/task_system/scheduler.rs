@@ -6,7 +6,7 @@
 use super::models::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 use tokio::time::{interval, Duration};
 
 /// 共享任务调度器
@@ -140,7 +140,7 @@ impl TaskScheduler {
     where
         F: Fn() + Send + 'static,
     {
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             let mut ticker = interval(duration);
             // 第一次延迟执行，避免启动时立即触发
             ticker.tick().await;
@@ -181,6 +181,15 @@ impl TaskScheduler {
         // 如果是具体的分钟+小时（如 "0 3 * * *" 每天3点），默认返回24小时
         // 实际触发逻辑由更上层管理（下次运行时间计算）
         Ok(Duration::from_secs(86400))
+    }
+}
+
+impl Clone for TaskScheduler {
+    fn clone(&self) -> Self {
+        Self {
+            handles: self.handles.clone(),
+            locks: self.locks.clone(),
+        }
     }
 }
 

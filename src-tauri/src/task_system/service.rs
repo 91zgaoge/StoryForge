@@ -10,18 +10,30 @@ use super::repository::TaskRepository;
 
 use crate::db::DbPool;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
-pub struct TaskService {
+pub struct TaskService<R: Runtime = tauri::Wry> {
     pool: DbPool,
-    app_handle: AppHandle,
+    app_handle: AppHandle<R>,
     scheduler: Arc<TaskScheduler>,
     heartbeat: Arc<std::sync::Mutex<HeartbeatMonitor>>,
     executors: Arc<std::sync::Mutex<ExecutorRegistry>>,
 }
 
-impl TaskService {
-    pub fn new(pool: DbPool, app_handle: AppHandle) -> Self {
+impl<R: Runtime> Clone for TaskService<R> {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            app_handle: self.app_handle.clone(),
+            scheduler: self.scheduler.clone(),
+            heartbeat: self.heartbeat.clone(),
+            executors: self.executors.clone(),
+        }
+    }
+}
+
+impl<R: Runtime> TaskService<R> {
+    pub fn new(pool: DbPool, app_handle: AppHandle<R>) -> Self {
         let scheduler = Arc::new(TaskScheduler::new());
         let heartbeat = Arc::new(std::sync::Mutex::new(HeartbeatMonitor::new(pool.clone())));
         let executors = Arc::new(std::sync::Mutex::new(ExecutorRegistry::new()));
@@ -98,7 +110,7 @@ impl TaskService {
             let pool = self.pool.clone();
             let app_handle = self.app_handle.clone();
             let executors = self.executors.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await {
                     log::error!("[TaskService] Failed to run once task {}: {}", task_id, e);
                 }
@@ -178,7 +190,7 @@ impl TaskService {
         let app_handle = self.app_handle.clone();
         let executors = self.executors.clone();
 
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             if let Err(e) = Self::run_task_internal(&task_id, pool, app_handle, executors).await {
                 log::error!("[TaskService] Manual trigger failed for {}: {}", task_id, e);
             }
@@ -227,7 +239,7 @@ impl TaskService {
             let p = pool.clone();
             let ah = app_handle.clone();
             let ex = executors.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 if let Err(e) = Self::run_task_internal(&tid, p, ah, ex).await {
                     log::error!("[TaskService] Scheduled task execution failed for {}: {}", tid, e);
                 }
@@ -241,7 +253,7 @@ impl TaskService {
     async fn run_task_internal(
         task_id: &str,
         pool: DbPool,
-        app_handle: AppHandle,
+        app_handle: AppHandle<R>,
         executors: Arc<std::sync::Mutex<ExecutorRegistry>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let repo = TaskRepository::new(pool.clone());

@@ -14,6 +14,7 @@ import {
   createModel,
   updateModel,
   deleteModel,
+  setActiveModel,
   getAgentMappings,
   updateAgentMapping,
 } from '@/services/settings';
@@ -157,6 +158,23 @@ export function useDeleteModel() {
     },
     onError: (error: Error) => {
       toast.error('删除失败: ' + error.message);
+    },
+  });
+}
+
+// 设置活跃模型
+export function useSetActiveModel() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ type, modelId }: { type: ModelConfig['type']; modelId: string }) =>
+      setActiveModel(type, modelId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [SETTINGS_KEY] });
+      toast.success('已设为当前模型');
+    },
+    onError: (error: Error) => {
+      toast.error('设置失败: ' + error.message);
     },
   });
 }

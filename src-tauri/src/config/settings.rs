@@ -508,3 +508,7 @@ impl AppConfig {
         self.active_llm_profile = Some("legacy".to_string());
     }
 }
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod settings_tests;

@@ -70,6 +70,37 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **接入 LanceVectorStore**: 使用现有 `embeddings::embed_text` + `LanceVectorStore::upsert`
 - **进度实时推送**: Tauri 事件 `book-analysis-progress` 实时推送分析进度到前端
 
+### 🔧 Bug 修复与测试建设（2026-04-19）
+
+**关键架构修复：TaskService 全局共享**
+- **Bug**: 每个 `#[command]` 独立 `TaskService::new()` 创建实例，`BookDeconstructionExecutor` 注册在局部变量 → 前端创建的任务找不到执行器 → 拆书功能不可用
+- **修复**: `TaskService` 改为泛型 `<R: Runtime>` + 手动实现 `Clone`（不依赖 `R: Clone`，确保 `Arc<Mutex<ExecutorRegistry>>` 共享）
+- **修复**: `commands.rs` 所有 command 改为 `tauri::State<'_, TaskService>` 获取，不再新建实例
+- **修复**: `lib.rs` `app.manage(task_service)` 全局注册，setup 阶段注册 executor 后所有 command 共享
+
+**缓存失效修复**
+- `useSetActiveModel` mutation `onSuccess` 中 `invalidateQueries({ queryKey: ['settings'] })`，解决"设为当前"后列表状态不同步问题
+
+**测试基础设施**
+- `vitest.config.ts` + `jsdom` + `@testing-library/react` 前端测试环境
+- Rust `tempfile` dev-dep + `test_utils.rs` 临时目录辅助工具
+
+**单元测试（新增 71 个）**
+- `config/settings_tests.rs` — 16 tests (profile CRUD, active model, default conflict)
+- `task_system/tests.rs` — 13 tests (status machine, repository CRUD, heartbeat timeout)
+- `db/repositories_tests.rs` — 14 tests (Story/Character/Chapter CRUD)
+- `utils/validation_tests.rs` — 20 tests (email, url, json, uuid, password, html sanitize)
+- 前端 `services/__tests__/settings.test.ts` — 10 tests
+- 前端 `hooks/__tests__/useSettings.test.tsx` — 4 tests
+- 前端 `utils/__tests__/cn.test.ts` — 5 tests
+
+**集成测试（新增 5 个）**
+- `task_system/integration_tests.rs` — 5 tests (executor registry shared via Arc, task full lifecycle, scheduler register/unregister, no-executor failure, book deconstruction duplicate detection)
+- 集成测试验证端到端流程：创建任务 → 调度 → 执行 → 状态更新，能发现单元测试发现不了的架构级 bug
+
+**数据库修复**
+- `create_test_pool()` 补充 `scene_versions` 表创建（被 `change_tracks`/`comment_threads` 外键引用）
+
 ### 🎨 品牌焕新
 
 - 全新 Logo：「草苔」立方体标志 —— 融合自然叶脉纹理的几何立方体造型
@@ -111,7 +142,8 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 
 ### 🏗️ 架构与质量
 
-- 63 项 Rust 后端测试全部通过
+- **139 项 Rust 后端测试全部通过**（63 原有 + 71 单元测试新增 + 5 集成测试新增）
+- **21 项前端测试全部通过**
 - `cargo check` 零警告
 - 版本号统一：Cargo.toml / package.json / tauri.conf.json → 3.4.0
 - `Box<dyn std::error::Error + Send + Sync>` 全链路修复 — Tauri 异步命令 Send 要求

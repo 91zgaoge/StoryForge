@@ -8,7 +8,7 @@ use super::repository::TaskRepository;
 use crate::db::DbPool;
 use chrono::Local;
 use std::time::Duration;
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 use tokio::time::interval;
 
 /// 心跳检测器
@@ -16,6 +16,16 @@ pub struct HeartbeatMonitor {
     pool: DbPool,
     check_interval_secs: u64,
     handle: Option<JoinHandle<()>>,
+}
+
+impl Clone for HeartbeatMonitor {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            check_interval_secs: self.check_interval_secs,
+            handle: None, // JoinHandle 不可 clone，clone 后停止状态
+        }
+    }
 }
 
 impl HeartbeatMonitor {
@@ -37,7 +47,7 @@ impl HeartbeatMonitor {
         let pool = self.pool.clone();
         let interval_secs = self.check_interval_secs;
 
-        let handle = tokio::spawn(async move {
+        let handle = tauri::async_runtime::spawn(async move {
             let mut ticker = interval(Duration::from_secs(interval_secs));
             ticker.tick().await; // 首次延迟
 

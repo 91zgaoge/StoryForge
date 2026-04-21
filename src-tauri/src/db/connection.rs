@@ -17,6 +17,21 @@ pub fn create_test_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
     create_v3_tables(&mut conn)?;
     run_migrations(&mut conn)?;
     
+    // 测试环境：创建 scene_versions 表（被 change_tracks/comment_threads 外键引用）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS scene_versions (
+            id TEXT PRIMARY KEY,
+            scene_id TEXT NOT NULL,
+            chapter_id TEXT,
+            content TEXT,
+            word_count INTEGER,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+            FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+    
     Ok(pool)
 }
 
