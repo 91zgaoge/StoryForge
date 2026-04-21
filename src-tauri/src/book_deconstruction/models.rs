@@ -133,6 +133,15 @@ pub struct BookAnalysisProgressEvent {
     pub progress: i32,
     pub current_step: String,
     pub message: Option<String>,
+    /// 当前活跃的 LLM 并发线程数
+    #[serde(default)]
+    pub active_threads: i32,
+    /// 总文本块数
+    #[serde(default)]
+    pub total_chunks: i32,
+    /// 已处理的文本块数
+    #[serde(default)]
+    pub processed_chunks: i32,
 }
 
 // ==================== 文件解析结果 ====================

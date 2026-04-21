@@ -175,6 +175,8 @@ impl ReferenceBookRepository {
     pub fn update_analysis_result(
         &self,
         id: &str,
+        title: Option<&str>,
+        author: Option<&str>,
         genre: Option<&str>,
         world_setting: Option<&str>,
         plot_summary: Option<&str>,
@@ -182,8 +184,8 @@ impl ReferenceBookRepository {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let conn = self.pool.get()?;
         conn.execute(
-            "UPDATE reference_books SET genre = ?1, world_setting = ?2, plot_summary = ?3, story_arc = ?4, updated_at = ?5 WHERE id = ?6",
-            params![genre, world_setting, plot_summary, story_arc, Local::now().to_rfc3339(), id],
+            "UPDATE reference_books SET title = COALESCE(?1, title), author = COALESCE(?2, author), genre = ?3, world_setting = ?4, plot_summary = ?5, story_arc = ?6, updated_at = ?7 WHERE id = ?8",
+            params![title, author, genre, world_setting, plot_summary, story_arc, Local::now().to_rfc3339(), id],
         )?;
         Ok(())
     }

@@ -10,6 +10,7 @@ use super::ollama::OllamaAdapter;
 use super::openai::OpenAiAdapter;
 use crate::config::settings::{AppConfig, LlmProfile, LlmProvider};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -43,6 +44,7 @@ pub struct GenerationError {
 pub struct LlmService {
     app_handle: AppHandle,
     config: Arc<Mutex<AppConfig>>,
+    cancel_senders: Arc<Mutex<HashMap<String, tokio::sync::mpsc::Sender<()>>>>,
 }
 
 impl LlmService {
@@ -57,6 +59,7 @@ impl LlmService {
         Self {
             app_handle,
             config: Arc::new(Mutex::new(config)),
+            cancel_senders: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -202,29 +205,48 @@ impl LlmService {
         let mut full_text = String::new();
         let mut is_first = true;
 
-        while let Some(chunk_result) = rx.recv().await {
-            match chunk_result {
-                Ok(chunk) => {
-                    full_text.push_str(&chunk);
-                    let stream_chunk = StreamChunk {
-                        chunk,
-                        is_first,
-                        is_last: false,
-                        model: profile.model.clone(),
-                    };
-                    let _ = self.app_handle.emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
-                    is_first = false;
+        // 注册取消通道
+        let (cancel_tx, mut cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+        {
+            let mut senders = self.cancel_senders.lock().unwrap();
+            senders.insert(request_id.clone(), cancel_tx);
+        }
+
+        loop {
+            tokio::select! {
+                chunk_result = rx.recv() => {
+                    match chunk_result {
+                        Some(Ok(chunk)) => {
+                            full_text.push_str(&chunk);
+                            let stream_chunk = StreamChunk {
+                                chunk,
+                                is_first,
+                                is_last: false,
+                                model: profile.model.clone(),
+                            };
+                            let _ = self.app_handle.emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
+                            is_first = false;
+                        }
+                        Some(Err(e)) => {
+                            let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+                            let error = GenerationError {
+                                error: e.to_string(),
+                                error_code: "STREAM_ERROR".to_string(),
+                            };
+                            let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
+                            return Err(format!("Stream error: {}", e));
+                        }
+                        None => break,
+                    }
                 }
-                Err(e) => {
-                    let error = GenerationError {
-                        error: e.to_string(),
-                        error_code: "STREAM_ERROR".to_string(),
-                    };
-                    let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
-                    return Err(format!("Stream error: {}", e));
+                _ = cancel_rx.recv() => {
+                    log::info!("[LLM] Generation cancelled for request_id: {}", request_id);
+                    break;
                 }
             }
         }
+
+        let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
 
         // 发送完成事件
         let duration = start_time.elapsed().as_millis() as u64;
@@ -287,6 +309,17 @@ impl LlmService {
             Err(e) => Err(e),
         }
     }
+
+    /// 取消指定 request_id 的流式生成
+    pub fn cancel_generation(&self, request_id: &str) {
+        let mut senders = self.cancel_senders.lock().unwrap();
+        if let Some(sender) = senders.remove(request_id) {
+            let _ = sender.try_send(());
+            log::info!("[LLM] Cancel signal sent for request_id: {}", request_id);
+        } else {
+            log::warn!("[LLM] No active generation found for request_id: {}", request_id);
+        }
+    }
 }
 
 /// 全局LLM服务实例
@@ -310,6 +343,9 @@ impl Clone for LlmService {
         Self {
             app_handle: self.app_handle.clone(),
             config: Arc::clone(&self.config),
+            cancel_senders: Arc::clone(&self.cancel_senders),
         }
     }
 }
+
+

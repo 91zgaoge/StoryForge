@@ -6,6 +6,8 @@ interface AnalysisProgressProps {
   onCancel?: () => void;
   isCancelling?: boolean;
   status?: string;
+  activeThreads?: number;
+  maxThreads?: number;
 }
 
 const STEPS = [
@@ -25,6 +27,8 @@ export function AnalysisProgress({
   onCancel,
   isCancelling,
   status,
+  activeThreads,
+  maxThreads,
 }: AnalysisProgressProps) {
   const isCancelled = status === 'cancelled';
 
@@ -51,7 +55,29 @@ export function AnalysisProgress({
       <p className="text-sm text-gray-400 mb-2 text-center max-w-md">{currentStep}</p>
 
       {chunkInfo && !isCancelled && (
-        <p className="text-xs text-cinema-gold/70 mb-4 font-mono">处理进度: {chunkInfo}</p>
+        <p className="text-xs text-cinema-gold/70 mb-1 font-mono">处理进度: {chunkInfo}</p>
+      )}
+
+      {maxThreads && maxThreads > 0 && !isCancelled && (
+        <p className="text-xs text-cinema-gold/70 mb-1 font-mono">
+          LLM 并发: {activeThreads ?? 0}/{maxThreads}
+        </p>
+      )}
+
+      {!isCancelled && (
+        <p className="text-xs text-gray-500 mb-4">
+          {progress < 10
+            ? '正在读取文件...'
+            : progress < 30
+            ? '正在调用 LLM 识别小说类型和世界观...'
+            : progress < 55
+            ? '正在逐个章节拆解人物角色（此阶段较耗时）...'
+            : progress < 80
+            ? '正在逐个章节生成概要（此阶段较耗时）...'
+            : progress < 93
+            ? '正在生成故事线...'
+            : '正在保存分析结果...'}
+        </p>
       )}
 
       {/* 进度条 */}

@@ -1170,6 +1170,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               selectedText={editor && !editor.state.selection.empty
                 ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
                 : undefined}
+              onReviseResult={(text) => {
+                if (editor) {
+                  const html = '<p>' + text.replace(/\n+/g, '</p><p>') + '</p>';
+                  editor.commands.setContent(html);
+                  onChange(html);
+                  toast.success('修改内容已应用到编辑器');
+                }
+              }}
             />
 
             {/* AI 生成状态 / 预览 */}

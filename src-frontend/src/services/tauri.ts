@@ -286,6 +286,17 @@ export const deleteStorySummary = (summaryId: string) =>
   invoke<number>('delete_story_summary', { summary_id: summaryId });
 
 
+// ==================== LLM Stream ====================
+
+export const llmGenerateStream = (params: {
+  request_id: string;
+  prompt: string;
+  context?: string;
+  max_tokens?: number;
+  temperature?: number;
+}) =>
+  invoke<void>('llm_generate_stream', { request: params });
+
 // ==================== Subscription (Freemium) ====================
 
 export interface SubscriptionStatus {

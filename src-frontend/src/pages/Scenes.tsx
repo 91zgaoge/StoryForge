@@ -90,13 +90,31 @@ export function Scenes() {
         onSuccess: () => {
           toast.success('场景已保存');
           setIsEditing(false);
-          // 自动创建版本快照
+          // 自动创建版本快照（检测任何字段变更）
           const hasContentChange = updates.content !== undefined && updates.content !== selectedScene.content;
-          const hasMetaChange = updates.title !== selectedScene.title || updates.dramatic_goal !== selectedScene.dramatic_goal;
+          const hasMetaChange = 
+            updates.title !== selectedScene.title ||
+            updates.dramatic_goal !== selectedScene.dramatic_goal ||
+            updates.external_pressure !== selectedScene.external_pressure ||
+            updates.conflict_type !== selectedScene.conflict_type ||
+            updates.characters_present !== selectedScene.characters_present ||
+            updates.character_conflicts !== selectedScene.character_conflicts ||
+            updates.setting_location !== selectedScene.setting_location ||
+            updates.setting_time !== selectedScene.setting_time ||
+            updates.setting_atmosphere !== selectedScene.setting_atmosphere;
           if (hasContentChange || hasMetaChange) {
+            const changeParts: string[] = [];
+            if (hasContentChange) changeParts.push('内容');
+            if (updates.title !== selectedScene.title) changeParts.push('标题');
+            if (updates.dramatic_goal !== selectedScene.dramatic_goal) changeParts.push('戏剧目标');
+            if (updates.external_pressure !== selectedScene.external_pressure) changeParts.push('外部压迫');
+            if (updates.conflict_type !== selectedScene.conflict_type) changeParts.push('冲突类型');
+            if (updates.setting_location !== selectedScene.setting_location) changeParts.push('场景地点');
+            if (updates.setting_time !== selectedScene.setting_time) changeParts.push('场景时间');
+            if (updates.setting_atmosphere !== selectedScene.setting_atmosphere) changeParts.push('场景氛围');
             createVersion.mutate({
               sceneId: selectedScene.id,
-              changeSummary: hasContentChange ? '编辑场景内容' : '编辑场景元数据',
+              changeSummary: changeParts.length > 0 ? `编辑${changeParts.join('、')}` : '编辑场景元数据',
               createdBy: 'user',
             });
           }

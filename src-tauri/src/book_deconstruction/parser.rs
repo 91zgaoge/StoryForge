@@ -15,7 +15,12 @@ const CHAPTER_PATTERNS: &[&str] = &[
 ];
 
 /// 解析小说文件（自动检测格式）
-pub fn parse_book(file_path: &Path) -> Result<ParsedBook, ParseError> {
+/// 
+/// `progress_callback`: 可选的进度回调，参数为 (已处理字数, 估计总字数)
+pub fn parse_book(
+    file_path: &Path,
+    progress_callback: Option<&dyn Fn(usize, usize)>,
+) -> Result<ParsedBook, ParseError> {
     let ext = file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -23,9 +28,9 @@ pub fn parse_book(file_path: &Path) -> Result<ParsedBook, ParseError> {
         .to_lowercase();
 
     match ext.as_str() {
-        "txt" => TxtParser::parse(file_path),
-        "pdf" => PdfParser::parse(file_path),
-        "epub" => EpubParser::parse(file_path),
+        "txt" => TxtParser::parse(file_path, progress_callback),
+        "pdf" => PdfParser::parse(file_path, progress_callback),
+        "epub" => EpubParser::parse(file_path, progress_callback),
         _ => Err(ParseError::InvalidFormat(format!(
             "Unsupported file format: {}",
             ext
@@ -47,11 +52,17 @@ fn detect_chapter_title(line: &str) -> Option<String> {
 }
 
 /// 按章节拆分文本
-fn split_into_chapters(text: &str) -> Vec<ParsedChapter> {
+fn split_into_chapters_with_progress(
+    text: &str,
+    progress_callback: Option<&dyn Fn(usize, usize)>,
+    total_estimate: usize,
+) -> Vec<ParsedChapter> {
     let lines: Vec<&str> = text.lines().collect();
     let mut chapters: Vec<ParsedChapter> = Vec::new();
     let mut current_title: Option<String> = None;
     let mut current_content: Vec<String> = Vec::new();
+    let mut processed_lines = 0usize;
+    let total_lines = lines.len().max(1);
 
     for line in lines {
         if let Some(title) = detect_chapter_title(line) {
@@ -69,6 +80,11 @@ fn split_into_chapters(text: &str) -> Vec<ParsedChapter> {
             current_content = vec![line.to_string()];
         } else {
             current_content.push(line.to_string());
+        }
+        processed_lines += 1;
+        if let Some(cb) = progress_callback {
+            let progress_words = (total_estimate * processed_lines) / total_lines;
+            cb(progress_words, total_estimate);
         }
     }
 
@@ -111,7 +127,7 @@ fn count_chinese_words(text: &str) -> usize {
 pub struct TxtParser;
 
 impl TxtParser {
-    pub fn parse(file_path: &Path) -> Result<ParsedBook, ParseError> {
+    pub fn parse(file_path: &Path, progress_callback: Option<&dyn Fn(usize, usize)>) -> Result<ParsedBook, ParseError> {
         use encoding::all::{GBK, UTF_8};
         use encoding::{DecoderTrap, Encoding};
         use std::fs;
@@ -133,7 +149,8 @@ impl TxtParser {
             ));
         };
 
-        let chapters = split_into_chapters(&text);
+        let total_estimate = count_chinese_words(&text);
+        let chapters = split_into_chapters_with_progress(&text, progress_callback, total_estimate);
         let word_count = chapters.iter().map(|c| c.word_count).sum();
 
         Ok(ParsedBook {
@@ -151,9 +168,11 @@ impl TxtParser {
 pub struct PdfParser;
 
 impl PdfParser {
-    pub fn parse(file_path: &Path) -> Result<ParsedBook, ParseError> {
+    pub fn parse(file_path: &Path, progress_callback: Option<&dyn Fn(usize, usize)>) -> Result<ParsedBook, ParseError> {
         use pdf_extract::extract_text;
 
+        if let Some(cb) = progress_callback { cb(0, 0); }
+        
         let text = extract_text(file_path).map_err(|e| {
             ParseError::NoTextExtracted(format!("PDF extraction failed: {}", e))
         })?;
@@ -164,7 +183,8 @@ impl PdfParser {
             ));
         }
 
-        let chapters = split_into_chapters(&text);
+        let total_estimate = count_chinese_words(&text);
+        let chapters = split_into_chapters_with_progress(&text, progress_callback, total_estimate);
         let word_count = chapters.iter().map(|c| c.word_count).sum();
 
         Ok(ParsedBook {
@@ -182,7 +202,7 @@ impl PdfParser {
 pub struct EpubParser;
 
 impl EpubParser {
-    pub fn parse(file_path: &Path) -> Result<ParsedBook, ParseError> {
+    pub fn parse(file_path: &Path, progress_callback: Option<&dyn Fn(usize, usize)>) -> Result<ParsedBook, ParseError> {
         use epub::doc::EpubDoc;
         let mut doc = EpubDoc::new(file_path).map_err(|e| {
             ParseError::InvalidFormat(format!("Failed to open EPUB: {:?}", e))
@@ -190,6 +210,7 @@ impl EpubParser {
 
         let mut chapters: Vec<ParsedChapter> = Vec::new();
         let mut full_text = String::new();
+        let mut processed_words = 0usize;
 
         // 获取元数据
         let title = doc.mdata("title").map(|item| item.value.clone()).filter(|v| !v.is_empty());
@@ -197,6 +218,7 @@ impl EpubParser {
 
         // 遍历 spine（阅读顺序）
         let spine = doc.spine.clone();
+        let total_chapters = spine.len();
         for (i, itemref) in spine.iter().enumerate() {
             if let Some((bytes, _mime)) = doc.get_resource(&itemref.idref) {
                 let text = String::from_utf8_lossy(&bytes);
@@ -212,6 +234,11 @@ impl EpubParser {
                 
                 full_text.push_str(&clean_text);
                 full_text.push('\n');
+                
+                processed_words += word_count;
+                if let Some(cb) = progress_callback {
+                    cb(processed_words, total_chapters * 3000);
+                }
             }
         }
 

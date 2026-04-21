@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Sparkles } from 'lucide-react';
 
 import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote } from 'lucide-react';
+import { useLlmStream } from '@/hooks/useLlmStream';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
@@ -12,6 +14,7 @@ import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 import ColorThemeDot from './components/ColorThemeDot';
 import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
+import toast from 'react-hot-toast';
 
 interface Story {
   id: string;
@@ -66,6 +69,7 @@ const FrontstageApp: React.FC = () => {
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
+  const { startStream, isStreaming: isLlmStreaming } = useLlmStream();
 
   // 稳定回调引用，避免 SmartHintSystem 的 useEffect 被频繁重置
   const handleFreeHint = useCallback((title: string, message: string) => {
@@ -246,30 +250,37 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
-  // Request AI generation
-  const handleRequestGeneration = useCallback(async (context: string): Promise<string> => {
-    if (!currentChapter) return '';
-    
+  // Request AI generation via streaming
+  const handleRequestGeneration = useCallback(async (context: string) => {
+    if (!currentChapter || !showAI || isLlmStreaming) return;
+
+    setGeneratedText('');
+
+    const prompt = context || '请根据上下文续写接下来的内容，保持文风一致，情节连贯。';
+    const plainContent = content.replace(/<[^>]*>/g, '');
+    const ctx = plainContent.slice(-1500); // 取最近 1500 字符作为上下文
+
     try {
-      // Call the generation API
-      const sampleTexts = [
-        '夜风轻轻拂过窗棂，带来远处桂花的香气。她放下手中的笔，望向窗外那轮明月，心中涌起无限思绪。',
-        '他的声音低沉而温柔，像是大提琴的最后一个音符，在空气中缓缓消散。',
-        '雨点开始敲打屋顶，节奏清晰而有力，仿佛大自然在谱写一首独特的乐章。',
-        '那一刻，时间仿佛静止。所有的喧嚣都远去，只剩下心跳的声音在耳畔回响。',
-        '烛光摇曳，在墙上投下舞动的影子。她轻抚那本泛黄的书页，指尖传来岁月的温度。',
-      ];
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const generated = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
-      setGeneratedText(generated);
-      return generated;
+      await startStream({
+        prompt,
+        context: ctx || undefined,
+        max_tokens: 1000,
+        temperature: 0.8,
+        onChunk: (chunk) => {
+          setGeneratedText((prev) => prev + chunk);
+        },
+        onComplete: (result) => {
+          setGeneratedText(result.full_text);
+        },
+        onError: (error) => {
+          console.error('Stream generation failed:', error);
+          toast.error(`生成失败: ${error.error}`);
+        },
+      });
     } catch (error) {
       console.error('Generation request failed:', error);
-      return '';
     }
-  }, [currentChapter]);
+  }, [currentChapter, showAI, isLlmStreaming, content, startStream]);
 
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
@@ -385,6 +396,17 @@ const FrontstageApp: React.FC = () => {
             >
               {showAI ? '文思泉涌中...' : '开启文思'}
             </button>
+            {showAI && (
+              <button
+                className={`frontstage-ai-toggle ${isLlmStreaming ? 'streaming' : ''}`}
+                onClick={() => handleRequestGeneration('')}
+                disabled={isLlmStreaming || !currentChapter}
+                title="AI 续写"
+              >
+                <Sparkles className="w-4 h-4 mr-1" />
+                {isLlmStreaming ? '生成中...' : 'AI 续写'}
+              </button>
+            )}
           </div>
         )}
       </header>

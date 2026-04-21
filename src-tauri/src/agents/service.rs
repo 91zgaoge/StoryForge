@@ -239,12 +239,29 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成内容", 0.3);
         
+        // 动态生成策略：根据故事反馈历史调整 temperature 和 max_tokens
+        let (max_tokens, temperature) = {
+            let pool = self.app_handle.state::<crate::db::DbPool>();
+            let generator = crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
+            match generator.build_strategy(&task.context.story_id) {
+                Ok(strategy) => {
+                    log::info!("[AgentService] Adaptive strategy for story {}: temp={}, max_tokens={}", 
+                        task.context.story_id, strategy.temperature, strategy.max_tokens);
+                    (Some(strategy.max_tokens), Some(strategy.temperature))
+                }
+                Err(e) => {
+                    log::warn!("[AgentService] Failed to build adaptive strategy: {}, using defaults", e);
+                    (Some(2000), Some(0.8))
+                }
+            }
+        };
+        
         // 调用LLM生成（根据Agent映射选择模型，免费版限制 token）
         let response = self.generate_for_agent(
             task.agent_type,
             prompt,
-            Some(2000),
-            Some(0.8),
+            max_tokens,
+            temperature,
             tier,
         ).await?;
         
@@ -253,11 +270,39 @@ impl AgentService {
         // 简单的质量评分（后续可细化）
         let score = self.calculate_quality_score(&response.content);
         
-        let suggestions = if score < 0.7 {
+        let mut suggestions = if score < 0.7 {
             vec!["建议：内容可能需要进一步润色".to_string()]
         } else {
             vec![]
         };
+        
+        // 连续性检查：验证生成内容与已有故事设定的一致性
+        {
+            let pool = self.app_handle.state::<crate::db::DbPool>();
+            let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+            if let Ok(scenes) = scene_repo.get_by_story(&task.context.story_id) {
+                // 找到对应 chapter_number 的 scene
+                let target_scene = scenes.iter().find(|s| s.sequence_number == task.context.chapter_number as i32);
+                if let Some(scene) = target_scene {
+                    let continuity = crate::creative_engine::continuity::ContinuityEngine::new(pool.inner().clone());
+                    match continuity.check_scene_continuity(&task.context.story_id, &scene.id, &response.content) {
+                        Ok(check) if !check.is_valid => {
+                            for issue in check.issues {
+                                let msg = format!("[{}] {}", match issue.severity {
+                                    crate::creative_engine::continuity::Severity::Critical => "严重",
+                                    crate::creative_engine::continuity::Severity::Warning => "警告",
+                                    _ => "提示",
+                                }, issue.message);
+                                suggestions.push(msg);
+                                log::warn!("[ContinuityEngine] {:?}: {}", issue.issue_type, issue.message);
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => log::warn!("[ContinuityEngine] Check failed: {}", e),
+                    }
+                }
+            }
+        }
         
         Ok(AgentResult {
             content: response.content,
@@ -714,23 +759,67 @@ impl AgentService {
     }
 
     fn parse_inspection_result(&self, content: &str) -> (f32, Vec<String>) {
-        // 简单解析，后续可用正则或结构化输出
-        let score = if content.contains("90") || content.contains("优秀") {
-            0.9
-        } else if content.contains("80") || content.contains("良好") {
-            0.8
-        } else if content.contains("70") {
-            0.7
-        } else {
-            0.6
+        // 尝试 JSON 结构化解析
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+            if let Some(score_val) = json.get("score").or_else(|| json.get("总体评分")) {
+                let score = match score_val {
+                    serde_json::Value::Number(n) => n.as_f64().unwrap_or(60.0) as f32 / 100.0,
+                    serde_json::Value::String(s) => s.trim().parse::<f32>().unwrap_or(60.0) / 100.0,
+                    _ => 0.6,
+                }.clamp(0.0, 1.0);
+
+                let suggestions = json.get("suggestions")
+                    .or_else(|| json.get("改进建议"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+
+                return (score, suggestions);
+            }
+        }
+
+        // 回退：正则提取分数 (0-100 或 0.0-1.0)
+        let score = {
+            let re = regex::Regex::new(r"(?:总体?)?评分[:：]\s*(\d+(?:\.\d+)?)").ok();
+            let extracted = re.as_ref().and_then(|r| r.captures(content))
+                .and_then(|caps| caps.get(1))
+                .and_then(|m| m.as_str().parse::<f32>().ok());
+
+            match extracted {
+                Some(v) if v > 1.0 => (v / 100.0).clamp(0.0, 1.0), // 0-100 分制
+                Some(v) => v.clamp(0.0, 1.0), // 0-1 分制
+                None => {
+                    // 关键词回退
+                    if content.contains("90") || content.contains("优秀") { 0.9 }
+                    else if content.contains("80") || content.contains("良好") { 0.8 }
+                    else if content.contains("70") { 0.7 }
+                    else { 0.6 }
+                }
+            }
         };
-        
+
+        // 提取建议：支持 "1. xxx"、"- xxx"、"* xxx"、"建议：xxx" 等格式
         let suggestions: Vec<String> = content
             .lines()
-            .filter(|l| l.contains("建议") || l.contains("改进"))
-            .map(|l| l.to_string())
+            .map(|l| l.trim())
+            .filter(|l| {
+                !l.is_empty()
+                    && (l.starts_with(|c: char| c.is_ascii_digit() && l.chars().nth(1) == Some('.'))
+                        || l.starts_with("-")
+                        || l.starts_with("*")
+                        || l.contains("建议")
+                        || l.contains("改进")
+                        || l.contains("问题"))
+            })
+            .map(|l| {
+                // 清理前缀
+                l.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-' || c == '*' || c == ' ')
+                    .trim()
+                    .to_string()
+            })
+            .filter(|l| !l.is_empty() && l.len() > 5)
             .collect();
-        
+
         (score, suggestions)
     }
 

@@ -11,8 +11,9 @@ use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
 use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
-use crate::db::{DbPool, CreateStoryRequest, CreateChapterRequest};
-use crate::db::repositories::{StoryRepository, ChapterRepository};
+use crate::db::{DbPool, CreateStoryRequest};
+use crate::db::repositories::{StoryRepository};
+use crate::db::repositories_v3::{SceneRepository, SceneUpdate};
 use crate::subscription::{SubscriptionService, SubscriptionTier};
 
 /// 获取当前用户订阅层级（同步）
@@ -252,11 +253,11 @@ pub async fn writer_agent_execute(
     let mut chapter_number = request.chapter_number.unwrap_or(1);
     let mut created_chapter_id: Option<String> = None;
 
-    // 如果没有 story_id，自动创建新作品和第一章
+    // 如果没有 story_id，自动创建新作品和第一场景
     if story_id.is_empty() {
         let pool = app_handle.state::<DbPool>();
         let story_repo = StoryRepository::new(pool.inner().clone());
-        let chapter_repo = ChapterRepository::new(pool.inner().clone());
+        let scene_repo = SceneRepository::new(pool.inner().clone());
 
         let story = story_repo.create(CreateStoryRequest {
             title: "未命名作品".to_string(),
@@ -264,23 +265,17 @@ pub async fn writer_agent_execute(
             genre: Some("小说".to_string()),
         }).map_err(|e| e.to_string())?;
 
-        let chapter = chapter_repo.create(CreateChapterRequest {
-            story_id: story.id.clone(),
-            chapter_number: 1,
-            title: Some("第一章".to_string()),
-            outline: None,
-            content: None,
-        }).map_err(|e| e.to_string())?;
+        let scene = scene_repo.create(&story.id, 1, Some("第一场景")).map_err(|e| e.to_string())?;
 
         story_id = story.id;
         chapter_number = 1;
-        created_chapter_id = Some(chapter.id.clone());
+        created_chapter_id = Some(scene.id.clone());
 
-        // 通知幕前切换到新章节
+        // 通知幕前切换到新场景
         let event = crate::window::FrontstageEvent::ChapterSwitch {
             story_id: story_id.clone(),
-            chapter_id: chapter.id,
-            title: "第一章".to_string(),
+            chapter_id: scene.id.clone(),
+            title: "第一场景".to_string(),
         };
         let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
 
@@ -317,30 +312,47 @@ pub async fn writer_agent_execute(
 
     let service = AgentService::new(app_handle.clone());
 
-    match service.execute_task(task).await {
-        Ok(result) => {
-            // 如果创建了新区间，把生成的内容保存到数据库
-            if let Some(ref chapter_id) = created_chapter_id {
+    // 使用 AgentOrchestrator 执行 Writer → Inspector → Writer 闭环优化
+    let orchestrator = super::orchestrator::AgentOrchestrator::with_default_config(service, app_handle.clone());
+
+    match orchestrator.execute_write_with_inspection(task).await {
+        Ok(workflow_result) => {
+            log::info!("[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}", 
+                workflow_result.final_score, workflow_result.was_rewritten);
+            
+            // 如果创建了新场景，把生成的内容保存到数据库
+            if let Some(ref scene_id) = created_chapter_id {
                 let pool = app_handle.state::<DbPool>();
-                let chapter_repo = ChapterRepository::new(pool.inner().clone());
-                let _ = chapter_repo.update(
-                    chapter_id,
-                    Some("第一章".to_string()),
-                    None,
-                    Some(result.content.clone()),
-                    None,
+                let scene_repo = SceneRepository::new(pool.inner().clone());
+                let _ = scene_repo.update(
+                    scene_id,
+                    &SceneUpdate {
+                        title: Some("第一场景".to_string()),
+                        content: Some(workflow_result.final_content.clone()),
+                        dramatic_goal: None,
+                        external_pressure: None,
+                        conflict_type: None,
+                        characters_present: None,
+                        character_conflicts: None,
+                        setting_location: None,
+                        setting_time: None,
+                        setting_atmosphere: None,
+                        previous_scene_id: None,
+                        next_scene_id: None,
+                        confidence_score: None,
+                    },
                 );
 
                 // 同时推送内容更新事件到幕前
                 let event = crate::window::FrontstageEvent::ContentUpdate {
-                    text: result.content.clone(),
-                    chapter_id: chapter_id.clone(),
+                    text: workflow_result.final_content.clone(),
+                    chapter_id: scene_id.clone(),
                 };
                 let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
             }
 
             Ok(WriterAgentResponse {
-                content: result.content,
+                content: workflow_result.final_content,
                 story_id: Some(story_id),
                 chapter_id: created_chapter_id,
             })
@@ -394,12 +406,12 @@ pub async fn auto_write(
     check_auto_write_quota_sync(&app_handle, requested_chars)?;
 
     let pool = app_handle.state::<DbPool>();
-    let chapter_repo = ChapterRepository::new(pool.inner().clone());
+    let scene_repo = SceneRepository::new(pool.inner().clone());
 
-    // 读取当前章节内容作为上下文
-    let _current_content = chapter_repo.get_by_id(&request.chapter_id)
+    // 读取当前场景内容作为上下文
+    let current_content = scene_repo.get_by_id(&request.chapter_id)
         .map_err(|e| e.to_string())?
-        .map(|c| c.content.unwrap_or_default())
+        .map(|s| s.content.unwrap_or_default())
         .unwrap_or_default();
 
     let task_id_clone = task_id.clone();
@@ -414,6 +426,7 @@ pub async fn auto_write(
         let mut total_written = 0i32;
         let mut loop_count = 0i32;
         let service = AgentService::new(app_handle_clone.clone());
+        let mut accumulated_content = current_content;
 
         while total_written < target_chars {
             // 检查是否被取消
@@ -435,7 +448,7 @@ pub async fn auto_write(
             // 构建续写 prompt
             let instruction = format!("请继续续写以下内容，续写约 {} 字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。", this_loop_chars);
 
-            let context = build_agent_context(
+            let mut context = build_agent_context(
                 &app_handle_clone,
                 &ExecuteAgentRequest {
                     agent_type: AgentType::Writer,
@@ -445,6 +458,9 @@ pub async fn auto_write(
                     parameters: None,
                 },
             ).await.unwrap_or_else(|_| super::AgentContext::minimal(story_id.clone(), String::new()));
+
+            // 注入当前已积累的上下文内容
+            context.current_content = Some(accumulated_content.clone());
 
             let task = AgentTask {
                 id: Uuid::new_v4().to_string(),
@@ -461,6 +477,9 @@ pub async fn auto_write(
                     let generated_len = generated.chars().count() as i32;
                     total_written += generated_len;
                     loop_count += 1;
+
+                    // 将生成内容追加到积累上下文，供下一轮使用
+                    accumulated_content.push_str(&generated);
 
                     // 循环成功后消费一次配额
                     if let Err(e) = consume_auto_write_quota_sync(&app_handle_clone, generated_len) {
@@ -502,6 +521,90 @@ pub async fn auto_write(
             percentage: 100,
             current_loop: loop_count,
             status: "completed".to_string(),
+        });
+
+        // 保存最终内容到数据库
+        let pool = app_handle_clone.state::<DbPool>();
+        let scene_repo = SceneRepository::new(pool.inner().clone());
+        let _ = scene_repo.update(
+            &chapter_id,
+            &SceneUpdate {
+                title: None,
+                content: Some(accumulated_content.clone()),
+                dramatic_goal: None,
+                external_pressure: None,
+                conflict_type: None,
+                characters_present: None,
+                character_conflicts: None,
+                setting_location: None,
+                setting_time: None,
+                setting_atmosphere: None,
+                previous_scene_id: None,
+                next_scene_id: None,
+                confidence_score: None,
+            },
+        );
+        log::info!("[auto_write] Saved {} chars to scene {}", accumulated_content.chars().count(), chapter_id);
+
+        // 后台触发知识图谱 Ingest
+        let story_id_for_ingest = story_id.clone();
+        let chapter_id_for_ingest = chapter_id.clone();
+        let accumulated_for_ingest = accumulated_content.clone();
+        let app_for_ingest = app_handle_clone.clone();
+        let pool_for_ingest = app_handle_clone.state::<DbPool>().inner().clone();
+        tokio::spawn(async move {
+            let llm_service = crate::llm::LlmService::new(app_for_ingest);
+            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service);
+            let ingest_content = crate::memory::ingest::IngestContent {
+                text: accumulated_for_ingest,
+                source: format!("auto_write:{}", chapter_id_for_ingest),
+                story_id: story_id_for_ingest.clone(),
+                scene_id: Some(chapter_id_for_ingest.clone()),
+            };
+
+            match pipeline.ingest(&ingest_content).await {
+                Ok(ingest_result) => {
+                    let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool_for_ingest);
+                    let mut saved_entities = 0usize;
+                    let mut saved_relations = 0usize;
+
+                    for entity in &ingest_result.entities {
+                        if let Ok(_) = kg_repo.create_entity(
+                            &story_id_for_ingest,
+                            &entity.name,
+                            &entity.entity_type.to_string(),
+                            &entity.attributes,
+                            entity.embedding.clone(),
+                        ) {
+                            saved_entities += 1;
+                        }
+                    }
+
+                    let entity_name_to_id: std::collections::HashMap<String, String> = ingest_result.entities
+                        .iter()
+                        .map(|e| (e.name.clone(), e.id.clone()))
+                        .collect();
+
+                    for relation in &ingest_result.relations {
+                        let source_id = entity_name_to_id.get(&relation.source_id).unwrap_or(&relation.source_id);
+                        let target_id = entity_name_to_id.get(&relation.target_id).unwrap_or(&relation.target_id);
+                        if let Ok(_) = kg_repo.create_relation(
+                            &story_id_for_ingest,
+                            source_id,
+                            target_id,
+                            &relation.relation_type.to_string(),
+                            relation.strength,
+                        ) {
+                            saved_relations += 1;
+                        }
+                    }
+
+                    log::info!("[auto_write] Ingest complete: {} entities, {} relations saved", saved_entities, saved_relations);
+                }
+                Err(e) => {
+                    log::warn!("[auto_write] Ingest failed: {}", e);
+                }
+            }
         });
 
         // 清理句柄
@@ -570,26 +673,26 @@ pub async fn auto_revise(
 
     // 读取目标文本
     let pool = app_handle.state::<DbPool>();
-    let chapter_repo = ChapterRepository::new(pool.inner().clone());
+    let scene_repo = SceneRepository::new(pool.inner().clone());
 
     let target_text = match request.scope.as_str() {
-        "chapter" => {
-            if let Some(ref cid) = request.chapter_id {
-                chapter_repo.get_by_id(cid)
+        "chapter" | "scene" => {
+            if let Some(ref sid) = request.chapter_id {
+                scene_repo.get_by_id(sid)
                     .map_err(|e| e.to_string())?
-                    .map(|c| c.content.unwrap_or_default())
+                    .map(|s| s.content.unwrap_or_default())
                     .unwrap_or_default()
             } else {
-                return Err("chapter_id is required for chapter scope".to_string());
+                return Err("chapter_id/scene_id is required for chapter/scope scope".to_string());
             }
         }
         "selection" => request.selected_text.unwrap_or_default(),
         _ => {
-            // full: 读取所有章节内容
-            let chapters = chapter_repo.get_by_story(&request.story_id)
+            // full: 读取所有场景内容
+            let scenes = scene_repo.get_by_story(&request.story_id)
                 .map_err(|e| e.to_string())?;
-            chapters.into_iter()
-                .filter_map(|c| c.content)
+            scenes.into_iter()
+                .filter_map(|s| s.content)
                 .collect::<Vec<_>>()
                 .join("\n\n")
         }
@@ -637,6 +740,33 @@ pub async fn auto_revise(
                 log::warn!("[auto_revise] Quota consume failed: {}", e);
             }
 
+            // 对于 chapter/scope 范围，保存修改后的内容到数据库
+            if let Some(ref sid) = request.chapter_id {
+                if request.scope == "chapter" || request.scope == "scene" {
+                    let pool = app_handle.state::<DbPool>();
+                    let scene_repo = SceneRepository::new(pool.inner().clone());
+                    let _ = scene_repo.update(
+                        sid,
+                        &SceneUpdate {
+                            title: None,
+                            content: Some(result.content.clone()),
+                            dramatic_goal: None,
+                            external_pressure: None,
+                            conflict_type: None,
+                            characters_present: None,
+                            character_conflicts: None,
+                            setting_location: None,
+                            setting_time: None,
+                            setting_atmosphere: None,
+                            previous_scene_id: None,
+                            next_scene_id: None,
+                            confidence_score: None,
+                        },
+                    );
+                    log::info!("[auto_revise] Saved revised content to scene {}", sid);
+                }
+            }
+
             Ok(AutoReviseResponse {
                 task_id,
                 revised_text: result.content,
@@ -672,9 +802,22 @@ pub(crate) async fn build_agent_context(
         }
     };
 
-    // 注入当前内容和选中文本（来自请求）
-    context.current_content = None; // 由调用方填充
-    context.selected_text = None;   // 由调用方填充
+    // 注入未解决的伏笔提示到世界观规则中
+    {
+        let tracker = crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool.inner().clone());
+        match tracker.get_writing_hints(&story_id, 5) {
+            Ok(hints) if !hints.is_empty() => {
+                let hints_text = format!("\n\n【伏笔提醒】\n{}", hints.join("\n"));
+                context.world_rules = Some(context.world_rules.unwrap_or_default() + &hints_text);
+                log::info!("[build_agent_context] Injected {} foreshadowing hints", hints.len());
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("[build_agent_context] ForeshadowingTracker failed: {}", e),
+        }
+    }
+
+    // current_content 和 selected_text 由调用方在返回后填充
+    //（参见 writer_agent_execute、auto_write 等调用点）
 
     Ok(context)
 }

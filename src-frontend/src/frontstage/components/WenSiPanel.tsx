@@ -24,6 +24,7 @@ export interface WenSiPanelProps {
   hasAutoReviseQuota: (chars: number) => Promise<boolean>;
   editorContent?: string;
   selectedText?: string;
+  onReviseResult?: (text: string) => void;
 }
 
 type PanelTab = 'none' | 'write' | 'revise';
@@ -38,6 +39,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   hasAutoReviseQuota,
   editorContent,
   selectedText,
+  onReviseResult,
 }) => {
   const [activeTab, setActiveTab] = useState<PanelTab>('none');
 
@@ -182,9 +184,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         revision_type: reviseType,
       });
       toast.success('自动修改完成！');
-      // 修改结果通过事件或回调传给 RichTextEditor
-      // 这里简化处理，实际可以 emit 一个自定义事件
-      console.log('[WenSiPanel] Revised text:', result.revised_text.substring(0, 200) + '...');
+      onReviseResult?.(result.revised_text);
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('配额') || msg.includes('次数已用完')) {
@@ -195,7 +195,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     } finally {
       setIsAutoRevising(false);
     }
-  }, [storyId, chapterId, reviseScope, reviseType, selectedText, editorContent, hasAutoReviseQuota, onShowUpgrade]);
+  }, [storyId, chapterId, reviseScope, reviseType, selectedText, editorContent, hasAutoReviseQuota, onShowUpgrade, onReviseResult]);
 
   const maxCharsPerCall = isPro ? 999999 : 1000;
 

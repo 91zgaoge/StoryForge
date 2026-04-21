@@ -8,6 +8,7 @@ use chrono::Local;
 use crate::db::DbPool;
 use crate::llm::LlmService;
 use serde_json;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Semaphore;
@@ -17,6 +18,12 @@ pub struct BookAnalyzer {
     app_handle: AppHandle,
     pool: DbPool,
     semaphore: Arc<Semaphore>,
+    /// 当前活跃的 LLM 请求数
+    active_requests: Arc<AtomicI32>,
+    /// 最大并发数
+    concurrency: usize,
+    /// 最近一次进度值，用于心跳不覆盖进度
+    last_progress: Arc<AtomicI32>,
 }
 
 impl BookAnalyzer {
@@ -28,6 +35,9 @@ impl BookAnalyzer {
             app_handle,
             pool,
             semaphore: Arc::new(Semaphore::new(concurrency)),
+            active_requests: Arc::new(AtomicI32::new(0)),
+            concurrency,
+            last_progress: Arc::new(AtomicI32::new(0)),
         }
     }
 
@@ -54,73 +64,113 @@ impl BookAnalyzer {
             Ok(())
         };
 
-        // Step 1: 元信息识别 (5% -> 12%)
-        self.emit_progress(book_id, "extracting", 5, "正在准备文本样本...").await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
-        let sample_text = extract_sample(&chunks.first().map(|c| c.content.clone()).unwrap_or_default(), 3000);
-        self.emit_progress(book_id, "extracting", 7, "正在调用LLM识别元信息...").await;
-        let metadata = self.extract_metadata(&sample_text).await?;
-        self.emit_progress(book_id, "analyzing", 12, &format!("识别完成：{} / {}", metadata.title.as_deref().unwrap_or("未知"), metadata.genre.as_deref().unwrap_or("未知类型"))).await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
+        // 启动后台定时推送：每 500ms  emit 一次活跃线程数
+        let book_id_for_heartbeat = book_id.to_string();
+        let active_reqs = self.active_requests.clone();
+        let app_handle = self.app_handle.clone();
+        let concurrency = self.concurrency;
+        let last_progress_for_heartbeat = self.last_progress.clone();
+        let stop_heartbeat = Arc::new(AtomicBool::new(false));
+        let stop_flag = stop_heartbeat.clone();
+        let heartbeat_handle = tokio::task::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+            loop {
+                interval.tick().await;
+                if stop_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let active = active_reqs.load(Ordering::Relaxed);
+                let last_progress = last_progress_for_heartbeat.load(Ordering::Relaxed);
+                let event = BookAnalysisProgressEvent {
+                    book_id: book_id_for_heartbeat.clone(),
+                    status: "analyzing".to_string(),
+                    progress: last_progress, // 保持当前进度，不覆盖
+                    current_step: format!("LLM 调用中，活跃线程 {}/{}", active, concurrency),
+                    message: Some(format!("活跃线程 {}/{}", active, concurrency)),
+                    active_threads: active,
+                    total_chunks: concurrency as i32,
+                    processed_chunks: 0,
+                };
+                let _ = app_handle.emit("book-analysis-progress", event);
+            }
+        });
 
-        // Step 2: 世界观提取 (15% -> 28%)
-        self.emit_progress(book_id, "analyzing", 15, "正在准备世界观分析样本...").await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
-        let world_setting = self.extract_world_setting(book_id, chunks, total_word_count).await?;
-        self.emit_progress(book_id, "analyzing", 28, "世界观设定分析完成").await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
+        // 将分析逻辑放在一个块中，确保无论成功失败都停止心跳
+        let analysis_result: Result<BookAnalysisResult, AnalysisError> = async {
+            // Step 1: 元信息识别 (5% -> 12%)
+            self.emit_progress(book_id, "extracting", 5, "正在准备文本样本...").await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
+            let sample_text = extract_sample(&chunks.first().map(|c| c.content.clone()).unwrap_or_default(), 3000);
+            self.emit_progress(book_id, "extracting", 7, "正在调用LLM识别元信息...").await;
+            let metadata = self.extract_metadata(&sample_text).await?;
+            self.emit_progress(book_id, "analyzing", 12, &format!("识别完成：{} / {}", metadata.title.as_deref().unwrap_or("未知"), metadata.genre.as_deref().unwrap_or("未知类型"))).await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
 
-        // Step 3: 人物拆解 (30% -> 52%)
-        self.emit_progress(book_id, "analyzing", 30, &format!("开始拆解人物角色，共 {} 个文本块...", chunks.len())).await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
-        let characters = self.extract_characters(book_id, chunks, cancel_check.as_ref()).await?;
-        self.emit_progress(book_id, "analyzing", 52, &format!("人物拆解完成，共识别 {} 个角色", characters.len())).await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
+            // Step 2: 世界观提取 (15% -> 28%)
+            self.emit_progress(book_id, "analyzing", 15, "正在准备世界观分析样本...").await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
+            let world_setting = self.extract_world_setting(book_id, chunks, total_word_count).await?;
+            self.emit_progress(book_id, "analyzing", 28, "世界观设定分析完成").await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
 
-        // Step 4: 章节概要 (55% -> 78%)
-        self.emit_progress(book_id, "analyzing", 55, &format!("开始生成章节概要，共 {} 个文本块...", chunks.len())).await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
-        let scenes = self.extract_scene_summaries(book_id, chunks, cancel_check.as_ref()).await?;
-        self.emit_progress(book_id, "analyzing", 78, &format!("章节概要完成，共 {} 章", scenes.len())).await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
+            // Step 3: 人物拆解 (30% -> 52%)
+            self.emit_progress(book_id, "analyzing", 30, &format!("开始拆解人物角色，共 {} 个文本块...", chunks.len())).await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
+            let characters = self.extract_characters(book_id, chunks, cancel_check.as_ref()).await?;
+            self.emit_progress(book_id, "analyzing", 52, &format!("人物拆解完成，共识别 {} 个角色", characters.len())).await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
 
-        // Step 5: 故事线生成 (80% -> 92%)
-        self.emit_progress(book_id, "analyzing", 80, "正在准备故事线素材...").await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
-        let story_arc = self.extract_story_arc(book_id, &scenes).await?;
-        self.emit_progress(book_id, "analyzing", 92, &format!("故事线生成完成：主线{}、支线{}条、高潮{}处", 
-            if story_arc.main_arc.is_empty() { "待补充" } else { "已提取" },
-            story_arc.sub_arcs.len(),
-            story_arc.climaxes.len()
-        )).await;
-        if let Some(ref cb) = heartbeat_callback { cb(); }
-        check_cancel()?;
+            // Step 4: 章节概要 (55% -> 78%)
+            self.emit_progress(book_id, "analyzing", 55, &format!("开始生成章节概要，共 {} 个文本块...", chunks.len())).await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
+            let scenes = self.extract_scene_summaries(book_id, chunks, cancel_check.as_ref()).await?;
+            self.emit_progress(book_id, "analyzing", 78, &format!("章节概要完成，共 {} 章", scenes.len())).await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
 
-        // 构建结果
-        let book = self.build_book_result(
-            book_id,
-            metadata,
-            world_setting,
-            plot_summary_from_scenes(&scenes),
-            story_arc,
-        )?;
+            // Step 5: 故事线生成 (80% -> 92%)
+            self.emit_progress(book_id, "analyzing", 80, "正在准备故事线素材...").await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
+            let story_arc = self.extract_story_arc(book_id, &scenes).await?;
+            self.emit_progress(book_id, "analyzing", 92, &format!("故事线生成完成：主线{}、支线{}条、高潮{}处", 
+                if story_arc.main_arc.is_empty() { "待补充" } else { "已提取" },
+                story_arc.sub_arcs.len(),
+                story_arc.climaxes.len()
+            )).await;
+            if let Some(ref cb) = heartbeat_callback { cb(); }
+            check_cancel()?;
 
-        self.emit_progress(book_id, "analyzing", 100, "分析完成").await;
+            // 构建结果
+            let book = self.build_book_result(
+                book_id,
+                metadata,
+                world_setting,
+                plot_summary_from_scenes(&scenes),
+                story_arc,
+            )?;
 
-        Ok(BookAnalysisResult {
-            book,
-            characters,
-            scenes,
-        })
+            self.emit_progress(book_id, "analyzing", 100, "分析完成").await;
+
+            Ok(BookAnalysisResult {
+                book,
+                characters,
+                scenes,
+            })
+        }.await;
+
+        // 停止后台心跳推送
+        stop_heartbeat.store(true, Ordering::Relaxed);
+        let _ = heartbeat_handle.await;
+
+        analysis_result
     }
 
     // ==================== Step 1: 元信息识别 ====================
@@ -462,16 +512,24 @@ JSON格式：
         let _permit = self.semaphore.acquire().await.map_err(|e| {
             AnalysisError::LlmError(format!("Semaphore error: {}", e))
         });
-        self.call_llm(prompt, max_tokens, temperature).await
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
+        let result = self.call_llm(prompt, max_tokens, temperature).await;
+        self.active_requests.fetch_sub(1, Ordering::Relaxed);
+        result
     }
 
     async fn emit_progress(&self, book_id: &str, status: &str, progress: i32, message: &str) {
+        let active = self.active_requests.load(Ordering::Relaxed);
+        let _max = self.semaphore.available_permits() as i32 + active;
         let event = BookAnalysisProgressEvent {
             book_id: book_id.to_string(),
             status: status.to_string(),
             progress,
             current_step: message.to_string(),
             message: Some(message.to_string()),
+            active_threads: active,
+            total_chunks: self.concurrency as i32,
+            processed_chunks: 0,
         };
         let _ = self.app_handle.emit("book-analysis-progress", event);
     }

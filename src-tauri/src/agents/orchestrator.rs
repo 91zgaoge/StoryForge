@@ -7,6 +7,7 @@
 
 use super::AgentResult;
 use super::service::{AgentService, AgentTask, AgentType};
+use tauri::{AppHandle, Emitter};
 
 /// 工作流配置
 #[derive(Debug, Clone)]
@@ -75,15 +76,27 @@ impl WorkflowStepType {
 pub struct AgentOrchestrator {
     service: AgentService,
     config: WorkflowConfig,
+    app_handle: AppHandle,
 }
 
 impl AgentOrchestrator {
-    pub fn new(service: AgentService, config: WorkflowConfig) -> Self {
-        Self { service, config }
+    pub fn new(service: AgentService, config: WorkflowConfig, app_handle: AppHandle) -> Self {
+        Self { service, config, app_handle }
     }
 
-    pub fn with_default_config(service: AgentService) -> Self {
-        Self::new(service, WorkflowConfig::default())
+    pub fn with_default_config(service: AgentService, app_handle: AppHandle) -> Self {
+        Self::new(service, WorkflowConfig::default(), app_handle)
+    }
+
+    /// 发射工作流步骤事件到前端
+    fn emit_step_event(&self, task_id: &str, step_type: WorkflowStepType, loop_idx: Option<u32>, score: Option<f32>) {
+        let event = serde_json::json!({
+            "task_id": task_id,
+            "step_type": step_type.name(),
+            "loop_idx": loop_idx,
+            "score": score.map(|s| (s * 100.0) as i32),
+        });
+        let _ = self.app_handle.emit(&format!("orchestrator-step-{}", task_id), event);
     }
 
     /// 执行 Writer → Inspector → Writer 反馈闭环
@@ -102,6 +115,7 @@ impl AgentOrchestrator {
         let mut was_rewritten = false;
 
         // 步骤1: Writer 生成初稿
+        self.emit_step_event(&task.id, WorkflowStepType::Generation, None, None);
         let writer_result = self.service.execute_task(task.clone()).await?;
         let mut current_content = writer_result.content.clone();
 
@@ -116,6 +130,7 @@ impl AgentOrchestrator {
         // 反馈循环
         for loop_idx in 0..self.config.max_feedback_loops {
             // 步骤2: Inspector 质检
+            self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), None);
             let inspect_task = AgentTask {
                 id: format!("{}-inspect-{}", task.id, loop_idx),
                 agent_type: AgentType::Inspector,
@@ -127,6 +142,8 @@ impl AgentOrchestrator {
 
             let inspect_result = self.service.execute_task(inspect_task).await?;
             let inspect_score = inspect_result.score.unwrap_or(0.0);
+
+            self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), Some(inspect_score));
 
             steps.push(WorkflowStepResult {
                 step_type: WorkflowStepType::Inspection,
@@ -154,6 +171,7 @@ impl AgentOrchestrator {
             rewrite_count += 1;
 
             // 步骤3: Writer 改写
+            self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), None);
             let rewrite_task = AgentTask {
                 id: format!("{}-rewrite-{}", task.id, loop_idx),
                 agent_type: AgentType::Writer,
@@ -176,6 +194,8 @@ impl AgentOrchestrator {
 
             let rewrite_result = self.service.execute_task(rewrite_task).await?;
             current_content = rewrite_result.content.clone();
+
+            self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), writer_result.score);
 
             steps.push(WorkflowStepResult {
                 step_type: WorkflowStepType::Rewrite,

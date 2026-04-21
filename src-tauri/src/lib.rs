@@ -85,6 +85,29 @@ pub fn run() {
             }
             let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new()));
 
+            // Seed built-in StyleDNAs
+            if let Some(pool) = get_pool() {
+                let style_repo = db::repositories_v3::StyleDnaRepository::new(pool);
+                match style_repo.get_builtin() {
+                    Ok(existing) if existing.is_empty() => {
+                        log::info!("[StyleDNA] Seeding built-in styles...");
+                        for style in creative_engine::style::classic_styles::get_builtin_styles() {
+                            if let Ok(dna_json) = serde_json::to_string(&style) {
+                                let _ = style_repo.create(
+                                    &style.meta.name,
+                                    style.meta.author.as_deref(),
+                                    &dna_json,
+                                    true,
+                                );
+                            }
+                        }
+                        log::info!("[StyleDNA] Built-in styles seeded successfully");
+                    }
+                    Ok(_) => log::info!("[StyleDNA] Built-in styles already exist, skipping seed"),
+                    Err(e) => log::warn!("[StyleDNA] Failed to check existing styles: {}", e),
+                }
+            }
+
             // Initialize embedding model
             let _ = embeddings::init_embedding_model();
 
@@ -317,6 +340,7 @@ pub fn run() {
             commands_v3::resolve_comment_thread,
             commands_v3::reopen_comment_thread,
             commands_v3::delete_comment_thread,
+            commands_v3::run_creation_workflow,
             // Book deconstruction commands
             book_deconstruction::commands::upload_book,
             book_deconstruction::commands::get_analysis_status,

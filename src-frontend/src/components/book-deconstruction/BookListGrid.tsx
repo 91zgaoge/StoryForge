@@ -19,6 +19,8 @@ export function BookListGrid({ books, selectedId, onSelect, onDelete }: BookList
       case 'extracting':
       case 'analyzing':
         return <Loader2 className="w-4 h-4 text-cinema-gold animate-spin" />;
+      case 'cancelled':
+        return <AlertCircle className="w-4 h-4 text-orange-500" />;
       default:
         return null;
     }
@@ -31,6 +33,7 @@ export function BookListGrid({ books, selectedId, onSelect, onDelete }: BookList
       analyzing: '分析中',
       completed: '已完成',
       failed: '失败',
+      cancelled: '已取消',
     };
     return map[status] || status;
   };

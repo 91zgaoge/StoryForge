@@ -118,6 +118,8 @@ export function BookDeconstruction() {
           status={selectedStatus?.status}
           onCancel={selectedStatus?.status !== 'cancelled' ? handleCancel : undefined}
           isCancelling={cancelMutation.isPending}
+          activeThreads={selectedStatus?.active_threads}
+          maxThreads={selectedStatus?.max_threads}
         />
       );
     }

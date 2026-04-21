@@ -67,7 +67,7 @@ impl SceneRepository {
         )?;
 
         let scenes = stmt.query_map([story_id], |row| {
-            let conflict_type_str: Option<String> = row.get(5)?;
+            let conflict_type_str: Option<String> = row.get(6)?;
             let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
             
             let chars_json: String = row.get(7)?;
@@ -117,7 +117,7 @@ impl SceneRepository {
         )?;
 
         let scene = stmt.query_row([id], |row| {
-            let conflict_type_str: Option<String> = row.get(5)?;
+            let conflict_type_str: Option<String> = row.get(6)?;
             let conflict_type = conflict_type_str.and_then(|s| s.parse().ok());
             
             let chars_json: String = row.get(7)?;

@@ -79,7 +79,7 @@ impl BookDeconstructionService {
 
         // 6. 解析文件
         self.emit_progress(&book_id, "extracting", 0, "正在解析文件...").await;
-        let parsed = parse_book(file_path)?;
+        let parsed = parse_book(file_path, None)?;
 
         // 7. 创建数据库记录
         let now = Local::now();
@@ -125,7 +125,8 @@ impl BookDeconstructionService {
             heartbeat_timeout_seconds: Some(300),
         };
 
-        let task_service = TaskService::new(self.pool.clone(), self.app_handle.clone());
+        // 使用全局共享的 TaskService（已注册 executor）
+        let task_service = self.app_handle.state::<TaskService>();
         match task_service.create_task(task_req) {
             Ok(task) => {
                 log::info!("[BookDeconstruction] Created task {} for book {}", task.id, book_id);
@@ -192,6 +193,8 @@ impl BookDeconstructionService {
         // 保存分析结果到数据库
         repo.update_analysis_result(
             book_id,
+            Some(result.book.title.as_str()),
+            result.book.author.as_deref(),
             result.book.genre.as_deref(),
             result.book.world_setting.as_deref(),
             result.book.plot_summary.as_deref(),
@@ -236,6 +239,9 @@ impl BookDeconstructionService {
             progress: book.analysis_progress,
             current_step: None,
             error: book.analysis_error,
+            active_threads: 0,
+            max_threads: 0,
+            task_id: book.task_id,
         })
     }
 
@@ -303,7 +309,7 @@ impl BookDeconstructionService {
 
         // 如果有关联的任务，取消任务
         if let Some(task_id) = book.task_id {
-            let task_service = TaskService::new(self.pool.clone(), self.app_handle.clone());
+            let task_service = self.app_handle.state::<TaskService>();
             if let Err(e) = task_service.cancel_task(&task_id) {
                 log::warn!("[BookDeconstruction] Failed to cancel task {}: {}", task_id, e);
             }
@@ -325,14 +331,14 @@ impl BookDeconstructionService {
 
         // 1. 创建故事
         let story_repo = StoryRepository::new(pool.clone());
-        let story_id = Uuid::new_v4().to_string();
-        story_repo
+        let story = story_repo
             .create(CreateStoryRequest {
                 title: analysis.book.title.clone(),
                 description: analysis.book.plot_summary.clone(),
                 genre: analysis.book.genre.clone(),
             })
             .map_err(|e| e.to_string())?;
+        let story_id = story.id;
 
         // 2. 创建世界观
         if let Some(ref world_setting) = analysis.book.world_setting {
@@ -412,7 +418,7 @@ impl BookDeconstructionService {
         Ok(hex::encode(result))
     }
 
-    async fn store_embeddings(
+    pub(crate) async fn store_embeddings(
         &self,
         book_id: &str,
         result: &BookAnalysisResult,
@@ -495,6 +501,9 @@ impl BookDeconstructionService {
             progress,
             current_step: message.to_string(),
             message: Some(message.to_string()),
+            active_threads: 0,
+            total_chunks: 0,
+            processed_chunks: 0,
         };
         let _ = self.app_handle.emit("book-analysis-progress", event);
     }
@@ -509,6 +518,15 @@ pub struct AnalysisStatusResponse {
     pub progress: i32,
     pub current_step: Option<String>,
     pub error: Option<String>,
+    /// 当前活跃的 LLM 并发线程数
+    #[serde(default)]
+    pub active_threads: i32,
+    /// 最大 LLM 并发线程数
+    #[serde(default)]
+    pub max_threads: i32,
+    /// 关联的任务ID
+    #[serde(default)]
+    pub task_id: Option<String>,
 }
 
 

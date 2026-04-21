@@ -64,15 +64,27 @@ impl TaskExecutor for BookDeconstructionExecutor {
         ctx.update_progress("parsing", 0, "正在解析文件...");
         ctx.heartbeat();
 
-        // 解析文件
-        let parsed = match parse_book(file_path) {
-            Ok(p) => p,
-            Err(e) => {
+        // 解析文件（同步操作，用 spawn_blocking 避免阻塞异步运行时）
+        let file_path_owned = file_path.to_path_buf();
+        
+        let parsed = match tokio::task::spawn_blocking(move || {
+            parse_book(&file_path_owned, None)
+        }).await {
+            Ok(Ok(p)) => p,
+            Ok(Err(e)) => {
                 ctx.log("error", &format!("文件解析失败: {}", e));
                 return Ok(TaskResult {
                     success: false,
                     result_json: None,
                     error_message: Some(format!("文件解析失败: {}", e)),
+                });
+            }
+            Err(e) => {
+                ctx.log("error", &format!("解析任务异常: {}", e));
+                return Ok(TaskResult {
+                    success: false,
+                    result_json: None,
+                    error_message: Some(format!("解析任务异常: {}", e)),
                 });
             }
         };
@@ -166,12 +178,14 @@ impl TaskExecutor for BookDeconstructionExecutor {
             let repo = ReferenceBookRepository::new(self.pool.clone());
             let _ = repo.update_analysis_result(
                 book_id,
+                Some(analysis_result.book.title.as_str()),
+                analysis_result.book.author.as_deref(),
                 analysis_result.book.genre.as_deref(),
                 analysis_result.book.world_setting.as_deref(),
                 analysis_result.book.plot_summary.as_deref(),
                 analysis_result.book.story_arc.as_deref(),
             );
-            let _ = repo.update_status(book_id, AnalysisStatus::Completed, 95);
+            let _ = repo.update_status(book_id, AnalysisStatus::Completed, 100);
 
             ctx.update_progress("saving", 96, &format!("正在保存 {} 个人物...", analysis_result.characters.len()));
             let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
@@ -180,6 +194,19 @@ impl TaskExecutor for BookDeconstructionExecutor {
             ctx.update_progress("saving", 98, &format!("正在保存 {} 个场景...", analysis_result.scenes.len()));
             let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
             let _ = scene_repo.create_batch(&analysis_result.scenes);
+        }
+
+        // 向量化存储
+        ctx.update_progress("saving", 99, "正在生成向量嵌入...");
+        {
+            let service = super::service::BookDeconstructionService::new(
+                self.pool.clone(),
+                self.llm_service.clone(),
+                self.app_handle.clone(),
+            );
+            if let Err(e) = service.store_embeddings(book_id, &analysis_result).await {
+                log::warn!("[BookDeconstructionExecutor] store_embeddings failed: {}", e);
+            }
         }
 
         ctx.update_progress("completed", 100, "分析完成");

@@ -44,13 +44,15 @@ export function useBookAnalysisStatus(bookId: string | null) {
     const setup = async () => {
       unlisten = await listen<BookAnalysisProgressEvent>('book-analysis-progress', (event) => {
         if (event.payload.book_id === bookId) {
-          setLiveStatus({
+          setLiveStatus((prev) => ({
             book_id: bookId,
             status: event.payload.status,
             progress: event.payload.progress,
             current_step: event.payload.current_step,
             error: undefined,
-          });
+            active_threads: event.payload.active_threads ?? prev?.active_threads ?? 0,
+            max_threads: event.payload.total_chunks ?? prev?.max_threads ?? 0,
+          }));
         }
       });
     };
@@ -70,14 +72,25 @@ export function useBookAnalysisStatus(bookId: string | null) {
 
     const setup = async () => {
       unlistenProgress = await listen<TaskProgressEvent>('task-progress', (event) => {
-        // 通过查询 book 状态来确认是否是当前 book 的任务
-        // 这里简单处理：如果当前 book 在分析中，且收到了任务进度，就更新
         setLiveStatus((prev) => {
-          if (!prev || (prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing')) {
+          // 过滤非当前任务的事件
+          if (prev?.task_id && event.payload.task_id !== prev.task_id) {
             return prev;
           }
+          // 如果 prev 存在但状态已不是分析中，忽略
+          if (prev && prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing') {
+            return prev;
+          }
+          // 即使 prev 为 null（轮询还没返回），也要创建状态
+          const base = prev ?? {
+            book_id: bookId,
+            status: 'analyzing',
+            progress: 0,
+            current_step: undefined,
+            error: undefined,
+          };
           return {
-            ...prev,
+            ...base,
             progress: event.payload.progress,
             current_step: event.payload.message,
           };
@@ -86,25 +99,45 @@ export function useBookAnalysisStatus(bookId: string | null) {
 
       unlistenStatus = await listen<TaskStatusChangedEvent>('task-status-changed', (event) => {
         setLiveStatus((prev) => {
-          if (!prev || (prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing')) {
+          // 过滤非当前任务的事件
+          if (prev?.task_id && event.payload.task_id !== prev.task_id) {
             return prev;
+          }
+          // 如果 prev 存在但状态已不是分析中，忽略
+          if (prev && prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing') {
+            return prev;
+          }
+          const base = prev ?? {
+            book_id: bookId,
+            status: 'analyzing',
+            progress: 0,
+            current_step: undefined,
+            error: undefined,
+          };
+          if (event.payload.status === 'completed') {
+            return {
+              ...base,
+              status: 'completed',
+              progress: 100,
+              current_step: event.payload.message || '分析完成',
+            };
           }
           if (event.payload.status === 'cancelled') {
             return {
-              ...prev,
+              ...base,
               status: 'cancelled',
               current_step: event.payload.message || '已取消',
             };
           }
           if (event.payload.status === 'failed') {
             return {
-              ...prev,
+              ...base,
               status: 'failed',
               current_step: event.payload.message || '分析失败',
               error: event.payload.message,
             };
           }
-          return prev;
+          return base;
         });
       });
     };

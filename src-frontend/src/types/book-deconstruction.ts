@@ -65,6 +65,8 @@ export interface AnalysisStatusResponse {
   current_step?: string;
   error?: string;
   task_id?: string;
+  active_threads?: number;
+  max_threads?: number;
 }
 
 export interface BookAnalysisProgressEvent {
@@ -73,4 +75,7 @@ export interface BookAnalysisProgressEvent {
   progress: number;
   current_step: string;
   message?: string;
+  active_threads?: number;
+  total_chunks?: number;
+  processed_chunks?: number;
 }

@@ -89,11 +89,14 @@ pub struct TestConnectionResult {
     pub message: String,
 }
 
-/// 取消生成（预留）
+/// 取消生成
 #[command]
-pub async fn llm_cancel_generation(request_id: String) -> Result<(), String> {
-    // TODO: 实现取消机制
-    log::info!("[LLM] Cancelling generation: {}", request_id);
+pub async fn llm_cancel_generation(
+    request_id: String,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let service = LlmService::new(app_handle);
+    service.cancel_generation(&request_id);
     Ok(())
 }
 

@@ -303,6 +303,35 @@ fn create_v3_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Err
             FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
         );
 
+        -- 场景版本历史表
+        CREATE TABLE IF NOT EXISTS scene_versions (
+            id TEXT PRIMARY KEY,
+            scene_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL,
+            title TEXT,
+            content TEXT,
+            dramatic_goal TEXT,
+            external_pressure TEXT,
+            conflict_type TEXT,
+            characters_present TEXT,
+            character_conflicts TEXT,
+            setting_location TEXT,
+            setting_time TEXT,
+            setting_atmosphere TEXT,
+            word_count INTEGER,
+            change_summary TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            model_used TEXT,
+            confidence_score REAL,
+            previous_version_id TEXT,
+            superseded_by TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+            FOREIGN KEY (previous_version_id) REFERENCES scene_versions(id),
+            FOREIGN KEY (superseded_by) REFERENCES scene_versions(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_scene_versions_scene ON scene_versions(scene_id);
+
         -- 场景批注表
         CREATE TABLE IF NOT EXISTS scene_annotations (
             id TEXT PRIMARY KEY,
@@ -1121,6 +1150,50 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX idx_ref_books_task ON reference_books(task_id)",
+            [],
+        )?;
+    }
+
+    // Migration 19: 创建 scene_versions 表（生产环境缺失修复）
+    let sv_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='scene_versions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if sv_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE scene_versions (
+                id TEXT PRIMARY KEY,
+                scene_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL,
+                title TEXT,
+                content TEXT,
+                dramatic_goal TEXT,
+                external_pressure TEXT,
+                conflict_type TEXT,
+                characters_present TEXT,
+                character_conflicts TEXT,
+                setting_location TEXT,
+                setting_time TEXT,
+                setting_atmosphere TEXT,
+                word_count INTEGER,
+                change_summary TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                model_used TEXT,
+                confidence_score REAL,
+                previous_version_id TEXT,
+                superseded_by TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+                FOREIGN KEY (previous_version_id) REFERENCES scene_versions(id),
+                FOREIGN KEY (superseded_by) REFERENCES scene_versions(id)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_scene_versions_scene ON scene_versions(scene_id)",
             [],
         )?;
     }

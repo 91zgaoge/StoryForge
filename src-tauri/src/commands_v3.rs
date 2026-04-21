@@ -18,11 +18,39 @@ pub async fn create_scene(
     story_id: String,
     sequence_number: i32,
     title: Option<String>,
+    dramatic_goal: Option<String>,
+    external_pressure: Option<String>,
+    conflict_type: Option<String>,
     pool: State<'_, DbPool>,
 ) -> Result<Scene, String> {
     let repo = SceneRepository::new(pool.inner().clone());
-    repo.create(&story_id, sequence_number, title.as_deref())
-        .map_err(|e| e.to_string())
+    let scene = repo.create(&story_id, sequence_number, title.as_deref())
+        .map_err(|e| e.to_string())?;
+    
+    // 如果提供了戏剧字段，立即更新场景
+    if dramatic_goal.is_some() || external_pressure.is_some() || conflict_type.is_some() {
+        use crate::db::repositories_v3::SceneUpdate;
+        let _ = repo.update(
+            &scene.id,
+            &SceneUpdate {
+                title: None,
+                content: None,
+                dramatic_goal: dramatic_goal.clone(),
+                external_pressure: external_pressure.clone(),
+                conflict_type: conflict_type.and_then(|c| c.parse().ok()),
+                characters_present: None,
+                character_conflicts: None,
+                setting_location: None,
+                setting_time: None,
+                setting_atmosphere: None,
+                previous_scene_id: None,
+                next_scene_id: None,
+                confidence_score: None,
+            },
+        );
+    }
+    
+    Ok(scene)
 }
 
 #[command]
@@ -1624,4 +1652,42 @@ pub async fn delete_comment_thread(
     let repo = CommentThreadRepository::new(pool.inner().clone());
     repo.delete_thread(&thread_id)
         .map_err(|e| e.to_string())
+}
+
+
+#[command]
+pub async fn run_creation_workflow(
+    story_id: String,
+    mode: String, // "ai_only" | "ai_first" | "human_first"
+    initial_input: String,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<serde_json::Value, String> {
+    use crate::creative_engine::workflow::{CreationWorkflowEngine, CreationMode};
+    use crate::agents::service::AgentService;
+
+    let mode = match mode.as_str() {
+        "ai_only" => CreationMode::AiOnly,
+        "human_first" => CreationMode::HumanDraftAiPolish,
+        _ => CreationMode::AiDraftHumanEdit,
+    };
+
+    let agent_service = AgentService::new(app_handle);
+    let engine = CreationWorkflowEngine::new(agent_service, pool.inner().clone());
+    let config = CreationWorkflowEngine::create_standard_workflow(&story_id, mode);
+
+    match engine.execute_full_workflow(&config, &initial_input).await {
+        Ok(result) => {
+            let json = serde_json::json!({
+                "success": result.success,
+                "current_phase": result.current_phase,
+                "completed_phases": result.completed_phases,
+                "output_preview": result.output.as_ref().map(|o| o.chars().take(500).collect::<String>()),
+                "quality_report": result.quality_report,
+                "error": result.error,
+            });
+            Ok(json)
+        }
+        Err(e) => Err(e),
+    }
 }
