@@ -143,6 +143,9 @@ export interface AppSettings {
     share_usage_data: boolean;
     store_api_keys_securely: boolean;
   };
+  
+  // 拆书分析 LLM 并发数（默认 3，本地模型可调到 50）
+  book_deconstruction_concurrency: number;
 }
 
 // 设置导出/导入格式

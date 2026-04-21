@@ -11,7 +11,7 @@ use crate::db::DbPool;
 use crate::llm::LlmService;
 use crate::task_system::executor::{TaskExecutionContext, TaskExecutor};
 use crate::task_system::models::*;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 pub struct BookDeconstructionExecutor {
     pool: DbPool,
@@ -92,11 +92,20 @@ impl TaskExecutor for BookDeconstructionExecutor {
         ctx.update_progress("analyzing", 10, "开始LLM分析...");
         ctx.heartbeat();
 
+        // 读取并发数配置
+        let concurrency = {
+            let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+            crate::config::AppConfig::load(&app_dir)
+                .map(|c| c.book_deconstruction_concurrency)
+                .unwrap_or(3)
+        };
+
         // 执行分析
         let analyzer = BookAnalyzer::new(
             self.llm_service.clone(),
             self.app_handle.clone(),
             self.pool.clone(),
+            concurrency,
         );
 
         // 心跳回调：每完成一个主要步骤调用一次

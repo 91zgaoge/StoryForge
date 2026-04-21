@@ -33,6 +33,13 @@ pub struct AppConfig {
     pub active_embedding_profile: Option<String>,
     #[serde(default)]
     pub agent_mappings: HashMap<String, AgentMapping>,
+    /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
+    #[serde(default = "default_concurrency")]
+    pub book_deconstruction_concurrency: usize,
+}
+
+fn default_concurrency() -> usize {
+    3
 }
 
 /// 语言模型配置（向后兼容）
@@ -263,6 +270,7 @@ impl Default for AppConfig {
             active_llm_profile: Some("Qwen3.5-27B-Uncensored-Q4_K_M".to_string()),
             active_embedding_profile: Some("bge-m3".to_string()),
             agent_mappings,
+            book_deconstruction_concurrency: 3,
         }
     }
 }

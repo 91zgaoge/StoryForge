@@ -19,11 +19,11 @@ import {
   Settings2, Key, Globe, Database, 
   Plus, Trash2, Edit2, Download, Upload,
   Check, X, Bot, Sparkles, Image, MessageSquare,
-  RefreshCw, Star
+  RefreshCw, Star, BookOpen, Zap
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel, useSetActiveModel } from '@/hooks/useSettings';
+import { useSettings, useSaveSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel, useSetActiveModel } from '@/hooks/useSettings';
 import { colorThemeList, applyColorTheme, loadColorTheme, type ColorThemeId } from '@/frontstage/config/colorThemes';
 import { useUpdater } from '@/hooks/useUpdater';
 import { EditorSettings } from '@/components/EditorSettings';
@@ -814,6 +814,31 @@ function GeneralSettings() {
     checkUpdate, 
     installUpdate 
   } = useUpdater(false);
+  
+  const { data: settings } = useSettings();
+  const saveSettingsMutation = useSaveSettings();
+  const [concurrency, setConcurrency] = useState(settings?.book_deconstruction_concurrency ?? 3);
+  
+  // 同步设置值
+  useEffect(() => {
+    if (settings?.book_deconstruction_concurrency !== undefined) {
+      setConcurrency(settings.book_deconstruction_concurrency);
+    }
+  }, [settings?.book_deconstruction_concurrency]);
+  
+  const handleConcurrencyChange = (value: number) => {
+    setConcurrency(value);
+    // 防抖保存：300ms 后保存
+    const timer = setTimeout(() => {
+      if (settings) {
+        saveSettingsMutation.mutate({
+          ...settings,
+          book_deconstruction_concurrency: value,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  };
 
   return (
     <div className="space-y-6">
@@ -873,6 +898,57 @@ function GeneralSettings() {
                   )}
                 </Button>
               )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 拆书分析并发设置 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <BookOpen className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">拆书分析设置</h3>
+              <p className="text-sm text-gray-500">调整拆书时的 LLM 并发数，本地模型可调大以加速分析</p>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-cinema-gold" />
+                <span className="text-sm text-white">LLM 并发数</span>
+              </div>
+              <span className="text-lg font-bold text-cinema-gold font-mono">{concurrency}</span>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-gray-500 w-8">1</span>
+              <input
+                type="range"
+                min={1}
+                max={50}
+                value={concurrency}
+                onChange={(e) => handleConcurrencyChange(Number(e.target.value))}
+                className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
+              />
+              <span className="text-xs text-gray-500 w-8">50</span>
+            </div>
+            
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>保守（慢但稳）</span>
+              <span>激进（快但占用资源）</span>
+            </div>
+            
+            <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+              <p className="text-xs text-gray-400">
+                <span className="text-cinema-gold font-medium">提示：</span>
+                远程 API 建议 1~5，本地模型（Ollama/vLLM）建议 10~50。
+                当前设置会在下次拆书时生效。
+              </p>
             </div>
           </div>
         </CardContent>

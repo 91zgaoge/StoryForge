@@ -12,9 +12,6 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Semaphore;
 
-/// LLM 并发限制
-const MAX_CONCURRENT_LLM_CALLS: usize = 3;
-
 pub struct BookAnalyzer {
     llm_service: LlmService,
     app_handle: AppHandle,
@@ -23,12 +20,14 @@ pub struct BookAnalyzer {
 }
 
 impl BookAnalyzer {
-    pub fn new(llm_service: LlmService, app_handle: AppHandle, pool: DbPool) -> Self {
+    pub fn new(llm_service: LlmService, app_handle: AppHandle, pool: DbPool, concurrency: usize) -> Self {
+        let concurrency = concurrency.max(1).min(100);
+        log::info!("[BookAnalyzer] Initialized with concurrency: {}", concurrency);
         Self {
             llm_service,
             app_handle,
             pool,
-            semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_LLM_CALLS)),
+            semaphore: Arc::new(Semaphore::new(concurrency)),
         }
     }
 

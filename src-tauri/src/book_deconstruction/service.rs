@@ -171,11 +171,20 @@ impl BookDeconstructionService {
         repo.update_status(book_id, AnalysisStatus::Analyzing, 0)
             .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
 
+        // 读取并发数配置
+        let concurrency = {
+            let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+            crate::config::AppConfig::load(&app_dir)
+                .map(|c| c.book_deconstruction_concurrency)
+                .unwrap_or(3)
+        };
+
         // 执行 LLM 分析
         let analyzer = BookAnalyzer::new(
             self.llm_service.clone(),
             self.app_handle.clone(),
             self.pool.clone(),
+            concurrency,
         );
 
         let result = analyzer.analyze(book_id, chunks, word_count, None, None).await?;

@@ -93,6 +93,7 @@ const BROWSER_FALLBACK_SETTINGS: AppSettings = {
     share_usage_data: false,
     store_api_keys_securely: true,
   },
+  book_deconstruction_concurrency: 3,
 };
 
 export async function getSettings(): Promise<AppSettings> {

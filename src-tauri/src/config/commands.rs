@@ -50,6 +50,13 @@ pub struct AppSettingsData {
     pub agent_mappings: Vec<AgentMapping>,
     pub general: GeneralSettings,
     pub privacy: PrivacySettings,
+    /// 拆书分析 LLM 并发数
+    #[serde(default = "default_concurrency")]
+    pub book_deconstruction_concurrency: usize,
+}
+
+fn default_concurrency() -> usize {
+    3
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -164,6 +171,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
             share_usage_data: false,
             store_api_keys_securely: true,
         },
+        book_deconstruction_concurrency: config.book_deconstruction_concurrency,
     })
 }
 
@@ -193,6 +201,9 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     for mapping in settings.agent_mappings {
         config.agent_mappings.insert(mapping.agent_id.clone(), mapping);
     }
+
+    // 保存拆书并发数
+    config.book_deconstruction_concurrency = settings.book_deconstruction_concurrency.max(1).min(100);
     
     config.save(&app_dir).map_err(|e| e.to_string())
 }
