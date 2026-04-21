@@ -14,6 +14,7 @@ pub enum AnalysisStatus {
     Analyzing,
     Completed,
     Failed,
+    Cancelled,
 }
 
 impl std::fmt::Display for AnalysisStatus {
@@ -24,6 +25,7 @@ impl std::fmt::Display for AnalysisStatus {
             AnalysisStatus::Analyzing => "analyzing",
             AnalysisStatus::Completed => "completed",
             AnalysisStatus::Failed => "failed",
+            AnalysisStatus::Cancelled => "cancelled",
         };
         write!(f, "{}", s)
     }
@@ -39,6 +41,7 @@ impl std::str::FromStr for AnalysisStatus {
             "analyzing" => Ok(AnalysisStatus::Analyzing),
             "completed" => Ok(AnalysisStatus::Completed),
             "failed" => Ok(AnalysisStatus::Failed),
+            "cancelled" => Ok(AnalysisStatus::Cancelled),
             _ => Err(format!("Unknown analysis status: {}", s)),
         }
     }
@@ -62,6 +65,7 @@ pub struct ReferenceBook {
     pub analysis_status: AnalysisStatus,
     pub analysis_progress: i32,
     pub analysis_error: Option<String>,
+    pub task_id: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }

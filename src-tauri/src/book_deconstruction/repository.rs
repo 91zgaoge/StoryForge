@@ -20,8 +20,8 @@ impl ReferenceBookRepository {
     pub fn create(&self, book: &ReferenceBook) -> Result<(), Box<dyn std::error::Error>> {
         let conn = self.pool.get()?;
         conn.execute(
-            "INSERT INTO reference_books (id, title, author, genre, word_count, file_format, file_hash, file_path, world_setting, plot_summary, story_arc, analysis_status, analysis_progress, analysis_error, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            "INSERT INTO reference_books (id, title, author, genre, word_count, file_format, file_hash, file_path, world_setting, plot_summary, story_arc, analysis_status, analysis_progress, analysis_error, task_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 book.id,
                 book.title,
@@ -37,6 +37,7 @@ impl ReferenceBookRepository {
                 book.analysis_status.to_string(),
                 book.analysis_progress,
                 book.analysis_error,
+                book.task_id,
                 book.created_at.to_rfc3339(),
                 book.updated_at.to_rfc3339(),
             ],
@@ -48,7 +49,7 @@ impl ReferenceBookRepository {
     pub fn get_by_id(&self, id: &str) -> Result<Option<ReferenceBook>, Box<dyn std::error::Error>> {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, author, genre, word_count, file_format, file_hash, file_path, world_setting, plot_summary, story_arc, analysis_status, analysis_progress, analysis_error, created_at, updated_at
+            "SELECT id, title, author, genre, word_count, file_format, file_hash, file_path, world_setting, plot_summary, story_arc, analysis_status, analysis_progress, analysis_error, task_id, created_at, updated_at
              FROM reference_books WHERE id = ?1"
         )?;
         
@@ -71,8 +72,9 @@ impl ReferenceBookRepository {
                 analysis_status: status,
                 analysis_progress: row.get(12)?,
                 analysis_error: row.get(13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
+                task_id: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         }).optional()?;
         
@@ -83,7 +85,7 @@ impl ReferenceBookRepository {
     pub fn get_by_hash(&self, hash: &str) -> Result<Option<ReferenceBook>, Box<dyn std::error::Error>> {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, author, genre, word_count, file_format, file_hash, file_path, world_setting, plot_summary, story_arc, analysis_status, analysis_progress, analysis_error, created_at, updated_at
+            "SELECT id, title, author, genre, word_count, file_format, file_hash, file_path, world_setting, plot_summary, story_arc, analysis_status, analysis_progress, analysis_error, task_id, created_at, updated_at
              FROM reference_books WHERE file_hash = ?1"
         )?;
         
@@ -106,8 +108,9 @@ impl ReferenceBookRepository {
                 analysis_status: status,
                 analysis_progress: row.get(12)?,
                 analysis_error: row.get(13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
+                task_id: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         }).optional()?;
         
@@ -150,6 +153,20 @@ impl ReferenceBookRepository {
         conn.execute(
             "UPDATE reference_books SET analysis_status = ?1, analysis_progress = ?2, updated_at = ?3 WHERE id = ?4",
             params![status.to_string(), progress, Local::now().to_rfc3339(), id],
+        )?;
+        Ok(())
+    }
+
+    /// 更新关联的任务ID
+    pub fn update_task_id(
+        &self,
+        id: &str,
+        task_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE reference_books SET task_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![task_id, Local::now().to_rfc3339(), id],
         )?;
         Ok(())
     }

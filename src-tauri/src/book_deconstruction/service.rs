@@ -98,6 +98,7 @@ impl BookDeconstructionService {
             analysis_status: AnalysisStatus::Pending,
             analysis_progress: 0,
             analysis_error: None,
+            task_id: None,
             created_at: now,
             updated_at: now,
         };
@@ -130,6 +131,7 @@ impl BookDeconstructionService {
                 log::info!("[BookDeconstruction] Created task {} for book {}", task.id, book_id);
                 // 更新 book 记录关联 task_id
                 let repo = ReferenceBookRepository::new(self.pool.clone());
+                let _ = repo.update_task_id(&book_id, &task.id);
                 let _ = repo.update_status(&book_id, AnalysisStatus::Pending, 0);
             }
             Err(e) => {
@@ -176,7 +178,7 @@ impl BookDeconstructionService {
             self.pool.clone(),
         );
 
-        let result = analyzer.analyze(book_id, chunks, word_count, None).await?;
+        let result = analyzer.analyze(book_id, chunks, word_count, None, None).await?;
 
         // 保存分析结果到数据库
         repo.update_analysis_result(
@@ -278,6 +280,30 @@ impl BookDeconstructionService {
                 let _ = std::fs::remove_file(&file_path);
             }
         }
+
+        Ok(())
+    }
+
+    /// 取消拆书分析
+    pub fn cancel_analysis(&self, book_id: &str) -> Result<(), String> {
+        let book_repo = ReferenceBookRepository::new(self.pool.clone());
+        let book = book_repo
+            .get_by_id(book_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Book not found".to_string())?;
+
+        // 如果有关联的任务，取消任务
+        if let Some(task_id) = book.task_id {
+            let task_service = TaskService::new(self.pool.clone(), self.app_handle.clone());
+            if let Err(e) = task_service.cancel_task(&task_id) {
+                log::warn!("[BookDeconstruction] Failed to cancel task {}: {}", task_id, e);
+            }
+        }
+
+        // 更新 book 状态为已取消
+        book_repo
+            .update_status(book_id, AnalysisStatus::Cancelled, book.analysis_progress)
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }

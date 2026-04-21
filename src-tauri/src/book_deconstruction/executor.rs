@@ -109,13 +109,34 @@ impl TaskExecutor for BookDeconstructionExecutor {
             heartbeat_ctx.heartbeat();
         });
 
+        // 取消检查回调
+        let cancel_ctx = TaskExecutionContext::new(
+            task.id.clone(),
+            self.pool.clone(),
+            self.app_handle.clone(),
+        );
+        let cancel_check: Box<dyn Fn() -> bool + Send + Sync> = Box::new(move || {
+            cancel_ctx.is_cancelled()
+        });
+
         let analysis_result = match analyzer.analyze(
             book_id,
             &chunks,
             word_count,
             Some(heartbeat_callback),
+            Some(cancel_check),
         ).await {
             Ok(r) => r,
+            Err(AnalysisError::Cancelled(msg)) => {
+                ctx.log("warn", &format!("分析被取消: {}", msg));
+                let repo = ReferenceBookRepository::new(self.pool.clone());
+                let _ = repo.update_status(book_id, AnalysisStatus::Cancelled, ctx.get_progress());
+                return Ok(TaskResult {
+                    success: false,
+                    result_json: None,
+                    error_message: Some(msg),
+                });
+            }
             Err(e) => {
                 ctx.log("error", &format!("分析失败: {}", e));
                 let repo = ReferenceBookRepository::new(self.pool.clone());
@@ -128,7 +149,7 @@ impl TaskExecutor for BookDeconstructionExecutor {
             }
         };
 
-        ctx.update_progress("saving", 90, "正在保存结果...");
+        ctx.update_progress("saving", 93, "正在保存分析结果...");
         ctx.heartbeat();
 
         // 保存分析结果
@@ -141,11 +162,13 @@ impl TaskExecutor for BookDeconstructionExecutor {
                 analysis_result.book.plot_summary.as_deref(),
                 analysis_result.book.story_arc.as_deref(),
             );
-            let _ = repo.update_status(book_id, AnalysisStatus::Completed, 100);
+            let _ = repo.update_status(book_id, AnalysisStatus::Completed, 95);
 
+            ctx.update_progress("saving", 96, &format!("正在保存 {} 个人物...", analysis_result.characters.len()));
             let char_repo = ReferenceCharacterRepository::new(self.pool.clone());
             let _ = char_repo.create_batch(&analysis_result.characters);
 
+            ctx.update_progress("saving", 98, &format!("正在保存 {} 个场景...", analysis_result.scenes.len()));
             let scene_repo = ReferenceSceneRepository::new(self.pool.clone());
             let _ = scene_repo.create_batch(&analysis_result.scenes);
         }

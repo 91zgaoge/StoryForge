@@ -8,6 +8,7 @@ import type {
   AnalysisStatusResponse,
   BookAnalysisProgressEvent,
 } from '@/types/book-deconstruction';
+import type { Task } from './useTasks';
 
 const BOOKS_KEY = 'reference-books';
 const ANALYSIS_KEY = 'book-analysis';
@@ -34,7 +35,7 @@ export function useUploadBook() {
 export function useBookAnalysisStatus(bookId: string | null) {
   const [liveStatus, setLiveStatus] = useState<AnalysisStatusResponse | null>(null);
 
-  // 监听实时进度事件
+  // 监听实时进度事件（book-analysis-progress）
   useEffect(() => {
     if (!bookId) return;
 
@@ -57,6 +58,61 @@ export function useBookAnalysisStatus(bookId: string | null) {
     setup();
     return () => {
       if (unlisten) unlisten();
+    };
+  }, [bookId]);
+
+  // 监听任务系统事件（task-progress, task-status-changed）
+  useEffect(() => {
+    if (!bookId) return;
+
+    let unlistenProgress: (() => void) | undefined;
+    let unlistenStatus: (() => void) | undefined;
+
+    const setup = async () => {
+      unlistenProgress = await listen<TaskProgressEvent>('task-progress', (event) => {
+        // 通过查询 book 状态来确认是否是当前 book 的任务
+        // 这里简单处理：如果当前 book 在分析中，且收到了任务进度，就更新
+        setLiveStatus((prev) => {
+          if (!prev || (prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing')) {
+            return prev;
+          }
+          return {
+            ...prev,
+            progress: event.payload.progress,
+            current_step: event.payload.message,
+          };
+        });
+      });
+
+      unlistenStatus = await listen<TaskStatusChangedEvent>('task-status-changed', (event) => {
+        setLiveStatus((prev) => {
+          if (!prev || (prev.status !== 'pending' && prev.status !== 'extracting' && prev.status !== 'analyzing')) {
+            return prev;
+          }
+          if (event.payload.status === 'cancelled') {
+            return {
+              ...prev,
+              status: 'cancelled',
+              current_step: event.payload.message || '已取消',
+            };
+          }
+          if (event.payload.status === 'failed') {
+            return {
+              ...prev,
+              status: 'failed',
+              current_step: event.payload.message || '分析失败',
+              error: event.payload.message,
+            };
+          }
+          return prev;
+        });
+      });
+    };
+
+    setup();
+    return () => {
+      if (unlistenProgress) unlistenProgress();
+      if (unlistenStatus) unlistenStatus();
     };
   }, [bookId]);
 
@@ -131,4 +187,36 @@ export function useConvertToStory() {
       return storyId;
     },
   });
+}
+
+// ==================== 取消分析 ====================
+
+export function useCancelBookAnalysis() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (bookId: string) => {
+      await invoke('cancel_book_analysis', { bookId });
+    },
+    onSuccess: (_, bookId) => {
+      queryClient.invalidateQueries({ queryKey: [STATUS_KEY, bookId] });
+      queryClient.invalidateQueries({ queryKey: [BOOKS_KEY] });
+    },
+  });
+}
+
+// ==================== 任务事件类型（本地定义避免循环依赖） ====================
+
+interface TaskProgressEvent {
+  task_id: string;
+  step: string;
+  progress: number;
+  message: string;
+}
+
+interface TaskStatusChangedEvent {
+  task_id: string;
+  status: string;
+  progress: number;
+  message?: string;
 }

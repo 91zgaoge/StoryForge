@@ -324,6 +324,7 @@ pub fn run() {
             book_deconstruction::commands::list_reference_books,
             book_deconstruction::commands::delete_reference_book,
             book_deconstruction::commands::convert_book_to_story,
+            book_deconstruction::commands::cancel_book_analysis,
             // Task system commands
             task_system::commands::create_task,
             task_system::commands::update_task,

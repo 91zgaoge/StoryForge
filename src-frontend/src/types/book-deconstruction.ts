@@ -7,7 +7,7 @@ export interface ReferenceBook {
   genre?: string;
   word_count?: number;
   file_format?: string;
-  analysis_status: 'pending' | 'extracting' | 'analyzing' | 'completed' | 'failed';
+  analysis_status: 'pending' | 'extracting' | 'analyzing' | 'completed' | 'failed' | 'cancelled';
   analysis_progress: number;
   analysis_error?: string;
   world_setting?: string;
@@ -64,6 +64,7 @@ export interface AnalysisStatusResponse {
   progress: number;
   current_step?: string;
   error?: string;
+  task_id?: string;
 }
 
 export interface BookAnalysisProgressEvent {

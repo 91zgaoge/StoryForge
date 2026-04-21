@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v3.4.0
+- **版本**: v3.5.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -147,6 +147,13 @@ npm test
 ---
 
 ### 最近完成的功能
+
+- **v3.5.0 拆书体验升级** (2026-04-21) — 进度提示 + 取消支持
+  - 后端: `BookAnalyzer` 5 步 Pipeline 每个子步骤发送详细进度，人物/章节逐块汇报
+  - 前端: `AnalysisProgress` 8 步骤指示器 + 百分比 + 块处理信息，告别"只见转圈"
+  - 取消: `TaskExecutionContext.is_cancelled()` + analyzer 循环检查 + `cancel_book_analysis` IPC
+  - 数据库: `reference_books` 新增 `task_id` 字段 + Migration 18
+  - 测试: Rust 139 全部通过，前端构建通过
 
 - **v3.4.0 智能化创作系统** (2026-04-18) — 5 阶段重构
   - Phase 1 地基重构: `StoryContextBuilder` 真实 DB 上下文, `QueryPipeline` 四阶段检索, `ContinuityEngine`, `ForeshadowingTracker` — 27 tests ✅

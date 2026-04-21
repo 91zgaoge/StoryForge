@@ -35,50 +35,76 @@ impl BookAnalyzer {
     /// 执行完整分析 Pipeline
     /// 
     /// `heartbeat_callback`: 可选的心跳回调，每完成一个主要步骤调用一次
+    /// `cancel_check`: 可选的取消检查回调，返回 true 表示应取消
     pub async fn analyze(
         &self,
         book_id: &str,
         chunks: &[TextChunk],
         total_word_count: usize,
         heartbeat_callback: Option<Box<dyn Fn() + Send + Sync>>,
+        cancel_check: Option<Box<dyn Fn() -> bool + Send + Sync>>,
     ) -> Result<BookAnalysisResult, AnalysisError> {
         log::info!("[BookAnalyzer] Starting analysis for book {}", book_id);
 
-        // Step 1: 元信息识别 (10%)
-        self.emit_progress(book_id, "extracting", 5, "正在提取文本信息...").await;
+        let check_cancel = || -> Result<(), AnalysisError> {
+            if let Some(ref cb) = cancel_check {
+                if cb() {
+                    return Err(AnalysisError::Cancelled("用户取消分析".to_string()));
+                }
+            }
+            Ok(())
+        };
+
+        // Step 1: 元信息识别 (5% -> 12%)
+        self.emit_progress(book_id, "extracting", 5, "正在准备文本样本...").await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
+        check_cancel()?;
         let sample_text = extract_sample(&chunks.first().map(|c| c.content.clone()).unwrap_or_default(), 3000);
+        self.emit_progress(book_id, "extracting", 7, "正在调用LLM识别元信息...").await;
         let metadata = self.extract_metadata(&sample_text).await?;
-        self.emit_progress(book_id, "analyzing", 10, "正在识别小说类型...").await;
+        self.emit_progress(book_id, "analyzing", 12, &format!("识别完成：{} / {}", metadata.title.as_deref().unwrap_or("未知"), metadata.genre.as_deref().unwrap_or("未知类型"))).await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
+        check_cancel()?;
 
-        // Step 2: 世界观提取 (25%)
-        self.emit_progress(book_id, "analyzing", 15, "正在分析世界观设定...").await;
+        // Step 2: 世界观提取 (15% -> 28%)
+        self.emit_progress(book_id, "analyzing", 15, "正在准备世界观分析样本...").await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
-        let world_setting = self.extract_world_setting(chunks, total_word_count).await?;
-        self.emit_progress(book_id, "analyzing", 25, "世界观分析完成").await;
+        check_cancel()?;
+        let world_setting = self.extract_world_setting(book_id, chunks, total_word_count).await?;
+        self.emit_progress(book_id, "analyzing", 28, "世界观设定分析完成").await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
+        check_cancel()?;
 
-        // Step 3: 人物拆解 (50%)
-        self.emit_progress(book_id, "analyzing", 30, "正在拆解人物角色...").await;
+        // Step 3: 人物拆解 (30% -> 52%)
+        self.emit_progress(book_id, "analyzing", 30, &format!("开始拆解人物角色，共 {} 个文本块...", chunks.len())).await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
-        let characters = self.extract_characters(book_id, chunks).await?;
-        self.emit_progress(book_id, "analyzing", 50, "人物拆解完成").await;
+        check_cancel()?;
+        let characters = self.extract_characters(book_id, chunks, cancel_check.as_ref()).await?;
+        self.emit_progress(book_id, "analyzing", 52, &format!("人物拆解完成，共识别 {} 个角色", characters.len())).await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
+        check_cancel()?;
 
-        // Step 4: 章节概要 (75%)
-        self.emit_progress(book_id, "analyzing", 55, "正在生成章节概要...").await;
+        // Step 4: 章节概要 (55% -> 78%)
+        self.emit_progress(book_id, "analyzing", 55, &format!("开始生成章节概要，共 {} 个文本块...", chunks.len())).await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
-        let scenes = self.extract_scene_summaries(book_id, chunks).await?;
-        self.emit_progress(book_id, "analyzing", 75, "章节概要完成").await;
+        check_cancel()?;
+        let scenes = self.extract_scene_summaries(book_id, chunks, cancel_check.as_ref()).await?;
+        self.emit_progress(book_id, "analyzing", 78, &format!("章节概要完成，共 {} 章", scenes.len())).await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
+        check_cancel()?;
 
-        // Step 5: 故事线生成 (90%)
-        self.emit_progress(book_id, "analyzing", 80, "正在生成故事线...").await;
+        // Step 5: 故事线生成 (80% -> 92%)
+        self.emit_progress(book_id, "analyzing", 80, "正在准备故事线素材...").await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
-        let story_arc = self.extract_story_arc(&scenes).await?;
-        self.emit_progress(book_id, "analyzing", 90, "故事线生成完成").await;
+        check_cancel()?;
+        let story_arc = self.extract_story_arc(book_id, &scenes).await?;
+        self.emit_progress(book_id, "analyzing", 92, &format!("故事线生成完成：主线{}、支线{}条、高潮{}处", 
+            if story_arc.main_arc.is_empty() { "待补充" } else { "已提取" },
+            story_arc.sub_arcs.len(),
+            story_arc.climaxes.len()
+        )).await;
         if let Some(ref cb) = heartbeat_callback { cb(); }
+        check_cancel()?;
 
         // 构建结果
         let book = self.build_book_result(
@@ -135,6 +161,7 @@ JSON格式：
 
     async fn extract_world_setting(
         &self,
+        book_id: &str,
         chunks: &[TextChunk],
         total_word_count: usize,
     ) -> Result<String, AnalysisError> {
@@ -156,6 +183,8 @@ JSON格式：
             samples.join("\n\n---\n\n")
         };
 
+        self.emit_progress(book_id, "analyzing", 18, "正在调用LLM分析世界观...").await;
+
         let prompt = format!(
             r#"请基于以下小说文本片段，提取世界观设定。用中文简洁描述，不超过500字。
 
@@ -173,6 +202,7 @@ JSON格式：
         );
 
         let response = self.call_llm(prompt, Some(800), Some(0.5)).await?;
+        self.emit_progress(book_id, "analyzing", 24, "正在整理世界观设定...").await;
         Ok(response.trim().to_string())
     }
 
@@ -182,12 +212,20 @@ JSON格式：
         &self,
         book_id: &str,
         chunks: &[TextChunk],
+        cancel_check: Option<&Box<dyn Fn() -> bool + Send + Sync>>,
     ) -> Result<Vec<ReferenceCharacter>, AnalysisError> {
         // 对每个 chunk 并行提取人物
         let mut character_results: Vec<Vec<ExtractedCharacter>> = Vec::new();
         let total = chunks.len();
 
         for (i, chunk) in chunks.iter().enumerate() {
+            // 检查取消
+            if let Some(ref cb) = cancel_check {
+                if cb() {
+                    return Err(AnalysisError::Cancelled("用户取消分析".to_string()));
+                }
+            }
+
             let prompt = format!(
                 r#"请分析以下小说章节，提取所有出现的人物角色。只输出 JSON，不要有任何其他文字。
 
@@ -271,12 +309,20 @@ JSON格式：
         &self,
         book_id: &str,
         chunks: &[TextChunk],
+        cancel_check: Option<&Box<dyn Fn() -> bool + Send + Sync>>,
     ) -> Result<Vec<ReferenceScene>, AnalysisError> {
         let mut scenes = Vec::new();
         let total = chunks.len();
         let now = Local::now();
 
         for (i, chunk) in chunks.iter().enumerate() {
+            // 检查取消
+            if let Some(ref cb) = cancel_check {
+                if cb() {
+                    return Err(AnalysisError::Cancelled("用户取消分析".to_string()));
+                }
+            }
+
             let prompt = format!(
                 r#"请总结以下小说章节的内容。只输出 JSON，不要有任何其他文字。
 
@@ -294,6 +340,9 @@ JSON格式：
 {{"summary":"...","characters_present":["..."],"key_events":["..."],"conflict_type":"...","emotional_tone":"..."}}"#,
                 extract_sample(&chunk.content, 5000)
             );
+
+            self.emit_progress(book_id, "analyzing", 57 + (i * 19 / total.max(1)) as i32,
+                &format!("正在调用LLM总结第 {} 章...", i + 1)).await;
 
             let response = self.call_llm_with_semaphore(prompt, Some(800), Some(0.3)).await?;
             let parsed: Result<LlmSceneSummaryResponse, _> = parse_json_response(&response);
@@ -331,8 +380,8 @@ JSON格式：
             scenes.push(scene);
 
             // 发送进度
-            let progress = 55 + ((i + 1) * 20 / total.max(1)) as i32;
-            self.emit_progress(book_id, "analyzing", progress, &format!("正在生成章节概要 ({}/{})", i + 1, total)).await;
+            let progress = 59 + ((i + 1) * 17 / total.max(1)) as i32;
+            self.emit_progress(book_id, "analyzing", progress, &format!("正在生成章节概要 ({}/{}) — 已处理 {} 章", i + 1, total, scenes.len())).await;
         }
 
         Ok(scenes)
@@ -342,6 +391,7 @@ JSON格式：
 
     async fn extract_story_arc(
         &self,
+        book_id: &str,
         scenes: &[ReferenceScene],
     ) -> Result<ExtractedStoryArc, AnalysisError> {
         // 构建章节概要文本
@@ -377,7 +427,9 @@ JSON格式：
             sample
         );
 
+        self.emit_progress(book_id, "analyzing", 82, "正在调用LLM生成故事线...").await;
         let response = self.call_llm(prompt, Some(1000), Some(0.5)).await?;
+        self.emit_progress(book_id, "analyzing", 88, "正在解析故事线结构...").await;
         let arc: LlmStoryArcResponse = parse_json_response(&response)?;
 
         Ok(ExtractedStoryArc {
@@ -449,6 +501,7 @@ JSON格式：
             plot_summary: Some(plot_summary),
             story_arc: Some(story_arc_json),
             analysis_status: AnalysisStatus::Completed,
+            task_id: None,
             analysis_progress: 100,
             analysis_error: None,
             created_at: Local::now(),

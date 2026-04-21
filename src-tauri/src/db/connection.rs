@@ -1106,5 +1106,24 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 18: reference_books 增加 task_id 字段，支持取消拆书任务
+    let ref_book_cols: Vec<String> = conn.prepare(
+        "SELECT name FROM pragma_table_info('reference_books')"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !ref_book_cols.iter().any(|c| c == "task_id") {
+        conn.execute(
+            "ALTER TABLE reference_books ADD COLUMN task_id TEXT",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_ref_books_task ON reference_books(task_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }

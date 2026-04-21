@@ -273,6 +273,7 @@ mod tests {
             analysis_status: AnalysisStatus::Completed,
             analysis_progress: 100,
             analysis_error: None,
+            task_id: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         };

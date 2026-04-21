@@ -82,3 +82,16 @@ pub async fn convert_book_to_story(
 
     service.convert_to_story(&book_id).await
 }
+
+/// 取消拆书分析
+#[command]
+pub async fn cancel_book_analysis(
+    book_id: String,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let llm_service = LlmService::new(app_handle.clone());
+    let service = BookDeconstructionService::new(pool, llm_service, app_handle);
+
+    service.cancel_analysis(&book_id)
+}

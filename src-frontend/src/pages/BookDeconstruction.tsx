@@ -8,6 +8,7 @@ import {
   useConvertToStory,
   useBookAnalysis,
   useBookAnalysisStatus,
+  useCancelBookAnalysis,
 } from '@/hooks/useBookDeconstruction';
 import { BookUploadPanel } from '@/components/book-deconstruction/BookUploadPanel';
 import { BookListGrid } from '@/components/book-deconstruction/BookListGrid';
@@ -26,6 +27,7 @@ export function BookDeconstruction() {
 
   const selectedAnalysis = useBookAnalysis(selectedBookId);
   const selectedStatus = useBookAnalysisStatus(selectedBookId);
+  const cancelMutation = useCancelBookAnalysis();
 
   const filteredBooks = books?.filter((book) =>
     book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -67,6 +69,17 @@ export function BookDeconstruction() {
     }
   };
 
+  const handleCancel = async () => {
+    if (!selectedBookId) return;
+    if (!confirm('确定要取消当前分析吗？已处理的部分不会被保存。')) return;
+    try {
+      await cancelMutation.mutateAsync(selectedBookId);
+      toast.success('分析已取消');
+    } catch (error) {
+      toast.error(`取消失败: ${error}`);
+    }
+  };
+
   const renderContent = () => {
     if (showUpload) {
       return (
@@ -91,16 +104,20 @@ export function BookDeconstruction() {
       );
     }
 
-    // 分析中状态
+    // 分析中 / 已取消状态
     if (
       selectedStatus?.status === 'pending' ||
       selectedStatus?.status === 'extracting' ||
-      selectedStatus?.status === 'analyzing'
+      selectedStatus?.status === 'analyzing' ||
+      selectedStatus?.status === 'cancelled'
     ) {
       return (
         <AnalysisProgress
           progress={selectedStatus?.progress || 0}
           currentStep={selectedStatus?.current_step || '正在分析...'}
+          status={selectedStatus?.status}
+          onCancel={selectedStatus?.status !== 'cancelled' ? handleCancel : undefined}
+          isCancelling={cancelMutation.isPending}
         />
       );
     }

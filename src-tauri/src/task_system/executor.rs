@@ -54,11 +54,16 @@ pub struct TaskExecutionContext<R: Runtime = tauri::Wry> {
     pub task_id: String,
     pub pool: DbPool,
     pub app_handle: tauri::AppHandle<R>,
+    progress: std::sync::Arc<std::sync::atomic::AtomicI32>,
 }
 
 impl<R: Runtime> TaskExecutionContext<R> {
     pub fn new(task_id: String, pool: DbPool, app_handle: tauri::AppHandle<R>) -> Self {
-        Self { task_id, pool, app_handle }
+        Self { task_id, pool, app_handle, progress: std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0)) }
+    }
+
+    pub fn get_progress(&self) -> i32 {
+        self.progress.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// 开始执行：更新状态为 running
@@ -87,6 +92,7 @@ impl<R: Runtime> TaskExecutionContext<R> {
 
     /// 更新进度
     pub fn update_progress(&self, step: &str, progress: i32, message: &str) {
+        self.progress.store(progress, std::sync::atomic::Ordering::Relaxed);
         let repo = TaskRepository::new(self.pool.clone());
         if let Err(e) = repo.update_status(&self.task_id, &TaskStatus::Running, Some(progress), None, None) {
             log::warn!("[TaskExecution] Failed to update progress: {}", e);
@@ -126,6 +132,15 @@ impl<R: Runtime> TaskExecutionContext<R> {
         repo.create_log(&self.task_id, "error", &format!("任务执行失败: {}", error))?;
         self.emit_status_changed("failed", 0, Some(error.to_string()));
         Ok(())
+    }
+
+    /// 检查任务是否被取消
+    pub fn is_cancelled(&self) -> bool {
+        let repo = TaskRepository::new(self.pool.clone());
+        match repo.get_by_id(&self.task_id) {
+            Ok(Some(task)) => task.status == TaskStatus::Cancelled,
+            _ => false,
+        }
     }
 
     fn emit_status_changed(&self, status: &str, progress: i32, message: Option<String>) {

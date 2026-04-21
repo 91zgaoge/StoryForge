@@ -2,6 +2,39 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v3.5.0] - 拆书体验升级（2026-04-21）
+
+### 📖 拆书功能：进度提示增强 + 取消支持
+
+**进度提示内容和频次全面升级**
+- 后端 `BookAnalyzer` 5 步 Pipeline 每个子步骤都发送详细进度事件
+- 元信息识别：准备样本 → 调用LLM → 识别完成（显示书名/类型）
+- 世界观提取：准备样本 → 调用LLM → 整理设定
+- 人物拆解：每处理一个文本块都发进度，显示"已识别 N 人"
+- 章节概要：每处理一章都发进度，显示"已处理 N 章"
+- 故事线生成：调用LLM → 解析结构 → 完成（显示支线/高潮数量）
+- 保存结果：保存分析结果 → 保存人物 → 保存场景（93% → 96% → 98% → 100%）
+- 前端 `AnalysisProgress` 组件新增 8 步骤指示器、百分比数字、块处理信息
+
+**取消分析功能**
+- 后端 `TaskExecutionContext` 新增 `is_cancelled()` 检查机制
+- `BookAnalyzer` 在每个耗时循环中定期检查任务是否被取消
+- 检测到取消后优雅退出，状态更新为 `Cancelled`
+- 新增 IPC 命令 `cancel_book_analysis(book_id)`
+- 前端分析界面新增"取消分析"按钮，确认后即时中断
+- 已取消状态 UI 展示：步骤指示器显示 `!` 标记，进度条变橙色
+
+**数据库**
+- `reference_books` 表新增 `task_id` 字段，关联拆书任务
+- Migration 18 自动迁移
+
+### 🏗️ 架构与质量
+
+- **139 项 Rust 后端测试全部通过**
+- **前端构建通过**
+- `cargo check` 零警告
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 3.5.0
+
 ## [v3.4.0] - 智能化创作系统（2026-04-18）
 
 ### 🧠 智能化创作系统（5 阶段重构）
