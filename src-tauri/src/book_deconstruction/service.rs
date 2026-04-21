@@ -336,6 +336,7 @@ impl BookDeconstructionService {
                 title: analysis.book.title.clone(),
                 description: analysis.book.plot_summary.clone(),
                 genre: analysis.book.genre.clone(),
+                style_dna_id: None,
             })
             .map_err(|e| e.to_string())?;
         let story_id = story.id;

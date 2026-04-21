@@ -2,6 +2,62 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v3.5.2] - 全功能落地：剩余 7 项修复完成（2026-04-22）
+
+### 🎯 修复项 #17 - auto_revise 取消/进度事件
+- `auto_revise` 从同步阻塞调用改造为后台任务模式（同 `auto_write`）
+- 新增 4 阶段进度事件：`preparing` → `revising` → `saving` → `completed`
+- 新增 `auto_revise_cancel` IPC 命令，支持用户随时取消
+- 前端 `WenSiPanel` 新增进度条（百分比 + 阶段信息）和"停止修改"按钮
+
+### 🎯 修复项 #20 - confidence_score 类型补全
+- 前端 `Scene` interface 补全缺失的 `confidence_score?: number` 字段
+- `SceneEditor` 戏剧结构 Tab 新增 AI 生成置信度滑块（0-100%）
+- 保存时置信度值随场景数据一并持久化到数据库
+
+### 🎯 修复项 #16 - MCP 持久连接
+- 新增全局 `MCP_CONNECTIONS` 连接池（`tokio::sync::Mutex<HashMap<String, McpClient>>`）
+- `connect_mcp_server` 连接后持久保存到池中，`call_mcp_tool` 复用已有连接
+- 新增 `disconnect_mcp_server` 和 `get_mcp_connections` 命令
+- 前端 `useMcpTools` 适配新 API，断开连接时真正释放后端资源
+- `WebSearchTool` 改为真实 DuckDuckGo 搜索（HTML 解析），失败时回退模拟数据
+
+### 🎯 修复项 #19 - 一键创作按钮
+- `Stories` 页面每个故事卡片新增"一键创作"按钮（Sparkles 图标）
+- 调用 `run_creation_workflow` 命令，`ai_only` 模式基于故事描述自动生成
+- 加载状态防重复点击，结果显示 toast 通知
+
+### 🎯 修复项 #18 - StyleDNA 前端选择 UI
+- `stories` 表新增 `style_dna_id` 字段（Migration 20 自动迁移）
+- 后端新增 `list_style_dnas` 和 `set_story_style_dna` IPC 命令
+- `build_agent_context` 自动读取 story 的 `style_dna_id` 并注入 `AgentContext`
+- 前端 `Stories` 页面每个故事卡片新增"风格"按钮
+- 弹出 StyleDNA 选择模态框，展示所有内置/自定义风格，一键切换
+- `StoryRepository` / `Story` 模型全链路支持 `style_dna_id` 读写
+
+### 🎯 修复项 #15 - 技能系统补全 LLM 调用 + 缺失技能
+- `execute_skill` 命令从同步改为异步，内部自动调用 `LlmService::generate`
+- 所有 PromptRuntime 技能（style_enhancer / plot_twist / text_formatter 等）现在真正调用 LLM
+- `format_text` 简化为复用 `execute_skill`，移除重复的低级 HTTP 调用代码
+- 新增内置技能 `character_voice`（角色声音一致性检查与增强）
+- 新增内置技能 `emotion_pacing`（情感曲线分析与节奏优化）
+- 内置技能总数从 3 个补全至 5 个
+
+### 🎯 修复项 #14 - 意图引擎接入聊天栏
+- `RichTextEditor` 聊天栏接入 `useIntent` hook
+- 用户发送消息后先调用 `parseIntent` 解析意图类型
+- `text_generate` / `text_rewrite` / `unknown` → 走现有 `writerAgentExecute` 路径
+- `plot_suggest` / `character_check` / `world_consistency` / `style_shift` / `outline_expand` → 走 `executeIntent` 路径
+- 解析失败时自动回退到 WriterAgent，保证用户体验不中断
+
+### 📊 质量验证
+- **139 项 Rust 后端测试全部通过**
+- **前端构建通过**
+- `cargo check` 零警告
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 3.5.2
+
+---
+
 ## [v3.5.1] - 全面功能审计与修复（2026-04-22）
 
 ### 🔧 关键缺陷修复（13 项）

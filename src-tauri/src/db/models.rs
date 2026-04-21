@@ -9,6 +9,7 @@ pub struct Story {
     pub genre: Option<String>,
     pub tone: Option<String>,
     pub pacing: Option<String>,
+    pub style_dna_id: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }
@@ -54,6 +55,7 @@ pub struct CreateStoryRequest {
     pub title: String,
     pub description: Option<String>,
     pub genre: Option<String>,
+    pub style_dna_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +64,7 @@ pub struct UpdateStoryRequest {
     pub description: Option<String>,
     pub tone: Option<String>,
     pub pacing: Option<String>,
+    pub style_dna_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

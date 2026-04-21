@@ -18,6 +18,7 @@ mod tests {
             title: "测试小说".to_string(),
             description: Some("描述".to_string()),
             genre: Some("科幻".to_string()),
+            style_dna_id: None,
         };
 
         let story = repo.create(req).unwrap();
@@ -38,11 +39,13 @@ mod tests {
             title: "小说A".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         };
         let req2 = CreateStoryRequest {
             title: "小说B".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         };
 
         repo.create(req1).unwrap();
@@ -61,6 +64,7 @@ mod tests {
             title: "原标题".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         };
         let story = repo.create(req).unwrap();
 
@@ -69,6 +73,7 @@ mod tests {
             description: Some("新描述".to_string()),
             tone: Some("轻快".to_string()),
             pacing: Some("快速".to_string()),
+            style_dna_id: None,
         };
 
         let count = repo.update(&story.id, &update_req).unwrap();
@@ -88,6 +93,7 @@ mod tests {
             title: "待删除".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         };
         let story = repo.create(req).unwrap();
 
@@ -119,6 +125,7 @@ mod tests {
             title: "角色测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         };
         let story = story_repo.create(story_req).unwrap();
 
@@ -146,6 +153,7 @@ mod tests {
             title: "测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let char_req = CreateCharacterRequest {
@@ -169,6 +177,7 @@ mod tests {
             title: "测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let char_req = CreateCharacterRequest {
@@ -204,6 +213,7 @@ mod tests {
             title: "测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let char_req = CreateCharacterRequest {
@@ -232,6 +242,7 @@ mod tests {
             title: "章节测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let chapter_req = CreateChapterRequest {
@@ -260,6 +271,7 @@ mod tests {
             title: "测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let chapter_req = CreateChapterRequest {
@@ -285,6 +297,7 @@ mod tests {
             title: "测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let chapter_req = CreateChapterRequest {
@@ -320,6 +333,7 @@ mod tests {
             title: "测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let chapter_req = CreateChapterRequest {
@@ -348,6 +362,7 @@ mod tests {
             title: "排序测试".to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         }).unwrap();
 
         let req1 = CreateChapterRequest {

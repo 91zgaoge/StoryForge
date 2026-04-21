@@ -263,6 +263,7 @@ pub async fn writer_agent_execute(
             title: "未命名作品".to_string(),
             description: Some(request.instruction.clone()),
             genre: Some("小说".to_string()),
+            style_dna_id: None,
         }).map_err(|e| e.to_string())?;
 
         let scene = scene_repo.create(&story.id, 1, Some("第一场景")).map_err(|e| e.to_string())?;
@@ -652,6 +653,16 @@ pub struct AutoReviseResponse {
     pub status: String,
 }
 
+/// 自动修改进度事件
+#[derive(Debug, Serialize, Clone)]
+pub struct AutoReviseProgressEvent {
+    pub task_id: String,
+    pub stage: String,
+    pub progress: f32,
+    pub message: String,
+    pub revised_text: Option<String>,
+}
+
 /// 自动修改指令映射
 fn get_revision_instruction(revision_type: &str) -> &'static str {
     match revision_type {
@@ -671,110 +682,208 @@ pub async fn auto_revise(
 ) -> Result<AutoReviseResponse, String> {
     let task_id = Uuid::new_v4().to_string();
 
-    // 读取目标文本
-    let pool = app_handle.state::<DbPool>();
-    let scene_repo = SceneRepository::new(pool.inner().clone());
-
-    let target_text = match request.scope.as_str() {
+    // 预估算文本长度用于配额检查
+    let text_len = match request.scope.as_str() {
+        "selection" => request.selected_text.as_ref().map(|s| s.chars().count() as i32).unwrap_or(0),
         "chapter" | "scene" => {
             if let Some(ref sid) = request.chapter_id {
+                let pool = app_handle.state::<DbPool>();
+                let scene_repo = SceneRepository::new(pool.inner().clone());
                 scene_repo.get_by_id(sid)
                     .map_err(|e| e.to_string())?
-                    .map(|s| s.content.unwrap_or_default())
-                    .unwrap_or_default()
-            } else {
-                return Err("chapter_id/scene_id is required for chapter/scope scope".to_string());
-            }
+                    .map(|s| s.content.unwrap_or_default().chars().count() as i32)
+                    .unwrap_or(0)
+            } else { 0 }
         }
-        "selection" => request.selected_text.unwrap_or_default(),
         _ => {
-            // full: 读取所有场景内容
+            let pool = app_handle.state::<DbPool>();
+            let scene_repo = SceneRepository::new(pool.inner().clone());
             let scenes = scene_repo.get_by_story(&request.story_id)
                 .map_err(|e| e.to_string())?;
             scenes.into_iter()
                 .filter_map(|s| s.content)
-                .collect::<Vec<_>>()
-                .join("\n\n")
+                .map(|c| c.chars().count() as i32)
+                .sum()
         }
     };
-
-    let text_len = target_text.chars().count() as i32;
 
     // 检查配额
     check_auto_revise_quota_sync(&app_handle, text_len)?;
 
-    // 构建修改 prompt
-    let revision_instruction = get_revision_instruction(&request.revision_type);
-    let instruction = format!(
-        "你是一个专业的小说编辑。请根据以下要求对文本进行修改：\n\n【修改要求】{}\n\n【原文】\n{}\n\n请输出修改后的完整文本。保持原文结构和段落，只修改需要改进的地方。",
-        revision_instruction,
-        target_text
-    );
+    let task_id_clone = task_id.clone();
+    let app_handle_clone = app_handle.clone();
+    let story_id = request.story_id.clone();
+    let chapter_id = request.chapter_id.clone();
+    let scope = request.scope.clone();
+    let selected_text = request.selected_text.clone();
+    let revision_type = request.revision_type.clone();
 
-    let context = build_agent_context(
-        &app_handle,
-        &ExecuteAgentRequest {
-            agent_type: AgentType::Writer,
-            story_id: request.story_id.clone(),
-            chapter_number: None,
-            input: instruction.clone(),
-            parameters: None,
-        },
-    ).await?;
+    // 在后台执行修改
+    let handle = tokio::spawn(async move {
+        // 阶段 1: 准备中
+        let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
+            task_id: task_id_clone.clone(),
+            stage: "preparing".to_string(),
+            progress: 0.1,
+            message: "读取目标文本...".to_string(),
+            revised_text: None,
+        });
 
-    let task = AgentTask {
-        id: task_id.clone(),
-        agent_type: AgentType::Writer,
-        context,
-        input: instruction,
-        parameters: std::collections::HashMap::new(),
-        tier: Some(get_user_tier_sync(&app_handle)),
-    };
-
-    let service = AgentService::new(app_handle.clone());
-
-    match service.execute_task(task).await {
-        Ok(result) => {
-            // 消费配额
-            if let Err(e) = consume_auto_revise_quota_sync(&app_handle, text_len) {
-                log::warn!("[auto_revise] Quota consume failed: {}", e);
-            }
-
-            // 对于 chapter/scope 范围，保存修改后的内容到数据库
-            if let Some(ref sid) = request.chapter_id {
-                if request.scope == "chapter" || request.scope == "scene" {
-                    let pool = app_handle.state::<DbPool>();
-                    let scene_repo = SceneRepository::new(pool.inner().clone());
-                    let _ = scene_repo.update(
-                        sid,
-                        &SceneUpdate {
-                            title: None,
-                            content: Some(result.content.clone()),
-                            dramatic_goal: None,
-                            external_pressure: None,
-                            conflict_type: None,
-                            characters_present: None,
-                            character_conflicts: None,
-                            setting_location: None,
-                            setting_time: None,
-                            setting_atmosphere: None,
-                            previous_scene_id: None,
-                            next_scene_id: None,
-                            confidence_score: None,
-                        },
-                    );
-                    log::info!("[auto_revise] Saved revised content to scene {}", sid);
-                }
-            }
-
-            Ok(AutoReviseResponse {
-                task_id,
-                revised_text: result.content,
-                status: "completed".to_string(),
-            })
+        // 检查是否被取消
+        if !TASK_HANDLES.lock().unwrap().contains_key(&task_id_clone) {
+            return;
         }
-        Err(e) => Err(e),
+
+        let pool = app_handle_clone.state::<DbPool>();
+        let scene_repo = SceneRepository::new(pool.inner().clone());
+
+        let target_text = match scope.as_str() {
+            "chapter" | "scene" => {
+                if let Some(ref sid) = chapter_id {
+                    scene_repo.get_by_id(sid)
+                        .map(|s| s.map(|scene| scene.content.unwrap_or_default()).unwrap_or_default())
+                        .unwrap_or_default()
+                } else { String::new() }
+            }
+            "selection" => selected_text.unwrap_or_default(),
+            _ => {
+                let scenes = scene_repo.get_by_story(&story_id).unwrap_or_default();
+                scenes.into_iter()
+                    .filter_map(|s| s.content)
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            }
+        };
+
+        if target_text.is_empty() {
+            let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), "目标文本为空".to_string());
+            return;
+        }
+
+        // 阶段 2: 修改中
+        let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
+            task_id: task_id_clone.clone(),
+            stage: "revising".to_string(),
+            progress: 0.3,
+            message: "AI 正在修改文本...".to_string(),
+            revised_text: None,
+        });
+
+        let revision_instruction = get_revision_instruction(&revision_type);
+        let instruction = format!(
+            "你是一个专业的小说编辑。请根据以下要求对文本进行修改：\n\n【修改要求】{}\n\n【原文】\n{}\n\n请输出修改后的完整文本。保持原文结构和段落，只修改需要改进的地方。",
+            revision_instruction,
+            target_text
+        );
+
+        let context = match build_agent_context(
+            &app_handle_clone,
+            &ExecuteAgentRequest {
+                agent_type: AgentType::Writer,
+                story_id: story_id.clone(),
+                chapter_number: None,
+                input: instruction.clone(),
+                parameters: None,
+            },
+        ).await {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
+                return;
+            }
+        };
+
+        let task = AgentTask {
+            id: Uuid::new_v4().to_string(),
+            agent_type: AgentType::Writer,
+            context,
+            input: instruction,
+            parameters: std::collections::HashMap::new(),
+            tier: Some(get_user_tier_sync(&app_handle_clone)),
+        };
+
+        let service = AgentService::new(app_handle_clone.clone());
+
+        match service.execute_task(task).await {
+            Ok(result) => {
+                let text_len_i32 = target_text.chars().count() as i32;
+                // 消费配额
+                if let Err(e) = consume_auto_revise_quota_sync(&app_handle_clone, text_len_i32) {
+                    log::warn!("[auto_revise] Quota consume failed: {}", e);
+                }
+
+                // 阶段 3: 保存中
+                let _ = app_handle_clone.emit(&format!("auto-revise-progress-{}", task_id_clone), AutoReviseProgressEvent {
+                    task_id: task_id_clone.clone(),
+                    stage: "saving".to_string(),
+                    progress: 0.8,
+                    message: "保存修改结果...".to_string(),
+                    revised_text: None,
+                });
+
+                // 保存到数据库
+                if let Some(ref sid) = chapter_id {
+                    if scope == "chapter" || scope == "scene" {
+                        let pool = app_handle_clone.state::<DbPool>();
+                        let scene_repo = SceneRepository::new(pool.inner().clone());
+                        let _ = scene_repo.update(
+                            sid,
+                            &SceneUpdate {
+                                title: None,
+                                content: Some(result.content.clone()),
+                                dramatic_goal: None,
+                                external_pressure: None,
+                                conflict_type: None,
+                                characters_present: None,
+                                character_conflicts: None,
+                                setting_location: None,
+                                setting_time: None,
+                                setting_atmosphere: None,
+                                previous_scene_id: None,
+                                next_scene_id: None,
+                                confidence_score: None,
+                            },
+                        );
+                        log::info!("[auto_revise] Saved revised content to scene {}", sid);
+                    }
+                }
+
+                // 阶段 4: 完成
+                let _ = app_handle_clone.emit(&format!("auto-revise-complete-{}", task_id_clone), AutoReviseProgressEvent {
+                    task_id: task_id_clone.clone(),
+                    stage: "completed".to_string(),
+                    progress: 1.0,
+                    message: "修改完成".to_string(),
+                    revised_text: Some(result.content.clone()),
+                });
+            }
+            Err(e) => {
+                let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
+            }
+        }
+
+        // 清理句柄
+        let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
+    });
+
+    TASK_HANDLES.lock().unwrap().insert(task_id.clone(), handle.abort_handle());
+
+    Ok(AutoReviseResponse {
+        task_id,
+        revised_text: String::new(),
+        status: "started".to_string(),
+    })
+}
+
+/// 取消自动修改
+#[command]
+pub async fn auto_revise_cancel(task_id: String) -> Result<(), String> {
+    let mut handles = TASK_HANDLES.lock().unwrap();
+    if let Some(handle) = handles.remove(&task_id) {
+        handle.abort();
+        log::info!("[auto_revise] Task {} cancelled by user", task_id);
     }
+    Ok(())
 }
 
 /// 构建Agent上下文
@@ -813,6 +922,17 @@ pub(crate) async fn build_agent_context(
             }
             Ok(_) => {}
             Err(e) => log::warn!("[build_agent_context] ForeshadowingTracker failed: {}", e),
+        }
+    }
+
+    // 注入 story 的 style_dna_id
+    {
+        let story_repo = crate::db::repositories::StoryRepository::new(pool.inner().clone());
+        if let Ok(Some(story)) = story_repo.get_by_id(&story_id) {
+            context.style_dna_id = story.style_dna_id;
+            if context.style_dna_id.is_some() {
+                log::info!("[build_agent_context] Using style_dna_id: {:?}", context.style_dna_id);
+            }
         }
     }
 

@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v3.5.0
+- **版本**: v3.5.2
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -147,6 +147,16 @@ npm test
 ---
 
 ### 最近完成的功能
+
+- **v3.5.2 全功能落地：剩余 7 项修复完成** (2026-04-22)
+  - #17 auto_revise 取消/进度事件：后台任务模式 + 4 阶段进度 + 取消支持
+  - #20 confidence_score：Scene 类型补全 + SceneEditor 置信度滑块
+  - #16 MCP 持久连接：全局连接池 + disconnect/get_connections + DuckDuckGo 真实搜索
+  - #19 一键创作按钮：Stories 页面入口 + run_creation_workflow 调用
+  - #18 StyleDNA UI：stories 表 style_dna_id + 前端选择模态框 + 创作注入
+  - #15 技能系统补全：execute_skill 异步 LLM 调用 + 2 个缺失技能（角色声音/情感节奏）
+  - #14 意图引擎接入：RichTextEditor 聊天栏 parseIntent → 路由 → executeIntent
+  - 139 Rust tests + 前端构建全部通过，版本号统一 3.5.2
 
 - **v3.5.1 全面功能审计与修复** (2026-04-22) — 13 项关键修复
   - 自动修改: 结果应用到编辑器 + 保存到数据库

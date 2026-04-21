@@ -19,8 +19,8 @@ impl StoryRepository {
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO stories (id, title, description, genre, tone, pacing, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![&id, &req.title, req.description, req.genre, "dark", "medium", now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO stories (id, title, description, genre, tone, pacing, style_dna_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![&id, &req.title, req.description, req.genre, "dark", "medium", req.style_dna_id, now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
         Ok(Story {
@@ -30,6 +30,7 @@ impl StoryRepository {
             genre: req.genre,
             tone: Some("dark".to_string()),
             pacing: Some("medium".to_string()),
+            style_dna_id: req.style_dna_id,
             created_at: now,
             updated_at: now,
         })
@@ -38,12 +39,12 @@ impl StoryRepository {
     pub fn get_all(&self) -> Result<Vec<Story>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, genre, tone, pacing, created_at, updated_at FROM stories ORDER BY updated_at DESC"
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, created_at, updated_at FROM stories ORDER BY updated_at DESC"
         )?;
         
         let stories = stmt.query_map([], |row| {
-            let created_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
+            let created_str: String = row.get(7)?;
+            let updated_str: String = row.get(8)?;
             Ok(Story {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -51,6 +52,7 @@ impl StoryRepository {
                 genre: row.get(3)?,
                 tone: row.get(4)?,
                 pacing: row.get(5)?,
+                style_dna_id: row.get(6)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -62,12 +64,12 @@ impl StoryRepository {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Story>, rusqlite::Error> {
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, genre, tone, pacing, created_at, updated_at FROM stories WHERE id = ?1"
+            "SELECT id, title, description, genre, tone, pacing, style_dna_id, created_at, updated_at FROM stories WHERE id = ?1"
         )?;
         
         let story = stmt.query_row([id], |row| {
-            let created_str: String = row.get(6)?;
-            let updated_str: String = row.get(7)?;
+            let created_str: String = row.get(7)?;
+            let updated_str: String = row.get(8)?;
             Ok(Story {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -75,6 +77,7 @@ impl StoryRepository {
                 genre: row.get(3)?,
                 tone: row.get(4)?,
                 pacing: row.get(5)?,
+                style_dna_id: row.get(6)?,
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
             })
@@ -89,8 +92,8 @@ impl StoryRepository {
 
         let count = conn.execute(
             "UPDATE stories SET title = COALESCE(?2, title), description = COALESCE(?3, description),
-             tone = COALESCE(?4, tone), pacing = COALESCE(?5, pacing), updated_at = ?6 WHERE id = ?1",
-            params![id, req.title, req.description, req.tone, req.pacing, now],
+             tone = COALESCE(?4, tone), pacing = COALESCE(?5, pacing), style_dna_id = COALESCE(?6, style_dna_id), updated_at = ?7 WHERE id = ?1",
+            params![id, req.title, req.description, req.tone, req.pacing, req.style_dna_id, now],
         )?;
         Ok(count)
     }

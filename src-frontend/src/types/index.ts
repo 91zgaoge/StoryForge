@@ -16,10 +16,19 @@ export interface Story {
   genre?: string;
   tone?: string;
   pacing?: string;
+  style_dna_id?: string;
   character_count?: number;
   chapter_count?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface StyleDNA {
+  id: string;
+  name: string;
+  author?: string;
+  is_builtin: boolean;
+  is_user_created: boolean;
 }
 
 export interface Character {

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import toast from 'react-hot-toast';
+import { callMcpTool, disconnectMcpServer } from '@/services/tauri';
 
 export interface McpTool {
   name: string;
@@ -78,19 +79,7 @@ export function useMcpTools() {
   const callExternalTool = useCallback(async (toolName: string, args: Record<string, unknown>) => {
     if (!connectedServer) throw new Error('未连接外部服务器');
     try {
-      const env = connectedServer.env ? JSON.parse(connectedServer.env) : {};
-      const serverConfig = {
-        id: connectedServer.id,
-        name: connectedServer.name,
-        command: connectedServer.command,
-        args: connectedServer.args.split(' ').filter(Boolean),
-        env,
-      };
-      const result = await invoke<unknown>('call_mcp_tool', {
-        config: serverConfig,
-        toolName,
-        arguments: args,
-      });
+      const result = await callMcpTool(connectedServer.id, toolName, args);
       return result;
     } catch (error) {
       toast.error('调用外部工具失败: ' + (error as Error).message);
@@ -98,11 +87,18 @@ export function useMcpTools() {
     }
   }, [connectedServer]);
 
-  const disconnectServer = useCallback(() => {
+  const disconnectServer = useCallback(async () => {
+    if (connectedServer) {
+      try {
+        await disconnectMcpServer(connectedServer.id);
+      } catch {
+        // ignore
+      }
+    }
     setExternalTools([]);
     setConnectedServer(null);
     toast.success('已断开外部服务器连接');
-  }, []);
+  }, [connectedServer]);
 
   return {
     tools,

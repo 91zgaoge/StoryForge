@@ -39,6 +39,7 @@ import { defaultStyle } from '@/frontstage/config/writingStyles';
 import { getCurrentEditorColors } from '@/frontstage/config/colorThemes';
 import { useModel } from '@/hooks/useModel';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useIntent } from '@/hooks/useIntent';
 import type { ParagraphCommentary } from '@/types/v3';
 import toast from 'react-hot-toast';
 import { generateParagraphCommentaries, writerAgentExecute, formatText } from '@/services/tauri';
@@ -173,6 +174,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     
     // 使用模型管理Hook
     const { currentModel, status } = useModel();
+    
+    // 意图引擎
+    const { parseIntent, executeIntent, getIntentLabel, isParsing: isParsingIntent } = useIntent();
     
     // 文本批注数据
     const { data: textAnnotations = [] } = useTextAnnotationsByChapter(chapterId || null);
@@ -705,15 +709,59 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     }, [isAiThinking, storyId, chapterNumber, editor, onWriterResult]);
 
     const handleSendMessage = useCallback(async () => {
-      if (!chatInput.trim() || isAiThinking) return;
+      if (!chatInput.trim() || isAiThinking || isParsingIntent) return;
       const instruction = chatInput.trim();
       addToHistory(instruction);
       setHistoryIndex(-1);
       setChatInput('');
       setGhostText('');
       setShowSlashMenu(false);
-      await executeWriterAgent(instruction);
-    }, [chatInput, isAiThinking, executeWriterAgent]);
+      
+      // 意图解析路由
+      try {
+        const intent = await parseIntent(instruction);
+        if (!intent) {
+          // 解析失败，回退到 WriterAgent
+          await executeWriterAgent(instruction);
+          return;
+        }
+        
+        const intentType = intent.intent_type;
+        
+        // 写作类意图 → WriterAgent
+        if (intentType === 'text_generate' || intentType === 'text_rewrite' || intentType === 'unknown') {
+          await executeWriterAgent(instruction);
+          return;
+        }
+        
+        // 分析/建议类意图 → IntentExecutor
+        if (storyId) {
+          setIsAiThinking(true);
+          const result = await executeIntent(intent, storyId);
+          if (result) {
+            const label = getIntentLabel(intentType);
+            toast.success(`${label}已完成`);
+            // 从 steps 中提取最后一个有内容的输出
+            const lastOutput = result.steps
+              ?.slice()
+              .reverse()
+              .find(s => s.result?.content?.trim())?.result?.content;
+            if (lastOutput) {
+              onWriterResult?.(lastOutput);
+            }
+          } else {
+            toast.error('意图执行失败');
+          }
+          setIsAiThinking(false);
+        } else {
+          toast.error('请先选择一个故事');
+        }
+      } catch (err) {
+        // 意图引擎出错，回退到 WriterAgent
+        console.error('Intent routing failed:', err);
+        await executeWriterAgent(instruction);
+      }
+    }, [chatInput, isAiThinking, isParsingIntent, executeWriterAgent, parseIntent, executeIntent, getIntentLabel, storyId, onWriterResult]);
 
     // 智能排版（调用 text_formatter skill）
     const handleFormatText = useCallback(async () => {

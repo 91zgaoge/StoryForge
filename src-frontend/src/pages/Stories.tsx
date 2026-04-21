@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen } from 'lucide-react';
+import { Plus, BookOpen, Download, Trash2, Edit3, ArrowRight, Check, X, FolderOpen, Sparkles, Loader2, Palette } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/hooks/useStories';
@@ -8,6 +8,8 @@ import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
 import type { Story } from '@/types/index';
 import toast from 'react-hot-toast';
+import { runCreationWorkflow, listStyleDnas, setStoryStyleDna } from '@/services/tauri';
+import { useQuery } from '@tanstack/react-query';
 
 export function Stories() {
   const { data: stories = [], isLoading } = useStories();
@@ -18,6 +20,14 @@ export function Stories() {
   const [exportStory, setExportStory] = useState<{ id: string; title: string } | null>(null);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [editForm, setEditForm] = useState({ title: '', description: '', genre: '' });
+  const [creatingStoryId, setCreatingStoryId] = useState<string | null>(null);
+  const [styleDnaModalStory, setStyleDnaModalStory] = useState<Story | null>(null);
+
+  const { data: styleDnas = [] } = useQuery({
+    queryKey: ['style-dnas'],
+    queryFn: listStyleDnas,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const currentStory = useAppStore((s) => s.currentStory);
   const setCurrentStory = useAppStore((s) => s.setCurrentStory);
@@ -89,6 +99,23 @@ export function Stories() {
       if (currentStory?.id === storyId) {
         setCurrentStory(null);
       }
+    }
+  };
+
+  const handleOneClickCreate = async (story: Story, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCreatingStoryId(story.id);
+    try {
+      const result = await runCreationWorkflow(story.id, 'ai_only', story.description || story.title);
+      if (result.success) {
+        toast.success(`一键创作完成！已完成 ${result.completed_phases.length} 个阶段`);
+      } else {
+        toast.error(`创作未完成: ${result.error || '未知错误'}`);
+      }
+    } catch (err: any) {
+      toast.error(`创作失败: ${err?.message || String(err)}`);
+    } finally {
+      setCreatingStoryId(null);
     }
   };
 
@@ -224,6 +251,32 @@ export function Stories() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      disabled={creatingStoryId === story.id}
+                      onClick={(e) => handleOneClickCreate(story, e)}
+                      title="AI 一键创作：自动生成世界观、角色和首个场景"
+                    >
+                      {creatingStoryId === story.id ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 mr-1 text-cinema-gold" />
+                      )}
+                      一键创作
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStyleDnaModalStory(story);
+                      }}
+                      title="选择写作风格 DNA"
+                    >
+                      <Palette className="w-4 h-4 mr-1" />
+                      风格
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         setExportStory({ id: story.id, title: story.title });
@@ -343,6 +396,71 @@ export function Stories() {
           isOpen={!!exportStory}
           onClose={() => setExportStory(null)}
         />
+      )}
+
+      {/* StyleDNA Selector Modal */}
+      {styleDnaModalStory && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-lg mx-4">
+            <CardContent className="p-6">
+              <h2 className="font-display text-xl font-bold text-white mb-2">
+                选择写作风格
+              </h2>
+              <p className="text-sm text-gray-400 mb-4">
+                为「{styleDnaModalStory.title}」选择一种风格 DNA，AI 创作时将模仿该风格。
+              </p>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                <button
+                  onClick={async () => {
+                    await setStoryStyleDna(styleDnaModalStory.id, null);
+                    setStyleDnaModalStory(null);
+                    toast.success('已清除风格设置');
+                  }}
+                  className={`w-full p-3 rounded-lg text-left transition-colors border ${
+                    !styleDnaModalStory.style_dna_id
+                      ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                      : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                  }`}
+                >
+                  <div className="font-medium text-white">默认风格</div>
+                  <div className="text-xs text-gray-400">不指定特定风格，使用通用创作风格</div>
+                </button>
+                {styleDnas.map((dna) => (
+                  <button
+                    key={dna.id}
+                    onClick={async () => {
+                      await setStoryStyleDna(styleDnaModalStory.id, dna.id);
+                      setStyleDnaModalStory(null);
+                      toast.success(`已设置风格：${dna.name}`);
+                    }}
+                    className={`w-full p-3 rounded-lg text-left transition-colors border ${
+                      styleDnaModalStory.style_dna_id === dna.id
+                        ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                        : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{dna.name}</span>
+                      {dna.is_builtin && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold">
+                          内置
+                        </span>
+                      )}
+                    </div>
+                    {dna.author && (
+                      <div className="text-xs text-gray-400">作者：{dna.author}</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end mt-4">
+                <Button variant="ghost" onClick={() => setStyleDnaModalStory(null)}>
+                  取消
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

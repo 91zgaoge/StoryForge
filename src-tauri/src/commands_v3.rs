@@ -987,7 +987,7 @@ pub async fn create_story_with_wizard(
 ) -> Result<WizardCreationResult, String> {
     // 1. 创建故事
     let story_repo = StoryRepository::new(pool.inner().clone());
-    let story = story_repo.create(CreateStoryRequest { title, description, genre })
+    let story = story_repo.create(CreateStoryRequest { title, description, genre, style_dna_id: None })
         .map_err(|e| e.to_string())?;
     let story_id = story.id.clone();
     
@@ -1689,5 +1689,50 @@ pub async fn run_creation_workflow(
             Ok(json)
         }
         Err(e) => Err(e),
+    }
+}
+
+// ==================== StyleDNA 命令 ====================
+
+#[tauri::command]
+pub async fn list_style_dnas(pool: State<'_, DbPool>) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::repositories_v3::StyleDnaRepository;
+    let repo = StyleDnaRepository::new(pool.inner().clone());
+    match repo.get_all() {
+        Ok(dnas) => {
+            let result: Vec<serde_json::Value> = dnas.into_iter().map(|d| {
+                serde_json::json!({
+                    "id": d.id,
+                    "name": d.name,
+                    "author": d.author,
+                    "is_builtin": d.is_builtin,
+                    "is_user_created": d.is_user_created,
+                })
+            }).collect();
+            Ok(result)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn set_story_style_dna(
+    story_id: String,
+    style_dna_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    use crate::db::repositories::StoryRepository;
+    use crate::db::UpdateStoryRequest;
+    let repo = StoryRepository::new(pool.inner().clone());
+    let req = UpdateStoryRequest {
+        title: None,
+        description: None,
+        tone: None,
+        pacing: None,
+        style_dna_id,
+    };
+    match repo.update(&story_id, &req) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string()),
     }
 }

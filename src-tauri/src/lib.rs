@@ -197,7 +197,7 @@ pub fn run() {
             get_story_characters, create_character, update_character, delete_character,
             get_story_chapters, get_chapter, create_chapter, update_chapter, delete_chapter,
             get_skills, get_skill, get_skills_by_category, import_skill, enable_skill, disable_skill, uninstall_skill, execute_skill, update_skill, format_text,
-            connect_mcp_server, call_mcp_tool, list_mcp_tools, execute_mcp_tool,
+            connect_mcp_server, call_mcp_tool, disconnect_mcp_server, get_mcp_connections, list_mcp_tools, execute_mcp_tool,
             search_similar, text_search_vectors, hybrid_search_vectors, embed_chapter,
             export_story,
             // Window management commands
@@ -242,6 +242,7 @@ pub fn run() {
             agents::commands::auto_write,
             agents::commands::auto_write_cancel,
             agents::commands::auto_revise,
+            agents::commands::auto_revise_cancel,
             agents::service::get_available_agents,
             // Subscription commands
             subscription::commands::get_subscription_status,
@@ -341,6 +342,8 @@ pub fn run() {
             commands_v3::reopen_comment_thread,
             commands_v3::delete_comment_thread,
             commands_v3::run_creation_workflow,
+            commands_v3::list_style_dnas,
+            commands_v3::set_story_style_dna,
             // Book deconstruction commands
             book_deconstruction::commands::upload_book,
             book_deconstruction::commands::get_analysis_status,
@@ -486,12 +489,12 @@ fn list_stories() -> Result<Vec<db::Story>, String> {
 
 #[tauri::command]
 fn create_story(title: String, description: Option<String>, genre: Option<String>) -> Result<db::Story, String> {
-    StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre }).map_err(|e| e.to_string())
+    StoryRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateStoryRequest { title, description, genre, style_dna_id: None }).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn update_story(id: String, title: Option<String>, description: Option<String>, tone: Option<String>, pacing: Option<String>) -> Result<(), String> {
-    let req = db::UpdateStoryRequest { title, description, tone, pacing };
+    let req = db::UpdateStoryRequest { title, description, tone, pacing, style_dna_id: None };
     StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| e.to_string()).map(|_| ())
 }
 
@@ -602,33 +605,12 @@ fn update_skill(skill_id: String, manifest: skills::SkillManifest) -> Result<(),
 }
 
 #[tauri::command]
-fn execute_skill(skill_id: String, params: HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
-    let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
-    let context = agents::AgentContext {
-        story_id: String::new(),
-        story_title: String::new(),
-        genre: String::new(),
-        tone: String::new(),
-        pacing: String::new(),
-        chapter_number: 0,
-        characters: vec![],
-        previous_chapters: vec![],
-        current_content: None,
-        selected_text: None,
-        world_rules: None,
-        scene_structure: None,
-        methodology_id: None,
-        methodology_step: None,
-        style_dna_id: None,
-    };
-    let result = manager.execute_skill(&skill_id, &context, params)?;
-    serde_json::to_value(result).map_err(|e| e.to_string())
-}
-
-/// 使用 text_formatter skill 对文本进行智能排版
-#[tauri::command]
-async fn format_text(content: String, app: AppHandle) -> Result<String, String> {
-    // 1. 获取 text_formatter skill 并生成 prompt
+async fn execute_skill(
+    skill_id: String,
+    params: HashMap<String, serde_json::Value>,
+    app_handle: AppHandle,
+) -> Result<serde_json::Value, String> {
+    // 1. 获取 skill prompt
     let (system_prompt, user_prompt) = {
         let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
         let context = agents::AgentContext {
@@ -640,7 +622,7 @@ async fn format_text(content: String, app: AppHandle) -> Result<String, String> 
             chapter_number: 0,
             characters: vec![],
             previous_chapters: vec![],
-            current_content: Some(content.clone()),
+            current_content: None,
             selected_text: None,
             world_rules: None,
             scene_structure: None,
@@ -648,86 +630,102 @@ async fn format_text(content: String, app: AppHandle) -> Result<String, String> 
             methodology_step: None,
             style_dna_id: None,
         };
-        let result = manager.execute_skill("builtin.text_formatter", &context, {
-            let mut p = HashMap::new();
-            p.insert("content".to_string(), serde_json::Value::String(content));
-            p
-        })?;
-        
+        let result = manager.execute_skill(&skill_id, &context, params)?;
         let data = result.data;
-        let system = data.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("你是一个专业的小说排版编辑").to_string();
+        let system = data.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let user = data.get("user_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
         (system, user)
     };
-    
-    // 2. 从文件加载 LLM 配置
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let app_config = config::AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
-    let profile = app_config.get_active_llm_profile()
-        .ok_or("No active LLM profile configured")?;
-    
-    // 3. 调用 LLM
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| e.to_string())?;
-    
-    let base_url = profile.api_base.clone().unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-    let api_key = profile.api_key.clone();
-    let model = profile.model.clone();
-    let max_tokens = profile.max_tokens;
-    let temperature = profile.temperature;
-    
-    let mut request = client
-        .post(format!("{}/chat/completions", base_url))
-        .header("Content-Type", "application/json");
-    
-    if !api_key.is_empty() {
-        request = request.header("Authorization", format!("Bearer {}", api_key));
+
+    if system_prompt.is_empty() && user_prompt.is_empty() {
+        return Err("Skill did not produce a valid prompt".to_string());
     }
+
+    // 2. 调用 LLM
+    let llm_service = crate::llm::LlmService::new(app_handle);
+    let full_prompt = if system_prompt.is_empty() {
+        user_prompt
+    } else {
+        format!("[系统指令]\n{}\n\n[用户请求]\n{}", system_prompt, user_prompt)
+    };
     
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": system_prompt },
-            { "role": "user", "content": user_prompt }
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "stream": false,
-    });
+    let response = llm_service.generate(full_prompt, Some(2000), Some(0.7)).await?;
     
-    let response = request.json(&body).send().await.map_err(|e| e.to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("HTTP {}: {}", status, text));
-    }
-    
-    let data: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-    let formatted = data.get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("")
-        .to_string();
-    
-    Ok(formatted)
+    Ok(serde_json::json!({
+        "success": true,
+        "content": response.content,
+        "model": response.model,
+        "tokens_used": response.tokens_used,
+        "execution_time_ms": 0,
+    }))
 }
+
+/// 使用 text_formatter skill 对文本进行智能排版
+#[tauri::command]
+async fn format_text(content: String, app: AppHandle) -> Result<String, String> {
+    let result = execute_skill(
+        "builtin.text_formatter".to_string(),
+        {
+            let mut p = HashMap::new();
+            p.insert("content".to_string(), serde_json::Value::String(content));
+            p
+        },
+        app,
+    ).await?;
+    
+    result.get("content")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "LLM returned empty content".to_string())
+}
+
+use tokio::sync::Mutex as TokioMutex;
+
+static MCP_CONNECTIONS: Lazy<TokioMutex<HashMap<String, mcp::McpClient>>> =
+    Lazy::new(|| TokioMutex::new(HashMap::new()));
 
 #[tauri::command]
 async fn connect_mcp_server(config: McpServerConfig) -> Result<Vec<mcp::McpTool>, String> {
-    let mut client = McpClient::new(config);
+    let mut client = McpClient::new(config.clone());
     client.connect().await.map_err(|e| e.to_string())?;
-    Ok(client.get_tools().clone())
+    let tools = client.get_tools().clone();
+    let mut connections = MCP_CONNECTIONS.lock().await;
+    connections.insert(config.id.clone(), client);
+    log::info!("[MCP] Connected to server {} ({}), {} tools available", config.name, config.id, tools.len());
+    Ok(tools)
 }
 
 #[tauri::command]
-async fn call_mcp_tool(config: McpServerConfig, tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
-    let mut client = McpClient::new(config);
-    client.connect().await.map_err(|e| e.to_string())?;
+async fn call_mcp_tool(server_id: String, tool_name: String, arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut connections = MCP_CONNECTIONS.lock().await;
+    let client = connections.get_mut(&server_id)
+        .ok_or_else(|| format!("MCP server {} not connected", server_id))?;
     client.call_tool(&tool_name, arguments).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn disconnect_mcp_server(server_id: String) -> Result<(), String> {
+    let mut connections = MCP_CONNECTIONS.lock().await;
+    if let Some(mut client) = connections.remove(&server_id) {
+        client.disconnect().await;
+        log::info!("[MCP] Disconnected from server {}", server_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_mcp_connections() -> Result<Vec<serde_json::Value>, String> {
+    let connections = MCP_CONNECTIONS.lock().await;
+    let result: Vec<serde_json::Value> = connections.iter()
+        .map(|(id, client)| {
+            serde_json::json!({
+                "id": id,
+                "tools": client.get_tools().len(),
+                "resources": client.get_resources().len(),
+            })
+        })
+        .collect();
+    Ok(result)
 }
 
 // Vector Search Commands (LanceDB)

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 pub struct McpClient {
     config: McpServerConfig,
-    transport: Option<Box<dyn Transport>>,
+    transport: Option<Box<dyn Transport + Send>>,
     tools: Vec<McpTool>,
     resources: Vec<McpResource>,
 }

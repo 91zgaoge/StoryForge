@@ -80,6 +80,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         setting_time: scene.setting_time,
         setting_atmosphere: scene.setting_atmosphere,
         content: scene.content,
+        confidence_score: scene.confidence_score,
       });
       setNewAnnotationContent('');
       setEditingAnnotationId(null);
@@ -368,6 +369,30 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                   rows={3}
                   className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-none"
                 />
+              </CardContent>
+            </Card>
+
+            {/* Confidence Score */}
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="font-medium text-white mb-3">AI 生成置信度</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  评估此场景内容的质量置信度（0-1），用于版本管理和记忆保留策略。
+                </p>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={formData.confidence_score ?? 0.5}
+                    onChange={(e) => setFormData({ ...formData, confidence_score: Number(e.target.value) })}
+                    className="flex-1 accent-cinema-gold"
+                  />
+                  <span className="text-sm text-cinema-gold font-medium w-12 text-right">
+                    {((formData.confidence_score ?? 0.5) * 100).toFixed(0)}%
+                  </span>
+                </div>
               </CardContent>
             </Card>
 

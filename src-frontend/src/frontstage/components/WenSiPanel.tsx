@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Zap, Wand2, Play, Square, Loader2, Settings2, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { autoWrite, autoWriteCancel, autoRevise } from '@/services/tauri';
+import { autoWrite, autoWriteCancel, autoRevise, autoReviseCancel } from '@/services/tauri';
 import { listen } from '@tauri-apps/api/event';
 import toast from 'react-hot-toast';
 
@@ -52,10 +52,13 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
 
   // 自动修改状态
   const [isAutoRevising, setIsAutoRevising] = useState(false);
+  const [autoReviseTaskId, setAutoReviseTaskId] = useState<string | null>(null);
+  const [reviseProgress, setReviseProgress] = useState({ stage: '', progress: 0, message: '' });
   const [reviseScope, setReviseScope] = useState<'full' | 'chapter' | 'selection'>('chapter');
   const [reviseType, setReviseType] = useState('comprehensive');
 
   const unlistenRef = useRef<(() => void) | null>(null);
+  const reviseUnlistenRef = useRef<(() => void) | null>(null);
 
   // 监听自动续写进度事件
   useEffect(() => {
@@ -122,6 +125,71 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     };
   }, [autoWriteTaskId]);
 
+  // 监听自动修改进度事件
+  useEffect(() => {
+    if (!autoReviseTaskId || !isAutoRevising) return;
+
+    const setupProgress = async () => {
+      const unlisten = await listen<{
+        task_id: string;
+        stage: string;
+        progress: number;
+        message: string;
+      }>(`auto-revise-progress-${autoReviseTaskId}`, (event) => {
+        const p = event.payload;
+        setReviseProgress({ stage: p.stage, progress: p.progress, message: p.message });
+      });
+      reviseUnlistenRef.current = unlisten;
+      return unlisten;
+    };
+    setupProgress();
+
+    return () => {
+      reviseUnlistenRef.current?.();
+    };
+  }, [autoReviseTaskId, isAutoRevising]);
+
+  // 监听自动修改完成/错误事件
+  useEffect(() => {
+    if (!autoReviseTaskId) return;
+
+    const setupComplete = async () => {
+      const unlisten = await listen<{
+        task_id: string;
+        stage: string;
+        progress: number;
+        message: string;
+        revised_text?: string;
+      }>(`auto-revise-complete-${autoReviseTaskId}`, (event) => {
+        setIsAutoRevising(false);
+        setReviseProgress({ stage: 'completed', progress: 1, message: '修改完成' });
+        toast.success('自动修改完成！');
+        if (event.payload.revised_text) {
+          onReviseResult?.(event.payload.revised_text);
+        }
+      });
+      return unlisten;
+    };
+    const unlistenCompletePromise = setupComplete();
+
+    const setupError = async () => {
+      const unlisten = await listen<string>(
+        `auto-revise-error-${autoReviseTaskId}`,
+        (event) => {
+          setIsAutoRevising(false);
+          toast.error(`自动修改出错：${event.payload}`);
+        }
+      );
+      return unlisten;
+    };
+    const unlistenErrorPromise = setupError();
+
+    return () => {
+      unlistenCompletePromise.then(u => u());
+      unlistenErrorPromise.then(u => u());
+    };
+  }, [autoReviseTaskId, onReviseResult]);
+
   const handleStartAutoWrite = useCallback(async () => {
     if (!storyId || !chapterId) {
       toast.error('请先选择一个章节');
@@ -174,7 +242,6 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       onShowUpgrade('自动修改配额已用完');
       return;
     }
-    setIsAutoRevising(true);
     try {
       const result = await autoRevise({
         story_id: storyId,
@@ -183,19 +250,29 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         selected_text: selectedText || undefined,
         revision_type: reviseType,
       });
-      toast.success('自动修改完成！');
-      onReviseResult?.(result.revised_text);
+      setAutoReviseTaskId(result.task_id);
+      setIsAutoRevising(true);
+      setReviseProgress({ stage: 'started', progress: 0, message: '开始修改...' });
+      toast.success('自动修改已开始');
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('配额') || msg.includes('次数已用完')) {
         onShowUpgrade('自动修改配额已用完');
       } else {
-        toast.error(`修改失败：${msg}`);
+        toast.error(`启动失败：${msg}`);
       }
-    } finally {
-      setIsAutoRevising(false);
     }
-  }, [storyId, chapterId, reviseScope, reviseType, selectedText, editorContent, hasAutoReviseQuota, onShowUpgrade, onReviseResult]);
+  }, [storyId, chapterId, reviseScope, reviseType, selectedText, editorContent, hasAutoReviseQuota, onShowUpgrade]);
+
+  const handleStopAutoRevise = useCallback(async () => {
+    if (autoReviseTaskId) {
+      await autoReviseCancel(autoReviseTaskId);
+    }
+    setIsAutoRevising(false);
+    setAutoReviseTaskId(null);
+    setReviseProgress({ stage: '', progress: 0, message: '' });
+    toast('自动修改已停止');
+  }, [autoReviseTaskId]);
 
   const maxCharsPerCall = isPro ? 999999 : 1000;
 
@@ -331,18 +408,33 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
               <option value="description">感官描写</option>
             </select>
           </div>
+          {/* 进度条 */}
+          {isAutoRevising && (
+            <div className="wensi-progress-area">
+              <div className="wensi-progress-bar-bg">
+                <div
+                  className="wensi-progress-bar-fill"
+                  style={{ width: `${Math.round(reviseProgress.progress * 100)}%` }}
+                />
+              </div>
+              <div className="wensi-progress-text">
+                {Math.round(reviseProgress.progress * 100)}% · {reviseProgress.message}
+              </div>
+            </div>
+          )}
+
           <div className="wensi-actions">
-            <button
-              onClick={handleAutoRevise}
-              disabled={isAutoRevising}
-              className="wensi-btn-primary"
-            >
-              {isAutoRevising ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 修改中...</>
-              ) : (
-                <><Wand2 className="w-3.5 h-3.5" /> 开始修改</>
-              )}
-            </button>
+            {!isAutoRevising ? (
+              <button onClick={handleAutoRevise} className="wensi-btn-primary">
+                <Wand2 className="w-3.5 h-3.5" />
+                开始修改
+              </button>
+            ) : (
+              <button onClick={handleStopAutoRevise} className="wensi-btn-danger">
+                <Square className="w-3.5 h-3.5" />
+                停止修改
+              </button>
+            )}
           </div>
         </div>
       )}

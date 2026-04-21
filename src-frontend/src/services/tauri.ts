@@ -97,9 +97,30 @@ export const formatText = (content: string) =>
 export const connectMcpServer = (config: McpServer) => 
   invoke<McpTool[]>('connect_mcp_server', { config });
 
-/** @deprecated 暂时保留 — 待 MCP 外部服务器 UI 完成后启用 */
-export const callMcpTool = (config: McpServer, toolName: string, args: unknown) => 
-  invoke<unknown>('call_mcp_tool', { config, toolName, arguments: args });
+export const callMcpTool = (serverId: string, toolName: string, args: unknown) => 
+  invoke<unknown>('call_mcp_tool', { server_id: serverId, toolName, arguments: args });
+
+export const disconnectMcpServer = (serverId: string) =>
+  invoke<void>('disconnect_mcp_server', { server_id: serverId });
+
+export const getMcpConnections = () =>
+  invoke<Array<{ id: string; tools: number; resources: number }>>('get_mcp_connections');
+
+export const runCreationWorkflow = (storyId: string, mode: string, initialInput: string) =>
+  invoke<{
+    success: boolean;
+    current_phase: string;
+    completed_phases: string[];
+    output_preview?: string;
+    quality_report?: unknown;
+    error?: string;
+  }>('run_creation_workflow', { story_id: storyId, mode, initial_input: initialInput });
+
+export const listStyleDnas = () =>
+  invoke<Array<{ id: string; name: string; author?: string; is_builtin: boolean }>>('list_style_dnas');
+
+export const setStoryStyleDna = (storyId: string, styleDnaId: string | null) =>
+  invoke<void>('set_story_style_dna', { story_id: storyId, style_dna_id: styleDnaId });
 
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>
@@ -369,6 +390,9 @@ export const autoRevise = (params: {
   revision_type: string;
 }) =>
   invoke<{ task_id: string; revised_text: string; status: string }>('auto_revise', { request: params });
+
+export const autoReviseCancel = (taskId: string) =>
+  invoke<void>('auto_revise_cancel', { task_id: taskId });
 
 // Window communication
 export const notifyFrontstageDataRefresh = (entity: string) =>

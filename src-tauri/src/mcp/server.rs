@@ -246,6 +246,17 @@ impl McpServer {
     ) -> Result<serde_json::Value, McpError> {
         let timeout = tokio::time::Duration::from_secs(self.config.timeout_seconds.max(30));
 
+        // web_search 使用真实 HTTP 搜索
+        if tool_name == "web_search" {
+            return match tokio::time::timeout(timeout, async {
+                perform_web_search(arguments).await
+            }).await {
+                Ok(Ok(result)) => Ok(result),
+                Ok(Err(e)) => Err(McpError::RpcError(e)),
+                Err(_) => Err(McpError::Timeout),
+            };
+        }
+
         match tokio::time::timeout(timeout, async {
             self.handle_tool_call(tool_name, arguments)
         }).await {
@@ -253,4 +264,105 @@ impl McpServer {
             Err(_) => Err(McpError::Timeout),
         }
     }
+}
+
+/// 执行真实的网页搜索（使用 DuckDuckGo Lite）
+async fn perform_web_search(arguments: serde_json::Value) -> Result<serde_json::Value, String> {
+    let query = arguments.get("query").and_then(|v| v.as_str()).unwrap_or("");
+    if query.is_empty() {
+        return Ok(serde_json::json!({"query": "", "results": [], "note": "Empty query"}));
+    }
+
+    // 尝试 DuckDuckGo Lite
+    let encoded_query = query.replace(' ', "+");
+    let url = format!("https://lite.duckduckgo.com/lite/?q={}", encoded_query);
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    match client.get(&url).send().await {
+        Ok(response) => {
+            if let Ok(html) = response.text().await {
+                let results = parse_duckduckgo_results(&html);
+                if !results.is_empty() {
+                    return Ok(serde_json::json!({
+                        "query": query,
+                        "results": results,
+                        "source": "duckduckgo"
+                    }));
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("[web_search] DuckDuckGo request failed: {}", e);
+        }
+    }
+
+    // 回退到模拟数据
+    log::info!("[web_search] Falling back to simulated results for: {}", query);
+    Ok(serde_json::json!({
+        "query": query,
+        "results": [
+            {"title": format!("搜索结果: {}", query), "snippet": "未找到真实搜索结果，这是一个模拟结果。", "url": "https://example.com/result1"}
+        ],
+        "note": "真实搜索服务暂时不可用，已返回模拟数据。",
+        "source": "simulated"
+    }))
+}
+
+/// 简单解析 DuckDuckGo Lite HTML 结果
+fn parse_duckduckgo_results(html: &str) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    // DuckDuckGo Lite 的结果在 .result-link 和 .result-snippet 中
+    // 使用简单的字符串匹配提取
+    let link_pattern = "class=\"result-link\"";
+    let snippet_pattern = "class=\"result-snippet\"";
+
+    let mut pos = 0;
+    while let Some(link_start) = html[pos..].find(link_pattern) {
+        let link_abs = pos + link_start;
+        if let Some(href_start) = html[link_abs..].find("href=\"") {
+            let href_abs = link_abs + href_start + 6;
+            if let Some(href_end) = html[href_abs..].find("\"") {
+                let href = &html[href_abs..href_abs + href_end];
+                // 提取标题（在 > 和 < 之间）
+                let title_start = href_abs + href_end + 1;
+                let title_html = &html[title_start..title_start + 200];
+                let title = if let Some(gt) = title_html.find('>') {
+                    if let Some(lt) = title_html[gt..].find('<') {
+                        title_html[gt + 1..gt + lt].trim().to_string()
+                    } else { href.to_string() }
+                } else { href.to_string() };
+
+                // 查找对应的 snippet
+                let snippet = if let Some(snippet_start) = html[link_abs..].find(snippet_pattern) {
+                    let snippet_abs = link_abs + snippet_start;
+                    let snippet_html = &html[snippet_abs..snippet_abs + 300];
+                    if let Some(gt) = snippet_html.find('>') {
+                        if let Some(lt) = snippet_html[gt..].find('<') {
+                            snippet_html[gt + 1..gt + lt].trim().to_string()
+                        } else { String::new() }
+                    } else { String::new() }
+                } else { String::new() };
+
+                if !title.is_empty() && title != href {
+                    results.push(serde_json::json!({
+                        "title": title,
+                        "snippet": if snippet.is_empty() { "无描述".to_string() } else { snippet },
+                        "url": if href.starts_with("http") { href.to_string() } else { format!("https://duckduckgo.com{}", href) }
+                    }));
+                }
+
+                if results.len() >= 5 {
+                    break;
+                }
+            }
+        }
+        pos = link_abs + link_pattern.len();
+    }
+
+    results
 }

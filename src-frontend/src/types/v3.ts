@@ -40,6 +40,9 @@ export interface Scene {
   // 内容
   content?: string;
   
+  // AI 生成置信度
+  confidence_score?: number;
+  
   // 场景设置
   setting_location?: string;
   setting_time?: string;

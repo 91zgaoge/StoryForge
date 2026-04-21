@@ -96,6 +96,7 @@ impl StoryImporter {
             title: story_title.to_string(),
             description: None,
             genre: None,
+            style_dna_id: None,
         };
         Ok((story_req, vec![]))
     }

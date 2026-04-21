@@ -62,6 +62,7 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
             genre TEXT,
             tone TEXT,
             pacing TEXT,
+            style_dna_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -1194,6 +1195,21 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
         conn.execute(
             "CREATE INDEX idx_scene_versions_scene ON scene_versions(scene_id)",
+            [],
+        )?;
+    }
+
+    // Migration 20: 为 stories 表添加 style_dna_id 字段
+    let story_columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(stories)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !story_columns.iter().any(|c| c == "style_dna_id") {
+        conn.execute(
+            "ALTER TABLE stories ADD COLUMN style_dna_id TEXT",
             [],
         )?;
     }
