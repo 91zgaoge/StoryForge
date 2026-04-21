@@ -2,6 +2,56 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v3.5.1] - 全面功能审计与修复（2026-04-22）
+
+### 🔧 关键缺陷修复（13 项）
+
+**自动修改 (auto_revise)**
+- 修复修改结果永不应用到编辑器的致命 bug
+- 后端自动保存修改后的内容到 scenes 表
+- 前端 `WenSiPanel` 新增 `onReviseResult` 回调，`RichTextEditor` 接收后更新内容
+
+**拆书功能 (book_deconstruction)**
+- 修复提取的书名/作者永不写入数据库的 bug
+- 修复 `convert_to_story` 返回错误 story_id 导致角色/场景关联失效的 bug
+- 修复任务执行器未调用 `store_embeddings` 导致向量存储缺失的 bug
+- 修复任务完成后数据库进度停在 95% 的问题（改为 100%）
+- 修复心跳事件 progress=0 造成 UI 进度条闪烁的问题
+- 前端 `BookListGrid` 新增 `cancelled: '已取消'` 状态标签
+- 前端 `useBookDeconstruction` 过滤非当前 task_id 的事件，避免多任务进度乱跳
+
+**场景模型与版本控制**
+- 生产环境 `create_v3_tables` 中新增完整 `scene_versions` 表定义
+- Migration 19 为已有数据库补建 `scene_versions` 表
+- 修复 `conflict_type` 从错误列索引（5 而非 6）读取的 bug
+- `Scenes.tsx` 版本快照检测扩展至全部字段（戏剧目标、外部压迫、冲突类型、场景设置等）
+- `create_scene` 命令新增 `dramatic_goal`/`external_pressure`/`conflict_type` 参数
+
+**AI 生成核心**
+- `AgentOrchestrator` 集成到 `writer_agent_execute`，实现 Writer→Inspector→Writer 闭环优化
+- `AgentOrchestrator` 每步完成后发射 `orchestrator-step-{task_id}` 事件到前端
+- `ContinuityEngine` 集成到 `execute_writer` Reviewing 阶段，自动检测一致性 issues
+- `ForeshadowingTracker` 集成到 `build_agent_context`，将未解决伏笔注入 Writer prompt
+- `AdaptiveGenerator` 动态参数实际应用到 LLM 调用（temperature/max_tokens 替代硬编码）
+- `auto_write` 循环结束后保存到数据库并后台触发 `IngestPipeline` 知识图谱更新
+- Inspector prompt 改为要求 JSON 结构化输出，`parse_inspection_result` 增强三层解析（JSON→正则→关键词）
+
+**基础设施**
+- LLM 取消机制：`LlmService` 新增 `cancel_senders`，`cancel_generation()` 发送取消信号
+- `llm_cancel_generation` 命令从 TODO stub 改为实际实现
+- 前端 `useLlmStream` hook 封装真实 SSE 流式生成，替换 mock 数据
+- `FrontstageApp` 集成 `useLlmStream`，`handleRequestGeneration` 调用真实流式接口
+- StyleDNA 内置风格自动种子化：App 启动时检测空表则插入 10 种经典作家 DNA
+- `CreationWorkflowEngine` 暴露 `run_creation_workflow` Tauri 命令，支持 3 种创作模式
+
+### 📊 质量验证
+- **139 项 Rust 后端测试全部通过**
+- **前端构建通过**
+- `cargo check` 零警告
+- 已推送至 GitHub
+
+---
+
 ## [v3.5.0] - 拆书体验升级（2026-04-21）
 
 ### 📖 拆书功能：进度提示增强 + 取消支持

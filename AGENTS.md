@@ -148,6 +148,16 @@ npm test
 
 ### 最近完成的功能
 
+- **v3.5.1 全面功能审计与修复** (2026-04-22) — 13 项关键修复
+  - 自动修改: 结果应用到编辑器 + 保存到数据库
+  - 拆书: 书名/作者持久化、convert_to_story story_id 修复、store_embeddings、进度 100%、心跳闪烁修复
+  - 场景模型: scene_versions 表生产环境补建、conflict_type 列索引修复、版本快照全字段检测
+  - AI 核心: AgentOrchestrator 闭环集成、ContinuityEngine/ForeshadowingTracker 写作流集成、AdaptiveGenerator 动态参数应用、auto_write Ingest 触发
+  - Inspector: JSON 结构化输出 + 三层解析增强
+  - LLM: 取消机制实现、useLlmStream 真实流式
+  - StyleDNA: 内置风格自动种子化、CreationWorkflowEngine 暴露命令
+  - 测试: Rust 139 全部通过，前端构建通过，已推送 GitHub
+
 - **v3.5.0 拆书体验升级** (2026-04-21) — 进度提示 + 取消支持
   - 后端: `BookAnalyzer` 5 步 Pipeline 每个子步骤发送详细进度，人物/章节逐块汇报
   - 前端: `AnalysisProgress` 8 步骤指示器 + 百分比 + 块处理信息，告别"只见转圈"
