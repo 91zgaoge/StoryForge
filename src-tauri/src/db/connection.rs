@@ -171,6 +171,49 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
+    // Migration 28: 创建协作会话表 (v4.0 - 协同编辑持久化)
+    let collab_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='collab_sessions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if collab_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE collab_sessions (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                chapter_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE collab_participants (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                user_name TEXT NOT NULL,
+                cursor_line INTEGER,
+                cursor_column INTEGER,
+                joined_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES collab_sessions(id) ON DELETE CASCADE,
+                UNIQUE(session_id, user_id)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_collab_sessions_story ON collab_sessions(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_collab_participants_session ON collab_participants(session_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -1330,6 +1373,73 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
     if !scene_columns_m25.iter().any(|c| c == "draft_content") {
         conn.execute(
             "ALTER TABLE scenes ADD COLUMN draft_content TEXT",
+            [],
+        )?;
+    }
+
+    // Migration 26: 创建聊天会话和消息表 (v4.0 - 持久化聊天)
+    let chat_session_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_sessions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if chat_session_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE chat_sessions (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                context TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_chat_sessions_story ON chat_sessions(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE chat_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_chat_messages_session ON chat_messages(session_id)",
+            [],
+        )?;
+    }
+
+    // Migration 27: 创建故事运行状态表 (v4.0 - 持久化状态)
+    let story_state_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_runtime_states'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if story_state_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE story_runtime_states (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL UNIQUE,
+                state_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_runtime_states_story ON story_runtime_states(story_id)",
             [],
         )?;
     }

@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn test_add_llm_profile_generates_id_when_empty() {
         let mut config = AppConfig::default();
-        let mut profile = LlmProfile {
+        let profile = LlmProfile {
             id: "".to_string(),
             name: "Auto ID".to_string(),
             description: None,

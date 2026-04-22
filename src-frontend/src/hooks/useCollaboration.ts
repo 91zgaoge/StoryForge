@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import type { TextOperation } from '@/types/collab';
 
@@ -49,6 +49,7 @@ export function useCollaboration({
   const [version, setVersion] = useState(0);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const connect = useCallback(() => {
     console.log('[Collaboration] Connect called:', { storyId, chapterId, userId });
@@ -64,6 +65,7 @@ export function useCollaboration({
 
     try {
       const ws = new WebSocket(`ws://127.0.0.1:8765`);
+      wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('[Collaboration] WebSocket connected');
@@ -130,6 +132,10 @@ export function useCollaboration({
 
   const disconnect = useCallback(() => {
     console.log('[Collaboration] Disconnecting...');
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     setIsConnected(false);
     setParticipants([]);
     toast('已断开协同编辑连接');
@@ -137,12 +143,25 @@ export function useCollaboration({
 
   const sendOperation = useCallback((operation: TextOperation) => {
     console.log('[Collaboration] Sending operation:', operation);
-    // Implementation would use wsRef
-  }, []);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const msg: CollabMessage = {
+        type: 'operation',
+        operation,
+        client_version: version,
+      };
+      wsRef.current.send(JSON.stringify(msg));
+    }
+  }, [version]);
 
   const sendCursorPosition = useCallback((position: CursorPosition) => {
     console.log('[Collaboration] Sending cursor position:', position);
-    // Implementation would use wsRef
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const msg: CollabMessage = {
+        type: 'cursor',
+        position,
+      };
+      wsRef.current.send(JSON.stringify(msg));
+    }
   }, []);
 
   return {

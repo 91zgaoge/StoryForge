@@ -194,37 +194,4 @@ export function useStreamingGeneration(
   };
 }
 
-/**
- * 模拟后端流式生成（用于测试）
- * 实际项目中应该调用 Tauri 命令
- */
-export function mockStreamGeneration(
-  prompt: string,
-  onChunk: (chunk: string) => void,
-  onComplete: () => void
-): () => void {
-  const sampleTexts = [
-    '夜风轻轻拂过窗棂，带来远处桂花的香气。她放下手中的笔，望向窗外那轮明月，心中涌起无限思绪。',
-    '他的声音低沉而温柔，像是大提琴的最后一个音符，在空气中缓缓消散。',
-    '雨点开始敲打屋顶，节奏清晰而有力，仿佛大自然在谱写一首独特的乐章。',
-    '那一刻，时间仿佛静止。所有的喧嚣都远去，只剩下心跳的声音在耳畔回响。',
-    '烛光摇曳，在墙上投下舞动的影子。她轻抚那本泛黄的书页，指尖传来岁月的温度。',
-  ];
 
-  // 随机选择一段文本
-  const text = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
-  const chars = text.split('');
-  let index = 0;
-  
-  const interval = setInterval(() => {
-    if (index < chars.length) {
-      onChunk(chars[index]);
-      index++;
-    } else {
-      clearInterval(interval);
-      onComplete();
-    }
-  }, 50 + Math.random() * 50);
-
-  return () => clearInterval(interval);
-}

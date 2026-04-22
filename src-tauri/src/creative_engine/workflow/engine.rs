@@ -226,17 +226,15 @@ fn phase_progress(phase: CreationPhase) -> f32 {
 /// 获取标准阶段工作流配置
 ///
 /// 将各阶段的 AgentType、methodology、prompt_extension 从硬编码迁移到配置。
-fn standard_phase_workflow(phase: CreationPhase) -> PhaseWorkflow {
-    match phase {
+fn standard_phase_workflow(phase: CreationPhase, ctx: &AgentContext) -> PhaseWorkflow {
+    let mut pw = match phase {
         CreationPhase::Conception => PhaseWorkflow::new(phase)
             .with_agents(vec![AgentType::OutlinePlanner]),
         CreationPhase::Outlining => PhaseWorkflow::new(phase)
             .with_agents(vec![AgentType::OutlinePlanner])
-            .with_methodology_id("snowflake")
-            .with_methodology_step("scene_expansion"),
+            .with_prompt_extension("请根据以下大纲设计场景结构："),
         CreationPhase::SceneDesign => PhaseWorkflow::new(phase)
             .with_agents(vec![AgentType::Writer])
-            .with_methodology_id("scene_structure")
             .with_prompt_extension("请根据以下大纲设计场景结构："),
         CreationPhase::Writing => PhaseWorkflow::new(phase)
             .with_agents(vec![AgentType::Writer]),
@@ -246,7 +244,17 @@ fn standard_phase_workflow(phase: CreationPhase) -> PhaseWorkflow {
             .with_agents(vec![AgentType::Writer]),
         CreationPhase::Ingestion => PhaseWorkflow::new(phase)
             .with_agents(vec![]),
+    };
+    // 如果故事配置了创作方法论，覆盖默认硬编码
+    if let Some(ref method_id) = ctx.methodology_id {
+        if !method_id.is_empty() {
+            pw = pw.with_methodology_id(method_id);
+            if let Some(ref step) = ctx.methodology_step {
+                pw = pw.with_methodology_step(step);
+            }
+        }
     }
+    pw
 }
 
 /// 创作工作流引擎
@@ -287,7 +295,7 @@ impl CreationWorkflowEngine {
         context: &AgentContext,
         input: &str,
     ) -> Result<AgentResult, String> {
-        let config = standard_phase_workflow(phase);
+        let config = standard_phase_workflow(phase, context);
         let agent_type = config.required_agents.first().copied();
 
         match phase {
@@ -424,10 +432,10 @@ impl CreationWorkflowEngine {
             CreationMode::AiDraftHumanEdit => {
                 // AI 初稿 + 人精修：执行到 Writing 后暂停
                 let phase_workflows = vec![
-                    standard_phase_workflow(CreationPhase::Conception),
-                    standard_phase_workflow(CreationPhase::Outlining),
-                    standard_phase_workflow(CreationPhase::SceneDesign),
-                    standard_phase_workflow(CreationPhase::Writing),
+                    standard_phase_workflow(CreationPhase::Conception, &context),
+                    standard_phase_workflow(CreationPhase::Outlining, &context),
+                    standard_phase_workflow(CreationPhase::SceneDesign, &context),
+                    standard_phase_workflow(CreationPhase::Writing, &context),
                 ];
 
                 for pw in phase_workflows {
@@ -545,11 +553,11 @@ impl CreationWorkflowEngine {
         current_input: &mut String,
     ) -> Result<(), String> {
         let phase_workflows = vec![
-            standard_phase_workflow(CreationPhase::Conception),
-            standard_phase_workflow(CreationPhase::Outlining),
-            standard_phase_workflow(CreationPhase::SceneDesign),
-            standard_phase_workflow(CreationPhase::Writing),
-            standard_phase_workflow(CreationPhase::Review),
+            standard_phase_workflow(CreationPhase::Conception, context),
+            standard_phase_workflow(CreationPhase::Outlining, context),
+            standard_phase_workflow(CreationPhase::SceneDesign, context),
+            standard_phase_workflow(CreationPhase::Writing, context),
+            standard_phase_workflow(CreationPhase::Review, context),
         ];
 
         for pw in phase_workflows {

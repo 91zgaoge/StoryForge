@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import { Sparkles, X, Check } from 'lucide-react';
 
 import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote, Play } from 'lucide-react';
@@ -151,7 +151,7 @@ const FrontstageApp: React.FC = () => {
                     const allStories = await invoke<Story[]>('list_stories');
                     const targetStory = allStories.find(s => s.id === payload.story_id);
                     if (targetStory) {
-                      const storyChapters = await invoke<Chapter[]>('get_story_chapters', { storyId: targetStory.id });
+                      const storyChapters = await invoke<Chapter[]>('get_story_chapters', { story_id: targetStory.id });
                       setCurrentStory(targetStory);
                       setChapters(storyChapters);
                       const targetChapter = storyChapters.find(c => c.id === payload.chapter_id);
@@ -193,7 +193,7 @@ const FrontstageApp: React.FC = () => {
   const selectStory = async (story: Story) => {
     setCurrentStory(story);
     try {
-      const result = await invoke<Chapter[]>('get_story_chapters', { storyId: story.id });
+      const result = await invoke<Chapter[]>('get_story_chapters', { story_id: story.id });
       setChapters(result);
       if (result.length > 0) {
         selectChapter(result[0]);
@@ -238,7 +238,7 @@ const FrontstageApp: React.FC = () => {
             id: currentChapter.id,
             title: currentChapter.title,
             content: newContent,
-            wordCount: wordCount
+            word_count: wordCount
           });
           setIsSaved(true);
         } catch (e) {
@@ -251,7 +251,7 @@ const FrontstageApp: React.FC = () => {
     if (currentChapter) {
       invoke('notify_backstage_content_changed', {
         text: newContent,
-        chapterId: currentChapter.id
+        chapter_id: currentChapter.id
       }).catch(e => console.error('Failed to notify content change:', e));
     }
   }, [currentChapter]);
@@ -348,7 +348,14 @@ const FrontstageApp: React.FC = () => {
     } catch (error) {
       console.error('Generation request failed:', error);
       const msg = error instanceof Error ? error.message : String(error);
-      toast.error(`生成失败: ${msg}`);
+      // 检测配额相关错误（防御性处理）
+      const isQuotaError = /quota|exhausted|limit|配额|用完|不足|次数已达/i.test(msg);
+      if (isQuotaError) {
+        setQuotaExhausted(true);
+        toast.error('AI 创作配额已用完，请升级专业版或明日再试');
+      } else {
+        toast.error(`生成失败: ${msg}`);
+      }
       setIsGenerating(false);
       setOrchestratorStatus(null);
     } finally {
@@ -542,6 +549,7 @@ const FrontstageApp: React.FC = () => {
                 onClick={() => {
                   if (primaryAction.action === 'open_payoff_ledger') {
                     openBackstage();
+                    emit('backstage-update', { type: 'NavigateTo', payload: { view: 'foreshadowing' } }).catch(console.error);
                   } else if (primaryAction.action === 'create_first_scene') {
                     handleRequestGeneration('');
                   } else {

@@ -1,12 +1,13 @@
-#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
+use crate::db::DbPool;
+use rusqlite::params;
 
 /// Global story state manager
 pub struct StoryStateManager {
-    states: Arc<Mutex<HashMap<String, StoryState>>>,
+    pool: DbPool,
     current_story_id: Arc<Mutex<Option<String>>>,
 }
 
@@ -111,14 +112,14 @@ pub struct TimelineEvent {
 }
 
 impl StoryStateManager {
-    pub fn new() -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self {
-            states: Arc::new(Mutex::new(HashMap::new())),
+            pool,
             current_story_id: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn create_state(&self, story_id: String, info: StoryInfo) -> StoryState {
+    pub fn create_state(&self, story_id: String, info: StoryInfo) -> Result<StoryState, String> {
         let state = StoryState {
             story_id: story_id.clone(),
             story_info: info,
@@ -140,24 +141,59 @@ impl StoryStateManager {
             updated_at: Utc::now(),
         };
 
-        self.states.lock().unwrap().insert(story_id.clone(), state.clone());
+        self.save_state(&state)?;
         *self.current_story_id.lock().unwrap() = Some(story_id);
-        state
+        Ok(state)
     }
 
-    pub fn get_state(&self, story_id: &str) -> Option<StoryState> {
-        self.states.lock().unwrap().get(story_id).cloned()
+    fn save_state(&self, state: &StoryState) -> Result<(), String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        let state_json = serde_json::to_string(state).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR REPLACE INTO story_runtime_states (id, story_id, state_json, updated_at)
+             VALUES (
+                 COALESCE((SELECT id FROM story_runtime_states WHERE story_id = ?1), ?2),
+                 ?1, ?3, ?4
+             )",
+            params![
+                &state.story_id,
+                uuid::Uuid::new_v4().to_string(),
+                state_json,
+                Utc::now().to_rfc3339(),
+            ],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_state(&self, story_id: &str) -> Result<Option<StoryState>, String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT state_json FROM story_runtime_states WHERE story_id = ?1"
+        ).map_err(|e| e.to_string())?;
+
+        let result = stmt.query_row([story_id], |row| {
+            let json: String = row.get(0)?;
+            Ok(json)
+        });
+
+        match result {
+            Ok(json) => {
+                let state: StoryState = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+                Ok(Some(state))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     pub fn update_state(&self, story_id: &str, updater: impl FnOnce(&mut StoryState)) -> Result<(), String> {
-        let mut states = self.states.lock().unwrap();
-        if let Some(state) = states.get_mut(story_id) {
-            updater(state);
-            state.updated_at = Utc::now();
-            Ok(())
-        } else {
-            Err("Story state not found".to_string())
-        }
+        let mut state = match self.get_state(story_id)? {
+            Some(s) => s,
+            None => return Err("Story state not found".to_string()),
+        };
+        updater(&mut state);
+        state.updated_at = Utc::now();
+        self.save_state(&state)
     }
 
     pub fn set_current_story(&self, story_id: String) {
@@ -188,13 +224,34 @@ impl StoryStateManager {
         })
     }
 
-    pub fn get_all_states(&self) -> Vec<StoryState> {
-        self.states.lock().unwrap().values().cloned().collect()
+    pub fn get_all_states(&self) -> Result<Vec<StoryState>, String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT state_json FROM story_runtime_states"
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(row.get::<_, String>(0)?)
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+        rows.iter()
+            .map(|json| serde_json::from_str(json).map_err(|e| e.to_string()))
+            .collect()
     }
 }
 
 impl Default for StoryStateManager {
     fn default() -> Self {
-        Self::new()
+        // Note: Default without pool is a placeholder. 
+        // Production code should always use StoryStateManager::new(pool).
+        let manager = r2d2_sqlite::SqliteConnectionManager::memory();
+        let pool = r2d2::Pool::builder().max_size(1).build(manager).unwrap();
+        Self {
+            pool,
+            current_story_id: Arc::new(Mutex::new(None)),
+        }
     }
 }

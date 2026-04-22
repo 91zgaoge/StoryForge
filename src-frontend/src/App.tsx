@@ -77,6 +77,10 @@ function App() {
               toast(`幕后${entity}已更新`, { icon: '🔄' });
               window.dispatchEvent(new CustomEvent('backstage-data-refreshed', { detail: entity }));
               break;
+            case 'NavigateTo':
+              const targetView = payload?.view || 'dashboard';
+              setCurrentView(targetView as ViewType);
+              break;
           }
         });
       } catch (e) {

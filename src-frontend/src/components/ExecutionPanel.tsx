@@ -136,7 +136,13 @@ export function ExecutionPanel({
         toast('AI 修改功能即将启动', { icon: '✨' });
         break;
       case 'run_audit':
-        toast('审校功能开发中，敬请期待', { icon: '🔍' });
+        if (state.lastScene) {
+          onEditScene?.(state.lastScene.id);
+          toast('已打开场景编辑器，请切换到「审校」标签页查看结果', { icon: '🔍' });
+        } else {
+          setCurrentView('scenes');
+          toast('请选择一个场景，在编辑器中切换到「审校」标签页运行审校', { icon: '🔍' });
+        }
         break;
       case 'open_foreshadowing':
         setCurrentView('foreshadowing');
@@ -317,7 +323,7 @@ export function ExecutionPanel({
       <div className="p-3 border-t border-cinema-800">
         <div className="flex items-center justify-between text-xs text-gray-600">
           <span>StoryForge AI</span>
-          <span>v3.5.0</span>
+          <span>v4.0.0</span>
         </div>
       </div>
     </div>

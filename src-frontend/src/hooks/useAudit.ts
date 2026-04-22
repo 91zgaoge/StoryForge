@@ -33,7 +33,7 @@ export function useAuditScene(sceneId: string | null, auditType: string = 'light
     queryKey: [AUDIT_KEY, sceneId, auditType],
     queryFn: async () => {
       if (!sceneId) throw new Error('Scene ID is required');
-      return invoke<AuditReport>('audit_scene', { sceneId, auditType });
+      return invoke<AuditReport>('audit_scene', { scene_id: sceneId, audit_type: auditType });
     },
     enabled: !!sceneId && enabled,
     staleTime: 1000 * 60 * 5, // 5 minutes

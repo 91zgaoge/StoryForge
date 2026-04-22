@@ -1,10 +1,10 @@
-#![allow(dead_code)]
 pub mod ot;
 pub mod websocket;
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use crate::db::DbPool;
+use rusqlite::params;
 
 #[allow(unused_imports)]
 pub use ot::*;
@@ -53,97 +53,157 @@ pub enum OperationType {
 }
 
 pub struct CollabManager {
-    sessions: HashMap<String, CollabSession>,
-    operations: Vec<EditOperation>,
+    pool: DbPool,
 }
 
 impl CollabManager {
-    pub fn new() -> Self {
-        Self {
-            sessions: HashMap::new(),
-            operations: Vec::new(),
-        }
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
     }
 
     pub fn create_session(
-        &mut self,
+        &self,
         story_id: String,
         chapter_id: Option<String>,
-    ) -> CollabSession {
+    ) -> Result<CollabSession, String> {
         let session = CollabSession {
             id: uuid::Uuid::new_v4().to_string(),
-            story_id,
-            chapter_id,
+            story_id: story_id.clone(),
+            chapter_id: chapter_id.clone(),
             participants: Vec::new(),
             created_at: Utc::now(),
         };
 
-        self.sessions.insert(session.id.clone(), session.clone());
-        session
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO collab_sessions (id, story_id, chapter_id, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                &session.id,
+                &story_id,
+                &chapter_id,
+                session.created_at.to_rfc3339(),
+            ],
+        ).map_err(|e| e.to_string())?;
+
+        Ok(session)
+    }
+
+    pub fn get_session(&self, session_id: &str) -> Result<Option<CollabSession>, String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, chapter_id, created_at
+             FROM collab_sessions WHERE id = ?1"
+        ).map_err(|e| e.to_string())?;
+
+        let session_result = stmt.query_row([session_id], |row| {
+            let created_at_str: String = row.get(3)?;
+            Ok(CollabSession {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                chapter_id: row.get(2)?,
+                participants: Vec::new(),
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        });
+
+        let mut session = match session_result {
+            Ok(s) => s,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+
+        // Load participants
+        let mut part_stmt = conn.prepare(
+            "SELECT user_id, user_name, cursor_line, cursor_column, joined_at
+             FROM collab_participants WHERE session_id = ?1"
+        ).map_err(|e| e.to_string())?;
+
+        let participants = part_stmt.query_map([session_id], |row| {
+            let line: Option<i32> = row.get(2)?;
+            let column: Option<i32> = row.get(3)?;
+            let joined_at_str: String = row.get(4)?;
+            Ok(Participant {
+                user_id: row.get(0)?,
+                user_name: row.get(1)?,
+                cursor_position: line.map(|l| CursorPosition {
+                    line: l,
+                    column: column.unwrap_or(0),
+                }),
+                joined_at: DateTime::parse_from_rfc3339(&joined_at_str)
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+        session.participants = participants;
+        Ok(Some(session))
     }
 
     pub fn join_session(
-        &mut self,
+        &self,
         session_id: &str,
         user_id: String,
         user_name: String,
     ) -> Result<(), String> {
-        if let Some(session) = self.sessions.get_mut(session_id) {
-            session.participants.push(Participant {
-                user_id,
-                user_name,
-                cursor_position: None,
-                joined_at: Utc::now(),
-            });
-            Ok(())
-        } else {
-            Err("Session not found".to_string())
-        }
-    }
-
-    pub fn leave_session(
-        &mut self,
-        session_id: &str,
-        user_id: &str,
-    ) -> Result<(), String> {
-        if let Some(session) = self.sessions.get_mut(session_id) {
-            session.participants.retain(|p| p.user_id != user_id);
-            Ok(())
-        } else {
-            Err("Session not found".to_string())
-        }
-    }
-
-    pub fn apply_operation(
-        &mut self,
-        operation: EditOperation,
-    ) -> Result<(), String> {
-        self.operations.push(operation);
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR REPLACE INTO collab_participants
+             (id, session_id, user_id, user_name, cursor_line, cursor_column, joined_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                session_id,
+                &user_id,
+                &user_name,
+                Option::<i32>::None,
+                Option::<i32>::None,
+                Utc::now().to_rfc3339(),
+            ],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    pub fn get_session(&self, session_id: &str
-    ) -> Option<&CollabSession> {
-        self.sessions.get(session_id)
+    pub fn leave_session(
+        &self,
+        session_id: &str,
+        user_id: &str,
+    ) -> Result<(), String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM collab_participants WHERE session_id = ?1 AND user_id = ?2",
+            [session_id, user_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn update_cursor(
-        &mut self,
+        &self,
         session_id: &str,
         user_id: &str,
         position: CursorPosition,
     ) -> Result<(), String> {
-        if let Some(session) = self.sessions.get_mut(session_id) {
-            if let Some(participant) = session.participants
-                .iter_mut()
-                .find(|p| p.user_id == user_id) {
-                participant.cursor_position = Some(position);
-                Ok(())
-            } else {
-                Err("User not in session".to_string())
-            }
-        } else {
-            Err("Session not found".to_string())
-        }
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE collab_participants
+             SET cursor_line = ?1, cursor_column = ?2
+             WHERE session_id = ?3 AND user_id = ?4",
+            params![position.line, position.column, session_id, user_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
+        let conn = self.pool.get().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM collab_sessions WHERE id = ?1",
+            [session_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
     }
 }

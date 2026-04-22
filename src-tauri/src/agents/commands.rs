@@ -220,9 +220,13 @@ pub async fn agent_cancel_task(task_id: String) -> Result<(), String> {
 
 /// 获取Agent执行状态
 #[command]
-pub fn agent_get_status(_task_id: String) -> String {
-    // TODO: 实现状态跟踪
-    format!("running")
+pub fn agent_get_status(task_id: String) -> String {
+    let handles = TASK_HANDLES.lock().unwrap();
+    if handles.contains_key(&task_id) {
+        "running".to_string()
+    } else {
+        "completed_or_not_found".to_string()
+    }
 }
 
 /// 正文助手(WriterAgent)专用请求

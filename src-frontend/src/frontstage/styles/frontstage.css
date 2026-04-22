@@ -983,7 +983,7 @@ body {
 .rich-text-editor .ProseMirror {
   max-width: 900px;
   margin: 0 auto;
-  padding: 3rem 2rem 10rem;
+  padding: 3rem 2rem 3rem;
   min-height: 80vh;
   outline: none;
 }

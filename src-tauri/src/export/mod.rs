@@ -89,7 +89,7 @@ impl StoryImporter {
 
     pub fn import_from_text(
         &self,
-        _content: &str,
+        content: &str,
         story_title: &str,
     ) -> Result<(crate::db::CreateStoryRequest, Vec<ImportChapter>), Box<dyn std::error::Error>> {
         let story_req = crate::db::CreateStoryRequest {
@@ -98,7 +98,76 @@ impl StoryImporter {
             genre: None,
             style_dna_id: None,
         };
-        Ok((story_req, vec![]))
+
+        let chapters = Self::parse_chapters_from_text(content);
+        Ok((story_req, chapters))
+    }
+
+    fn parse_chapters_from_text(content: &str) -> Vec<ImportChapter> {
+        let mut chapters = Vec::new();
+        let lines: Vec<&str> = content.lines().collect();
+        
+        // Try to detect chapter boundaries by common patterns
+        let chapter_patterns = [
+            regex::Regex::new(r"^第[一二三四五六七八九十百千零\d]+章[\s:：]").ok(),
+            regex::Regex::new(r"^Chapter\s+\d+[\s:：]").ok(),
+            regex::Regex::new(r"^\d+[\.、\s]+[^\n]{1,50}$").ok(),
+        ];
+        
+        let mut current_title: Option<String> = None;
+        let mut current_content = String::new();
+        let mut chapter_number = 0;
+        
+        for line in lines {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                current_content.push('\n');
+                continue;
+            }
+            
+            let is_chapter_header = chapter_patterns.iter().any(|p| {
+                p.as_ref().map(|re| re.is_match(trimmed)).unwrap_or(false)
+            });
+            
+            if is_chapter_header {
+                if !current_content.trim().is_empty() {
+                    chapter_number += 1;
+                    chapters.push(ImportChapter {
+                        chapter_number,
+                        title: current_title,
+                        content: current_content.trim().to_string(),
+                    });
+                }
+                current_title = Some(trimmed.to_string());
+                current_content.clear();
+            } else {
+                if !current_content.is_empty() {
+                    current_content.push('\n');
+                }
+                current_content.push_str(trimmed);
+            }
+        }
+        
+        // Add the last chapter
+        if !current_content.trim().is_empty() {
+            chapter_number += 1;
+            chapters.push(ImportChapter {
+                chapter_number,
+                title: current_title,
+                content: current_content.trim().to_string(),
+            });
+        }
+        
+        // Fallback: if no chapters detected, treat the whole text as one chapter
+        if chapters.is_empty() && !content.trim().is_empty() {
+            chapters.push(ImportChapter {
+                chapter_number: 1,
+                title: None,
+                content: content.trim().to_string(),
+            });
+        }
+        
+        chapters
     }
 }
 

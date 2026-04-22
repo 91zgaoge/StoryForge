@@ -147,22 +147,24 @@ pub fn run() {
             });
 
             // Start WebSocket server for collaborative editing
-            tauri::async_runtime::spawn(async move {
-                // Try different ports if 8765 is taken
-                let ports = [8765, 8766, 8767, 8768, 8769];
-                for port in ports {
-                    let ws_server = WebSocketServer::new();
-                    match ws_server.start(port).await {
-                        Ok(_) => {
-                            log::info!("WebSocket server started on port {}", port);
-                            break;
-                        }
-                        Err(e) => {
-                            log::warn!("Failed to start WebSocket server on port {}: {}", port, e);
+            if let Some(pool) = get_pool() {
+                tauri::async_runtime::spawn(async move {
+                    // Try different ports if 8765 is taken
+                    let ports = [8765, 8766, 8767, 8768, 8769];
+                    for port in ports {
+                        let ws_server = WebSocketServer::with_pool(pool.clone());
+                        match ws_server.start(port).await {
+                            Ok(_) => {
+                                log::info!("WebSocket server started on port {}", port);
+                                break;
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to start WebSocket server on port {}: {}", port, e);
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
 
             // Ensure backstage is hidden on startup
             if let Some(backstage) = app.get_webview_window("backstage") {

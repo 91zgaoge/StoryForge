@@ -33,7 +33,7 @@ export const deleteStory = (id: string) =>
 
 // Characters
 export const getStoryCharacters = (storyId: string) => 
-  invoke<Character[]>('get_story_characters', { storyId });
+  invoke<Character[]>('get_story_characters', { story_id: storyId });
 
 export const createCharacter = (req: CreateCharacterRequest) =>
   invoke<Character>('create_character', { ...req });
@@ -46,7 +46,7 @@ export const deleteCharacter = (id: string) =>
 
 // Chapters
 export const getStoryChapters = (storyId: string) => 
-  invoke<Chapter[]>('get_story_chapters', { storyId });
+  invoke<Chapter[]>('get_story_chapters', { story_id: storyId });
 
 export const getChapter = (id: string) => 
   invoke<Chapter | null>('get_chapter', { id });
@@ -65,7 +65,7 @@ export const getSkills = () =>
   invoke<Skill[]>('get_skills');
 
 export const getSkill = (skillId: string) => 
-  invoke<Skill>('get_skill', { skillId });
+  invoke<Skill>('get_skill', { skill_id: skillId });
 
 /** @deprecated 暂时保留 — Skills 页面使用前端本地分类筛选 */
 export const getSkillsByCategory = (category: string) => 
@@ -75,19 +75,19 @@ export const importSkill = (path: string) =>
   invoke<Skill>('import_skill', { path });
 
 export const enableSkill = (skillId: string) => 
-  invoke<void>('enable_skill', { skillId });
+  invoke<void>('enable_skill', { skill_id: skillId });
 
 export const disableSkill = (skillId: string) => 
-  invoke<void>('disable_skill', { skillId });
+  invoke<void>('disable_skill', { skill_id: skillId });
 
 export const uninstallSkill = (skillId: string) => 
-  invoke<void>('uninstall_skill', { skillId });
+  invoke<void>('uninstall_skill', { skill_id: skillId });
 
 export const updateSkill = (skillId: string, manifest: Skill) => 
-  invoke<void>('update_skill', { skillId, manifest });
+  invoke<void>('update_skill', { skill_id: skillId, manifest });
 
 export const executeSkill = (skillId: string, params: Record<string, unknown>) => 
-  invoke<unknown>('execute_skill', { skillId, params });
+  invoke<unknown>('execute_skill', { skill_id: skillId, params });
 
 export const formatText = (content: string) =>
   invoke<string>('format_text', { content });
@@ -127,11 +127,11 @@ export const analyzeStyleSample = (text: string, name?: string) =>
 
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>
-  invoke<SimilarityResult[]>('search_similar', { storyId: req.story_id, query: req.query, topK: req.top_k });
+  invoke<SimilarityResult[]>('search_similar', { story_id: req.story_id, query: req.query, top_k: req.top_k });
 
 /** @deprecated 暂时保留 — 待章节嵌入手动触发功能完成后启用 */
 export const embedChapter = (chapterId: string, content: string) =>
-  invoke<void>('embed_chapter', { chapterId, content });
+  invoke<void>('embed_chapter', { chapter_id: chapterId, content });
 
 // Settings (兼容旧接口，内部映射到 get_settings / save_settings)
 export const getConfig = async () => {
@@ -288,10 +288,10 @@ export const generateParagraphCommentaries = (params: { story_id: string; story_
 
 // Vector Search
 export const textSearchVectors = (storyId: string, query: string, top_k?: number) =>
-  invoke<VectorSearchResult[]>('text_search_vectors', { storyId, query, topK: top_k });
+  invoke<VectorSearchResult[]>('text_search_vectors', { story_id: storyId, query, top_k });
 
 export const hybridSearchVectors = (storyId: string, query: string, top_k?: number) =>
-  invoke<VectorSearchResult[]>('hybrid_search_vectors', { storyId, query, topK: top_k });
+  invoke<VectorSearchResult[]>('hybrid_search_vectors', { story_id: storyId, query, top_k });
 
 // Writer Agent (正文助手)
 export const writerAgentExecute = (params: {
@@ -397,7 +397,7 @@ export const autoWrite = (params: {
   invoke<{ task_id: string; actual_chars: number; loops: number; status: string }>('auto_write', { request: params });
 
 export const autoWriteCancel = (taskId: string) =>
-  invoke<void>('auto_write_cancel', { taskId });
+  invoke<void>('auto_write_cancel', { task_id: taskId });
 
 export const autoRevise = (params: {
   story_id: string;

@@ -61,6 +61,42 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 新增后端模块：canonical_state / audit / payoff_ledger
 - 新增前端页面：CreationWizard.tsx / ExecutionPanel.tsx / StreamOutput.tsx
 
+## [v4.0.1] - 全面代码审计与空实现修复（2026-04-22）
+
+### Phase A: 代码审计与 P0 修复
+- **综合代码审计**: 扫描 40+ 模块，识别 5 项严重问题、17 项参数不匹配、9 项空实现，输出 `CODE_AUDIT_REPORT_V4.md`
+- **IPC 参数统一**: 修复 17 处 camelCase→snake_case 参数名（`services/tauri.ts` 7 处、`settings.ts` 2 处、`useBookDeconstruction.ts` 6 处、`FrontstageApp.tsx` 4 处），消除 Tauri v2 反序列化静默失败
+- **空实现补全**:
+  - `analytics/mod.rs`: 真实写作统计（streak/longest/productivity/avg words 从 chapter 日期计算）
+  - `agents/commands.rs`: `agent_get_status` 查询 `TASK_HANDLES` 返回真实状态
+  - `skills/executor.rs`: `execute_mcp` 异步连接真实 `McpClient` 并调用工具
+  - `export/mod.rs`: `import_from_text` 正则解析章节（"第X章"/"Chapter X"）
+  - `workflow/scheduler.rs`: 添加执行日志记录
+  - `evolution/updater.rs`: `apply_update` 实现 manifest 字段 CRUD
+  - `mcp/server.rs`: 修复 `execute_tool` 缺失 `.await`
+- **前端修复**:
+  - `services/settings.ts`: 移除硬编码浏览器 fallback API keys/内部 IPs
+  - `hooks/useCollaboration.ts`: WebSocket 实例保存到 ref，实现 `sendOperation`/`sendCursorPosition`
+  - `hooks/useStreamingGeneration.ts`: 生产环境移除 `mockStreamGeneration`
+  - `frontstage/ai-perception/textAnalyzer.ts`: 实现 `analyzeRecent` 增量分析逻辑
+- **UI 调整**: 底部聊天工具栏从 `absolute bottom-0` 改为正常 flex 流，`ProseMirror` padding-bottom 从 `10rem` 降至 `3rem`
+- **类型统一**: `skills/mod.rs` 移除重复 `McpServerConfig`，复用 `crate::mcp::types::McpServerConfig`
+
+### Phase B: 内存模块 SQLite 持久化
+- **Migration 26**: `chat_sessions` + `chat_messages` 表，支持聊天记录持久化
+- **Migration 27**: `story_runtime_states` 表，支持故事运行状态持久化
+- **Migration 28**: `collab_sessions` + `collab_participants` 表，支持协作会话持久化
+- `chat/mod.rs`: `ChatManager` 从内存 `HashMap` 改为 `DbPool` 持久化
+- `state/manager.rs`: `StoryStateManager` 从内存 `HashMap` 改为 `DbPool` 持久化
+- `collab/mod.rs`: `CollabManager` 从内存 `HashMap` 改为 `DbPool` 持久化
+- `collab/websocket.rs`: 完整实现 Operation/Cursor/Leave/Participants 消息处理，修复 user_id 硬编码，WebSocketServer 支持 `with_pool`
+
+### 📊 统计
+- Rust 测试：160/160 全部通过
+- 前端构建：通过
+- 新增 Migration：26 / 27 / 28
+- 修复文件：Rust 12 个 + 前端 10 个
+
 ## [v3.7.1] - 智能化创作系统 5 阶段重构深度修复（2026-04-22）
 
 ### Phase A: P0 核心断裂修复（5 项）

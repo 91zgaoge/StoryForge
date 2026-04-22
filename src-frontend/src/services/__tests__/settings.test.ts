@@ -81,8 +81,8 @@ describe('setActiveModel', () => {
     await setActiveModel('chat', 'model-1');
 
     expect(invoke).toHaveBeenCalledWith('set_active_model', {
-      modelType: 'chat',
-      modelId: 'model-1',
+      model_type: 'chat',
+      model_id: 'model-1',
     });
   });
 
@@ -93,8 +93,8 @@ describe('setActiveModel', () => {
     await setActiveModel('multimodal', 'gemma-4');
 
     expect(invoke).toHaveBeenCalledWith('set_active_model', {
-      modelType: 'multimodal',
-      modelId: 'gemma-4',
+      model_type: 'multimodal',
+      model_id: 'gemma-4',
     });
   });
 

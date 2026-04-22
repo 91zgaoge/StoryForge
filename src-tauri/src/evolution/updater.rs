@@ -152,10 +152,34 @@ impl SkillUpdater {
     }
 
     pub fn apply_update(&self,
-        _update: &SkillUpdate,
-        _skills: &mut HashMap<String, crate::skills::Skill>,
+        update: &SkillUpdate,
+        skills: &mut HashMap<String, crate::skills::Skill>,
     ) -> Result<(), String> {
-        // Implementation would update the actual skill data
+        let skill_id = &update.skill_id;
+        let skill = skills.get_mut(skill_id)
+            .ok_or_else(|| format!("Skill not found: {}", skill_id))?;
+        
+        for change in &update.changes {
+            match change.change_type {
+                ChangeType::Addition => {
+                    skill.manifest.config.insert(
+                        change.field.clone(),
+                        serde_json::Value::String(change.new_value.clone()),
+                    );
+                }
+                ChangeType::Modification => {
+                    skill.manifest.config.insert(
+                        change.field.clone(),
+                        serde_json::Value::String(change.new_value.clone()),
+                    );
+                }
+                ChangeType::Removal => {
+                    skill.manifest.config.remove(&change.field);
+                }
+            }
+        }
+        
+        log::info!("[SkillUpdater] Applied {} changes to skill {}", update.changes.len(), skill_id);
         Ok(())
     }
 }

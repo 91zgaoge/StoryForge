@@ -305,73 +305,52 @@ impl CanonicalStateManager {
         story_id: &str,
         current_sequence: i32,
     ) -> Result<(Vec<PayoffRef>, Vec<PayoffRef>), String> {
-        // 在一个独立作用域中查询伏笔，确保连接及时释放
-        let records: Vec<(String, String, Option<String>, i32, String)> = {
-            let conn = self
-                .pool
-                .get()
-                .map_err(|e| format!("获取连接失败: {}", e))?;
-
-            let mut stmt = conn
-                .prepare(
-                    "SELECT id, content, setup_scene_id, importance, created_at
-                     FROM foreshadowing_tracker
-                     WHERE story_id = ?1 AND status = 'setup'
-                     ORDER BY importance DESC, created_at ASC",
-                )
-                .map_err(|e| e.to_string())?;
-
-            let rows = stmt
-                .query_map([story_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, i32>(3).unwrap_or(5),
-                        row.get::<_, String>(4)?,
-                    ))
-                })
-                .map_err(|e| e.to_string())?;
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|e| e.to_string())?
-        };
-
-        // 获取 setup_scene_id -> sequence_number 的映射
-        let scene_repo = SceneRepository::new(self.pool.clone());
-        let scenes = scene_repo.get_by_story(story_id).map_err(|e| e.to_string())?;
-        let scene_seq_map: std::collections::HashMap<String, i32> = scenes
-            .into_iter()
-            .map(|s| (s.id, s.sequence_number))
-            .collect();
+        // 复用 PayoffLedger 的逻辑，确保前后端逾期检测一致
+        let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(self.pool.clone());
+        let items = ledger.get_ledger(story_id)?;
 
         let mut pending = Vec::new();
         let mut overdue = Vec::new();
 
-        for (id, content, setup_scene_id, importance, _created_at) in records {
-            let setup_seq = setup_scene_id
-                .as_ref()
-                .and_then(|sid| scene_seq_map.get(sid).copied())
-                .unwrap_or(0);
-            let scenes_since_setup = (current_sequence - setup_seq).max(0);
+        for item in items {
+            // 只考虑活跃状态（未回收/未失效）
+            let is_active = matches!(
+                item.current_status,
+                crate::creative_engine::payoff_ledger::PayoffStatus::Setup
+                    | crate::creative_engine::payoff_ledger::PayoffStatus::Hinted
+                    | crate::creative_engine::payoff_ledger::PayoffStatus::PendingPayoff
+            );
+            if !is_active {
+                continue;
+            }
 
-            // 逾期阈值：基于重要性的动态阈值
-            // 重要性 8-10: 5 场景后逾期
-            // 重要性 5-7: 10 场景后逾期
-            // 重要性 1-4: 15 场景后逾期
-            let threshold = match importance {
-                8..=10 => 5,
-                5..=7 => 10,
-                _ => 15,
+            let is_overdue = if let Some(target_end) = item.target_end_scene {
+                // 如果设置了目标回收窗口，超过即为逾期
+                target_end < current_sequence
+            } else if let Some(first_seen) = item.first_seen_scene {
+                // 未设置窗口时，基于重要性的动态阈值
+                // 重要性 8-10: 5 场景后逾期
+                // 重要性 5-7: 10 场景后逾期
+                // 重要性 1-4: 15 场景后逾期
+                let threshold = match item.importance {
+                    8..=10 => 5,
+                    5..=7 => 10,
+                    _ => 15,
+                };
+                current_sequence - first_seen > threshold
+            } else {
+                // 无法判断，不标记逾期
+                false
             };
 
             let payoff = PayoffRef {
-                foreshadowing_id: id,
-                content,
-                importance,
-                setup_scene_id: setup_scene_id.clone(),
+                foreshadowing_id: item.id,
+                content: item.summary,
+                importance: item.importance,
+                setup_scene_id: None,
             };
 
-            if scenes_since_setup > threshold {
+            if is_overdue {
                 overdue.push(payoff);
             } else {
                 pending.push(payoff);

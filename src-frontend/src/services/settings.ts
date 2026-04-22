@@ -54,7 +54,7 @@ const BROWSER_FALLBACK_MODELS: ModelConfig[] = [
     description: '文本嵌入模型，用于语义搜索和向量化',
     provider: 'custom',
     model: 'bge-m3',
-    api_key: '76e0e2bc84c45374999a1d5e66962544c09cc00ae42ad25cd6a2a07a9d7fe330',
+    api_key: '',
     api_base: 'http://10.62.239.13:8089',
     timeout_seconds: 120,
     is_default: true,
@@ -162,7 +162,7 @@ export async function deleteModel(id: string): Promise<void> {
 
 // 设置激活的模型
 export async function setActiveModel(type: ModelConfig['type'], modelId: string): Promise<void> {
-  return invoke('set_active_model', { modelType: type, modelId });
+  return invoke('set_active_model', { model_type: type, model_id: modelId });
 }
 
 // 获取Agent模型映射
@@ -218,7 +218,7 @@ async function browserTestModelConnection(modelId: string): Promise<{ success: b
 // 测试模型连接
 export async function testModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
   try {
-    return await invoke('test_model_connection', { modelId });
+    return await invoke('test_model_connection', { model_id: modelId });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {

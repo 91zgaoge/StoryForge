@@ -11,10 +11,11 @@ impl WorkflowScheduler {
 
     pub async fn schedule_execution(
         &self,
-        _instance_id: String,
+        instance_id: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Placeholder for actual scheduling logic
-        // In production, this would queue tasks and manage execution
+        log::info!("[WorkflowScheduler] Queuing workflow instance {} for execution", instance_id);
+        // In production, this would enqueue the instance to a task queue
+        // and let a worker pool pick it up. For now, we just log the request.
         Ok(())
     }
 

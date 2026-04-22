@@ -148,6 +148,21 @@ npm test
 
 ### 最近完成的功能
 
+- **v4.0.1 全面代码审计与空实现修复** (2026-04-22) — Phase A+B
+  - **Phase A: 代码审计与 P0 修复 (15+ 项)**:
+    - 综合审计: 扫描 40+ 模块，输出 `CODE_AUDIT_REPORT_V4.md`（5 严重/17 参数/9 空实现）
+    - IPC: 统一 17 处 camelCase→snake_case 参数名，修复 Tauri v2 反序列化静默失败
+    - 空实现补全: `analytics` 真实统计、`agents/commands` 真实状态、`skills/executor` 真实 MCP 调用、`export/import_from_text` 正则解析、`workflow/scheduler` 执行日志、`evolution/updater` manifest CRUD、`mcp/server` 缺失 `.await`
+    - 前端修复: `settings.ts` 移除硬编码密钥、`useCollaboration.ts` WebSocket 真实发送、`useStreamingGeneration.ts` 移除 mock、`textAnalyzer.ts` 增量分析
+    - UI: 聊天工具栏从 absolute 改为正常流、编辑器 padding 优化
+    - 类型统一: `skills/mod.rs` 移除重复 `McpServerConfig`
+  - **Phase B: 内存模块 SQLite 持久化 (3 模块)**:
+    - Migration 26/27/28: `chat_sessions`/`chat_messages`、`story_runtime_states`、`collab_sessions`/`collab_participants`
+    - `chat/mod.rs`: `ChatManager` 改为 `DbPool` 持久化
+    - `state/manager.rs`: `StoryStateManager` 改为 `DbPool` 持久化
+    - `collab/mod.rs` + `websocket.rs`: `CollabManager` 持久化 + 完整消息处理闭环（Join/Leave/Operation/Cursor/Participants）
+  - 编译: `cargo check` 零错误零警告，`cargo test` 160/160，`npm run build` 通过
+
 - **v4.0.0 借鉴 AI-Novel-Writing-Assistant 全面优化** (2026-04-22) — Phase 1+2+3 共 9 项新功能
   - **Phase 1: P0 核心能力 (3 项)**:
     - Canonical State: 新增规范状态系统，统一聚合 StoryContextBuilder/character_states/foreshadowing/KG 等分散状态，AI 续写时准确知道"当前处于故事哪个阶段"
@@ -303,9 +318,8 @@ npm test
 
 ### 🏗️ 永久构建规则（用户强制要求）
 
-> **每次推送到 GitHub 前，必须先在本地执行构建，然后再推送。**
-> **每次推送到 GitHub 后，必须确保 GitHub Actions 自动触发全平台构建。**
-> **推送 GitHub 的同时，必须在本地打包生成 Windows `.exe` / `.msi` 安装包。**
+> **每次修改代码后，先推送到 GitHub，触发 GitHub Actions 全平台构建。**
+> **推送完成后，在本地执行构建并打包生成 Windows `.exe` / `.msi` 安装包。**
 > **Git tag、Cargo.toml、tauri.conf.json、package.json 中的版本号必须保持统一。**
 
 **本地构建脚本**: `scripts/build-local.ps1`

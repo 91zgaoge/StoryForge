@@ -41,7 +41,7 @@ impl SkillExecutor {
                 self.execute_prompt(runtime, context, params).await
             }
             SkillRuntime::Mcp(runtime) => {
-                self.execute_mcp(runtime, context, params)
+                self.execute_mcp(runtime, context, params).await
             }
             SkillRuntime::Native(runtime) => {
                 runtime.handler.execute(context, params)
@@ -182,23 +182,63 @@ impl SkillExecutor {
         }
     }
     
-    fn execute_mcp(
+    async fn execute_mcp(
         &self,
         runtime: &McpRuntime,
         _context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
     ) -> Result<SkillResult, String> {
-        // MCP execution would connect to MCP server
-        // For now, return the config as result
-        Ok(SkillResult {
-            success: true,
-            data: serde_json::json!({
-                "server_command": runtime.server_config.command,
-                "args": runtime.server_config.args,
-                "params": params,
-            }),
-            error: None,
-            execution_time_ms: 0,
-        })
+        let mcp_config = crate::mcp::types::McpServerConfig {
+            id: "skill-mcp".to_string(),
+            name: runtime.server_config.command.clone(),
+            command: runtime.server_config.command.clone(),
+            args: runtime.server_config.args.clone(),
+            env: runtime.server_config.env.clone(),
+            timeout_seconds: 30,
+        };
+        let mut client = crate::mcp::McpClient::new(mcp_config);
+        
+        match client.connect().await {
+            Ok(_) => {
+                let tool_name = params.get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let arguments = params.get("arguments")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                
+                if tool_name.is_empty() {
+                    let tools = client.get_tools();
+                    return Ok(SkillResult {
+                        success: true,
+                        data: serde_json::json!({
+                            "available_tools": tools,
+                            "message": "Connected. Specify 'tool_name' and 'arguments' to call a tool.",
+                        }),
+                        error: None,
+                        execution_time_ms: 0,
+                    });
+                }
+                
+                match client.call_tool(tool_name, arguments).await {
+                    Ok(result) => {
+                        let _ = client.disconnect().await;
+                        Ok(SkillResult {
+                            success: true,
+                            data: result,
+                            error: None,
+                            execution_time_ms: 0,
+                        })
+                    }
+                    Err(e) => {
+                        let _ = client.disconnect().await;
+                        Err(format!("MCP tool call failed: {}", e))
+                    }
+                }
+            }
+            Err(e) => {
+                Err(format!("MCP connection failed: {}", e))
+            }
+        }
     }
 }

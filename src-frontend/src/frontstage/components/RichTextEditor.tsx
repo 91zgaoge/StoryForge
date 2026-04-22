@@ -1101,7 +1101,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         }}
       >
         {/* 编辑器内容区 */}
-        <div className="flex-1 overflow-auto relative">
+        <div className="flex-1 overflow-auto relative min-h-0">
           {/* 修订模式横幅 */}
           {isRevisionMode && (
             <div className="absolute top-0 left-0 right-0 z-40 bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex flex-col backdrop-blur-sm">
@@ -1270,7 +1270,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         {!isZenMode && (
           <div 
             className={cn(
-              'chat-toolbar absolute bottom-0 left-0 right-0',
+              'chat-toolbar flex-shrink-0',
               'bg-[var(--parchment)]/95 backdrop-blur-sm',
               'px-6 pb-5 pt-3',
               'border-t border-[var(--warm-sand)]',

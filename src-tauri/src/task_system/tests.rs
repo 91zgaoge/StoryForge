@@ -217,7 +217,7 @@ fn test_heartbeat_timeout_detection() {
     let repo = TaskRepository::new(pool.clone());
 
     let req = create_test_task_req("超时测试", "custom", "once");
-    let mut task = repo.create(&req).unwrap();
+    let task = repo.create(&req).unwrap();
 
     // 手动设为 running，并设置过期的心跳
     repo.update_status(&task.id, &TaskStatus::Running, None, None, None).unwrap();

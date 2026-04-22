@@ -21,7 +21,7 @@ export function useUploadBook() {
 
   return useMutation({
     mutationFn: async (filePath: string) => {
-      const bookId: string = await invoke('upload_book', { filePath });
+      const bookId: string = await invoke('upload_book', { file_path: filePath });
       return bookId;
     },
     onSuccess: () => {
@@ -154,7 +154,7 @@ export function useBookAnalysisStatus(bookId: string | null) {
     queryKey: [STATUS_KEY, bookId],
     queryFn: async () => {
       if (!bookId) return null;
-      const status: AnalysisStatusResponse = await invoke('get_analysis_status', { bookId });
+      const status: AnalysisStatusResponse = await invoke('get_analysis_status', { book_id: bookId });
       return status;
     },
     refetchInterval: (query) => {
@@ -177,7 +177,7 @@ export function useBookAnalysis(bookId: string | null) {
     queryKey: [ANALYSIS_KEY, bookId],
     queryFn: async () => {
       if (!bookId) return null;
-      const result: BookAnalysisResult = await invoke('get_book_analysis', { bookId });
+      const result: BookAnalysisResult = await invoke('get_book_analysis', { book_id: bookId });
       return result;
     },
     enabled: !!bookId,
@@ -203,7 +203,7 @@ export function useDeleteBook() {
 
   return useMutation({
     mutationFn: async (bookId: string) => {
-      await invoke('delete_reference_book', { bookId });
+      await invoke('delete_reference_book', { book_id: bookId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [BOOKS_KEY] });
@@ -216,7 +216,7 @@ export function useDeleteBook() {
 export function useConvertToStory() {
   return useMutation({
     mutationFn: async (bookId: string) => {
-      const storyId: string = await invoke('convert_book_to_story', { bookId });
+      const storyId: string = await invoke('convert_book_to_story', { book_id: bookId });
       return storyId;
     },
   });
@@ -229,7 +229,7 @@ export function useCancelBookAnalysis() {
 
   return useMutation({
     mutationFn: async (bookId: string) => {
-      await invoke('cancel_book_analysis', { bookId });
+      await invoke('cancel_book_analysis', { book_id: bookId });
     },
     onSuccess: (_, bookId) => {
       queryClient.invalidateQueries({ queryKey: [STATUS_KEY, bookId] });
