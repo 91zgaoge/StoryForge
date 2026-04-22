@@ -320,6 +320,7 @@ npm test
 
 > **每次修改代码后，先推送到 GitHub，触发 GitHub Actions 全平台构建。**
 > **推送完成后，在本地执行构建并打包生成 Windows `.exe` / `.msi` 安装包。**
+> **每次推送到 GitHub，都必须逐条更新 GitHub 项目的 `README.md` 文件内容（包括截图、图标、功能列表等）。**
 > **Git tag、Cargo.toml、tauri.conf.json、package.json 中的版本号必须保持统一。**
 
 **本地构建脚本**: `scripts/build-local.ps1`

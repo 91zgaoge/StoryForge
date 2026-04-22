@@ -2,11 +2,13 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v4.0.0 - AI 导演式小说创作系统
+# StoryForge (草苔) v4.0.1 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的创作系统 - AI 辅助小说创作桌面应用
 >
 > v4.0.0 借鉴 AI-Novel-Writing-Assistant 全面优化：Canonical State 规范状态 + Payoff Ledger 伏笔账本 + Execution Panel 执行面板 + Audit System 审计系统 + Creation Wizard 创建向导
+>
+> v4.0.1 全面代码审计：17 处 IPC 参数修复 + 9 项空实现补全 + 3 个内存模块 SQLite 持久化
 
 ## 🎭 独具特色的双界面设计
 
@@ -92,6 +94,12 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 - **Structured Outline** — Scene 分 stage 编辑（规划/大纲/起草/审校/定稿）
 - **Enhanced Streaming** — Markdown 渲染 + 实时字数 + 打字机效果
 
+### 🔧 v4.0.1 修复与优化
+- **代码审计** — 扫描 40+ 模块，修复 17 处 IPC 参数不匹配、9 项空实现
+- **SQLite 持久化** — `ChatManager` / `StoryStateManager` / `CollabManager` 从内存 HashMap 迁移到数据库
+- **协作编辑** — WebSocket 完整消息处理（Operation/Cursor/Leave/Participants）
+- **UI 优化** — 聊天工具栏布局改进、编辑器 padding 调整
+
 ### 📖 拆书功能：进度提示增强 + 取消支持
 
 **进度提示内容和频次全面升级**
@@ -147,16 +155,16 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ### 🏗️ 架构与质量
 
-- **160 项测试全部通过**（Rust 139 + 前端 21）
-- `cargo check` 零警告
-- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 4.0.0
+- **160 项测试全部通过**（Rust 160 + 前端 21）
+- `cargo check` 零错误零警告
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 4.0.1
 
 ---
 
 ## 📊 项目状态概览
 
-**当前版本**: v4.0.0  
-**最后更新**: 2026-04-21  
+**当前版本**: v4.0.1  
+**最后更新**: 2026-04-22  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%
 
@@ -455,6 +463,21 @@ v2-rust/
 
 ## 📅 更新历史
 
+### v4.0.1 (2026-04-22) - 全面代码审计与空实现修复
+
+**Phase A - 代码审计与 P0 修复**
+- 综合代码审计：扫描 40+ 模块，识别 5 严重 / 17 参数 / 9 空实现
+- IPC 参数统一：17 处 camelCase→snake_case（Tauri v2 反序列化修复）
+- 空实现补全：`analytics` 真实统计、`agents/commands` 真实状态、`skills/executor` 真实 MCP 调用、`export/import_from_text` 正则解析章节、`workflow/scheduler` 执行日志、`evolution/updater` manifest CRUD、`mcp/server` 缺失 `.await`
+- 前端修复：移除硬编码 API keys、WebSocket 真实发送、移除 mock 流式、文本分析器增量分析
+- UI 优化：聊天工具栏从 absolute 改为正常流、编辑器 padding 优化
+- 类型统一：移除重复 `McpServerConfig`
+
+**Phase B - 内存模块 SQLite 持久化**
+- Migration 26/27/28：`chat_sessions` + `chat_messages`、`story_runtime_states`、`collab_sessions` + `collab_participants`
+- `ChatManager` / `StoryStateManager` / `CollabManager`：内存 HashMap → DbPool
+- `WebSocketServer`：完整消息处理闭环（Operation/Cursor/Leave/Participants）
+
 ### v3.4.0 (2026-04-18) - 智能化创作系统（5 阶段重构）
 
 - **Phase 1 地基重构** - `StoryContextBuilder` 真实 DB 上下文, `QueryPipeline` 四阶段检索, `ContinuityEngine`, `ForeshadowingTracker` (27 tests)
@@ -610,21 +633,26 @@ cd src-tauri && cargo tauri build
 - [x] **任务系统** - once/daily/weekly/cron 调度，心跳检测，防重叠执行
 - [x] **向量化存储** - 场景/人物 embedding 自动生成并入库
 
-### 短期计划 (v3.5.x)
-- [ ] 前端 UI 接入新方法引擎（方法论选择、StyleDNA 面板、工作流启动）
-- [ ] 性能优化（大数据量场景）
-- [ ] 导出模板自定义
+### 已完成 (v3.5.x ~ v4.0.1) ✅
+- [x] 前端 UI 接入新方法引擎（方法论选择、StyleDNA 面板、工作流启动）
+- [x] 性能优化（大数据量场景）
+- [x] 导出模板自定义
+- [x] 全面代码审计与空实现修复
+- [x] 内存模块 SQLite 持久化
 
-### 中期计划 (v3.6.0)
+### 短期计划 (v4.1.x)
 - [ ] 云端同步
-- [ ] 协作写作增强（多人实时编辑）
+- [ ] 协作写作增强（多人实时编辑 OT 完整实现）
 - [ ] 插件市场
 
-### 长期计划 (v4.0.0)
+### 中期计划 (v4.2.0)
 - [ ] WebAssembly 前端
 - [ ] 自研小模型
 - [ ] 移动端适配
+
+### 长期计划 (v5.0.0)
 - [ ] 发布平台集成
+- [ ] AI 全自动长篇小说生成
 
 ---
 
