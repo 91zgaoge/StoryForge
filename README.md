@@ -4,11 +4,11 @@
 
 # StoryForge (草苔) v4.0.1 - AI 导演式小说创作系统
 
-> 🌿 越写越懂的创作系统 - AI 辅助小说创作桌面应用
+> 🌿 越写越懂的 AI 小说创作系统 — Tauri + Rust + React 驱动的桌面写作软件
 >
-> v4.0.0 借鉴 AI-Novel-Writing-Assistant 全面优化：Canonical State 规范状态 + Payoff Ledger 伏笔账本 + Execution Panel 执行面板 + Audit System 审计系统 + Creation Wizard 创建向导
+> 专为小说作者打造的**导演式创作工作台**：知识图谱可视化、伏笔追踪与回收、StyleDNA 风格引擎、多人协同编辑、7 阶段全自动创作工作流。让 AI 成为你的创作搭档，越写越懂你。
 >
-> v4.0.1 全面代码审计：17 处 IPC 参数修复 + 9 项空实现补全 + 3 个内存模块 SQLite 持久化
+> **v4.0.1 最新更新**：全面代码审计修复（17 处 IPC 参数 + 9 项空实现补全）+ 聊天记录/故事状态/协作会话三大模块 SQLite 持久化
 
 ## 🎭 独具特色的双界面设计
 
