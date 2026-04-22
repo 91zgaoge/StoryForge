@@ -82,11 +82,7 @@ class ModelService {
   // 检查模型连接状态（通过后端 Rust 代理，绕过 CSP/CORS 限制）
   async checkModelStatus(): Promise<'connected' | 'disconnected' | 'connecting'> {
     try {
-      const config = await getConfig();
-      const status = await invoke<string>('check_model_status', {
-        base_url: config.base_url,
-        api_key: config.api_key || undefined,
-      });
+      const status = await invoke<string>('check_model_status');
       return status as 'connected' | 'disconnected';
     } catch (error) {
       console.warn('Model status check failed:', error);

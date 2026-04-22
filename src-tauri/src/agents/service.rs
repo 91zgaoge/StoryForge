@@ -287,18 +287,23 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成内容", 0.3);
         
         // 动态生成策略：根据故事反馈历史调整 temperature 和 max_tokens
+        // 以用户在 Settings 中设置的模型 temperature 为基础值
+        let user_temperature = self.llm_service.get_active_profile()
+            .map(|p| p.temperature)
+            .unwrap_or(0.8);
+        
         let (max_tokens, temperature) = {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let generator = crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
-            match generator.build_strategy(&task.context.story_id) {
+            match generator.build_strategy(&task.context.story_id, Some(user_temperature)) {
                 Ok(strategy) => {
-                    log::info!("[AgentService] Adaptive strategy for story {}: temp={}, max_tokens={}", 
-                        task.context.story_id, strategy.temperature, strategy.max_tokens);
+                    log::info!("[AgentService] Adaptive strategy for story {}: base_temp={}, adjusted_temp={}, max_tokens={}", 
+                        task.context.story_id, user_temperature, strategy.temperature, strategy.max_tokens);
                     (Some(strategy.max_tokens), Some(strategy.temperature))
                 }
                 Err(e) => {
                     log::warn!("[AgentService] Failed to build adaptive strategy: {}, using defaults", e);
-                    (Some(2000), Some(0.8))
+                    (Some(2000), Some(user_temperature))
                 }
             }
         };

@@ -45,7 +45,7 @@ impl AdaptiveLearningEngine {
     /// 获取个性化生成策略
     pub fn get_generation_strategy(&self, story_id: &str) -> Result<GenerationStrategy, String> {
         let generator = AdaptiveGenerator::new(self.pool.clone());
-        generator.build_strategy(story_id)
+        generator.build_strategy(story_id, None)
     }
 
     /// 构建个性化提示词扩展

@@ -58,8 +58,14 @@ impl AdaptiveGenerator {
     }
 
     /// 为故事构建生成策略
-    pub fn build_strategy(&self, story_id: &str) -> Result<GenerationStrategy, String> {
+    /// 
+    /// `base_temperature`: 用户模型配置中的 temperature，作为策略基础值
+    pub fn build_strategy(&self, story_id: &str, base_temperature: Option<f32>) -> Result<GenerationStrategy, String> {
         let mut strategy = GenerationStrategy::default();
+        // 优先使用用户在 Settings 中设置的 temperature 作为基础值
+        if let Some(base) = base_temperature {
+            strategy.temperature = base.clamp(0.0, 2.0);
+        }
 
         let pref_repo = UserPreferenceRepository::new(self.pool.clone());
         let prefs = pref_repo.get_by_story(story_id).map_err(|e| e.to_string())?;

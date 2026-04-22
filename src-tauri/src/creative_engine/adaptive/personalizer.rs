@@ -88,7 +88,7 @@ impl PromptPersonalizer {
 
         // 5. 添加生成策略调整
         let generator = AdaptiveGenerator::new(self.pool.clone());
-        if let Ok(strategy) = generator.build_strategy(story_id) {
+        if let Ok(strategy) = generator.build_strategy(story_id, None) {
             let strategy_prompt = AdaptiveGenerator::strategy_to_prompt(&strategy);
             if !strategy_prompt.is_empty() {
                 parts.push(strategy_prompt);

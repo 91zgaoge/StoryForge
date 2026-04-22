@@ -78,7 +78,7 @@ impl LlmService {
     }
 
     /// 获取当前活跃的LLM配置
-    fn get_active_profile(&self) -> Option<LlmProfile> {
+    pub fn get_active_profile(&self) -> Option<LlmProfile> {
         let guard = self.config.lock().ok()?;
         guard.get_active_llm_profile().cloned()
     }
