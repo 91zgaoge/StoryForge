@@ -103,3 +103,138 @@
 .animate-slide-up {
   animation: slideUp 0.3s ease-out;
 }
+
+/* ===== StreamOutput Component Styles ===== */
+.stream-output-container {
+  @apply bg-cinema-800/50 border border-cinema-700 rounded-xl overflow-hidden flex flex-col;
+  min-height: 120px;
+}
+
+.stream-output-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  border-radius: 0;
+  @apply bg-cinema-950;
+}
+
+.stream-toolbar {
+  @apply flex items-center justify-between px-3 py-2 bg-cinema-800/80 border-b border-cinema-700 flex-shrink-0 gap-2;
+}
+
+.stream-toolbar-left {
+  @apply flex items-center gap-2 min-w-0;
+}
+
+.stream-toolbar-right {
+  @apply flex items-center gap-2 flex-shrink-0;
+}
+
+.stream-title {
+  @apply text-sm font-medium text-white;
+}
+
+.stream-status {
+  @apply flex items-center gap-1.5 text-xs text-cinema-gold;
+}
+
+.stream-word-count {
+  @apply flex items-center gap-1 text-xs text-gray-400 bg-cinema-900/50 px-2 py-1 rounded-md;
+}
+
+.stream-progress-text {
+  @apply text-xs text-cinema-gold font-mono;
+}
+
+.stream-btn {
+  @apply flex items-center gap-1 px-2 py-1 rounded-md text-xs text-gray-300 bg-cinema-700/50 hover:bg-cinema-700 transition-colors border-none cursor-pointer;
+}
+
+.stream-btn-stop {
+  @apply text-red-400 hover:bg-red-500/20;
+}
+
+.stream-btn-copy {
+  @apply hover:text-white;
+}
+
+.stream-btn-fullscreen {
+  @apply p-1;
+}
+
+.stream-progress-bar-bg {
+  @apply h-0.5 bg-cinema-700 flex-shrink-0;
+}
+
+.stream-progress-bar-fill {
+  @apply h-full bg-cinema-gold rounded-full transition-all duration-300;
+}
+
+.stream-content {
+  @apply flex-1 overflow-auto p-4 min-h-0;
+}
+
+.stream-placeholder {
+  @apply flex items-center gap-2 text-sm text-gray-500 py-8 justify-center;
+}
+
+/* StreamOutput Markdown Styles */
+.stream-markdown .stream-h1,
+.stream-markdown .stream-h2,
+.stream-markdown .stream-h3,
+.stream-markdown .stream-h4 {
+  @apply text-white font-semibold mt-4 mb-2;
+}
+
+.stream-markdown .stream-h1 {
+  @apply text-xl;
+}
+
+.stream-markdown .stream-h2 {
+  @apply text-lg;
+}
+
+.stream-markdown .stream-h3 {
+  @apply text-base;
+}
+
+.stream-markdown .stream-h4 {
+  @apply text-sm;
+}
+
+.stream-markdown .stream-p {
+  @apply text-sm text-gray-300 leading-relaxed mb-3;
+}
+
+.stream-markdown .stream-blockquote {
+  @apply border-l-2 border-cinema-gold/50 pl-3 py-1 my-3 text-gray-400 italic bg-cinema-800/30 rounded-r-md;
+}
+
+.stream-markdown .stream-li {
+  @apply text-sm text-gray-300 ml-4 mb-1;
+  list-style-type: disc;
+}
+
+.stream-markdown .stream-ol-li {
+  list-style-type: decimal;
+}
+
+.stream-markdown .stream-code-block {
+  @apply bg-cinema-900 rounded-lg p-3 my-3 overflow-x-auto text-sm text-gray-300 font-mono;
+}
+
+.stream-markdown .stream-inline-code {
+  @apply bg-cinema-900 px-1.5 py-0.5 rounded text-xs text-cinema-gold font-mono;
+}
+
+.stream-markdown .stream-hr {
+  @apply border-cinema-700 my-4;
+}
+
+.stream-markdown strong {
+  @apply text-white font-semibold;
+}
+
+.stream-markdown em {
+  @apply italic text-gray-300;
+}

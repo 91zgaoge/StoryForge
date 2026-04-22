@@ -11,7 +11,7 @@ export function useScenes(storyId: string | null) {
     queryKey: [SCENES_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return [];
-      return invoke<Scene[]>('get_story_scenes', { storyId });
+      return invoke<Scene[]>('get_story_scenes', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -22,7 +22,7 @@ export function useScene(sceneId: string | null) {
     queryKey: [SCENES_KEY, 'detail', sceneId],
     queryFn: async () => {
       if (!sceneId) return null;
-      return invoke<Scene | null>('get_scene', { sceneId });
+      return invoke<Scene | null>('get_scene', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -46,14 +46,14 @@ export function useCreateScene() {
       content?: string;
     }) => {
       return invoke<Scene>('create_scene', {
-        storyId: params.storyId,
-        sequenceNumber: params.sequenceNumber,
+        story_id: params.storyId,
+        sequence_number: params.sequenceNumber,
         title: params.title,
-        dramaticGoal: params.dramaticGoal,
-        externalPressure: params.externalPressure,
-        conflictType: params.conflictType,
-        charactersPresent: params.charactersPresent || [],
-        settingLocation: params.settingLocation,
+        dramatic_goal: params.dramaticGoal,
+        external_pressure: params.externalPressure,
+        conflict_type: params.conflictType,
+        characters_present: params.charactersPresent || [],
+        setting_location: params.settingLocation,
         content: params.content,
       });
     },
@@ -73,7 +73,7 @@ export function useUpdateScene() {
       updates: UpdateSceneRequest;
     }) => {
       return invoke<number>('update_scene', {
-        sceneId: params.sceneId,
+        scene_id: params.sceneId,
         updates: params.updates,
       });
     },
@@ -89,7 +89,7 @@ export function useDeleteScene() {
   
   return useMutation({
     mutationFn: async (params: { sceneId: string; storyId: string }) => {
-      return invoke<number>('delete_scene', { sceneId: params.sceneId });
+      return invoke<number>('delete_scene', { scene_id: params.sceneId });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [SCENES_KEY, variables.storyId] });
@@ -103,8 +103,8 @@ export function useReorderScenes() {
   return useMutation({
     mutationFn: async (params: { storyId: string; sceneIds: string[] }) => {
       return invoke<void>('reorder_scenes', {
-        storyId: params.storyId,
-        sceneIds: params.sceneIds,
+        story_id: params.storyId,
+        scene_ids: params.sceneIds,
       });
     },
     onSuccess: (data, variables) => {

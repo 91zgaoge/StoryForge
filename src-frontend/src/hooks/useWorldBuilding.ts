@@ -12,7 +12,7 @@ export function useWorldBuilding(storyId: string | null) {
     queryKey: [WORLD_BUILDING_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<WorldBuilding | null>('get_world_building', { storyId });
+      return invoke<WorldBuilding | null>('get_world_building', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -24,7 +24,7 @@ export function useCreateWorldBuilding() {
   return useMutation({
     mutationFn: async (params: { storyId: string; concept: string }) => {
       return invoke<WorldBuilding>('create_world_building', {
-        storyId: params.storyId,
+        story_id: params.storyId,
         concept: params.concept,
       });
     },
@@ -67,7 +67,7 @@ export function useWritingStyle(storyId: string | null) {
     queryKey: [WRITING_STYLE_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<WritingStyle | null>('get_writing_style', { storyId });
+      return invoke<WritingStyle | null>('get_writing_style', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -78,7 +78,7 @@ export function useCreateWritingStyle() {
   
   return useMutation({
     mutationFn: async (storyId: string) => {
-      return invoke<WritingStyle>('create_writing_style', { storyId });
+      return invoke<WritingStyle>('create_writing_style', { story_id: storyId });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [WRITING_STYLE_KEY, variables] });

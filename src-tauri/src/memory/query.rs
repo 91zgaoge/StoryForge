@@ -158,28 +158,53 @@ impl QueryPipeline {
         let mut processed_entities = std::collections::HashSet::new();
         
         for result in search_results {
-            // 从搜索结果中提取实体
-            if let Ok(entity) = knowledge_graph.find_entity_by_name(&result.content).await {
-                if processed_entities.insert(entity.id.clone()) {
-                    // 获取相关实体（基于关系强度）
-                    let related = knowledge_graph
-                        .get_related_entities(&entity.id, 0.3)
-                        .await?;
-                    
-                    // 计算加权分数
-                    let related_with_scores: Vec<(Entity, f32)> = related
-                        .into_iter()
-                        .map(|(e, strength)| {
-                            let weighted_score = strength * 0.8 + result.score * 0.2;
-                            (e, weighted_score)
-                        })
-                        .collect();
-                    
-                    expanded.push(GraphResult {
-                        entity,
-                        relation_strength: result.score,
-                        related_entities: related_with_scores,
-                    });
+            // 收集所有可能匹配的候选词：分词 + metadata 中的实体名
+            let mut candidate_names = vec![];
+            
+            // 1. 对 content 分词后逐 token 尝试匹配
+            let tokens = self.tokenizer.tokenize(&result.content);
+            candidate_names.extend(tokens);
+            
+            // 2. 从 metadata 中提取已知的实体引用
+            if let Some(entities) = result.metadata.get("entities").and_then(|v| v.as_array()) {
+                for e in entities {
+                    if let Some(name) = e.as_str() {
+                        candidate_names.push(name.to_string());
+                    }
+                }
+            }
+            // 也尝试 metadata.name 字段
+            if let Some(name) = result.metadata.get("name").and_then(|v| v.as_str()) {
+                candidate_names.push(name.to_string());
+            }
+            
+            // 去重
+            let mut seen = std::collections::HashSet::new();
+            candidate_names.retain(|n| seen.insert(n.clone()));
+            
+            for name in &candidate_names {
+                if let Ok(entity) = knowledge_graph.find_entity_by_name(name).await {
+                    if processed_entities.insert(entity.id.clone()) {
+                        // 获取相关实体（基于关系强度）
+                        let related = knowledge_graph
+                            .get_related_entities(&entity.id, 0.3)
+                            .await?;
+                        
+                        // 计算加权分数
+                        let related_with_scores: Vec<(Entity, f32)> = related
+                            .into_iter()
+                            .map(|(e, strength)| {
+                                let weighted_score = strength * 0.8 + result.score * 0.2;
+                                (e, weighted_score)
+                            })
+                            .collect();
+                        
+                        expanded.push(GraphResult {
+                            entity,
+                            relation_strength: result.score,
+                            related_entities: related_with_scores,
+                        });
+                    }
                 }
             }
         }
@@ -229,7 +254,12 @@ impl QueryPipeline {
         }
         
         // 然后选择图谱扩展结果
+        let mut budget_exceeded = false;
         for graph_result in graph_expansion {
+            if budget_exceeded {
+                break;
+            }
+            
             // 添加主实体
             let entity_desc = format!("{}: {}", 
                 graph_result.entity.name,
@@ -248,6 +278,8 @@ impl QueryPipeline {
                 });
                 used_budget += cost;
                 citation_counter += 1;
+            } else {
+                break;
             }
             
             // 添加相关实体（预算允许的情况下）
@@ -270,6 +302,7 @@ impl QueryPipeline {
                     used_budget += cost;
                     citation_counter += 1;
                 } else {
+                    budget_exceeded = true;
                     break;
                 }
             }

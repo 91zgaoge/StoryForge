@@ -419,6 +419,9 @@ mod tests {
             created_at: chrono::Local::now(),
             updated_at: chrono::Local::now(),
             confidence_score: None,
+            execution_stage: None,
+            outline_content: None,
+            draft_content: None,
         };
 
         let text = StoryContextBuilder::format_scene_structure(Some(&scene), &[]).unwrap();

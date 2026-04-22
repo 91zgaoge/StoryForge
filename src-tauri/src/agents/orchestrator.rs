@@ -7,7 +7,10 @@
 
 use super::AgentResult;
 use super::service::{AgentService, AgentTask, AgentType};
-use tauri::{AppHandle, Emitter};
+use crate::db::DbPool;
+use crate::db::repositories_v3::StyleDnaRepository;
+use crate::creative_engine::style::{StyleChecker, StyleDNA};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// 工作流配置
 #[derive(Debug, Clone)]
@@ -96,7 +99,7 @@ impl AgentOrchestrator {
             "loop_idx": loop_idx,
             "score": score.map(|s| (s * 100.0) as i32),
         });
-        let _ = self.app_handle.emit(&format!("orchestrator-step-{}", task_id), event);
+        let _ = self.app_handle.emit("orchestrator-step", event);
     }
 
     /// 执行 Writer → Inspector → Writer 反馈闭环
@@ -141,16 +144,40 @@ impl AgentOrchestrator {
             };
 
             let inspect_result = self.service.execute_task(inspect_task).await?;
-            let inspect_score = inspect_result.score.unwrap_or(0.0);
+            let mut inspect_score = inspect_result.score.unwrap_or(0.0);
+            let mut style_issues = Vec::new();
+
+            // StyleChecker 验证：如果有目标 StyleDNA，检查风格匹配度
+            if let Some(ref style_id) = task.context.style_dna_id {
+                let pool = self.app_handle.state::<DbPool>();
+                {
+                    let repo = StyleDnaRepository::new(pool.inner().clone());
+                    if let Ok(Some(db_dna)) = repo.get_by_id(style_id) {
+                        if let Ok(target_dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                            let check_result = StyleChecker::check(&current_content, &target_dna);
+                            if !check_result.passed {
+                                style_issues = check_result.issues;
+                                // 降低分数以确保触发改写
+                                inspect_score = inspect_score
+                                    .min(self.config.rewrite_threshold - 0.01)
+                                    .max(0.0);
+                            }
+                        }
+                    }
+                }
+            }
 
             self.emit_step_event(&task.id, WorkflowStepType::Inspection, Some(loop_idx), Some(inspect_score));
+
+            let mut all_suggestions = inspect_result.suggestions.clone();
+            all_suggestions.extend(style_issues);
 
             steps.push(WorkflowStepResult {
                 step_type: WorkflowStepType::Inspection,
                 agent_type: AgentType::Inspector,
                 content: inspect_result.content.clone(),
                 score: Some(inspect_score),
-                suggestions: inspect_result.suggestions.clone(),
+                suggestions: all_suggestions,
             });
 
             // 检查是否达标
@@ -195,7 +222,7 @@ impl AgentOrchestrator {
             let rewrite_result = self.service.execute_task(rewrite_task).await?;
             current_content = rewrite_result.content.clone();
 
-            self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), writer_result.score);
+            self.emit_step_event(&task.id, WorkflowStepType::Rewrite, Some(loop_idx), rewrite_result.score);
 
             steps.push(WorkflowStepResult {
                 step_type: WorkflowStepType::Rewrite,

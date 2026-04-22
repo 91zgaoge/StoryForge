@@ -18,3 +18,4 @@ export { VectorSearch } from './VectorSearch';
 export { VersionTimeline } from './VersionTimeline';
 export { ConfidenceIndicator, ConfidenceBadge } from './ConfidenceIndicator';
 export { DiffViewer } from './DiffViewer';
+export { ExecutionPanel } from './ExecutionPanel';

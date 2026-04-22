@@ -8,9 +8,10 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Zap, Wand2, Play, Square, Loader2, Settings2, X } from 'lucide-react';
+import { Zap, Wand2, Play, Square, Loader2, Settings2, X, Check } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { autoWrite, autoWriteCancel, autoRevise, autoReviseCancel } from '@/services/tauri';
+import { autoWrite, autoWriteCancel, autoRevise, autoReviseCancel, recordFeedback } from '@/services/tauri';
+import { StreamOutput } from '@/components/StreamOutput';
 import { listen } from '@tauri-apps/api/event';
 import toast from 'react-hot-toast';
 
@@ -56,6 +57,8 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   const [reviseProgress, setReviseProgress] = useState({ stage: '', progress: 0, message: '' });
   const [reviseScope, setReviseScope] = useState<'full' | 'chapter' | 'selection'>('chapter');
   const [reviseType, setReviseType] = useState('comprehensive');
+  const [reviseResultText, setReviseResultText] = useState('');
+  const [showReviseResult, setShowReviseResult] = useState(false);
 
   const unlistenRef = useRef<(() => void) | null>(null);
   const reviseUnlistenRef = useRef<(() => void) | null>(null);
@@ -101,6 +104,14 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
           setIsAutoWriting(false);
           setProgress(prev => ({ ...prev, percentage: 100 }));
           toast.success(`自动续写完成！共生成 ${event.payload.current_chars} 字`);
+          if (storyId) {
+            recordFeedback({
+              story_id: storyId,
+              feedback_type: 'accept',
+              agent_type: 'auto_write',
+              original_ai_text: `[auto_write] ${event.payload.current_chars} chars generated`,
+            });
+          }
         }
       );
       return unlisten;
@@ -112,7 +123,12 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         `auto-write-error-${autoWriteTaskId}`,
         (event) => {
           setIsAutoWriting(false);
-          toast.error(`自动续写出错：${event.payload}`);
+          const msg = event.payload;
+          if (msg.includes('配额') || msg.includes('次数已用完') || msg.includes('quota')) {
+            onShowUpgrade('自动续写配额已用完');
+          } else {
+            toast.error(`自动续写出错：${msg}`);
+          }
         }
       );
       return unlisten;
@@ -165,7 +181,17 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         setReviseProgress({ stage: 'completed', progress: 1, message: '修改完成' });
         toast.success('自动修改完成！');
         if (event.payload.revised_text) {
+          setReviseResultText(event.payload.revised_text);
+          setShowReviseResult(true);
           onReviseResult?.(event.payload.revised_text);
+        }
+        if (storyId) {
+          recordFeedback({
+            story_id: storyId,
+            feedback_type: 'accept',
+            agent_type: 'auto_revise',
+            original_ai_text: event.payload.revised_text || '',
+          });
         }
       });
       return unlisten;
@@ -177,7 +203,12 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
         `auto-revise-error-${autoReviseTaskId}`,
         (event) => {
           setIsAutoRevising(false);
-          toast.error(`自动修改出错：${event.payload}`);
+          const msg = event.payload;
+          if (msg.includes('配额') || msg.includes('次数已用完') || msg.includes('quota')) {
+            onShowUpgrade('自动修改配额已用完');
+          } else {
+            toast.error(`自动修改出错：${msg}`);
+          }
         }
       );
       return unlisten;
@@ -229,7 +260,15 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     setIsAutoWriting(false);
     setAutoWriteTaskId(null);
     toast('自动续写已停止');
-  }, [autoWriteTaskId]);
+    if (storyId) {
+      recordFeedback({
+        story_id: storyId,
+        feedback_type: 'reject',
+        agent_type: 'auto_write',
+        original_ai_text: '',
+      });
+    }
+  }, [autoWriteTaskId, storyId]);
 
   const handleAutoRevise = useCallback(async () => {
     if (!storyId) {
@@ -272,7 +311,15 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
     setAutoReviseTaskId(null);
     setReviseProgress({ stage: '', progress: 0, message: '' });
     toast('自动修改已停止');
-  }, [autoReviseTaskId]);
+    if (storyId) {
+      recordFeedback({
+        story_id: storyId,
+        feedback_type: 'reject',
+        agent_type: 'auto_revise',
+        original_ai_text: selectedText || editorContent || '',
+      });
+    }
+  }, [autoReviseTaskId, storyId, selectedText, editorContent]);
 
   const maxCharsPerCall = isPro ? 999999 : 1000;
 
@@ -436,6 +483,42 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 修改结果展示 */}
+      {showReviseResult && reviseResultText && (
+        <div className="wensi-section border-t border-cinema-700/50 pt-4 mt-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-gray-400">修改结果预览</span>
+            <button
+              onClick={() => setShowReviseResult(false)}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <StreamOutput
+            text={reviseResultText}
+            isStreaming={false}
+            streamType="simulated"
+            title="AI 修改结果"
+            showToolbar
+            extraActions={
+              <button
+                className="stream-btn text-xs"
+                onClick={() => {
+                  onReviseResult?.(reviseResultText);
+                  setShowReviseResult(false);
+                  toast.success('已应用修改');
+                }}
+                title="应用修改"
+              >
+                <Check className="w-3 h-3" />
+                应用
+              </button>
+            }
+          />
         </div>
       )}
     </div>

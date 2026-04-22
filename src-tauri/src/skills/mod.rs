@@ -86,10 +86,17 @@ pub enum HookEvent {
     AfterChapterSave,
     OnCharacterCreate,
     OnCharacterUpdate,
+    OnSceneCreate,
+    BeforeAiWrite,
+    AfterAiWrite,
+    OnWorldBuildingUpdate,
+    OnStyleChange,
+    OnPlotTwist,
     BeforeExport,
     AfterImport,
     OnStyleAnalyze,
     OnPlotAnalyze,
+    Custom(String),
 }
 
 #[derive(Debug, Clone)]
@@ -193,14 +200,25 @@ pub struct SkillManager {
     skills_dir: PathBuf,
 }
 
+impl Clone for SkillManager {
+    fn clone(&self) -> Self {
+        Self {
+            registry: Arc::clone(&self.registry),
+            loader: self.loader.clone(),
+            executor: self.executor.clone(),
+            skills_dir: self.skills_dir.clone(),
+        }
+    }
+}
+
 impl SkillManager {
-    pub fn new() -> Self {
+    pub fn new(llm_service: Option<crate::llm::LlmService>) -> Self {
         let skills_dir = Self::get_default_skills_dir();
         fs::create_dir_all(&skills_dir).ok();
         
         let registry = Arc::new(Mutex::new(SkillRegistry::new()));
         let loader = SkillLoader::new(skills_dir.clone());
-        let executor = SkillExecutor::new(registry.clone());
+        let executor = SkillExecutor::new(registry.clone(), llm_service);
         
         let mut manager = Self {
             registry,
@@ -300,22 +318,22 @@ impl SkillManager {
         Ok(())
     }
     
-    pub fn execute_skill(
+    pub async fn execute_skill(
         &self,
         skill_id: &str,
         context: &AgentContext,
         params: HashMap<String, serde_json::Value>,
     ) -> Result<SkillResult, String> {
-        self.executor.execute(skill_id, context, params)
+        self.executor.execute(skill_id, context, params).await
     }
     
-    pub fn execute_hooks(
+    pub async fn execute_hooks(
         &self,
         event: HookEvent,
         context: &AgentContext,
         data: serde_json::Value,
     ) -> Vec<SkillResult> {
-        self.executor.execute_hooks(event, context, data)
+        self.executor.execute_hooks(event, context, data).await
     }
     
     pub fn reload_skills(&mut self) {
@@ -350,6 +368,6 @@ impl SkillManager {
 
 impl Default for SkillManager {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }

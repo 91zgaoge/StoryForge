@@ -349,28 +349,47 @@ impl BookDeconstructionService {
                 .map_err(|e| e.to_string())?;
         }
 
-        // 3. 创建角色
+        // 3. 创建角色（合并 personality + appearance 作为 background）
         for (_i, character) in analysis.characters.iter().enumerate() {
             let char_repo = crate::db::CharacterRepository::new(pool.clone());
+            let background = match (&character.personality, &character.appearance) {
+                (Some(p), Some(_a)) => Some(format!("{}", p)),
+                (Some(p), None) => Some(p.clone()),
+                (None, Some(a)) => Some(a.clone()),
+                (None, None) => None,
+            };
             char_repo
                 .create(CreateCharacterRequest {
                     story_id: story_id.clone(),
                     name: character.name.clone(),
-                    background: character.appearance.clone(),
+                    background,
                 })
                 .map_err(|e| e.to_string())?;
         }
 
-        // 4. 创建场景（content 为空，仅保留 outline）
+        // 4. 创建场景（summary 保存为 content，保留 outline）
         for scene in &analysis.scenes {
             let scene_repo = SceneRepository::new(pool.clone());
-            scene_repo
+            let created = scene_repo
                 .create(
                     &story_id,
                     scene.sequence_number,
                     scene.title.as_deref(),
                 )
                 .map_err(|e| e.to_string())?;
+            // 保存 summary 为 content
+            if scene.summary.is_some() {
+                use crate::db::repositories_v3::SceneUpdate;
+                let _ = scene_repo.update(
+                    &created.id,
+                    &SceneUpdate {
+                        title: None,
+                        content: scene.summary.clone(),
+                        characters_present: scene.characters_present.as_ref().map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()),
+                        ..Default::default()
+                    },
+                );
+            }
         }
 
         Ok(story_id)

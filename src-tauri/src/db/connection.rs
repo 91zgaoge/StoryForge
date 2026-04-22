@@ -1214,5 +1214,125 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 21: 为 scenes 和 kg_relations 表添加 confidence_score 字段 (v3.5.3)
+    let scene_columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(scenes)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !scene_columns.iter().any(|c| c == "confidence_score") {
+        conn.execute(
+            "ALTER TABLE scenes ADD COLUMN confidence_score REAL",
+            [],
+        )?;
+    }
+
+    let relation_columns: Vec<String> = conn.prepare(
+        "PRAGMA table_info(kg_relations)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !relation_columns.iter().any(|c| c == "confidence_score") {
+        conn.execute(
+            "ALTER TABLE kg_relations ADD COLUMN confidence_score REAL",
+            [],
+        )?;
+    }
+
+    // Migration 22: 为 stories 表添加 methodology_id 和 methodology_step 字段 (v3.6.0)
+    let story_columns_m22: Vec<String> = conn.prepare(
+        "PRAGMA table_info(stories)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !story_columns_m22.iter().any(|c| c == "methodology_id") {
+        conn.execute(
+            "ALTER TABLE stories ADD COLUMN methodology_id TEXT",
+            [],
+        )?;
+    }
+    if !story_columns_m22.iter().any(|c| c == "methodology_step") {
+        conn.execute(
+            "ALTER TABLE stories ADD COLUMN methodology_step INTEGER",
+            [],
+        )?;
+    }
+
+    // Migration 24: 扩展 foreshadowing_tracker 表 — Payoff Ledger 时间窗口与风险信号 (v3.6.0)
+    let foreshadowing_columns_m24: Vec<String> = conn.prepare(
+        "PRAGMA table_info(foreshadowing_tracker)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !foreshadowing_columns_m24.iter().any(|c| c == "target_start_scene") {
+        conn.execute(
+            "ALTER TABLE foreshadowing_tracker ADD COLUMN target_start_scene INTEGER",
+            [],
+        )?;
+    }
+    if !foreshadowing_columns_m24.iter().any(|c| c == "target_end_scene") {
+        conn.execute(
+            "ALTER TABLE foreshadowing_tracker ADD COLUMN target_end_scene INTEGER",
+            [],
+        )?;
+    }
+    if !foreshadowing_columns_m24.iter().any(|c| c == "risk_signals") {
+        conn.execute(
+            "ALTER TABLE foreshadowing_tracker ADD COLUMN risk_signals TEXT",
+            [],
+        )?;
+    }
+    if !foreshadowing_columns_m24.iter().any(|c| c == "scope_type") {
+        conn.execute(
+            "ALTER TABLE foreshadowing_tracker ADD COLUMN scope_type TEXT DEFAULT 'story'",
+            [],
+        )?;
+    }
+    if !foreshadowing_columns_m24.iter().any(|c| c == "ledger_key") {
+        conn.execute(
+            "ALTER TABLE foreshadowing_tracker ADD COLUMN ledger_key TEXT",
+            [],
+        )?;
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_foreshadowing_ledger_key ON foreshadowing_tracker(ledger_key)",
+            [],
+        )?;
+    }
+
+    // Migration 25: 为 scenes 表添加结构化大纲字段 (v3.6.0)
+    let scene_columns_m25: Vec<String> = conn.prepare(
+        "PRAGMA table_info(scenes)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !scene_columns_m25.iter().any(|c| c == "execution_stage") {
+        conn.execute(
+            "ALTER TABLE scenes ADD COLUMN execution_stage TEXT DEFAULT 'drafting'",
+            [],
+        )?;
+    }
+    if !scene_columns_m25.iter().any(|c| c == "outline_content") {
+        conn.execute(
+            "ALTER TABLE scenes ADD COLUMN outline_content TEXT",
+            [],
+        )?;
+    }
+    if !scene_columns_m25.iter().any(|c| c == "draft_content") {
+        conn.execute(
+            "ALTER TABLE scenes ADD COLUMN draft_content TEXT",
+            [],
+        )?;
+    }
+
     Ok(())
 }

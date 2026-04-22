@@ -17,6 +17,8 @@ export interface Story {
   tone?: string;
   pacing?: string;
   style_dna_id?: string;
+  methodology_id?: string;
+  methodology_step?: number;
   character_count?: number;
   chapter_count?: number;
   created_at: string;
@@ -189,6 +191,8 @@ export type ViewType =
   | 'mcp' 
   | 'book-deconstruction'
   | 'tasks'
+  | 'foreshadowing'
+  | 'creation-wizard'
   | 'settings';
 
 // ===== Intent Engine Types =====

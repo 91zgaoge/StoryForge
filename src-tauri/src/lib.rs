@@ -29,6 +29,8 @@ mod creative_engine;
 mod subscription;
 mod book_deconstruction;
 mod task_system;
+mod canonical_state;
+mod audit;
 
 #[cfg(test)]
 mod test_utils;
@@ -51,7 +53,7 @@ use collab::websocket::WebSocketServer;
 
 static DB_POOL: Lazy<Mutex<Option<DbPool>>> = Lazy::new(|| Mutex::new(None));
 static APP_CONFIG: Lazy<Mutex<Option<AppConfig>>> = Lazy::new(|| Mutex::new(None));
-static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
+pub static SKILL_MANAGER: OnceCell<Mutex<SkillManager>> = OnceCell::new();
 
 fn get_pool() -> Option<DbPool> { DB_POOL.lock().unwrap().clone() }
 fn get_config() -> Option<AppConfig> { APP_CONFIG.lock().unwrap().clone() }
@@ -83,7 +85,7 @@ pub fn run() {
                     log::error!("Failed to initialize database: {}", e);
                 }
             }
-            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new()));
+            let _ = SKILL_MANAGER.set(Mutex::new(SkillManager::new(Some(crate::llm::LlmService::new(app.handle().clone())))));
 
             // Seed built-in StyleDNAs
             if let Some(pool) = get_pool() {
@@ -234,6 +236,7 @@ pub fn run() {
             // Intent commands
             parse_intent,
             execute_intent,
+            record_feedback,
             // Agent commands
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
@@ -246,7 +249,6 @@ pub fn run() {
             agents::service::get_available_agents,
             // Subscription commands
             subscription::commands::get_subscription_status,
-            subscription::commands::check_ai_quota,
             subscription::commands::get_quota_detail,
             subscription::commands::check_auto_write_quota,
             subscription::commands::check_auto_revise_quota,
@@ -344,6 +346,7 @@ pub fn run() {
             commands_v3::run_creation_workflow,
             commands_v3::list_style_dnas,
             commands_v3::set_story_style_dna,
+            commands_v3::analyze_style_sample,
             // Book deconstruction commands
             book_deconstruction::commands::upload_book,
             book_deconstruction::commands::get_analysis_status,
@@ -361,6 +364,22 @@ pub fn run() {
             task_system::commands::trigger_task,
             task_system::commands::cancel_task,
             task_system::commands::get_task_logs,
+            // Foreshadowing tracker commands
+            commands_v3::get_story_foreshadowings,
+            commands_v3::create_foreshadowing,
+            commands_v3::update_foreshadowing_status,
+            // Payoff Ledger commands
+            commands_v3::get_payoff_ledger,
+            commands_v3::detect_overdue_payoffs,
+            commands_v3::recommend_payoff_timing,
+            commands_v3::update_payoff_ledger_fields,
+            // Canonical state commands
+            get_canonical_state,
+            // Structured outline commands
+            commands_v3::generate_scene_outline,
+            commands_v3::generate_scene_draft,
+            // Audit commands
+            audit::commands::audit_scene,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -493,8 +512,17 @@ fn create_story(title: String, description: Option<String>, genre: Option<String
 }
 
 #[tauri::command]
-fn update_story(id: String, title: Option<String>, description: Option<String>, tone: Option<String>, pacing: Option<String>) -> Result<(), String> {
-    let req = db::UpdateStoryRequest { title, description, tone, pacing, style_dna_id: None };
+fn update_story(
+    id: String,
+    title: Option<String>,
+    description: Option<String>,
+    tone: Option<String>,
+    pacing: Option<String>,
+    style_dna_id: Option<String>,
+    methodology_id: Option<String>,
+    methodology_step: Option<i32>,
+) -> Result<(), String> {
+    let req = db::UpdateStoryRequest { title, description, tone, pacing, style_dna_id, methodology_id, methodology_step };
     StoryRepository::new(get_pool().ok_or("DB not initialized")?).update(&id, &req).map_err(|e| e.to_string()).map(|_| ())
 }
 
@@ -510,7 +538,25 @@ fn get_story_characters(story_id: String) -> Result<Vec<db::Character>, String> 
 
 #[tauri::command]
 fn create_character(story_id: String, name: String, background: Option<String>) -> Result<db::Character, String> {
-    CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id, name, background }).map_err(|e| e.to_string())
+    let character = CharacterRepository::new(get_pool().ok_or("DB not initialized")?).create(CreateCharacterRequest { story_id, name, background }).map_err(|e| e.to_string())?;
+
+    // OnCharacterCreate hook
+    if let Some(manager) = SKILL_MANAGER.get() {
+        if let Ok(skill_manager) = manager.lock() {
+            let story_id = character.story_id.clone();
+            let character_id = character.id.clone();
+            let character_name = character.name.clone();
+            let skill_manager = skill_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                let data = serde_json::json!({ "character_id": character_id, "character_name": character_name });
+                let _ = skill_manager.execute_hooks(crate::skills::HookEvent::OnCharacterCreate, &context, data).await;
+                log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnCharacterCreate);
+            });
+        }
+    }
+
+    Ok(character)
 }
 
 #[tauri::command]
@@ -550,7 +596,25 @@ fn delete_chapter(id: String) -> Result<(), String> {
 #[tauri::command]
 fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, outline: Option<String>, content: Option<String>) -> Result<db::Chapter, String> {
     let req = CreateChapterRequest { story_id, chapter_number, title, outline, content };
-    ChapterRepository::new(get_pool().ok_or("DB not initialized")?).create(req).map_err(|e| e.to_string())
+    let chapter = ChapterRepository::new(get_pool().ok_or("DB not initialized")?).create(req).map_err(|e| e.to_string())?;
+
+    // AfterChapterSave hook
+    if let Some(manager) = SKILL_MANAGER.get() {
+        if let Ok(skill_manager) = manager.lock() {
+            let story_id = chapter.story_id.clone();
+            let chapter_id = chapter.id.clone();
+            let chapter_number = chapter.chapter_number;
+            let skill_manager = skill_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                let data = serde_json::json!({ "chapter_id": chapter_id, "chapter_number": chapter_number });
+                let _ = skill_manager.execute_hooks(crate::skills::HookEvent::AfterChapterSave, &context, data).await;
+                log::info!("Hook executed: {:?}", crate::skills::HookEvent::AfterChapterSave);
+            });
+        }
+    }
+
+    Ok(chapter)
 }
 
 #[tauri::command]
@@ -610,10 +674,30 @@ async fn execute_skill(
     params: HashMap<String, serde_json::Value>,
     app_handle: AppHandle,
 ) -> Result<serde_json::Value, String> {
-    // 1. 获取 skill prompt
-    let (system_prompt, user_prompt) = {
-        let manager = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
-        let context = agents::AgentContext {
+    let mut params = params;
+    let story_id = params.remove("story_id").and_then(|v| v.as_str().map(|s| s.to_string()));
+
+    // Build context from database if story_id is provided
+    let context = if let Some(story_id) = story_id {
+        match app_handle.try_state::<DbPool>() {
+            Some(pool_state) => {
+                let pool = pool_state.inner().clone();
+                let builder = creative_engine::StoryContextBuilder::new(pool);
+                match builder.build_quick(&story_id) {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        log::warn!("[execute_skill] StoryContextBuilder failed: {}, using minimal context", e);
+                        agents::AgentContext::minimal(story_id, String::new())
+                    }
+                }
+            }
+            None => {
+                log::warn!("[execute_skill] DbPool not available, using minimal context");
+                agents::AgentContext::minimal(story_id, String::new())
+            }
+        }
+    } else {
+        agents::AgentContext {
             story_id: String::new(),
             story_title: String::new(),
             genre: String::new(),
@@ -629,22 +713,43 @@ async fn execute_skill(
             methodology_id: None,
             methodology_step: None,
             style_dna_id: None,
-        };
-        let result = manager.execute_skill(&skill_id, &context, params)?;
-        let data = result.data;
-        let system = data.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let user = data.get("user_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        (system, user)
+        }
     };
 
+    // Execute skill
+    let manager = {
+        let guard = SKILL_MANAGER.get().ok_or("Skills not initialized")?.lock().map_err(|e| e.to_string())?;
+        guard.clone()
+    };
+    
+    let result = manager.execute_skill(&skill_id, &context, params).await?;
+    
+    if !result.success {
+        return Err(result.error.unwrap_or("Skill execution failed".to_string()));
+    }
+    
+    // If LLM was already called (PromptRuntime with llm_service), return content directly
+    if let Some(content) = result.data.get("content").and_then(|v| v.as_str()) {
+        return Ok(serde_json::json!({
+            "success": true,
+            "content": content,
+            "model": result.data.get("model").and_then(|v| v.as_str()).unwrap_or(""),
+            "tokens_used": result.data.get("tokens_used").and_then(|v| v.as_i64()).unwrap_or(0),
+            "execution_time_ms": result.execution_time_ms,
+        }));
+    }
+    
+    // Fallback: skill returned prompts but no LLM result, call LLM manually
+    let system_prompt = result.data.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let user_prompt = result.data.get("user_prompt").and_then(|v| v.as_str()).unwrap_or("");
+    
     if system_prompt.is_empty() && user_prompt.is_empty() {
         return Err("Skill did not produce a valid prompt".to_string());
     }
 
-    // 2. 调用 LLM
     let llm_service = crate::llm::LlmService::new(app_handle);
     let full_prompt = if system_prompt.is_empty() {
-        user_prompt
+        user_prompt.to_string()
     } else {
         format!("[系统指令]\n{}\n\n[用户请求]\n{}", system_prompt, user_prompt)
     };
@@ -656,7 +761,7 @@ async fn execute_skill(
         "content": response.content,
         "model": response.model,
         "tokens_used": response.tokens_used,
-        "execution_time_ms": 0,
+        "execution_time_ms": result.execution_time_ms,
     }))
 }
 
@@ -806,6 +911,51 @@ async fn execute_intent(
 ) -> Result<intent::IntentExecutionResult, String> {
     let executor = intent::IntentExecutor::new(app_handle);
     executor.execute(intent, story_id).await
+}
+
+#[derive(Debug, Deserialize)]
+struct RecordFeedbackRequest {
+    story_id: String,
+    scene_id: Option<String>,
+    chapter_id: Option<String>,
+    feedback_type: String,
+    agent_type: Option<String>,
+    original_ai_text: String,
+    final_text: Option<String>,
+}
+
+#[tauri::command]
+async fn record_feedback(request: RecordFeedbackRequest) -> Result<(), String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let recorder = creative_engine::adaptive::FeedbackRecorder::new(pool.clone());
+    let result = match request.feedback_type.as_str() {
+        "accept" => recorder.record_accept(&request.story_id, &request.original_ai_text, request.agent_type.as_deref()),
+        "reject" => recorder.record_reject(&request.story_id, &request.original_ai_text, request.agent_type.as_deref()),
+        "modify" => recorder.record_modify(
+            &request.story_id,
+            &request.original_ai_text,
+            request.final_text.as_deref().unwrap_or(""),
+            request.agent_type.as_deref(),
+        ),
+        _ => Err("Unknown feedback type".to_string()),
+    };
+    
+    // 异步触发偏好挖掘，让自适应学习系统形成闭环
+    if result.is_ok() {
+        let story_id = request.story_id.clone();
+        tauri::async_runtime::spawn(async move {
+            let engine = creative_engine::adaptive::AdaptiveLearningEngine::new(pool);
+            match engine.mine_preferences(&story_id) {
+                Ok(prefs) if !prefs.is_empty() => {
+                    log::info!("[Adaptive] Mined {} preferences for story {}", prefs.len(), story_id);
+                }
+                Ok(_) => {}
+                Err(e) => log::warn!("[Adaptive] Preference mining failed: {}", e),
+            }
+        });
+    }
+    
+    result
 }
 
 #[tauri::command]
@@ -969,4 +1119,12 @@ fn show_backstage(app: AppHandle) -> Result<(), String> {
         window.set_focus().map_err(|e| e.to_string())?;
         Ok(())
     }
+}
+
+/// 获取故事的规范状态快照
+#[tauri::command]
+async fn get_canonical_state(story_id: String) -> Result<canonical_state::CanonicalStateSnapshot, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+    let manager = canonical_state::CanonicalStateManager::new(pool);
+    manager.get_snapshot(&story_id).await
 }

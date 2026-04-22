@@ -207,18 +207,9 @@ impl AdaptiveGenerator {
     }
 
     fn calculate_temperature(&self, strategy: &GenerationStrategy) -> f32 {
-        // 基础温度 0.8
-        let base = 0.8f32;
-
-        // 根据调整约束数量微调
         let constraint_count = strategy.content_constraints.len() as f32;
-        let constraint_adjustment = if constraint_count > 3.0 {
-            -0.05 // 约束多时降低温度以提高可控性
-        } else {
-            0.0
-        };
-
-        (base + constraint_adjustment).clamp(0.5, 1.0)
+        let adjustment = if constraint_count > 3.0 { -0.05 } else { 0.0 };
+        (strategy.temperature + adjustment).clamp(0.5, 1.0)
     }
 
     /// 将策略转换为 prompt 扩展文本
@@ -300,5 +291,20 @@ mod tests {
         s.content_constraints.push("c4".to_string());
         let temp = g.calculate_temperature(&s);
         assert_eq!(temp, 0.75); // 约束多，降低
+    }
+
+    #[test]
+    fn test_calculate_temperature_respects_existing() {
+        let g = AdaptiveGenerator::new(crate::db::DbPool::new(
+            r2d2_sqlite::SqliteConnectionManager::memory()
+        ).unwrap());
+        let mut s = GenerationStrategy::default();
+        s.temperature = 0.7; // 模拟 pacing/style 偏好已微调
+        s.content_constraints.push("c1".to_string());
+        s.content_constraints.push("c2".to_string());
+        s.content_constraints.push("c3".to_string());
+        s.content_constraints.push("c4".to_string());
+        let temp = g.calculate_temperature(&s);
+        assert_eq!(temp, 0.65); // 基于 0.7 继续微调，不是覆盖回 0.8
     }
 }

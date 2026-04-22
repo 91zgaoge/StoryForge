@@ -53,10 +53,26 @@ pub struct AppSettingsData {
     /// 拆书分析 LLM 并发数
     #[serde(default = "default_concurrency")]
     pub book_deconstruction_concurrency: usize,
+    /// AgentOrchestrator 质检改写阈值
+    #[serde(default = "default_rewrite_threshold")]
+    pub rewrite_threshold: f32,
+    /// AgentOrchestrator 最大反馈循环次数
+    #[serde(default = "default_max_feedback_loops")]
+    pub max_feedback_loops: u32,
+    #[serde(default)]
+    pub writing_strategy: super::settings::WritingStrategy,
 }
 
 fn default_concurrency() -> usize {
     3
+}
+
+fn default_rewrite_threshold() -> f32 {
+    0.75
+}
+
+fn default_max_feedback_loops() -> u32 {
+    2
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -172,6 +188,9 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, String> {
             store_api_keys_securely: true,
         },
         book_deconstruction_concurrency: config.book_deconstruction_concurrency,
+        rewrite_threshold: config.rewrite_threshold,
+        max_feedback_loops: config.max_feedback_loops,
+        writing_strategy: config.writing_strategy.clone(),
     })
 }
 
@@ -204,6 +223,11 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
 
     // 保存拆书并发数
     config.book_deconstruction_concurrency = settings.book_deconstruction_concurrency.max(1).min(100);
+    // 保存 AgentOrchestrator 配置
+    config.rewrite_threshold = settings.rewrite_threshold.clamp(0.0, 1.0);
+    config.max_feedback_loops = settings.max_feedback_loops.max(1).min(10);
+    // 保存写作策略
+    config.writing_strategy = settings.writing_strategy;
     
     config.save(&app_dir).map_err(|e| e.to_string())
 }

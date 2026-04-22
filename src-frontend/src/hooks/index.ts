@@ -39,4 +39,13 @@ export {
   useAgentMappings,
   useUpdateAgentMapping,
 } from './useSettings';
+export {
+  useCommentThreads,
+  useCreateCommentThread,
+  useAddCommentMessage,
+  useResolveCommentThread,
+  useReopenCommentThread,
+  useDeleteCommentThread,
+} from './useCommentThreads';
 export { useSubscription } from './useSubscription';
+export { useExecutionState, resolvePrimaryAction, getPhaseLabel, getPhaseColor } from './useExecutionState';

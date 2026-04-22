@@ -19,11 +19,14 @@ import {
   Settings2, Key, Globe, Database, 
   Plus, Trash2, Edit2, Download, Upload,
   Check, X, Bot, Sparkles, Image, MessageSquare,
-  RefreshCw, Star, BookOpen, Zap
+  RefreshCw, Star, BookOpen, Zap, Compass, PenTool
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useSettings, useSaveSettings, useModels, useExportSettings, useImportSettings, useCreateModel, useUpdateModel, useSetActiveModel } from '@/hooks/useSettings';
+import { useUpdateStory } from '@/hooks/useStories';
+import { useAppStore } from '@/stores/appStore';
+import toast from 'react-hot-toast';
 import { colorThemeList, applyColorTheme, loadColorTheme, type ColorThemeId } from '@/frontstage/config/colorThemes';
 import { useUpdater } from '@/hooks/useUpdater';
 import { EditorSettings } from '@/components/EditorSettings';
@@ -32,7 +35,7 @@ import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
 import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi } from '@/services/settings';
 
-type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'general';
+type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'methodology' | 'general';
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
@@ -161,6 +164,12 @@ export function Settings() {
           label="Agent配置"
         />
         <TabButton 
+          active={activeTab === 'methodology'} 
+          onClick={() => setActiveTab('methodology')}
+          icon={<Compass className="w-4 h-4" />}
+          label="创作方法论"
+        />
+        <TabButton 
           active={activeTab === 'general'} 
           onClick={() => setActiveTab('general')}
           icon={<Settings2 className="w-4 h-4" />}
@@ -226,6 +235,7 @@ export function Settings() {
             />
           )}
           {activeTab === 'agents' && <AgentConfig />}
+          {activeTab === 'methodology' && <MethodologySettings />}
           {activeTab === 'general' && <GeneralSettings />}
         </>
       )}
@@ -764,6 +774,145 @@ function AgentConfig() {
   );
 }
 
+// 创作方法论配置
+function MethodologySettings() {
+  const currentStory = useAppStore((s) => s.currentStory);
+  const updateStoryMutation = useUpdateStory();
+  
+  const [methodologyId, setMethodologyId] = useState(currentStory?.methodology_id || '');
+  const [methodologyStep, setMethodologyStep] = useState(currentStory?.methodology_step || 1);
+  
+  useEffect(() => {
+    if (currentStory) {
+      setMethodologyId(currentStory.methodology_id || '');
+      setMethodologyStep(currentStory.methodology_step || 1);
+    }
+  }, [currentStory?.id]);
+  
+  const methodologies = [
+    { id: '', name: '无（自由创作）', description: '不指定特定方法论，AI 自由发挥' },
+    { id: 'snowflake', name: '雪花法', description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者' },
+    { id: 'scene_beat', name: '场景节拍', description: '以场景为单位构建叙事节拍，适合重视节奏的作者' },
+    { id: 'hero_journey', name: '英雄之旅', description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事' },
+    { id: 'character_depth', name: '人物深度', description: '以人物为核心驱动故事，适合重视角色塑造的作者' },
+  ];
+  
+  const snowflakeSteps = [
+    '1. 一句话概括',
+    '2. 一段式概括',
+    '3. 人物概述',
+    '4. 一页纸大纲',
+    '5. 人物详细背景',
+    '6. 四页纸大纲',
+    '7. 人物完整档案',
+    '8. 场景清单',
+    '9. 场景扩展',
+    '10. 初稿写作',
+  ];
+  
+  const handleSave = () => {
+    if (!currentStory) return;
+    updateStoryMutation.mutate({
+      id: currentStory.id,
+      updates: {
+        methodology_id: methodologyId || undefined,
+        methodology_step: methodologyId === 'snowflake' ? methodologyStep : undefined,
+      },
+    }, {
+      onSuccess: () => {
+        toast.success('创作方法论已保存');
+      },
+      onError: (err: any) => {
+        toast.error(`保存失败: ${err?.message || String(err)}`);
+      },
+    });
+  };
+  
+  if (!currentStory) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Compass className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-white mb-2">创作方法论</h3>
+          <p className="text-gray-500">请先选择一个故事，再配置创作方法论</p>
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <Compass className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">创作方法论</h3>
+              <p className="text-sm text-gray-500">为「{currentStory.title}」选择创作方法论</p>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">选择方法论</label>
+              <div className="space-y-2">
+                {methodologies.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setMethodologyId(m.id)}
+                    className={`w-full p-3 rounded-lg text-left transition-colors border ${
+                      methodologyId === m.id
+                        ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                        : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                    }`}
+                  >
+                    <div className="font-medium text-white">{m.name}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{m.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {methodologyId === 'snowflake' && (
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">当前步骤（雪花法）</label>
+                <div className="space-y-1.5">
+                  {snowflakeSteps.map((step, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setMethodologyStep(idx + 1)}
+                      className={`w-full p-2 rounded-lg text-left text-sm transition-colors ${
+                        methodologyStep === idx + 1
+                          ? 'bg-cinema-gold/20 text-cinema-gold'
+                          : 'bg-cinema-800 text-gray-400 hover:bg-cinema-700'
+                      }`}
+                    >
+                      {step}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end pt-4 border-t border-cinema-800">
+              <Button 
+                variant="primary" 
+                onClick={handleSave}
+                isLoading={updateStoryMutation.isPending}
+              >
+                <Check className="w-4 h-4 mr-2" />
+                保存
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // 颜色主题选择器组件
 function ColorThemeSelector() {
   const [currentTheme, setCurrentTheme] = useState<ColorThemeId>(() => loadColorTheme());
@@ -818,13 +967,25 @@ function GeneralSettings() {
   const { data: settings } = useSettings();
   const saveSettingsMutation = useSaveSettings();
   const [concurrency, setConcurrency] = useState(settings?.book_deconstruction_concurrency ?? 3);
+  const [rewriteThreshold, setRewriteThreshold] = useState(settings?.rewrite_threshold ?? 0.75);
+  const [maxFeedbackLoops, setMaxFeedbackLoops] = useState(settings?.max_feedback_loops ?? 2);
+  const [writingStrategy, setWritingStrategy] = useState(settings?.writing_strategy ?? { run_mode: 'fast' as const, conflict_level: 50, pace: 'balanced' as const, ai_freedom: 'medium' as const });
   
   // 同步设置值
   useEffect(() => {
     if (settings?.book_deconstruction_concurrency !== undefined) {
       setConcurrency(settings.book_deconstruction_concurrency);
     }
-  }, [settings?.book_deconstruction_concurrency]);
+    if (settings?.rewrite_threshold !== undefined) {
+      setRewriteThreshold(settings.rewrite_threshold);
+    }
+    if (settings?.max_feedback_loops !== undefined) {
+      setMaxFeedbackLoops(settings.max_feedback_loops);
+    }
+    if (settings?.writing_strategy !== undefined) {
+      setWritingStrategy(settings.writing_strategy);
+    }
+  }, [settings?.book_deconstruction_concurrency, settings?.rewrite_threshold, settings?.max_feedback_loops, settings?.writing_strategy]);
   
   const handleConcurrencyChange = (value: number) => {
     setConcurrency(value);
@@ -834,6 +995,46 @@ function GeneralSettings() {
         saveSettingsMutation.mutate({
           ...settings,
           book_deconstruction_concurrency: value,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  };
+
+  const handleRewriteThresholdChange = (value: number) => {
+    setRewriteThreshold(value);
+    const timer = setTimeout(() => {
+      if (settings) {
+        saveSettingsMutation.mutate({
+          ...settings,
+          rewrite_threshold: value,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  };
+
+  const handleMaxFeedbackLoopsChange = (value: number) => {
+    setMaxFeedbackLoops(value);
+    const timer = setTimeout(() => {
+      if (settings) {
+        saveSettingsMutation.mutate({
+          ...settings,
+          max_feedback_loops: value,
+        });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  };
+
+  const handleWritingStrategyChange = (partial: Partial<typeof writingStrategy>) => {
+    const next = { ...writingStrategy, ...partial };
+    setWritingStrategy(next);
+    const timer = setTimeout(() => {
+      if (settings) {
+        saveSettingsMutation.mutate({
+          ...settings,
+          writing_strategy: next,
         });
       }
     }, 300);
@@ -949,6 +1150,229 @@ function GeneralSettings() {
                 远程 API 建议 1~5，本地模型（Ollama/vLLM）建议 10~50。
                 当前设置会在下次拆书时生效。
               </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Agent 配置 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <Bot className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">Agent 质检配置</h3>
+              <p className="text-sm text-gray-500">调整 Writer → Inspector 闭环优化的质检严格度</p>
+            </div>
+          </div>
+          
+          <div className="space-y-6">
+            {/* 质检阈值 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-cinema-gold" />
+                  <span className="text-sm text-white">质检阈值</span>
+                </div>
+                <span className="text-lg font-bold text-cinema-gold font-mono">{rewriteThreshold.toFixed(2)}</span>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-500 w-8">0.6</span>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={0.9}
+                  step={0.05}
+                  value={rewriteThreshold}
+                  onChange={(e) => handleRewriteThresholdChange(Number(e.target.value))}
+                  className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
+                />
+                <span className="text-xs text-gray-500 w-8">0.9</span>
+              </div>
+              
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>宽松（易通过，改写少）</span>
+                <span>严格（难通过，改写多）</span>
+              </div>
+              
+              <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+                <p className="text-xs text-gray-400">
+                  <span className="text-cinema-gold font-medium">提示：</span>
+                  低于此阈值的文本将触发 Writer 自动改写。默认 0.75 是平衡点。
+                </p>
+              </div>
+            </div>
+
+            {/* 最大循环次数 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 text-cinema-gold" />
+                  <span className="text-sm text-white">最大改写轮数</span>
+                </div>
+                <span className="text-lg font-bold text-cinema-gold font-mono">{maxFeedbackLoops}</span>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-500 w-8">1</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={maxFeedbackLoops}
+                  onChange={(e) => handleMaxFeedbackLoopsChange(Number(e.target.value))}
+                  className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
+                />
+                <span className="text-xs text-gray-500 w-8">5</span>
+              </div>
+              
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>快速（1轮）</span>
+                <span>深度（5轮）</span>
+              </div>
+              
+              <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+                <p className="text-xs text-gray-400">
+                  <span className="text-cinema-gold font-medium">提示：</span>
+                  每轮 Inspector 质检不通过都会触发 Writer 改写。轮数越多质量越高但耗时越长。
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 写作策略 */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
+              <PenTool className="w-5 h-5 text-cinema-gold" />
+            </div>
+            <div>
+              <h3 className="text-lg font-medium text-white">写作策略</h3>
+              <p className="text-sm text-gray-500">调整 AI 生成内容的行为倾向</p>
+            </div>
+          </div>
+          
+          <div className="space-y-6">
+            {/* 运行模式 */}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">运行模式</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleWritingStrategyChange({ run_mode: 'fast' })}
+                  className={`p-3 rounded-lg text-left transition-colors border ${
+                    writingStrategy.run_mode === 'fast'
+                      ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                      : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                  }`}
+                >
+                  <div className="font-medium text-white">快速</div>
+                  <div className="text-xs text-gray-400 mt-0.5">高 temperature，注重效率</div>
+                </button>
+                <button
+                  onClick={() => handleWritingStrategyChange({ run_mode: 'polish' })}
+                  className={`p-3 rounded-lg text-left transition-colors border ${
+                    writingStrategy.run_mode === 'polish'
+                      ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                      : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                  }`}
+                >
+                  <div className="font-medium text-white">精修</div>
+                  <div className="text-xs text-gray-400 mt-0.5">低 temperature，注重质量</div>
+                </button>
+              </div>
+            </div>
+
+            {/* 冲突强度 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-cinema-gold" />
+                  <span className="text-sm text-white">冲突强度</span>
+                </div>
+                <span className="text-lg font-bold text-cinema-gold font-mono">{writingStrategy.conflict_level}</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-500 w-8">0</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={writingStrategy.conflict_level}
+                  onChange={(e) => handleWritingStrategyChange({ conflict_level: Number(e.target.value) })}
+                  className="flex-1 h-2 bg-cinema-800 rounded-lg appearance-none cursor-pointer accent-cinema-gold"
+                />
+                <span className="text-xs text-gray-500 w-8">100</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>平和抒情</span>
+                <span>激烈冲突</span>
+              </div>
+              {writingStrategy.conflict_level >= 80 && (
+                <div className="p-3 bg-cinema-900/50 rounded-lg border border-cinema-800">
+                  <p className="text-xs text-gray-400">
+                    <span className="text-cinema-gold font-medium">提示：</span>
+                    冲突强度 ≥ 80 时，AI 会确保每 500 字至少安排一次冲突或张力。
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* 叙事节奏 */}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">叙事节奏</label>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { id: 'slow', label: '慢', desc: '细腻描写' },
+                  { id: 'balanced', label: '均衡', desc: '动作描写交替' },
+                  { id: 'fast', label: '快', desc: '快速推进' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleWritingStrategyChange({ pace: opt.id as typeof writingStrategy.pace })}
+                    className={`p-3 rounded-lg text-left transition-colors border ${
+                      writingStrategy.pace === opt.id
+                        ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                        : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                    }`}
+                  >
+                    <div className="font-medium text-white">{opt.label}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* AI 自由度 */}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">AI 自由度</label>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { id: 'low', label: '低', desc: '严格遵循设定' },
+                  { id: 'medium', label: '中', desc: '核心约束+发挥' },
+                  { id: 'high', label: '高', desc: '允许创新转折' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleWritingStrategyChange({ ai_freedom: opt.id as typeof writingStrategy.ai_freedom })}
+                    className={`p-3 rounded-lg text-left transition-colors border ${
+                      writingStrategy.ai_freedom === opt.id
+                        ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                        : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                    }`}
+                  >
+                    <div className="font-medium text-white">{opt.label}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </CardContent>

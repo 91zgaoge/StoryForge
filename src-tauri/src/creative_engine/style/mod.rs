@@ -14,10 +14,11 @@ pub mod classic_styles;
 pub use dna::StyleDNA;
 
 use serde::{Deserialize, Serialize};
+use crate::llm::service::LlmService;
 
 /// 风格分析器 - 从文本样例解析风格特征
 ///
-/// 当前为基于规则的分析器，未来可升级为基于 LLM 的深度分析。
+/// 支持基于规则的快速分析和基于 LLM 的精确分析。
 pub struct StyleAnalyzer;
 
 impl StyleAnalyzer {
@@ -139,6 +140,50 @@ impl StyleAnalyzer {
         };
 
         dna
+    }
+
+    /// 使用 LLM 深度分析文本样例，生成 StyleDNA
+    ///
+    /// 调用 LLM 进行专业文学风格分析，精度远高于规则分析。
+    pub async fn analyze_with_llm(text: &str, name: &str, llm: &LlmService) -> Result<StyleDNA, String> {
+        let prompt = Self::build_llm_analysis_prompt(text);
+        let response = llm.generate(prompt, Some(2000), Some(0.3)).await
+            .map_err(|e| format!("LLM 生成失败: {}", e))?;
+        
+        let json_str = Self::extract_json(&response.content);
+        let mut dna: StyleDNA = serde_json::from_str(&json_str)
+            .map_err(|e| format!("JSON 解析失败: {}\n原始内容: {}", e, &response.content))?;
+        
+        // 确保名称使用用户指定的名称
+        dna.meta.name = name.to_string();
+        
+        Ok(dna)
+    }
+
+    /// 从 LLM 响应中提取 JSON（支持 markdown 代码块包裹）
+    fn extract_json(content: &str) -> String {
+        let trimmed = content.trim();
+        // 尝试提取 ```json ... ``` 或 ``` ... ``` 中的内容
+        if let Some(start) = trimmed.find("```") {
+            let after_start = &trimmed[start + 3..];
+            let code_start = if after_start.starts_with("json") {
+                after_start[4..].trim_start()
+            } else {
+                after_start.trim_start()
+            };
+            if let Some(end) = code_start.find("```") {
+                return code_start[..end].trim().to_string();
+            }
+        }
+        //  fallback: 尝试找第一个 { 到最后一个 }
+        if let Some(start) = trimmed.find('{') {
+            if let Some(end) = trimmed.rfind('}') {
+                if end > start {
+                    return trimmed[start..=end].to_string();
+                }
+            }
+        }
+        trimmed.to_string()
     }
 
     /// 生成 LLM 用的分析提示词

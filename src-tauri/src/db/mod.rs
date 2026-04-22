@@ -12,5 +12,6 @@ pub use connection::{DbPool, init_db};
 #[cfg(test)]
 pub use connection::create_test_pool;
 pub use repositories::*;
+pub use repositories_v3::*;
 pub use models::*;
 pub use models_v3::*;

@@ -3,17 +3,19 @@ use super::*;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[derive(Clone)]
 pub struct SkillExecutor {
     registry: Arc<Mutex<SkillRegistry>>,
+    llm_service: Option<crate::llm::LlmService>,
 }
 
 impl SkillExecutor {
-    pub fn new(registry: Arc<Mutex<SkillRegistry>>) -> Self {
-        Self { registry }
+    pub fn new(registry: Arc<Mutex<SkillRegistry>>, llm_service: Option<crate::llm::LlmService>) -> Self {
+        Self { registry, llm_service }
     }
     
     /// Execute a skill
-    pub fn execute(
+    pub async fn execute(
         &self,
         skill_id: &str,
         context: &AgentContext,
@@ -36,7 +38,7 @@ impl SkillExecutor {
         // Execute based on runtime
         let result = match &skill.runtime {
             SkillRuntime::Prompt(runtime) => {
-                self.execute_prompt(runtime, context, params)
+                self.execute_prompt(runtime, context, params).await
             }
             SkillRuntime::Mcp(runtime) => {
                 self.execute_mcp(runtime, context, params)
@@ -64,7 +66,7 @@ impl SkillExecutor {
     }
     
     /// Execute hooks for an event
-    pub fn execute_hooks(
+    pub async fn execute_hooks(
         &self,
         event: HookEvent,
         context: &AgentContext,
@@ -84,7 +86,7 @@ impl SkillExecutor {
             match self.execute(&skill.manifest.id,
                 context,
                 params,
-            ) {
+            ).await {
                 Ok(result) => results.push(result),
                 Err(e) => results.push(SkillResult {
                     success: false,
@@ -116,7 +118,7 @@ impl SkillExecutor {
         Ok(())
     }
     
-    fn execute_prompt(
+    async fn execute_prompt(
         &self,
         runtime: &PromptRuntime,
         context: &AgentContext,
@@ -146,17 +148,38 @@ impl SkillExecutor {
         
         user_prompt = format!("{}\n\n{}", context_info, user_prompt);
         
-        // Note: Actual LLM call would happen here
-        // For now, return the prompt as result
-        Ok(SkillResult {
-            success: true,
-            data: serde_json::json!({
-                "system_prompt": runtime.system_prompt,
-                "user_prompt": user_prompt,
-            }),
-            error: None,
-            execution_time_ms: 0,
-        })
+        // Call LLM if service is available
+        if let Some(ref llm) = self.llm_service {
+            let full_prompt = if runtime.system_prompt.is_empty() {
+                user_prompt
+            } else {
+                format!("[系统指令]\n{}\n\n[用户请求]\n{}", runtime.system_prompt, user_prompt)
+            };
+            
+            let response = llm.generate(full_prompt, Some(2000), Some(0.7)).await?;
+            
+            Ok(SkillResult {
+                success: true,
+                data: serde_json::json!({
+                    "content": response.content,
+                    "model": response.model,
+                    "tokens_used": response.tokens_used,
+                }),
+                error: None,
+                execution_time_ms: 0,
+            })
+        } else {
+            // Fallback: return the prompt for external LLM call
+            Ok(SkillResult {
+                success: true,
+                data: serde_json::json!({
+                    "system_prompt": runtime.system_prompt,
+                    "user_prompt": user_prompt,
+                }),
+                error: None,
+                execution_time_ms: 0,
+            })
+        }
     }
     
     fn execute_mcp(

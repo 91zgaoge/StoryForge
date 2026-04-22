@@ -7,6 +7,7 @@
 //! - 情节连贯性
 
 use serde::{Deserialize, Serialize};
+use crate::llm::service::LlmService;
 
 /// 质量报告
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,6 +267,87 @@ impl QualityChecker {
         }
 
         summary
+    }
+
+    /// 使用 LLM 进行深度质量评估
+    ///
+    /// 优先使用 LLM 评估，当 LLM 不可用时回退到规则评估。
+    pub async fn check_with_llm(&self, text: &str, llm: &LlmService) -> Result<QualityReport, String> {
+        let prompt = Self::build_llm_evaluation_prompt(text);
+        let response = llm.generate(prompt, Some(2000), Some(0.3)).await
+            .map_err(|e| format!("LLM 评估失败: {}", e))?;
+        
+        let json_str = Self::extract_json(&response.content);
+        let raw: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| format!("评估 JSON 解析失败: {}\n原始内容: {}", e, &response.content))?;
+        
+        // 解析 JSON 为 QualityReport（LLM 返回 0-100，转换为 0.0-1.0）
+        let overall_score = raw.get("overall_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
+        let structure_score = raw.get("structure_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
+        let character_score = raw.get("character_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
+        let style_score = raw.get("style_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
+        let plot_score = raw.get("plot_score").and_then(|v| v.as_u64()).unwrap_or(70) as f32 / 100.0;
+        
+        let mut issues = Vec::new();
+        if let Some(issue_array) = raw.get("issues").and_then(|v| v.as_array()) {
+            for item in issue_array {
+                let category = match item.get("category").and_then(|v| v.as_str()).unwrap_or("structure") {
+                    "character" => IssueCategory::Character,
+                    "style" => IssueCategory::Style,
+                    "plot" => IssueCategory::Plot,
+                    "grammar" => IssueCategory::Grammar,
+                    _ => IssueCategory::Structure,
+                };
+                let severity = match item.get("severity").and_then(|v| v.as_str()).unwrap_or("minor") {
+                    "moderate" => Severity::Moderate,
+                    "major" => Severity::Major,
+                    "critical" => Severity::Critical,
+                    _ => Severity::Minor,
+                };
+                let description = item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let suggestion = item.get("suggestion").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if !description.is_empty() {
+                    issues.push(QualityIssue { category, severity, description, suggestion });
+                }
+            }
+        }
+        
+        let summary = raw.get("summary").and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| Self::generate_summary(overall_score, &issues));
+        
+        Ok(QualityReport {
+            overall_score,
+            structure_score,
+            character_consistency_score: character_score,
+            style_uniformity_score: style_score,
+            plot_coherence_score: plot_score,
+            issues,
+            summary,
+        })
+    }
+
+    fn extract_json(content: &str) -> String {
+        let trimmed = content.trim();
+        if let Some(start) = trimmed.find("```") {
+            let after_start = &trimmed[start + 3..];
+            let code_start = if after_start.starts_with("json") {
+                after_start[4..].trim_start()
+            } else {
+                after_start.trim_start()
+            };
+            if let Some(end) = code_start.find("```") {
+                return code_start[..end].trim().to_string();
+            }
+        }
+        if let Some(start) = trimmed.find('{') {
+            if let Some(end) = trimmed.rfind('}') {
+                if end > start {
+                    return trimmed[start..=end].to_string();
+                }
+            }
+        }
+        trimmed.to_string()
     }
 
     /// 生成 LLM 深度评估提示词

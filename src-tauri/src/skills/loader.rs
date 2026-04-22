@@ -2,6 +2,7 @@
 use super::*;
 use serde_yaml;
 
+#[derive(Clone)]
 pub struct SkillLoader {
     skills_dir: PathBuf,
 }

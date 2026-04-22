@@ -1,7 +1,6 @@
 //! V3 架构 Tauri 命令
 
 use crate::db::*;
-use crate::db::repositories_v3::*;
 use crate::config::StudioManager;
 use crate::memory::retention::RetentionManager;
 use crate::memory::ingest::{IngestPipeline, IngestContent};
@@ -21,35 +20,67 @@ pub async fn create_scene(
     dramatic_goal: Option<String>,
     external_pressure: Option<String>,
     conflict_type: Option<String>,
+    characters_present: Option<Vec<String>>,
+    setting_location: Option<String>,
+    setting_time: Option<String>,
+    setting_atmosphere: Option<String>,
+    content: Option<String>,
+    confidence_score: Option<f32>,
     pool: State<'_, DbPool>,
 ) -> Result<Scene, String> {
     let repo = SceneRepository::new(pool.inner().clone());
     let scene = repo.create(&story_id, sequence_number, title.as_deref())
         .map_err(|e| e.to_string())?;
     
-    // 如果提供了戏剧字段，立即更新场景
-    if dramatic_goal.is_some() || external_pressure.is_some() || conflict_type.is_some() {
+    // 如果提供了额外字段，立即更新场景
+    let has_extra = dramatic_goal.is_some()
+        || external_pressure.is_some()
+        || conflict_type.is_some()
+        || characters_present.is_some()
+        || setting_location.is_some()
+        || setting_time.is_some()
+        || setting_atmosphere.is_some()
+        || content.is_some()
+        || confidence_score.is_some();
+    if has_extra {
         use crate::db::repositories_v3::SceneUpdate;
         let _ = repo.update(
             &scene.id,
             &SceneUpdate {
                 title: None,
-                content: None,
+                content,
                 dramatic_goal: dramatic_goal.clone(),
                 external_pressure: external_pressure.clone(),
                 conflict_type: conflict_type.and_then(|c| c.parse().ok()),
-                characters_present: None,
+                characters_present,
                 character_conflicts: None,
-                setting_location: None,
-                setting_time: None,
-                setting_atmosphere: None,
+                setting_location,
+                setting_time,
+                setting_atmosphere,
                 previous_scene_id: None,
                 next_scene_id: None,
-                confidence_score: None,
+                confidence_score,
+                ..Default::default()
             },
         );
     }
-    
+
+    // OnSceneCreate hook
+    if let Some(manager) = crate::SKILL_MANAGER.get() {
+        if let Ok(skill_manager) = manager.lock() {
+            let story_id = scene.story_id.clone();
+            let scene_id = scene.id.clone();
+            let scene_title = scene.title.clone();
+            let skill_manager = skill_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                let data = serde_json::json!({ "scene_id": scene_id, "scene_title": scene_title });
+                let _ = skill_manager.execute_hooks(crate::skills::HookEvent::OnSceneCreate, &context, data).await;
+                log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnSceneCreate);
+            });
+        }
+    }
+
     Ok(scene)
 }
 
@@ -226,8 +257,31 @@ pub async fn update_world_building(
     pool: State<'_, DbPool>,
 ) -> Result<usize, String> {
     let repo = WorldBuildingRepository::new(pool.inner().clone());
-    repo.update(&id, concept.as_deref(), rules.as_deref(), history.as_deref(), cultures.as_deref())
-        .map_err(|e| e.to_string())
+    let result = repo.update(&id, concept.as_deref(), rules.as_deref(), history.as_deref(), cultures.as_deref())
+        .map_err(|e| e.to_string())?;
+
+    // OnWorldBuildingUpdate hook
+    let story_id_for_hook = pool.inner().get().ok().and_then(|c| {
+        c.query_row("SELECT story_id FROM world_buildings WHERE id = ?", [&id], |row| {
+            row.get::<_, String>(0)
+        }).ok()
+    });
+    if let Some(story_id) = story_id_for_hook {
+        if let Some(manager) = crate::SKILL_MANAGER.get() {
+            if let Ok(skill_manager) = manager.lock() {
+                let world_building_id = id.clone();
+                let skill_manager = skill_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let context = crate::agents::AgentContext::minimal(story_id, String::new());
+                    let data = serde_json::json!({ "world_building_id": world_building_id });
+                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::OnWorldBuildingUpdate, &context, data).await;
+                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::OnWorldBuildingUpdate);
+                });
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 // ==================== 文字风格命令 ====================
@@ -1056,6 +1110,7 @@ pub async fn create_story_with_wizard(
         previous_scene_id: None,
         next_scene_id: None,
         confidence_score: Some(0.8),
+        ..Default::default()
     };
     scene_repo.update(&scene.id, &scene_update).map_err(|e| e.to_string())?;
     
@@ -1730,9 +1785,363 @@ pub async fn set_story_style_dna(
         tone: None,
         pacing: None,
         style_dna_id,
+        methodology_id: None,
+        methodology_step: None,
     };
     match repo.update(&story_id, &req) {
         Ok(_) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// 从文本样例使用 LLM 分析生成 StyleDNA
+#[tauri::command]
+pub async fn analyze_style_sample(
+    text: String,
+    name: Option<String>,
+    app_handle: AppHandle,
+    pool: State<'_, DbPool>,
+) -> Result<serde_json::Value, String> {
+    use crate::creative_engine::style::StyleAnalyzer;
+    use crate::db::repositories_v3::StyleDnaRepository;
+    use crate::llm::service::LlmService;
+
+    let llm_service = LlmService::new(app_handle);
+    let dna_name = name.unwrap_or_else(|| "自定义风格".to_string());
+
+    let dna = StyleAnalyzer::analyze_with_llm(&text, &dna_name, &llm_service).await?;
+    let dna_json = serde_json::to_string(&dna)
+        .map_err(|e| format!("序列化 StyleDNA 失败: {}", e))?;
+
+    let repo = StyleDnaRepository::new(pool.inner().clone());
+    let record = repo.create(&dna_name, dna.meta.author.as_deref(), &dna_json, false)
+        .map_err(|e| format!("保存 StyleDNA 失败: {}", e))?;
+
+    Ok(serde_json::json!({
+        "id": record.id,
+        "name": record.name,
+        "author": record.author,
+        "is_builtin": record.is_builtin,
+        "is_user_created": record.is_user_created,
+    }))
+}
+
+// ==================== 伏笔追踪命令 ====================
+
+#[command]
+pub async fn get_story_foreshadowings(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+    let tracker = ForeshadowingTracker::new(pool.inner().clone());
+    let records = tracker.get_all(&story_id)
+        .map_err(|e| e.to_string())?;
+    let result: Vec<serde_json::Value> = records.into_iter().map(|r| {
+        serde_json::json!({
+            "id": r.id,
+            "story_id": r.story_id,
+            "content": r.content,
+            "setup_scene_id": r.setup_scene_id,
+            "payoff_scene_id": r.payoff_scene_id,
+            "status": r.status.to_string(),
+            "importance": r.importance,
+            "created_at": r.created_at,
+            "resolved_at": r.resolved_at,
+        })
+    }).collect();
+    Ok(result)
+}
+
+#[command]
+pub async fn create_foreshadowing(
+    story_id: String,
+    content: String,
+    setup_scene_id: Option<String>,
+    importance: i32,
+    pool: State<'_, DbPool>,
+) -> Result<String, String> {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+    let tracker = ForeshadowingTracker::new(pool.inner().clone());
+    tracker.add_foreshadowing(&story_id, &content, setup_scene_id.as_deref(), importance)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn update_foreshadowing_status(
+    id: String,
+    status: String,
+    payoff_scene_id: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
+    let tracker = ForeshadowingTracker::new(pool.inner().clone());
+    match status.as_str() {
+        "payoff" => tracker.mark_payoff(&id, payoff_scene_id.as_deref()),
+        "abandoned" => tracker.abandon(&id),
+        _ => Err(format!("无效状态: {}", status)),
+    }.map_err(|e| e.to_string())
+}
+
+// ==================== Payoff Ledger 命令 ====================
+
+#[command]
+pub async fn get_payoff_ledger(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::creative_engine::payoff_ledger::PayoffLedger;
+    let ledger = PayoffLedger::new(pool.inner().clone());
+    let items = ledger.get_ledger(&story_id)
+        .map_err(|e| e.to_string())?;
+
+    let result: Vec<serde_json::Value> = items.into_iter().map(|item| {
+        serde_json::json!({
+            "id": item.id,
+            "ledger_key": item.ledger_key,
+            "title": item.title,
+            "summary": item.summary,
+            "scope_type": item.scope_type.to_string(),
+            "current_status": item.current_status.to_string(),
+            "target_start_scene": item.target_start_scene,
+            "target_end_scene": item.target_end_scene,
+            "first_seen_scene": item.first_seen_scene,
+            "last_touched_scene": item.last_touched_scene,
+            "confidence": item.confidence,
+            "risk_signals": item.risk_signals,
+            "importance": item.importance,
+            "created_at": item.created_at,
+            "resolved_at": item.resolved_at,
+        })
+    }).collect();
+
+    Ok(result)
+}
+
+#[command]
+pub async fn detect_overdue_payoffs(
+    story_id: String,
+    current_scene_number: i32,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::creative_engine::payoff_ledger::PayoffLedger;
+    let ledger = PayoffLedger::new(pool.inner().clone());
+    let items = ledger.detect_overdue(&story_id, current_scene_number)
+        .map_err(|e| e.to_string())?;
+
+    let result: Vec<serde_json::Value> = items.into_iter().map(|item| {
+        serde_json::json!({
+            "id": item.id,
+            "ledger_key": item.ledger_key,
+            "title": item.title,
+            "summary": item.summary,
+            "scope_type": item.scope_type.to_string(),
+            "current_status": item.current_status.to_string(),
+            "target_start_scene": item.target_start_scene,
+            "target_end_scene": item.target_end_scene,
+            "first_seen_scene": item.first_seen_scene,
+            "last_touched_scene": item.last_touched_scene,
+            "confidence": item.confidence,
+            "risk_signals": item.risk_signals,
+            "importance": item.importance,
+            "created_at": item.created_at,
+            "resolved_at": item.resolved_at,
+        })
+    }).collect();
+
+    Ok(result)
+}
+
+#[command]
+pub async fn recommend_payoff_timing(
+    story_id: String,
+    current_scene_number: i32,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::creative_engine::payoff_ledger::PayoffLedger;
+    let ledger = PayoffLedger::new(pool.inner().clone());
+    let recs = ledger.recommend_payoff_timing(&story_id, current_scene_number)
+        .map_err(|e| e.to_string())?;
+
+    let result: Vec<serde_json::Value> = recs.into_iter().map(|rec| {
+        serde_json::json!({
+            "foreshadowing_id": rec.foreshadowing_id,
+            "ledger_key": rec.ledger_key,
+            "title": rec.title,
+            "recommended_scene": rec.recommended_scene,
+            "urgency": rec.urgency.to_string(),
+            "reason": rec.reason,
+            "importance": rec.importance,
+        })
+    }).collect();
+
+    Ok(result)
+}
+
+#[command]
+pub async fn update_payoff_ledger_fields(
+    foreshadowing_id: String,
+    target_start_scene: Option<i32>,
+    target_end_scene: Option<i32>,
+    risk_signals: Option<Vec<String>>,
+    scope_type: Option<String>,
+    ledger_key: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    use crate::creative_engine::payoff_ledger::PayoffLedger;
+    let ledger = PayoffLedger::new(pool.inner().clone());
+    let scope = scope_type.as_deref().and_then(|s| s.parse().ok());
+    ledger.update_ledger_fields(
+        &foreshadowing_id,
+        target_start_scene,
+        target_end_scene,
+        risk_signals,
+        scope,
+        ledger_key,
+    ).map_err(|e| e.to_string())
+}
+
+// ==================== 结构化大纲命令 ====================
+
+#[command]
+pub async fn generate_scene_outline(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<crate::agents::AgentResult, String> {
+    use crate::agents::service::{AgentService, AgentTask, AgentType};
+    use crate::agents::commands::ExecuteAgentRequest;
+    use crate::db::repositories_v3::SceneRepository;
+    use std::collections::HashMap;
+
+    let scene_repo = SceneRepository::new(pool.inner().clone());
+    let scene = scene_repo.get_by_id(&scene_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Scene not found")?;
+
+    // 构建输入：场景规划信息
+    let mut input_parts = Vec::new();
+    input_parts.push(format!("场景标题: {}", scene.title.as_deref().unwrap_or("未命名")));
+    if let Some(ref goal) = scene.dramatic_goal {
+        input_parts.push(format!("戏剧目标: {}", goal));
+    }
+    if let Some(ref pressure) = scene.external_pressure {
+        input_parts.push(format!("外部压迫: {}", pressure));
+    }
+    if let Some(ref location) = scene.setting_location {
+        input_parts.push(format!("场景地点: {}", location));
+    }
+    if let Some(ref time) = scene.setting_time {
+        input_parts.push(format!("场景时间: {}", time));
+    }
+    if !scene.characters_present.is_empty() {
+        input_parts.push(format!("出场角色: {}", scene.characters_present.join(", ")));
+    }
+
+    let input = input_parts.join("\n");
+
+    let request = ExecuteAgentRequest {
+        agent_type: AgentType::OutlinePlanner,
+        story_id: scene.story_id.clone(),
+        chapter_number: Some(scene.sequence_number.max(0) as u32),
+        input: input.clone(),
+        parameters: None,
+    };
+
+    let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
+    let task = AgentTask {
+        id: uuid::Uuid::new_v4().to_string(),
+        agent_type: AgentType::OutlinePlanner,
+        context,
+        input,
+        parameters: HashMap::new(),
+        tier: None,
+    };
+
+    let service = AgentService::new(app_handle);
+    let result = service.execute_task(task).await?;
+
+    // 保存大纲到数据库
+    let _ = scene_repo.update(&scene_id, &crate::db::repositories_v3::SceneUpdate {
+        outline_content: Some(result.content.clone()),
+        execution_stage: Some("outline".to_string()),
+        ..Default::default()
+    });
+
+    Ok(result)
+}
+
+#[command]
+pub async fn generate_scene_draft(
+    scene_id: String,
+    pool: State<'_, DbPool>,
+    app_handle: AppHandle,
+) -> Result<crate::agents::AgentResult, String> {
+    use crate::agents::service::{AgentService, AgentTask, AgentType};
+    use crate::agents::commands::ExecuteAgentRequest;
+    use crate::db::repositories_v3::SceneRepository;
+    use std::collections::HashMap;
+
+    let scene_repo = SceneRepository::new(pool.inner().clone());
+    let scene = scene_repo.get_by_id(&scene_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Scene not found")?;
+
+    // 优先使用 outline_content，否则使用 dramatic_goal 等信息
+    let outline = scene.outline_content.as_ref()
+        .ok_or("场景还没有大纲，请先生成大纲")?;
+
+    let mut input_parts = Vec::new();
+    input_parts.push(format!("场景标题: {}", scene.title.as_deref().unwrap_or("未命名")));
+    input_parts.push(format!("大纲:\n{}", outline));
+    if let Some(ref goal) = scene.dramatic_goal {
+        input_parts.push(format!("戏剧目标: {}", goal));
+    }
+    if let Some(ref pressure) = scene.external_pressure {
+        input_parts.push(format!("外部压迫: {}", pressure));
+    }
+    if let Some(ref location) = scene.setting_location {
+        input_parts.push(format!("场景地点: {}", location));
+    }
+    if let Some(ref time) = scene.setting_time {
+        input_parts.push(format!("场景时间: {}", time));
+    }
+    if let Some(ref atmosphere) = scene.setting_atmosphere {
+        input_parts.push(format!("场景氛围: {}", atmosphere));
+    }
+    if !scene.characters_present.is_empty() {
+        input_parts.push(format!("出场角色: {}", scene.characters_present.join(", ")));
+    }
+
+    let input = input_parts.join("\n");
+
+    let request = ExecuteAgentRequest {
+        agent_type: AgentType::Writer,
+        story_id: scene.story_id.clone(),
+        chapter_number: Some(scene.sequence_number.max(0) as u32),
+        input: input.clone(),
+        parameters: None,
+    };
+
+    let context = crate::agents::commands::build_agent_context(&app_handle, &request).await?;
+    let task = AgentTask {
+        id: uuid::Uuid::new_v4().to_string(),
+        agent_type: AgentType::Writer,
+        context,
+        input,
+        parameters: HashMap::new(),
+        tier: None,
+    };
+
+    let service = AgentService::new(app_handle);
+    let result = service.execute_task(task).await?;
+
+    // 保存草稿到数据库
+    let _ = scene_repo.update(&scene_id, &crate::db::repositories_v3::SceneUpdate {
+        draft_content: Some(result.content.clone()),
+        execution_stage: Some("drafting".to_string()),
+        ..Default::default()
+    });
+
+    Ok(result)
 }

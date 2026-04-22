@@ -166,25 +166,25 @@ impl AgentService {
             .and_then(|m| m.chat_model_id.clone())
     }
 
-    /// 获取当前用户的订阅层级（fallback 查询，优先使用 task.tier）
-    fn get_user_tier(&self) -> SubscriptionTier {
+    /// 获取当前用户 ID
+    fn get_user_id(&self) -> String {
         let app_dir = match self.app_handle.path().app_data_dir() {
             Ok(d) => d,
-            Err(e) => {
-                log::warn!("[AgentService] Failed to get app_data_dir: {}, defaulting to Free", e);
-                return SubscriptionTier::Free;
-            }
+            Err(_) => return "local".to_string(),
         };
         let machine_id_path = app_dir.join(".machine_id");
-        let user_id = if machine_id_path.exists() {
+        if machine_id_path.exists() {
             std::fs::read_to_string(&machine_id_path).unwrap_or_default().trim().to_string()
         } else {
-            log::warn!("[AgentService] .machine_id not found, defaulting to Free");
-            return SubscriptionTier::Free;
-        };
+            "local".to_string()
+        }
+    }
 
-        if user_id.is_empty() {
-            log::warn!("[AgentService] user_id is empty, defaulting to Free");
+    /// 获取当前用户的订阅层级（fallback 查询，优先使用 task.tier）
+    fn get_user_tier(&self) -> SubscriptionTier {
+        let user_id = self.get_user_id();
+        if user_id.is_empty() || user_id == "local" {
+            log::warn!("[AgentService] user_id is empty/local, defaulting to Free");
             return SubscriptionTier::Free;
         }
 
@@ -212,25 +212,72 @@ impl AgentService {
     /// 免费版限制 max_tokens 以控制成本与质量
     async fn generate_for_agent(
         &self,
-        agent_type: AgentType,
+        task: &AgentTask,
         prompt: String,
         max_tokens: Option<i32>,
         temperature: Option<f32>,
         tier: SubscriptionTier,
     ) -> Result<crate::llm::GenerateResponse, String> {
+        let start_time = std::time::Instant::now();
         let effective_max = match tier {
             SubscriptionTier::Free => max_tokens.map(|m| m.min(1000)).or(Some(1000)),
             _ => max_tokens,
         };
-        if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
-            self.llm_service.generate_with_profile(&model_id, prompt, effective_max, temperature).await
+        let agent_type = task.agent_type;
+        let response = if let Some(model_id) = self.get_agent_chat_model_id(agent_type) {
+            self.llm_service.generate_with_profile(&model_id, prompt.clone(), effective_max, temperature).await
         } else {
-            self.llm_service.generate(prompt, effective_max, temperature).await
+            self.llm_service.generate(prompt.clone(), effective_max, temperature).await
+        }?;
+
+        let duration_ms = start_time.elapsed().as_millis() as i32;
+
+        // 记录 AI 使用日志
+        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
+            let service = SubscriptionService::new(pool.inner().clone());
+            let user_id = self.get_user_id();
+            let tier_str = match tier {
+                SubscriptionTier::Free => "free",
+                SubscriptionTier::Pro => "pro",
+                SubscriptionTier::Enterprise => "enterprise",
+            };
+            let prompt_tokens = Some((prompt.chars().count() as i32) / 2);
+            let _ = service.log_ai_usage(
+                &user_id,
+                Some(&task.context.story_id),
+                None,
+                agent_type.agent_id(),
+                Some(&task.input),
+                prompt_tokens,
+                Some(response.tokens_used),
+                Some(&response.model),
+                Some(response.cost),
+                Some(duration_ms),
+                tier_str,
+            );
         }
+
+        Ok(response)
     }
 
     /// 执行写作助手
     async fn execute_writer(&self, task: AgentTask) -> Result<AgentResult, String> {
+        // BeforeAiWrite hook
+        if let Some(manager) = crate::SKILL_MANAGER.get() {
+            if let Ok(skill_manager) = manager.lock() {
+                let story_id = task.context.story_id.clone();
+                let chapter_number = task.context.chapter_number;
+                let input = task.input.clone();
+                let skill_manager = skill_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let context = crate::agents::AgentContext::minimal(story_id, input);
+                    let data = serde_json::json!({ "chapter_number": chapter_number });
+                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::BeforeAiWrite, &context, data).await;
+                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::BeforeAiWrite);
+                });
+            }
+        }
+
         let tier = self.resolve_tier(&task);
         self.emit_event(&task.id, task.agent_type, AgentStage::Thinking, "分析写作上下文", 0.1);
         
@@ -258,7 +305,7 @@ impl AgentService {
         
         // 调用LLM生成（根据Agent映射选择模型，免费版限制 token）
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             max_tokens,
             temperature,
@@ -304,6 +351,23 @@ impl AgentService {
             }
         }
         
+        // AfterAiWrite hook
+        let content_for_hook = response.content.clone();
+        if let Some(manager) = crate::SKILL_MANAGER.get() {
+            if let Ok(skill_manager) = manager.lock() {
+                let story_id = task.context.story_id.clone();
+                let chapter_number = task.context.chapter_number;
+                let score_val = score;
+                let skill_manager = skill_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let context = crate::agents::AgentContext::minimal(story_id, content_for_hook);
+                    let data = serde_json::json!({ "chapter_number": chapter_number, "score": score_val });
+                    let _ = skill_manager.execute_hooks(crate::skills::HookEvent::AfterAiWrite, &context, data).await;
+                    log::info!("Hook executed: {:?}", crate::skills::HookEvent::AfterAiWrite);
+                });
+            }
+        }
+
         Ok(AgentResult {
             content: response.content,
             score: Some(score),
@@ -321,7 +385,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成质检报告", 0.4);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(1500),
             Some(0.3), // 低temperature以获得更确定的分析
@@ -348,7 +412,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "设计故事大纲", 0.3);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(3000),
             Some(0.9),
@@ -372,7 +436,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "模仿指定文风", 0.4);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(2000),
             Some(0.85),
@@ -396,7 +460,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成分析报告", 0.4);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(2000),
             Some(0.4),
@@ -445,7 +509,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成评点", 0.4);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(2048),
             Some(0.85),
@@ -497,7 +561,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "压缩内容", 0.4);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(2048),
             Some(0.3),
@@ -556,7 +620,7 @@ impl AgentService {
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "蒸馏知识图谱", 0.4);
         
         let response = self.generate_for_agent(
-            task.agent_type,
+            &task,
             prompt,
             Some(2048),
             Some(0.4),
@@ -576,6 +640,15 @@ impl AgentService {
         let has_selection = ctx.selected_text.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
         let is_pro = tier != SubscriptionTier::Free;
 
+        // 读取写作策略
+        let strategy = {
+            let app_dir = self.app_handle
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            AppConfig::load(&app_dir).ok().map(|c| c.writing_strategy)
+        };
+
         // 构建模板变量
         let mut vars = HashMap::new();
         vars.insert("story_title".to_string(), ctx.story_title.clone());
@@ -593,6 +666,53 @@ impl AgentService {
             PromptLibrary::writer_system_template(),
             &vars
         );
+
+        // 注入写作策略约束
+        if let Some(ref ws) = strategy {
+            let mut strategy_lines = Vec::new();
+
+            if ws.run_mode == "fast" {
+                strategy_lines.push("运行模式：快速生成。允许较快的叙事推进，注重效率。");
+            } else if ws.run_mode == "polish" {
+                strategy_lines.push("运行模式：精修生成。注重文字质量，每句都需斟酌，允许较慢的推进速度。");
+            }
+
+            if ws.conflict_level >= 80 {
+                strategy_lines.push("冲突强度：极高。每 500 字至少设置一次冲突或张力，保持高度紧张感。");
+            } else if ws.conflict_level >= 60 {
+                strategy_lines.push("冲突强度：高。保持频繁的冲突和对抗，推动情节快速展开。");
+            } else if ws.conflict_level >= 40 {
+                strategy_lines.push("冲突强度：中等。适度安排冲突，兼顾人物发展和情节推进。");
+            } else if ws.conflict_level >= 20 {
+                strategy_lines.push("冲突强度：低。以人物内心和情感为主，减少外部冲突。");
+            } else {
+                strategy_lines.push("冲突强度：极低。以平和、抒情、描写为主，避免剧烈冲突。");
+            }
+
+            if ws.pace == "fast" {
+                strategy_lines.push("叙事节奏：快。减少环境描写和冗余叙述，增加动作和对话，快速推进情节。");
+            } else if ws.pace == "slow" {
+                strategy_lines.push("叙事节奏：慢。允许细腻的环境描写和心理刻画，注重氛围营造。");
+            } else {
+                strategy_lines.push("叙事节奏：均衡。动作与描写交替，保持适度的推进速度。");
+            }
+
+            if ws.ai_freedom == "low" {
+                strategy_lines.push("AI 自由度：低。严格遵循已有设定和大纲，不得偏离世界观或人物设定，不得擅自引入新元素。");
+            } else if ws.ai_freedom == "high" {
+                strategy_lines.push("AI 自由度：高。在保持整体方向一致的前提下，允许创新情节发展和意外转折。");
+            } else {
+                strategy_lines.push("AI 自由度：中。遵循核心设定，但在细节和情节展开上有一定发挥空间。");
+            }
+
+            if !strategy_lines.is_empty() {
+                system_prompt.push_str("\n\n【写作策略约束】\n");
+                for line in strategy_lines {
+                    system_prompt.push_str(line);
+                    system_prompt.push('\n');
+                }
+            }
+        }
 
         // 注入创作方法论扩展（仅专业版）
         if is_pro {

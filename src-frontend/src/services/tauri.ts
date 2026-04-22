@@ -122,6 +122,9 @@ export const listStyleDnas = () =>
 export const setStoryStyleDna = (storyId: string, styleDnaId: string | null) =>
   invoke<void>('set_story_style_dna', { story_id: storyId, style_dna_id: styleDnaId });
 
+export const analyzeStyleSample = (text: string, name?: string) =>
+  invoke<{ id: string; name: string; author?: string; is_builtin: boolean; is_user_created: boolean }>('analyze_style_sample', { text, name });
+
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>
   invoke<SimilarityResult[]>('search_similar', { storyId: req.story_id, query: req.query, topK: req.top_k });
@@ -169,6 +172,20 @@ export const parseIntent = (req: IntentParseRequest) =>
 
 export const executeIntent = (intent: Intent, storyId: string) =>
   invoke<IntentExecutionResult>('execute_intent', { intent, story_id: storyId });
+
+// Feedback Recording
+export interface RecordFeedbackRequest {
+  story_id: string;
+  scene_id?: string;
+  chapter_id?: string;
+  feedback_type: 'accept' | 'reject' | 'modify';
+  agent_type?: string;
+  original_ai_text: string;
+  final_text?: string;
+}
+
+export const recordFeedback = (req: RecordFeedbackRequest) =>
+  invoke<void>('record_feedback', { ...req });
 
 // Knowledge Graph
 export const getStoryGraph = (storyId: string) =>
@@ -284,7 +301,7 @@ export const writerAgentExecute = (params: {
   selected_text?: string;
   instruction: string;
 }) =>
-  invoke<{ content: string; story_id?: string; chapter_id?: string }>('writer_agent_execute', { request: params });
+  invoke<{ content: string; story_id?: string; chapter_id?: string; task_id: string }>('writer_agent_execute', { request: params });
 
 // Memory Compressor
 export const compressContent = (params: { story_id: string; content: string; target_ratio?: number }) =>
@@ -318,6 +335,9 @@ export const llmGenerateStream = (params: {
 }) =>
   invoke<void>('llm_generate_stream', { request: params });
 
+export const llmCancelGeneration = (requestId: string) =>
+  invoke<void>('llm_cancel_generation', { request_id: requestId });
+
 // ==================== Subscription (Freemium) ====================
 
 export interface SubscriptionStatus {
@@ -341,9 +361,6 @@ export interface QuotaCheckResult {
 
 export const getSubscriptionStatus = () =>
   invoke<SubscriptionStatus>('get_subscription_status');
-
-export const checkAiQuota = () =>
-  invoke<QuotaCheckResult>('check_ai_quota');
 
 export const devUpgradeSubscription = (tier: string) =>
   invoke<SubscriptionStatus>('dev_upgrade_subscription', { tier });

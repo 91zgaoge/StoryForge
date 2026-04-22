@@ -149,6 +149,7 @@ impl SceneVersionService {
             previous_scene_id: scene.previous_scene_id.clone(),
             next_scene_id: scene.next_scene_id.clone(),
             confidence_score: target_version.confidence_score,
+            ..Default::default()
         };
 
         // 更新场景

@@ -74,6 +74,8 @@ mod tests {
             tone: Some("轻快".to_string()),
             pacing: Some("快速".to_string()),
             style_dna_id: None,
+            methodology_id: None,
+            methodology_step: None,
         };
 
         let count = repo.update(&story.id, &update_req).unwrap();
@@ -386,5 +388,160 @@ mod tests {
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].chapter_number, 1); // 按 chapter_number 排序
         assert_eq!(chapters[1].chapter_number, 3);
+    }
+
+    // ==================== SceneRepository ====================
+
+    #[test]
+    fn test_scene_create_and_get_by_story() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool);
+
+        let story = story_repo.create(CreateStoryRequest {
+            title: "场景测试".to_string(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+        }).unwrap();
+
+        let scene = scene_repo.create(&story.id, 1, Some("开场")).unwrap();
+        assert_eq!(scene.sequence_number, 1);
+        assert_eq!(scene.title, Some("开场".to_string()));
+        assert_eq!(scene.story_id, story.id);
+
+        let scenes = scene_repo.get_by_story(&story.id).unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].title, Some("开场".to_string()));
+        assert_eq!(scenes[0].sequence_number, 1);
+    }
+
+    #[test]
+    fn test_scene_get_by_id() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool);
+
+        let story = story_repo.create(CreateStoryRequest {
+            title: "测试".to_string(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+        }).unwrap();
+
+        let scene = scene_repo.create(&story.id, 1, Some("场景1")).unwrap();
+        let fetched = scene_repo.get_by_id(&scene.id).unwrap().unwrap();
+        assert_eq!(fetched.id, scene.id);
+        assert_eq!(fetched.title, Some("场景1".to_string()));
+    }
+
+    #[test]
+    fn test_scene_update() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool);
+
+        let story = story_repo.create(CreateStoryRequest {
+            title: "测试".to_string(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+        }).unwrap();
+
+        let scene = scene_repo.create(&story.id, 1, Some("原标题")).unwrap();
+
+        let updates = SceneUpdate {
+            title: Some("新标题".to_string()),
+            dramatic_goal: Some("制造悬念".to_string()),
+            external_pressure: Some("时间紧迫".to_string()),
+            conflict_type: Some(ConflictType::ManVsMan),
+            characters_present: Some(vec!["角色A".to_string(), "角色B".to_string()]),
+            character_conflicts: Some(vec![CharacterConflict {
+                character_a_id: "a".to_string(),
+                character_b_id: "b".to_string(),
+                conflict_nature: "对立".to_string(),
+                stakes: "生死攸关".to_string(),
+            }]),
+            content: Some("新的场景内容".to_string()),
+            setting_location: Some("古堡".to_string()),
+            setting_time: Some("午夜".to_string()),
+            setting_atmosphere: Some("阴森".to_string()),
+            previous_scene_id: None,
+            next_scene_id: None,
+            confidence_score: Some(0.95),
+            execution_stage: None,
+            outline_content: None,
+            draft_content: None,
+        };
+
+        let count = scene_repo.update(&scene.id, &updates).unwrap();
+        assert_eq!(count, 1);
+
+        let updated = scene_repo.get_by_id(&scene.id).unwrap().unwrap();
+        assert_eq!(updated.title, Some("新标题".to_string()));
+        assert_eq!(updated.dramatic_goal, Some("制造悬念".to_string()));
+        assert_eq!(updated.external_pressure, Some("时间紧迫".to_string()));
+        assert_eq!(updated.conflict_type, Some(ConflictType::ManVsMan));
+        assert_eq!(updated.characters_present, vec!["角色A".to_string(), "角色B".to_string()]);
+        assert_eq!(updated.content, Some("新的场景内容".to_string()));
+        assert_eq!(updated.setting_location, Some("古堡".to_string()));
+        assert_eq!(updated.setting_time, Some("午夜".to_string()));
+        assert_eq!(updated.setting_atmosphere, Some("阴森".to_string()));
+        assert_eq!(updated.confidence_score, Some(0.95));
+    }
+
+    #[test]
+    fn test_scene_delete() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool);
+
+        let story = story_repo.create(CreateStoryRequest {
+            title: "测试".to_string(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+        }).unwrap();
+
+        let scene = scene_repo.create(&story.id, 1, Some("待删除")).unwrap();
+        let count = scene_repo.delete(&scene.id).unwrap();
+        assert_eq!(count, 1);
+
+        let deleted = scene_repo.get_by_id(&scene.id).unwrap();
+        assert!(deleted.is_none());
+
+        let scenes = scene_repo.get_by_story(&story.id).unwrap();
+        assert_eq!(scenes.len(), 0);
+    }
+
+    #[test]
+    fn test_scene_reorder() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool);
+
+        let story = story_repo.create(CreateStoryRequest {
+            title: "排序测试".to_string(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+        }).unwrap();
+
+        let scene1 = scene_repo.create(&story.id, 1, Some("场景1")).unwrap();
+        let scene2 = scene_repo.create(&story.id, 2, Some("场景2")).unwrap();
+
+        // 交换顺序（借助临时序号避免 UNIQUE 冲突）
+        let _ = scene_repo.update_sequence(&scene1.id, 999).unwrap();
+        let count1 = scene_repo.update_sequence(&scene2.id, 1).unwrap();
+        let count2 = scene_repo.update_sequence(&scene1.id, 2).unwrap();
+        assert_eq!(count1, 1);
+        assert_eq!(count2, 1);
+
+        let scenes = scene_repo.get_by_story(&story.id).unwrap();
+        assert_eq!(scenes.len(), 2);
+        assert_eq!(scenes[0].id, scene2.id); // 现在是第1个
+        assert_eq!(scenes[0].sequence_number, 1);
+        assert_eq!(scenes[1].id, scene1.id); // 现在是第2个
+        assert_eq!(scenes[1].sequence_number, 2);
     }
 }

@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v3.5.2
+- **版本**: v4.0.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -147,6 +147,72 @@ npm test
 ---
 
 ### 最近完成的功能
+
+- **v4.0.0 借鉴 AI-Novel-Writing-Assistant 全面优化** (2026-04-22) — Phase 1+2+3 共 9 项新功能
+  - **Phase 1: P0 核心能力 (3 项)**:
+    - Canonical State: 新增规范状态系统，统一聚合 StoryContextBuilder/character_states/foreshadowing/KG 等分散状态，AI 续写时准确知道"当前处于故事哪个阶段"
+    - Payoff Ledger: 升级 ForeshadowingTracker 为伏笔账本，新增时间窗口追踪(target_start/target_end)、逾期检测、风险信号、回收时机智能推荐
+    - Execution Panel: 新增章节执行面板，智能推荐下一步行动（"处理逾期伏笔"/"续写"/"运行审校"），集成到 Scenes.tsx 和 FrontstageApp
+  - **Phase 2: P1 质量与控制 (3 项)**:
+    - Narrative Phase Detection: 增强叙事阶段检测（逾期伏笔→ConflictActive、高置信度长内容→Climax、主要伏笔回收→Resolution），注入 Writer prompt
+    - Structured Outline: Scene 模型新增 execution_stage/outline_content/draft_content，SceneEditor 重写为 6 标签页（规划/大纲/起草/审校/定稿/批注）
+    - Audit System: 新增统一审计模块，整合 ContinuityEngine/StyleChecker/QualityChecker/PayoffLedger，五维评分（连续性/人物/风格/节奏/伏笔），支持 light/full 审计
+  - **Phase 3: P2 体验优化 (3 项)**:
+    - Novel Creation Wizard: 新增 5 步小说创建向导（创意→世界观→角色→文风→首个场景），每步提供 AI 生成选项
+    - Enhanced Streaming: StreamOutput 组件增强（Markdown 渲染、实时字数、停止按钮、打字机效果），接入 FrontstageApp/WenSiPanel/CreationWizard
+    - Strategy Configuration: Settings 新增写作策略配置（运行模式/冲突强度/叙事节奏/AI 自由度），动态注入 Writer prompt
+  - 编译: `cargo check` 零错误，`cargo test` 160/160，`npm run build` 通过
+
+- **v3.7.1 智能化创作系统 5 阶段重构深度修复** (2026-04-22) — Phase A+B+C 共 15 项修复
+  - **Phase A: P0 核心断裂修复 (5 项)**:
+    - QueryPipeline: `graph_expansion` 内容分词后逐 token 匹配实体，修复图谱扩展永不命中的 bug
+    - QueryPipeline: `budget_control` 修复内层 break 只跳出内层循环的预算泄漏 bug
+    - ContinuityEngine: `check_world_rules` 修复检查方向——从"检测规则描述片段"改为"提取禁止条款后检测"
+    - ContinuityEngine: `get_character_states` 效率优化（O(N×M)→O(N+M)），`check_character_locations` 增强跨场景位置检测
+    - PreferenceMiner: `record_feedback` 成功后异步触发 `mine_preferences`，自适应学习闭环激活
+    - StyleChecker: 接入 `AgentOrchestrator` 闭环，Writer→Inspector→StyleChecker→Writer 风格校验生效
+    - Ingestion: 实现真正的内容保存（Chapter 创建/更新）+ 简化知识图谱实体提取，工作流闭环完成
+  - **Phase B: P1 功能补全 (6 项)**:
+    - 方法论: Migration 22 添加 `methodology_id`/`methodology_step`，Settings 页面新增创作方法论配置
+    - 创作模式: `CreationWorkflowEngine` 按 `CreationMode` 分支（AI全自动/AI初稿+精修/人工初稿+润色）
+    - 进度反馈: 前端 `useWorkflowProgress` Hook + Stories.tsx 进度弹窗（阶段名称+百分比+指示器）
+    - Orchestrator 事件: 前端监听 `orchestrator-step` 实时状态（生成→质检→改写），Settings 暴露阈值/循环数配置
+    - AdaptiveGenerator: `calculate_temperature` 累加而非覆盖，pacing/style 偏好微调生效
+    - 反馈记录: AiSuggestionNode + WenSiPanel 接入 `record_feedback`，覆盖内联建议/自动续写/自动修改
+  - **Phase C: P2 优化 (4 项)**:
+    - StyleAnalyzer: 新增 `analyze_with_llm` + `analyze_style_sample` IPC，Stories.tsx 新增"从文本生成风格"
+    - QualityChecker: 新增 `check_with_llm`，Review 阶段优先 LLM 评估、回退规则评估
+    - PhaseWorkflow: 硬编码阶段逻辑迁移到配置驱动，`PhaseWorkflow` 配置系统激活
+    - 增量 Context: 每阶段完成后关键产出回注 `AgentContext`（Conception→world_rules, Outlining→scene_structure）
+  - 编译: `cargo check` 零错误，`cargo test` 145/145，`npm run build` 通过
+
+- **v3.6.1 全面功能审计与深度修复** (2026-04-22) — P0+P1+P2 共 30 项修复
+  - **P0 紧急修复 (10 项)**:
+    - DB: Migration 21 补全 scenes/kg_relations `confidence_score` 缺失列，消除运行时崩溃
+    - IPC: 统一 25 处 camelCase→snake_case 参数名，修复 Tauri v2 反序列化失败
+    - 场景: `create_scene` 后端扩展参数，前端传参不再静默丢弃
+    - Orchestrator: 修复 Rewrite 事件错误携带初稿分数的 bug (`writer_result.score` → `rewrite_result.score`)
+    - 技能: `execute_skill` 注入真实 `StoryContext`，`SkillExecutor` 实现真正 LLM 调用
+    - 自适应学习: FrontstageApp accept/reject 接入 `record_feedback`，FeedbackRecorder 数据源激活
+    - 审计: `LlmService::generate` 完成后调用 `log_ai_usage`，AI 调用日志写入数据库
+    - 配额: auto_write/auto_revise 错误处理识别配额关键字，触发 Toast 提示
+  - **P1 功能补全 (8 项)**:
+    - ContinuityEngine: 补全 timeline + character_emotion + relationship 检查，5/5 全部实现
+    - 一键创作: `CreationWorkflowEngine` 每阶段发射 `workflow-progress` 事件 + QualityReport 填充
+    - SceneRepository: 新增 5 个单元测试（create/get/update/delete/reorder），Rust 测试 139→144
+    - hooks/index.ts: 补全 `useCommentThreads` 等 6 个 Hook 导出
+    - 类型: `ChangeTrack.scene_id` 改为 `string | undefined`，与后端 `Option<String>` 对齐
+    - 评论: RichTextEditor 已解决评论支持「重新打开」
+    - 变更追踪: 修订模式增加单条 change 独立接受/拒绝按钮
+    - 清理: 移除弃用 `check_ai_quota` IPC 注册
+  - **P2 优化 (6 项)**:
+    - 概念统一: Sidebar `chapter_count` 显示从"场景"改为"章"
+    - 滑块: SceneEditor 置信度 `step` 从 0.05 改为 0.1
+    - 拆书转故事: 人物 background 合并 personality + appearance，场景 summary 保存为 content
+    - 伏笔看板: 幕后新增 Foreshadowing 页面，支持 setup/payoff/abandoned 状态管理
+    - 技能 Hook: 6 个关键业务点（create_chapter/character/scene、AI write、world_building update）激活 Hook 调用
+    - 孤儿表: 评估 `world_rules`/`settings`/`character_states`，保留兼容
+  - 编译: `cargo check` 零错误，`cargo test` 144/144，`npm run build` 通过
 
 - **v3.5.2 全功能落地：剩余 7 项修复完成** (2026-04-22)
   - #17 auto_revise 取消/进度事件：后台任务模式 + 4 阶段进度 + 取消支持
@@ -231,7 +297,7 @@ npm test
 - `cargo check` ✅ | 警告: 0
 - `cargo check --release` ✅ | 警告: 0
 - `npm run build` ✅
-- `cargo test` ✅ 71/71
+- `cargo test` ✅ 160/160
 
 ---
 

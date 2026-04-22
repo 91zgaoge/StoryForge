@@ -36,6 +36,11 @@ pub struct Scene {
     pub previous_scene_id: Option<String>,
     pub next_scene_id: Option<String>,
     
+    // 结构化大纲字段
+    pub execution_stage: Option<String>, // planning | outline | drafting | review | final
+    pub outline_content: Option<String>,
+    pub draft_content: Option<String>,
+    
     // 元数据
     pub model_used: Option<String>,
     pub cost: Option<f64>,
@@ -46,7 +51,7 @@ pub struct Scene {
     pub confidence_score: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConflictType {
     ManVsMan,        // 人与人
     ManVsSelf,       // 人与自我

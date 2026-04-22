@@ -10,6 +10,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper } from '@tiptap/react';
 import React from 'react';
+import { recordFeedback } from '@/services/tauri';
 
 export interface AiSuggestionOptions {
   HTMLAttributes: Record<string, any>;
@@ -21,6 +22,7 @@ export interface AiSuggestionAttributes {
   priority: string;
   originalText: string;
   targetParagraphIndex: number;
+  storyId?: string;
 }
 
 declare module '@tiptap/core' {
@@ -129,6 +131,14 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
           return { 'data-target-paragraph': String(attributes.targetParagraphIndex) };
         },
       },
+      storyId: {
+        default: '',
+        parseHTML: element => element.getAttribute('data-story-id') || '',
+        renderHTML: attributes => {
+          if (!attributes.storyId) return {};
+          return { 'data-story-id': attributes.storyId };
+        },
+      },
     };
   },
 
@@ -218,16 +228,28 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
           let suggestedText = '';
           let nearestParaPos = -1;
           let nearestParaSize = 0;
+          let storyId = '';
 
           state.doc.descendants((node, pos) => {
             if (node.type.name === 'aiSuggestion' && node.attrs.suggestionId === suggestionId) {
               suggestionPos = pos;
               suggestionNodeSize = node.nodeSize;
               suggestedText = node.textContent || '';
+              storyId = node.attrs.storyId || '';
             }
           });
 
           if (suggestionPos === -1) return false;
+
+          // 记录反馈
+          if (storyId) {
+            recordFeedback({
+              story_id: storyId,
+              feedback_type: 'accept',
+              agent_type: 'inline_suggestion',
+              original_ai_text: suggestedText,
+            });
+          }
 
           // 找离建议最近的前一个普通段落
           state.doc.descendants((node, pos) => {
@@ -261,15 +283,29 @@ export const AiSuggestionNode = Node.create<AiSuggestionOptions>({
         ({ state, chain }) => {
           let suggestionPos = -1;
           let suggestionNodeSize = 0;
+          let suggestedText = '';
+          let storyId = '';
 
           state.doc.descendants((node, pos) => {
             if (node.type.name === 'aiSuggestion' && node.attrs.suggestionId === suggestionId) {
               suggestionPos = pos;
               suggestionNodeSize = node.nodeSize;
+              suggestedText = node.textContent || '';
+              storyId = node.attrs.storyId || '';
             }
           });
 
           if (suggestionPos === -1) return false;
+
+          // 记录反馈
+          if (storyId) {
+            recordFeedback({
+              story_id: storyId,
+              feedback_type: 'reject',
+              agent_type: 'inline_suggestion',
+              original_ai_text: suggestedText,
+            });
+          }
 
           return chain()
             .setTextSelection({ from: suggestionPos, to: suggestionPos + suggestionNodeSize })

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, BookOpen, AlertCircle, History, FileText } from 'lucide-react';
+import { ExecutionPanel } from '@/components/ExecutionPanel';
 import { Button } from '@/components/ui/Button';
 import { StoryTimeline } from '@/components/StoryTimeline';
 import { SceneEditor } from '@/components/SceneEditor';
@@ -84,6 +85,9 @@ export function Scenes() {
           setting_location: updates.setting_location,
           setting_time: updates.setting_time,
           setting_atmosphere: updates.setting_atmosphere,
+          execution_stage: updates.execution_stage,
+          outline_content: updates.outline_content,
+          draft_content: updates.draft_content,
         },
       },
       {
@@ -182,7 +186,7 @@ export function Scenes() {
   return (
     <div className="h-full flex">
       {/* Left Panel - Timeline */}
-      <div className="w-1/2 min-w-[400px] max-w-[600px] border-r border-cinema-700 bg-cinema-900/50">
+      <div className="w-5/12 min-w-[380px] max-w-[560px] border-r border-cinema-700 bg-cinema-900/50">
         <div className="h-full p-6 overflow-auto">
           <StoryTimeline
             scenes={scenes}
@@ -197,8 +201,8 @@ export function Scenes() {
         </div>
       </div>
 
-      {/* Right Panel - Editor */}
-      <div className="flex-1 bg-cinema-950">
+      {/* Middle Panel - Editor */}
+      <div className="flex-1 min-w-[400px] bg-cinema-950">
         {isEditing && selectedScene ? (
           <div className="h-full p-6">
             <SceneEditor
@@ -365,6 +369,18 @@ export function Scenes() {
             </p>
           </div>
         )}
+      </div>
+
+      {/* Right Panel - Execution Panel */}
+      <div className="w-72 flex-shrink-0">
+        <ExecutionPanel
+          storyId={currentStory.id}
+          onCreateScene={handleCreateScene}
+          onEditScene={(sceneId) => {
+            const scene = scenes.find((s) => s.id === sceneId);
+            if (scene) handleEditScene(scene);
+          }}
+        />
       </div>
     </div>
   );

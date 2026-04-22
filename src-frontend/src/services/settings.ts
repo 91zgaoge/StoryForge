@@ -94,6 +94,14 @@ const BROWSER_FALLBACK_SETTINGS: AppSettings = {
     store_api_keys_securely: true,
   },
   book_deconstruction_concurrency: 3,
+  rewrite_threshold: 0.75,
+  max_feedback_loops: 2,
+  writing_strategy: {
+    run_mode: 'fast',
+    conflict_level: 50,
+    pace: 'balanced',
+    ai_freedom: 'medium',
+  },
 };
 
 export async function getSettings(): Promise<AppSettings> {

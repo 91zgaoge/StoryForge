@@ -17,7 +17,7 @@ export function useSceneVersions(sceneId: string | null) {
     queryKey: [VERSIONS_KEY, sceneId],
     queryFn: async () => {
       if (!sceneId) return [];
-      return invoke<SceneVersion[]>('get_scene_versions', { sceneId });
+      return invoke<SceneVersion[]>('get_scene_versions', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -28,7 +28,7 @@ export function useSceneVersion(versionId: string | null) {
     queryKey: [VERSIONS_KEY, 'detail', versionId],
     queryFn: async () => {
       if (!versionId) return null;
-      return invoke<SceneVersion | null>('get_scene_version', { versionId });
+      return invoke<SceneVersion | null>('get_scene_version', { version_id: versionId });
     },
     enabled: !!versionId,
   });
@@ -40,8 +40,8 @@ export function useVersionDiff(fromVersionId: string | null, toVersionId: string
     queryFn: async () => {
       if (!fromVersionId || !toVersionId) return null;
       return invoke<VersionDiff>('compare_scene_versions', { 
-        fromVersionId, 
-        toVersionId 
+        from_version_id: fromVersionId, 
+        to_version_id: toVersionId 
       });
     },
     enabled: !!fromVersionId && !!toVersionId,
@@ -53,7 +53,7 @@ export function useVersionChain(sceneId: string | null) {
     queryKey: [VERSIONS_KEY, 'chain', sceneId],
     queryFn: async () => {
       if (!sceneId) return [];
-      return invoke<VersionChainNode[]>('get_scene_version_chain', { sceneId });
+      return invoke<VersionChainNode[]>('get_scene_version_chain', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -64,7 +64,7 @@ export function useVersionStats(sceneId: string | null) {
     queryKey: [VERSIONS_KEY, 'stats', sceneId],
     queryFn: async () => {
       if (!sceneId) return null;
-      return invoke<VersionStats>('get_scene_version_stats', { sceneId });
+      return invoke<VersionStats>('get_scene_version_stats', { scene_id: sceneId });
     },
     enabled: !!sceneId,
   });
@@ -83,10 +83,10 @@ export function useCreateSceneVersion() {
       confidenceScore?: number;
     }) => {
       return invoke<SceneVersion>('create_scene_version', {
-        sceneId: params.sceneId,
-        changeSummary: params.changeSummary,
-        createdBy: params.createdBy,
-        confidenceScore: params.confidenceScore,
+        scene_id: params.sceneId,
+        change_summary: params.changeSummary,
+        created_by: params.createdBy,
+        confidence_score: params.confidenceScore,
       });
     },
     onSuccess: (data, variables) => {
@@ -107,9 +107,9 @@ export function useRestoreSceneVersion() {
       restoredBy: CreatorType;
     }) => {
       return invoke<SceneVersion>('restore_scene_version', {
-        sceneId: params.sceneId,
-        versionId: params.versionId,
-        restoredBy: params.restoredBy,
+        scene_id: params.sceneId,
+        version_id: params.versionId,
+        restored_by: params.restoredBy,
       });
     },
     onSuccess: (data, variables) => {
@@ -129,7 +129,7 @@ export function useDeleteSceneVersion() {
       sceneId: string;
     }) => {
       return invoke<number>('delete_scene_version', { 
-        versionId: params.versionId 
+        version_id: params.versionId 
       });
     },
     onSuccess: (data, variables) => {

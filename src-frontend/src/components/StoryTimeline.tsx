@@ -15,6 +15,21 @@ import { Card } from '@/components/ui/Card';
 import type { Scene, ConflictType } from '@/types';
 import { getConflictTypeLabel, getConflictTypeColor } from '@/hooks/useScenes';
 
+// 根据场景序号计算叙事阶段颜色
+function getScenePhaseColor(sequenceNumber: number): string {
+  if (sequenceNumber <= 15) return 'bg-blue-500';
+  if (sequenceNumber <= 70) return 'bg-amber-500';
+  if (sequenceNumber <= 85) return 'bg-red-500';
+  return 'bg-green-500';
+}
+
+function getScenePhaseLabel(sequenceNumber: number): string {
+  if (sequenceNumber <= 15) return '铺垫';
+  if (sequenceNumber <= 70) return '上升';
+  if (sequenceNumber <= 85) return '高潮';
+  return '收尾';
+}
+
 interface StoryTimelineProps {
   scenes: Scene[];
   currentSceneId?: string | null;
@@ -117,8 +132,13 @@ export function StoryTimeline({
             `}
             onClick={() => onSelectScene(scene)}
           >
-            {/* Timeline dot */}
-            <div className="relative z-10 flex-shrink-0 w-3 h-3 mt-1.5 rounded-full bg-cinema-gold" />
+            {/* Timeline dot with phase color */}
+            <div className="relative z-10 flex-shrink-0 flex flex-col items-center gap-1">
+              <div className={`w-3 h-3 rounded-full ${getScenePhaseColor(scene.sequence_number)}`} />
+              <span className="text-[10px] text-gray-500 leading-none">
+                {getScenePhaseLabel(scene.sequence_number)}
+              </span>
+            </div>
 
             {/* Scene number */}
             <div className="flex-shrink-0 w-8 text-center text-xs text-gray-500 font-mono">

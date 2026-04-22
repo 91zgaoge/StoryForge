@@ -84,8 +84,8 @@ class ModelService {
     try {
       const config = await getConfig();
       const status = await invoke<string>('check_model_status', {
-        baseUrl: config.base_url,
-        apiKey: config.api_key || undefined,
+        base_url: config.base_url,
+        api_key: config.api_key || undefined,
       });
       return status as 'connected' | 'disconnected';
     } catch (error) {
@@ -107,11 +107,11 @@ class ModelService {
     const config = await getConfig();
 
     const data = await invoke<ChatCompletionResponse>('chat_completion', {
-      baseUrl: config.base_url,
-      apiKey: config.api_key || undefined,
+      base_url: config.base_url,
+      api_key: config.api_key || undefined,
       model: config.model,
       messages,
-      maxTokens: options?.maxTokens || config.max_tokens || 4096,
+      max_tokens: options?.maxTokens || config.max_tokens || 4096,
       temperature: options?.temperature || config.temperature || 0.8,
     });
 

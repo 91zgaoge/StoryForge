@@ -19,7 +19,31 @@ pub struct AgentMapping {
     pub description: Option<String>,
 }
 
-/// 全局应用配置
+/// 写作策略配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WritingStrategy {
+    pub run_mode: String,
+    #[serde(default = "default_conflict_level")]
+    pub conflict_level: i32,
+    pub pace: String,
+    pub ai_freedom: String,
+}
+
+fn default_conflict_level() -> i32 {
+    50
+}
+
+impl Default for WritingStrategy {
+    fn default() -> Self {
+        Self {
+            run_mode: "fast".to_string(),
+            conflict_level: 50,
+            pace: "balanced".to_string(),
+            ai_freedom: "medium".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub llm: LlmConfig,
@@ -36,6 +60,22 @@ pub struct AppConfig {
     /// 拆书分析 LLM 并发数（默认 3，本地模型可调大）
     #[serde(default = "default_concurrency")]
     pub book_deconstruction_concurrency: usize,
+    /// AgentOrchestrator 质检改写阈值（默认 0.75）
+    #[serde(default = "default_rewrite_threshold")]
+    pub rewrite_threshold: f32,
+    /// AgentOrchestrator 最大反馈循环次数（默认 2）
+    #[serde(default = "default_max_feedback_loops")]
+    pub max_feedback_loops: u32,
+    #[serde(default)]
+    pub writing_strategy: WritingStrategy,
+}
+
+fn default_rewrite_threshold() -> f32 {
+    0.75
+}
+
+fn default_max_feedback_loops() -> u32 {
+    2
 }
 
 fn default_concurrency() -> usize {
@@ -271,6 +311,9 @@ impl Default for AppConfig {
             active_embedding_profile: Some("bge-m3".to_string()),
             agent_mappings,
             book_deconstruction_concurrency: 3,
+            rewrite_threshold: 0.75,
+            max_feedback_loops: 2,
+            writing_strategy: WritingStrategy::default(),
         }
     }
 }

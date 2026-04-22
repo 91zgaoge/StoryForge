@@ -11,6 +11,8 @@ import { Mcp } from '@/pages/Mcp';
 import { Settings } from '@/pages/Settings';
 import { BookDeconstruction } from '@/pages/BookDeconstruction';
 import { Tasks } from '@/pages/Tasks';
+import { Foreshadowing } from '@/pages/Foreshadowing';
+import { CreationWizard } from '@/pages/CreationWizard';
 import { DataLoader } from '@/components/DataLoader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
@@ -100,6 +102,7 @@ function App() {
       case 'settings': return <Settings />;
       case 'book-deconstruction': return <BookDeconstruction />;
       case 'tasks': return <Tasks />;
+      case 'foreshadowing': return <Foreshadowing />;
       default: return <Dashboard />;
     }
   };

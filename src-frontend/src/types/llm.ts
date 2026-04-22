@@ -146,6 +146,20 @@ export interface AppSettings {
   
   // 拆书分析 LLM 并发数（默认 3，本地模型可调到 50）
   book_deconstruction_concurrency: number;
+
+  // AgentOrchestrator 配置
+  rewrite_threshold: number;
+  max_feedback_loops: number;
+
+  // 写作策略配置
+  writing_strategy: WritingStrategy;
+}
+
+export interface WritingStrategy {
+  run_mode: 'fast' | 'polish';
+  conflict_level: number;
+  pace: 'slow' | 'balanced' | 'fast';
+  ai_freedom: 'low' | 'medium' | 'high';
 }
 
 // 设置导出/导入格式

@@ -13,7 +13,7 @@ export function useStudioConfig(storyId: string | null) {
     queryKey: [STUDIO_CONFIG_KEY, storyId],
     queryFn: async () => {
       if (!storyId) return null;
-      return invoke<StudioConfig | null>('get_studio_config', { storyId });
+      return invoke<StudioConfig | null>('get_studio_config', { story_id: storyId });
     },
     enabled: !!storyId,
   });
@@ -24,7 +24,7 @@ export function useCreateStudioConfig() {
   
   return useMutation({
     mutationFn: async (storyId: string) => {
-      return invoke<StudioConfig>('create_studio_config', { storyId });
+      return invoke<StudioConfig>('create_studio_config', { story_id: storyId });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: [STUDIO_CONFIG_KEY, variables] });
@@ -46,10 +46,10 @@ export function useUpdateStudioConfig() {
     }) => {
       return invoke<number>('update_studio_config', {
         id: params.id,
-        penName: params.penName,
-        llmConfig: params.llmConfig,
-        uiConfig: params.uiConfig,
-        agentBots: params.agentBots,
+        pen_name: params.penName,
+        llm_config: params.llmConfig,
+        ui_config: params.uiConfig,
+        agent_bots: params.agentBots,
       });
     },
     onSuccess: (data, variables) => {

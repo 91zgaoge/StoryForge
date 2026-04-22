@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Target, 
-  Zap, 
-  Users, 
-  MapPin, 
-  Clock, 
+import {
+  Target,
+  Zap,
+  Users,
+  MapPin,
+  Clock,
   Sparkles,
   Save,
   X,
@@ -18,14 +18,31 @@ import {
   Trash2,
   Edit3,
   Minimize2,
-  Loader2
+  Loader2,
+  FileText,
+  ClipboardList,
+  PenTool,
+  Search,
+  Lock,
+  ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
-import type { Scene, ConflictType, CharacterConflict, SceneAnnotation, AgentResult } from '@/types';
-import { useSceneAnnotations, useCreateSceneAnnotation, useUpdateSceneAnnotation, useResolveSceneAnnotation, useUnresolveSceneAnnotation, useDeleteSceneAnnotation, ANNOTATION_TYPE_LABELS, ANNOTATION_TYPE_COLORS } from '@/hooks/useSceneAnnotations';
+import type { Scene, ConflictType, CharacterConflict, SceneAnnotation } from '@/types';
+import {
+  useSceneAnnotations,
+  useCreateSceneAnnotation,
+  useUpdateSceneAnnotation,
+  useResolveSceneAnnotation,
+  useUnresolveSceneAnnotation,
+  useDeleteSceneAnnotation,
+  ANNOTATION_TYPE_LABELS,
+  ANNOTATION_TYPE_COLORS,
+} from '@/hooks/useSceneAnnotations';
 import { getConflictTypeLabel, getConflictTypeColor } from '@/hooks/useScenes';
 import { useCompressScene } from '@/hooks/useMemoryCompression';
+import { invoke } from '@tauri-apps/api/core';
+import toast from 'react-hot-toast';
 
 interface SceneEditorProps {
   scene: Scene | null;
@@ -48,16 +65,37 @@ const CONFLICT_TYPES: ConflictType[] = [
   'FactionVsFaction',
 ];
 
+type ExecutionStage = 'planning' | 'outline' | 'drafting' | 'review' | 'final';
+
+const STAGE_TABS: { id: ExecutionStage | 'annotations'; label: string; icon: React.ElementType }[] = [
+  { id: 'planning', label: '规划', icon: Target },
+  { id: 'outline', label: '大纲', icon: ClipboardList },
+  { id: 'drafting', label: '起草', icon: PenTool },
+  { id: 'review', label: '审校', icon: Search },
+  { id: 'final', label: '定稿', icon: Lock },
+  { id: 'annotations', label: '批注', icon: MessageSquare },
+];
+
+const STAGE_LABELS: Record<ExecutionStage, string> = {
+  planning: '规划',
+  outline: '大纲',
+  drafting: '起草',
+  review: '审校',
+  final: '定稿',
+};
+
 export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditorProps) {
   const [formData, setFormData] = useState<Partial<Scene>>({});
-  const [activeTab, setActiveTab] = useState<'basic' | 'drama' | 'content' | 'annotations'>('basic');
+  const [activeTab, setActiveTab] = useState<ExecutionStage | 'annotations'>('planning');
   const [revisionMode, setRevisionMode] = useState(false);
   const [newAnnotationContent, setNewAnnotationContent] = useState('');
   const [newAnnotationType, setNewAnnotationType] = useState<SceneAnnotation['annotation_type']>('note');
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
-  const [compressionResult, setCompressionResult] = useState<AgentResult | null>(null);
+  const [compressionResult, setCompressionResult] = useState<import('@/types').AgentResult | null>(null);
   const [showCompression, setShowCompression] = useState(false);
+  const [generatingOutline, setGeneratingOutline] = useState(false);
+  const [generatingDraft, setGeneratingDraft] = useState(false);
 
   const { data: annotations = [], isLoading: annotationsLoading } = useSceneAnnotations(scene?.id || null);
   const compressScene = useCompressScene();
@@ -81,6 +119,9 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         setting_atmosphere: scene.setting_atmosphere,
         content: scene.content,
         confidence_score: scene.confidence_score,
+        execution_stage: scene.execution_stage,
+        outline_content: scene.outline_content,
+        draft_content: scene.draft_content,
       });
       setNewAnnotationContent('');
       setEditingAnnotationId(null);
@@ -98,6 +139,73 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
   const handleSave = () => {
     onSave(formData);
     setRevisionMode(false);
+  };
+
+  const currentStage = (formData.execution_stage as ExecutionStage) || 'planning';
+
+  const handleStageChange = (stage: ExecutionStage) => {
+    setFormData((prev) => ({ ...prev, execution_stage: stage }));
+  };
+
+  const handleGenerateOutline = async () => {
+    if (!scene) return;
+    setGeneratingOutline(true);
+    try {
+      const result = await invoke<{ content: string }>('generate_scene_outline', {
+        scene_id: scene.id,
+      });
+      setFormData((prev) => ({
+        ...prev,
+        outline_content: result.content,
+        execution_stage: 'outline',
+      }));
+      toast.success('大纲生成成功');
+      setActiveTab('outline');
+    } catch (e: unknown) {
+      toast.error(`生成大纲失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setGeneratingOutline(false);
+    }
+  };
+
+  const handleGenerateDraft = async () => {
+    if (!scene) return;
+    if (!formData.outline_content) {
+      toast.error('请先生成大纲');
+      return;
+    }
+    setGeneratingDraft(true);
+    try {
+      const result = await invoke<{ content: string }>('generate_scene_draft', {
+        scene_id: scene.id,
+      });
+      setFormData((prev) => ({
+        ...prev,
+        draft_content: result.content,
+        execution_stage: 'drafting',
+      }));
+      toast.success('草稿生成成功');
+      setActiveTab('drafting');
+    } catch (e: unknown) {
+      toast.error(`生成草稿失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setGeneratingDraft(false);
+    }
+  };
+
+  const handlePromoteToFinal = () => {
+    const source = formData.draft_content || formData.outline_content || '';
+    if (!source) {
+      toast.error('没有可提升为定稿的内容');
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      content: source,
+      execution_stage: 'final',
+    }));
+    toast.success('已提升为定稿');
+    setActiveTab('final');
   };
 
   // Simple diff computation for revision mode
@@ -131,7 +239,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
     return result;
   };
 
-  const contentDiff = activeTab === 'content' && revisionMode && scene
+  const contentDiff = activeTab === 'final' && revisionMode && scene
     ? computeDiff(scene.content || '', formData.content || '')
     : null;
 
@@ -154,11 +262,23 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">
-          编辑场景 #{scene.sequence_number}
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-white">
+            编辑场景 #{scene.sequence_number}
+          </h2>
+          <span className={`
+            px-2 py-0.5 rounded-full text-xs font-medium
+            ${currentStage === 'planning' ? 'bg-blue-500/20 text-blue-400' : ''}
+            ${currentStage === 'outline' ? 'bg-amber-500/20 text-amber-400' : ''}
+            ${currentStage === 'drafting' ? 'bg-purple-500/20 text-purple-400' : ''}
+            ${currentStage === 'review' ? 'bg-orange-500/20 text-orange-400' : ''}
+            ${currentStage === 'final' ? 'bg-green-500/20 text-green-400' : ''}
+          `}>
+            {STAGE_LABELS[currentStage] || '规划'}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
-          {activeTab === 'content' && (
+          {activeTab === 'final' && (
             <>
               <Button
                 variant="ghost"
@@ -199,21 +319,16 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Stage Tabs */}
       <div className="flex gap-1 mb-4 p-1 bg-cinema-800 rounded-lg">
-        {[
-          { id: 'basic', label: '基本信息', icon: Target },
-          { id: 'drama', label: '戏剧结构', icon: Zap },
-          { id: 'content', label: '内容', icon: Sparkles },
-          { id: 'annotations', label: '批注', icon: MessageSquare },
-        ].map((tab) => (
+        {STAGE_TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            onClick={() => setActiveTab(tab.id)}
             className={`
-              flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors
-              ${activeTab === tab.id 
-                ? 'bg-cinema-gold text-cinema-900' 
+              flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors
+              ${activeTab === tab.id
+                ? 'bg-cinema-gold text-cinema-900'
                 : 'text-gray-400 hover:text-white hover:bg-cinema-700'
               }
             `}
@@ -226,8 +341,8 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
 
       {/* Content */}
       <div className="flex-1 overflow-auto space-y-4">
-        {/* Basic Info Tab */}
-        {activeTab === 'basic' && (
+        {/* Planning Tab */}
+        {activeTab === 'planning' && (
           <>
             {/* Title */}
             <div>
@@ -326,12 +441,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 )}
               </CardContent>
             </Card>
-          </>
-        )}
 
-        {/* Drama Tab */}
-        {activeTab === 'drama' && (
-          <>
             {/* Dramatic Goal */}
             <Card>
               <CardContent className="p-4">
@@ -384,7 +494,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                     type="range"
                     min="0"
                     max="1"
-                    step="0.05"
+                    step="0.1"
                     value={formData.confidence_score ?? 0.5}
                     onChange={(e) => setFormData({ ...formData, confidence_score: Number(e.target.value) })}
                     className="flex-1 accent-cinema-gold"
@@ -428,11 +538,145 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 </div>
               </CardContent>
             </Card>
+
+            {/* Next Stage Action */}
+            <div className="flex justify-end">
+              <Button
+                variant="primary"
+                onClick={handleGenerateOutline}
+                disabled={generatingOutline}
+              >
+                {generatingOutline ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                生成大纲
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
           </>
         )}
 
-        {/* Content Tab */}
-        {activeTab === 'content' && (
+        {/* Outline Tab */}
+        {activeTab === 'outline' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-cinema-gold" />
+                场景大纲
+              </h3>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleGenerateOutline}
+                disabled={generatingOutline}
+              >
+                {generatingOutline ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                重新生成
+              </Button>
+            </div>
+            <textarea
+              value={formData.outline_content || ''}
+              onChange={(e) => setFormData({ ...formData, outline_content: e.target.value })}
+              placeholder="在此输入或生成场景大纲..."
+              rows={20}
+              className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
+            />
+            <div className="flex justify-between">
+              <Button variant="secondary" size="sm" onClick={() => setActiveTab('planning')}>
+                返回规划
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleGenerateDraft}
+                disabled={generatingDraft || !formData.outline_content}
+              >
+                {generatingDraft ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PenTool className="w-4 h-4 mr-1" />}
+                根据大纲起草
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Drafting Tab */}
+        {activeTab === 'drafting' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <PenTool className="w-4 h-4 text-cinema-gold" />
+                场景草稿
+              </h3>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleGenerateDraft}
+                disabled={generatingDraft || !formData.outline_content}
+              >
+                {generatingDraft ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                重新起草
+              </Button>
+            </div>
+            <textarea
+              value={formData.draft_content || ''}
+              onChange={(e) => setFormData({ ...formData, draft_content: e.target.value })}
+              placeholder="AI 根据大纲生成的草稿将显示在这里..."
+              rows={20}
+              className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
+            />
+            <div className="flex justify-between">
+              <Button variant="secondary" size="sm" onClick={() => setActiveTab('outline')}>
+                返回大纲
+              </Button>
+              <Button variant="primary" size="sm" onClick={handlePromoteToFinal}>
+                <Check className="w-4 h-4 mr-1" />
+                提升为定稿
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Review Tab */}
+        {activeTab === 'review' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <Search className="w-4 h-4 text-cinema-gold" />
+                审校
+              </h3>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => toast('审校功能开发中，敬请期待', { icon: '🔍' })}
+              >
+                <Zap className="w-4 h-4 mr-1" />
+                运行审校
+              </Button>
+            </div>
+            <div className="p-8 bg-cinema-800/50 border border-cinema-700 rounded-lg text-center">
+              <Search className="w-12 h-12 text-cinema-700 mx-auto mb-4" />
+              <p className="text-gray-400 mb-2">审校功能将检查以下内容：</p>
+              <ul className="text-sm text-gray-500 space-y-1">
+                <li>• 逻辑一致性</li>
+                <li>• 人物行为连贯性</li>
+                <li>• 世界观规则遵守情况</li>
+                <li>• 文风质量评估</li>
+              </ul>
+            </div>
+            <div className="flex justify-between">
+              <Button variant="secondary" size="sm" onClick={() => setActiveTab('drafting')}>
+                返回起草
+              </Button>
+              <Button variant="primary" size="sm" onClick={handlePromoteToFinal}>
+                <Check className="w-4 h-4 mr-1" />
+                确认定稿
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Final Tab */}
+        {activeTab === 'final' && (
           <div>
             {revisionMode && contentDiff ? (
               <div className="space-y-2">
@@ -465,11 +709,11 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               </div>
             ) : (
               <div className="space-y-3">
-                <label className="block text-sm text-gray-400 mb-2">场景内容</label>
+                <label className="block text-sm text-gray-400 mb-2">定稿内容</label>
                 <textarea
                   value={formData.content || ''}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  placeholder="开始写作..."
+                  placeholder="最终场景内容..."
                   rows={showCompression ? 12 : 20}
                   className="w-full px-4 py-3 bg-cinema-800 border border-cinema-700 rounded-lg text-white focus:border-cinema-gold focus:outline-none resize-none font-serif leading-relaxed"
                 />
@@ -515,6 +759,15 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
                 )}
               </div>
             )}
+            <div className="flex justify-between mt-4">
+              <Button variant="secondary" size="sm" onClick={() => setActiveTab('review')}>
+                返回审校
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleSave}>
+                <Save className="w-4 h-4 mr-1" />
+                保存定稿
+              </Button>
+            </div>
           </div>
         )}
 

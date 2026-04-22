@@ -51,7 +51,7 @@ import { useTextAnnotationsByChapter, useCreateTextAnnotation, useDeleteTextAnno
 import { EditorContextMenu } from './EditorContextMenu';
 import { WenSiPanel } from './WenSiPanel';
 import { usePendingChanges, useTrackChange, useAcceptChange, useRejectChange, useAcceptAllChanges, useRejectAllChanges } from '@/hooks/useChangeTracking';
-import { useCommentThreads, useCreateCommentThread, useAddCommentMessage, useResolveCommentThread, useDeleteCommentThread } from '@/hooks/useCommentThreads';
+import { useCommentThreads, useCreateCommentThread, useAddCommentMessage, useResolveCommentThread, useReopenCommentThread, useDeleteCommentThread } from '@/hooks/useCommentThreads';
 import type { TextAnnotation, ChangeTrack, CommentThreadWithMessages } from '@/types/v3';
 
 interface RichTextEditorProps {
@@ -188,6 +188,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const createCommentThreadMutation = useCreateCommentThread();
     const addCommentMessageMutation = useAddCommentMessage();
     const resolveCommentThreadMutation = useResolveCommentThread();
+    const reopenCommentThreadMutation = useReopenCommentThread();
     const deleteCommentThreadMutation = useDeleteCommentThread();
     
     // 修订模式状态（受控）
@@ -659,6 +660,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                 priority: 'high',
                 originalText: inlineSuggestion.targetText,
                 targetParagraphIndex: targetIndex,
+                storyId: storyId || '',
               },
               result.content
             );
@@ -937,6 +939,36 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     };
 
+    const handleReopenCommentThread = async (threadId: string) => {
+      try {
+        await reopenCommentThreadMutation.mutateAsync({ threadId, chapterId });
+        toast.success('评论已重新打开');
+      } catch (error) {
+        console.error('Failed to reopen comment thread:', error);
+        toast.error('操作失败');
+      }
+    };
+
+    const handleAcceptChange = async (changeId: string) => {
+      try {
+        await acceptChangeMutation.mutateAsync({ changeId, chapterId });
+        toast.success('已接受变更');
+      } catch (error) {
+        console.error('Failed to accept change:', error);
+        toast.error('操作失败');
+      }
+    };
+
+    const handleRejectChange = async (changeId: string) => {
+      try {
+        await rejectChangeMutation.mutateAsync({ changeId, chapterId });
+        toast.success('已拒绝变更');
+      } catch (error) {
+        console.error('Failed to reject change:', error);
+        toast.error('操作失败');
+      }
+    };
+
     // 辅助函数：查找第一个不同字符的位置
     const findFirstDiff = (a: string, b: string): number => {
       let i = 0;
@@ -1072,36 +1104,77 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         <div className="flex-1 overflow-auto relative">
           {/* 修订模式横幅 */}
           {isRevisionMode && (
-            <div className="absolute top-0 left-0 right-0 z-40 bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex items-center justify-between backdrop-blur-sm">
-              <div className="flex items-center gap-2 text-sm text-blue-400">
-                <GitBranch className="w-4 h-4" />
-                <span>修订模式已开启</span>
-                <span className="text-xs text-blue-500/70">({pendingChanges.length} 处待审变更)</span>
+            <div className="absolute top-0 left-0 right-0 z-40 bg-blue-500/10 border-b border-blue-500/30 px-4 py-2 flex flex-col backdrop-blur-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-blue-400">
+                  <GitBranch className="w-4 h-4" />
+                  <span>修订模式已开启</span>
+                  <span className="text-xs text-blue-500/70">({pendingChanges.length} 处待审变更)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => chapterId && acceptAllMutation.mutate({ chapterId })}
+                    disabled={acceptAllMutation.isPending || pendingChanges.length === 0}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 text-xs hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    全部接受
+                  </button>
+                  <button
+                    onClick={() => chapterId && rejectAllMutation.mutate({ chapterId })}
+                    disabled={rejectAllMutation.isPending || pendingChanges.length === 0}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 text-xs hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    全部拒绝
+                  </button>
+                  <button
+                    onClick={() => setIsRevisionMode(false)}
+                    className="px-2.5 py-1 rounded-md bg-cinema-800 text-gray-300 text-xs hover:bg-cinema-700 transition-colors"
+                  >
+                    退出
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => chapterId && acceptAllMutation.mutate({ chapterId })}
-                  disabled={acceptAllMutation.isPending || pendingChanges.length === 0}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 text-xs hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
-                >
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  全部接受
-                </button>
-                <button
-                  onClick={() => chapterId && rejectAllMutation.mutate({ chapterId })}
-                  disabled={rejectAllMutation.isPending || pendingChanges.length === 0}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 text-xs hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-                >
-                  <Undo2 className="w-3.5 h-3.5" />
-                  全部拒绝
-                </button>
-                <button
-                  onClick={() => setIsRevisionMode(false)}
-                  className="px-2.5 py-1 rounded-md bg-cinema-800 text-gray-300 text-xs hover:bg-cinema-700 transition-colors"
-                >
-                  退出
-                </button>
-              </div>
+              {pendingChanges.length > 0 && (
+                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                  {pendingChanges.map((change) => (
+                    <div key={change.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded bg-cinema-900/40 border border-blue-500/10">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn(
+                          'px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0',
+                          change.change_type === 'Insert' && 'text-green-400 bg-green-500/10',
+                          change.change_type === 'Delete' && 'text-red-400 bg-red-500/10',
+                          change.change_type === 'Format' && 'text-blue-400 bg-blue-500/10'
+                        )}>
+                          {change.change_type === 'Insert' ? '插入' : change.change_type === 'Delete' ? '删除' : '排版'}
+                        </span>
+                        <span className="text-gray-300 truncate">
+                          {change.content || '（无内容）'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        <button
+                          onClick={() => handleAcceptChange(change.id)}
+                          disabled={acceptChangeMutation.isPending}
+                          className="flex items-center gap-0.5 px-2 py-0.5 rounded bg-green-500/10 text-green-400 text-[10px] hover:bg-green-500/20 disabled:opacity-50 transition-colors"
+                        >
+                          <Check className="w-3 h-3" />
+                          接受
+                        </button>
+                        <button
+                          onClick={() => handleRejectChange(change.id)}
+                          disabled={rejectChangeMutation.isPending}
+                          className="flex items-center gap-0.5 px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[10px] hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                          拒绝
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           
@@ -1361,7 +1434,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                                 <Check className="w-3 h-3" />
                               </button>
                             ) : (
-                              <span className="text-[10px] text-green-500">已解决</span>
+                              <button
+                                onClick={() => handleReopenCommentThread(item.thread.id)}
+                                className="text-[10px] text-green-500 hover:text-green-400 flex items-center gap-0.5"
+                                title="重新打开"
+                              >
+                                <Undo2 className="w-3 h-3" />
+                                重新打开
+                              </button>
                             )}
                             <button
                               onClick={() => handleDeleteCommentThread(item.thread.id)}

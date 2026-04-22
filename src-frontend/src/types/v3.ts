@@ -40,6 +40,11 @@ export interface Scene {
   // 内容
   content?: string;
   
+  // 结构化大纲
+  execution_stage?: 'planning' | 'outline' | 'drafting' | 'review' | 'final';
+  outline_content?: string;
+  draft_content?: string;
+  
   // AI 生成置信度
   confidence_score?: number;
   
@@ -340,6 +345,9 @@ export interface UpdateSceneRequest {
   setting_location?: string;
   setting_time?: string;
   setting_atmosphere?: string;
+  execution_stage?: 'planning' | 'outline' | 'drafting' | 'review' | 'final';
+  outline_content?: string;
+  draft_content?: string;
 }
 
 export interface WritingStyleUpdate {
@@ -557,7 +565,8 @@ export type ChangeStatusV3 = 'Pending' | 'Accepted' | 'Rejected';
 
 export interface ChangeTrack {
   id: string;
-  scene_id: string;
+  scene_id?: string;
+  chapter_id?: string;
   version_id?: string;
   author_id: string;
   author_name?: string;

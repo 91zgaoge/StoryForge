@@ -2,11 +2,11 @@
   <img src="docs/images/logo.png" alt="StoryForge 草苔" width="120" />
 </p>
 
-# StoryForge (草苔) v3.5.0 - 智能化创作系统
+# StoryForge (草苔) v4.0.0 - AI 导演式小说创作系统
 
 > 🌿 越写越懂的创作系统 - AI 辅助小说创作桌面应用
 >
-> v3.5.0 拆书体验全面升级：细粒度进度提示 + 实时取消支持，让长耗时分析不再"只见转圈"
+> v4.0.0 借鉴 AI-Novel-Writing-Assistant 全面优化：Canonical State 规范状态 + Payoff Ledger 伏笔账本 + Execution Panel 执行面板 + Audit System 审计系统 + Creation Wizard 创建向导
 
 ## 🎭 独具特色的双界面设计
 
@@ -83,7 +83,14 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ---
 
-## ✨ v3.5.0 核心新特性
+## ✨ v4.0.0 核心新特性
+- **Canonical State** — 规范状态系统，统一聚合故事/角色/伏笔/知识图谱状态，AI 续写时准确知道"当前处于哪个叙事阶段"
+- **Payoff Ledger** — 伏笔账本，时间窗口追踪 + 逾期检测 + 智能回收推荐，防止"挖坑不填"
+- **Execution Panel** — 章节执行面板，智能推荐下一步行动（处理伏笔/续写/审校）
+- **Audit System** — 五维审计（连续性/人物/风格/节奏/伏笔），light/full 模式 + 智能升降级
+- **Creation Wizard** — 5 步小说创建向导（创意→世界观→角色→文风→场景）
+- **Structured Outline** — Scene 分 stage 编辑（规划/大纲/起草/审校/定稿）
+- **Enhanced Streaming** — Markdown 渲染 + 实时字数 + 打字机效果
 
 ### 📖 拆书功能：进度提示增强 + 取消支持
 
@@ -142,13 +149,13 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 - **160 项测试全部通过**（Rust 139 + 前端 21）
 - `cargo check` 零警告
-- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 3.5.0
+- 版本号统一：Cargo.toml / package.json / tauri.conf.json → 4.0.0
 
 ---
 
 ## 📊 项目状态概览
 
-**当前版本**: v3.5.0  
+**当前版本**: v4.0.0  
 **最后更新**: 2026-04-21  
 **GitHub**: https://github.com/91zgaoge/StoryForge  
 **整体完成度**: 100%

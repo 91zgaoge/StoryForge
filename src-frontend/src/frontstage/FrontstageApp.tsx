@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, X, Check } from 'lucide-react';
 
-import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote } from 'lucide-react';
-import { useLlmStream } from '@/hooks/useLlmStream';
+import { Eye, GitBranch, StickyNote, MessageSquarePlus, Quote, Play } from 'lucide-react';
+import { writerAgentExecute, recordFeedback } from '@/services/tauri';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
+import { useExecutionState, resolvePrimaryAction } from '@/hooks/useExecutionState';
 import { useSubscription } from '@/hooks/useSubscription';
 import { loadColorTheme, applyColorTheme } from './config/colorThemes';
 import ColorThemeDot from './components/ColorThemeDot';
 import { loadEditorConfig } from '@/components/EditorSettings';
 import { UpgradePanel } from './components/UpgradePanel';
+import { StreamOutput } from '@/components/StreamOutput';
 import toast from 'react-hot-toast';
 
 interface Story {
@@ -69,7 +71,17 @@ const FrontstageApp: React.FC = () => {
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
-  const { startStream, isStreaming: isLlmStreaming } = useLlmStream();
+  const { state: executionState } = useExecutionState(currentStory?.id || null);
+  const primaryAction = resolvePrimaryAction(executionState);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiOutputText, setAiOutputText] = useState('');
+  const [showAiOutputPanel, setShowAiOutputPanel] = useState(false);
+  const [orchestratorStatus, setOrchestratorStatus] = useState<{
+    stepType: string;
+    loopIdx?: number;
+    score?: number;
+    message: string;
+  } | null>(null);
 
   // 稳定回调引用，避免 SmartHintSystem 的 useEffect 被频繁重置
   const handleFreeHint = useCallback((title: string, message: string) => {
@@ -77,6 +89,7 @@ const FrontstageApp: React.FC = () => {
   }, []);
   const editorRef = useRef<RichTextEditorRef>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 监听编辑器配置变化（同步幕后设置到幕前）
   useEffect(() => {
@@ -95,6 +108,12 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => { 
     loadStories();
     setupEventListeners();
+    return () => {
+      if (typewriterIntervalRef.current) {
+        clearInterval(typewriterIntervalRef.current);
+        typewriterIntervalRef.current = null;
+      }
+    };
   }, []);
 
   // Setup Tauri event listeners
@@ -250,53 +269,154 @@ const FrontstageApp: React.FC = () => {
     }
   };
 
-  // Request AI generation via streaming
+  // Request AI generation via writer_agent_execute (full smart engine pipeline)
   const handleRequestGeneration = useCallback(async (context: string) => {
-    if (!currentChapter || !showAI || isLlmStreaming) return;
+    if (!currentChapter || !showAI || isGenerating) return;
+
+    // Clear any existing typewriter interval
+    if (typewriterIntervalRef.current) {
+      clearInterval(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
 
     setGeneratedText('');
+    setAiOutputText('');
+    setShowAiOutputPanel(true);
+    setIsGenerating(true);
+    setOrchestratorStatus(null);
 
-    const prompt = context || '请根据上下文续写接下来的内容，保持文风一致，情节连贯。';
+    const instruction = context || '请根据上下文续写接下来的内容，保持文风一致，情节连贯。';
     const plainContent = content.replace(/<[^>]*>/g, '');
-    const ctx = plainContent.slice(-1500); // 取最近 1500 字符作为上下文
 
+    let unlisten: (() => void) | null = null;
     try {
-      await startStream({
-        prompt,
-        context: ctx || undefined,
-        max_tokens: 1000,
-        temperature: 0.8,
-        onChunk: (chunk) => {
-          setGeneratedText((prev) => prev + chunk);
-        },
-        onComplete: (result) => {
-          setGeneratedText(result.full_text);
-        },
-        onError: (error) => {
-          console.error('Stream generation failed:', error);
-          toast.error(`生成失败: ${error.error}`);
-        },
+      // 提前监听 orchestrator 步骤事件
+      unlisten = await listen<{
+        task_id: string;
+        step_type: string;
+        loop_idx?: number;
+        score?: number;
+      }>('orchestrator-step', (event) => {
+        const p = event.payload;
+        const stepNames: Record<string, string> = {
+          '生成': '生成中...',
+          '质检': '质检中...',
+          '改写': '改写中...',
+        };
+        let message = stepNames[p.step_type] || p.step_type;
+        if (p.step_type === '改写' && typeof p.loop_idx === 'number') {
+          message = `第 ${p.loop_idx + 1} 轮优化中...`;
+        }
+        if (p.step_type === '质检' && typeof p.score === 'number') {
+          message = `质检中... 评分 ${p.score}%`;
+        }
+        setOrchestratorStatus({
+          stepType: p.step_type,
+          loopIdx: p.loop_idx,
+          score: p.score,
+          message,
+        });
       });
+
+      const result = await writerAgentExecute({
+        story_id: currentStory?.id || '',
+        chapter_number: currentChapter?.chapter_number,
+        current_content: plainContent,
+        instruction,
+      });
+
+      setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
+
+      // Typewriter effect: reveal content character by character
+      const text = result.content || '';
+      setAiOutputText(text);
+      let index = 0;
+      typewriterIntervalRef.current = setInterval(() => {
+        index += 3; // reveal 3 chars at a time for smooth effect
+        if (index >= text.length) {
+          if (typewriterIntervalRef.current) {
+            clearInterval(typewriterIntervalRef.current);
+            typewriterIntervalRef.current = null;
+          }
+          setGeneratedText(text);
+          setIsGenerating(false);
+          setOrchestratorStatus(null);
+        } else {
+          setGeneratedText(text.slice(0, index));
+        }
+      }, 16); // ~60fps
     } catch (error) {
       console.error('Generation request failed:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      toast.error(`生成失败: ${msg}`);
+      setIsGenerating(false);
+      setOrchestratorStatus(null);
+    } finally {
+      if (unlisten) {
+        unlisten();
+      }
     }
-  }, [currentChapter, showAI, isLlmStreaming, content, startStream]);
+  }, [currentChapter, showAI, isGenerating, content, currentStory]);
 
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
     if (generatedText && editorRef.current) {
       editorRef.current.insertText(generatedText);
+      // Record feedback for adaptive learning
+      if (currentStory?.id) {
+        recordFeedback({
+          story_id: currentStory.id,
+          chapter_id: currentChapter?.id,
+          feedback_type: 'accept',
+          agent_type: 'writer',
+          original_ai_text: generatedText,
+        }).catch(e => console.error('Feedback record failed:', e));
+      }
       setGeneratedText('');
+      setAiOutputText('');
     }
-  }, [generatedText]);
+  }, [generatedText, currentStory, currentChapter]);
 
   // Reject AI generation
   const handleRejectGeneration = useCallback(() => {
+    if (generatedText && currentStory?.id) {
+      recordFeedback({
+        story_id: currentStory.id,
+        chapter_id: currentChapter?.id,
+        feedback_type: 'reject',
+        agent_type: 'writer',
+        original_ai_text: generatedText,
+      }).catch(e => console.error('Feedback record failed:', e));
+    }
     setGeneratedText('');
-  }, []);
+    setAiOutputText('');
+  }, [generatedText, currentStory, currentChapter]);
 
   const handleWriterResult = useCallback((text: string) => {
-    setGeneratedText(text);
+    // Clear any existing typewriter interval
+    if (typewriterIntervalRef.current) {
+      clearInterval(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
+    setIsGenerating(true);
+    setAiOutputText(text);
+    setShowAiOutputPanel(true);
+
+    // Typewriter effect for chat-generated content
+    let index = 0;
+    typewriterIntervalRef.current = setInterval(() => {
+      index += 3;
+      if (index >= text.length) {
+        if (typewriterIntervalRef.current) {
+          clearInterval(typewriterIntervalRef.current);
+          typewriterIntervalRef.current = null;
+        }
+        setGeneratedText(text);
+        setIsGenerating(false);
+      } else {
+        setGeneratedText(text.slice(0, index));
+      }
+    }, 16);
   }, []);
 
   // 处理内联修改建议：将分析结果传给 RichTextEditor，由编辑器内部调用 Writer Agent
@@ -377,6 +497,14 @@ const FrontstageApp: React.FC = () => {
                 <span className="status-item saving">保存中...</span>
               </>
             )}
+            {orchestratorStatus && (
+              <>
+                <span className="status-separator">·</span>
+                <span className="status-item saving" title="AI 编排器状态">
+                  {orchestratorStatus.message}
+                </span>
+              </>
+            )}
           </div>
         </div>
         
@@ -398,13 +526,36 @@ const FrontstageApp: React.FC = () => {
             </button>
             {showAI && (
               <button
-                className={`frontstage-ai-toggle ${isLlmStreaming ? 'streaming' : ''}`}
+                className={`frontstage-ai-toggle ${isGenerating ? 'streaming' : ''}`}
                 onClick={() => handleRequestGeneration('')}
-                disabled={isLlmStreaming || !currentChapter}
+                disabled={isGenerating || !currentChapter}
                 title="AI 续写"
               >
                 <Sparkles className="w-4 h-4 mr-1" />
-                {isLlmStreaming ? '生成中...' : 'AI 续写'}
+                {isGenerating ? '生成中...' : 'AI 续写'}
+              </button>
+            )}
+            {/* 下一步快捷按钮 */}
+            {currentStory && (
+              <button
+                className="frontstage-ai-toggle"
+                onClick={() => {
+                  if (primaryAction.action === 'open_payoff_ledger') {
+                    openBackstage();
+                  } else if (primaryAction.action === 'create_first_scene') {
+                    handleRequestGeneration('');
+                  } else {
+                    handleRequestGeneration('');
+                  }
+                }}
+                title={primaryAction.label}
+                style={{
+                  borderColor: primaryAction.variant === 'danger' ? '#ef4444' : undefined,
+                  color: primaryAction.variant === 'danger' ? '#ef4444' : undefined,
+                }}
+              >
+                <Play className="w-4 h-4 mr-1" />
+                {primaryAction.label}
               </button>
             )}
           </div>
@@ -463,6 +614,54 @@ const FrontstageApp: React.FC = () => {
           </aside>
         )}
 
+        {/* AI Output Stream Panel */}
+        {showAiOutputPanel && (
+          <div className="fixed bottom-24 right-6 w-[480px] max-w-[calc(100vw-3rem)] z-40 shadow-2xl">
+            <StreamOutput
+              text={aiOutputText}
+              isStreaming={isGenerating}
+              streamType="simulated"
+              onStop={() => {
+                if (typewriterIntervalRef.current) {
+                  clearInterval(typewriterIntervalRef.current);
+                  typewriterIntervalRef.current = null;
+                }
+                setIsGenerating(false);
+                setOrchestratorStatus(null);
+              }}
+              title="AI 续写预览"
+              extraActions={
+                <>
+                  <button
+                    className="stream-btn text-xs"
+                    onClick={handleAcceptGeneration}
+                    disabled={!generatedText}
+                    title="采纳并插入到编辑器"
+                  >
+                    <Check className="w-3 h-3" />
+                    采纳
+                  </button>
+                  <button
+                    className="stream-btn text-xs"
+                    onClick={handleRejectGeneration}
+                    title="弃用"
+                  >
+                    <X className="w-3 h-3" />
+                    弃用
+                  </button>
+                  <button
+                    className="stream-btn text-xs p-1"
+                    onClick={() => setShowAiOutputPanel(false)}
+                    title="关闭面板"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </>
+              }
+            />
+          </div>
+        )}
+
         {/* Editor */}
         <main className="frontstage-main">
           {currentChapter && (
@@ -504,6 +703,7 @@ const FrontstageApp: React.FC = () => {
             onClearInlineSuggestion={() => setInlineSuggestion(null)}
             subscription={subscription}
             onQuotaExhausted={() => {
+              setQuotaExhausted(true);
               setUpgradeTrigger('文思泉涌专业版');
               setShowUpgradePanel(true);
             }}

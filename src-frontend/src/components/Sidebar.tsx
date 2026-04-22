@@ -3,7 +3,8 @@ import {
   Wand2, Plug, Settings, Film, Sparkles, MonitorPlay,
   Network,
   BookMarked,
-  ListChecks
+  ListChecks,
+  Eye
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
@@ -26,6 +27,7 @@ const navItems: { id: ViewType; label: string; icon: React.ElementType }[] = [
   { id: 'mcp', label: 'MCP', icon: Plug },
   { id: 'book-deconstruction', label: '拆书', icon: BookMarked },
   { id: 'tasks', label: '任务', icon: ListChecks },
+  { id: 'foreshadowing', label: '伏笔看板', icon: Eye },
   { id: 'settings', label: '设置', icon: Settings },
 ];
 
@@ -112,7 +114,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                 {currentStory.title}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {currentStory.genre || '未分类'} · {currentStory.chapter_count || 0} 场景
+                {currentStory.genre || '未分类'} · {currentStory.chapter_count || 0} 章
               </p>
             </button>
           </div>

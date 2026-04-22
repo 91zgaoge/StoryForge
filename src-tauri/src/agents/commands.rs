@@ -241,6 +241,7 @@ pub struct WriterAgentResponse {
     pub content: String,
     pub story_id: Option<String>,
     pub chapter_id: Option<String>,
+    pub task_id: String,
 }
 
 /// 执行正文助手任务（手工续写 — 已免费开放，不限制配额）
@@ -311,10 +312,21 @@ pub async fn writer_agent_execute(
         tier: Some(tier),
     };
 
+    let task_id = task.id.clone();
     let service = AgentService::new(app_handle.clone());
 
+    // 读取 AgentOrchestrator 配置
+    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    let orchestrator_config = crate::config::AppConfig::load(&app_dir)
+        .map(|c| super::orchestrator::WorkflowConfig {
+            rewrite_threshold: c.rewrite_threshold,
+            max_feedback_loops: c.max_feedback_loops,
+            keep_revision_history: true,
+        })
+        .unwrap_or_default();
+
     // 使用 AgentOrchestrator 执行 Writer → Inspector → Writer 闭环优化
-    let orchestrator = super::orchestrator::AgentOrchestrator::with_default_config(service, app_handle.clone());
+    let orchestrator = super::orchestrator::AgentOrchestrator::new(service, orchestrator_config, app_handle.clone());
 
     match orchestrator.execute_write_with_inspection(task).await {
         Ok(workflow_result) => {
@@ -330,17 +342,7 @@ pub async fn writer_agent_execute(
                     &SceneUpdate {
                         title: Some("第一场景".to_string()),
                         content: Some(workflow_result.final_content.clone()),
-                        dramatic_goal: None,
-                        external_pressure: None,
-                        conflict_type: None,
-                        characters_present: None,
-                        character_conflicts: None,
-                        setting_location: None,
-                        setting_time: None,
-                        setting_atmosphere: None,
-                        previous_scene_id: None,
-                        next_scene_id: None,
-                        confidence_score: None,
+                        ..Default::default()
                     },
                 );
 
@@ -355,6 +357,7 @@ pub async fn writer_agent_execute(
             Ok(WriterAgentResponse {
                 content: workflow_result.final_content,
                 story_id: Some(story_id),
+                task_id,
                 chapter_id: created_chapter_id,
             })
         },
@@ -532,17 +535,7 @@ pub async fn auto_write(
             &SceneUpdate {
                 title: None,
                 content: Some(accumulated_content.clone()),
-                dramatic_goal: None,
-                external_pressure: None,
-                conflict_type: None,
-                characters_present: None,
-                character_conflicts: None,
-                setting_location: None,
-                setting_time: None,
-                setting_atmosphere: None,
-                previous_scene_id: None,
-                next_scene_id: None,
-                confidence_score: None,
+                ..Default::default()
             },
         );
         log::info!("[auto_write] Saved {} chars to scene {}", accumulated_content.chars().count(), chapter_id);
@@ -831,17 +824,7 @@ pub async fn auto_revise(
                             &SceneUpdate {
                                 title: None,
                                 content: Some(result.content.clone()),
-                                dramatic_goal: None,
-                                external_pressure: None,
-                                conflict_type: None,
-                                characters_present: None,
-                                character_conflicts: None,
-                                setting_location: None,
-                                setting_time: None,
-                                setting_atmosphere: None,
-                                previous_scene_id: None,
-                                next_scene_id: None,
-                                confidence_score: None,
+                                ..Default::default()
                             },
                         );
                         log::info!("[auto_revise] Saved revised content to scene {}", sid);
@@ -932,6 +915,90 @@ pub(crate) async fn build_agent_context(
             context.style_dna_id = story.style_dna_id;
             if context.style_dna_id.is_some() {
                 log::info!("[build_agent_context] Using style_dna_id: {:?}", context.style_dna_id);
+            }
+            // 注入方法论配置
+            context.methodology_id = story.methodology_id.clone();
+            context.methodology_step = story.methodology_step.map(|s| s.to_string());
+            if context.methodology_id.is_some() {
+                log::info!(
+                    "[build_agent_context] Using methodology_id: {:?}, step: {:?}",
+                    context.methodology_id,
+                    context.methodology_step
+                );
+            }
+        }
+    }
+
+    // 注入规范状态快照
+    {
+        let cs_manager = crate::canonical_state::CanonicalStateManager::new(pool.inner().clone());
+        match cs_manager.get_snapshot(&story_id).await {
+            Ok(snapshot) => {
+                // 追加世界观事实和伏笔到 world_rules
+                let mut world_parts = Vec::new();
+                if let Some(ref existing) = context.world_rules {
+                    world_parts.push(existing.clone());
+                }
+
+                if !snapshot.world_facts.is_empty() {
+                    world_parts.push("【世界观事实】".to_string());
+                    for fact in snapshot.world_facts.iter().take(10) {
+                        world_parts.push(format!("- [{}] {}", fact.fact_type, fact.content));
+                    }
+                }
+
+                if !snapshot.story_context.pending_payoffs.is_empty() {
+                    world_parts.push("【待回收伏笔】".to_string());
+                    for payoff in snapshot.story_context.pending_payoffs.iter().take(5) {
+                        world_parts.push(format!("- [重要度{}] {}", payoff.importance, payoff.content));
+                    }
+                }
+
+                if !snapshot.story_context.overdue_payoffs.is_empty() {
+                    world_parts.push("【逾期伏笔】".to_string());
+                    for payoff in snapshot.story_context.overdue_payoffs.iter().take(5) {
+                        world_parts.push(format!("- [重要度{}] {}", payoff.importance, payoff.content));
+                    }
+                }
+
+                if world_parts.len() > 1 {
+                    context.world_rules = Some(world_parts.join("\n"));
+                }
+
+                // 追加叙事阶段和时间线到 scene_structure
+                let mut scene_parts = Vec::new();
+                if let Some(ref existing) = context.scene_structure {
+                    scene_parts.push(existing.clone());
+                }
+
+                scene_parts.push(format!("【叙事阶段】{}\n{}", snapshot.narrative_phase, snapshot.narrative_phase.writer_guidance()));
+
+                if !snapshot.timeline.is_empty() {
+                    let recent_events: Vec<String> = snapshot.timeline.iter().rev().take(5).rev().map(|e| {
+                        format!("场景{}: {}", e.sequence_number, e.event_summary)
+                    }).collect();
+                    scene_parts.push(format!("【近期时间线】\n{}", recent_events.join("\n")));
+                }
+
+                if !snapshot.story_context.active_conflicts.is_empty() {
+                    let conflicts: Vec<String> = snapshot.story_context.active_conflicts.iter().take(5).map(|c| {
+                        format!("- [{}] {} (涉及: {})", c.conflict_type, c.stakes, c.parties.join(", "))
+                    }).collect();
+                    scene_parts.push(format!("【活跃冲突】\n{}", conflicts.join("\n")));
+                }
+
+                context.scene_structure = Some(scene_parts.join("\n"));
+
+                log::info!(
+                    "[build_agent_context] CanonicalState injected: phase={}, facts={}, pending={}, overdue={}",
+                    snapshot.narrative_phase,
+                    snapshot.world_facts.len(),
+                    snapshot.story_context.pending_payoffs.len(),
+                    snapshot.story_context.overdue_payoffs.len()
+                );
+            }
+            Err(e) => {
+                log::warn!("[build_agent_context] CanonicalStateManager failed: {}, skipping", e);
             }
         }
     }

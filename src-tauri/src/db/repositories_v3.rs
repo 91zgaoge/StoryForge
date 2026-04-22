@@ -28,9 +28,9 @@ impl SceneRepository {
         
         let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         conn.execute(
-            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, created_at, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![&id, story_id, sequence_number, title, "[]", "[]", now.to_rfc3339(), now.to_rfc3339()],
+            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, character_conflicts, execution_stage, created_at, updated_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![&id, story_id, sequence_number, title, "[]", "[]", "drafting", now.to_rfc3339(), now.to_rfc3339()],
         )?;
         
         Ok(Scene {
@@ -49,6 +49,9 @@ impl SceneRepository {
             setting_atmosphere: None,
             previous_scene_id: None,
             next_scene_id: None,
+            execution_stage: Some("drafting".to_string()),
+            outline_content: None,
+            draft_content: None,
             model_used: None,
             cost: None,
             created_at: now,
@@ -62,7 +65,8 @@ impl SceneRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
+                    execution_stage, outline_content, draft_content
              FROM scenes WHERE story_id = ?1 ORDER BY sequence_number"
         )?;
 
@@ -79,6 +83,9 @@ impl SceneRepository {
             let created_str: String = row.get(17)?;
             let updated_str: String = row.get(18)?;
             let confidence_score: Option<f32> = row.get(19)?;
+            let execution_stage: Option<String> = row.get(20)?;
+            let outline_content: Option<String> = row.get(21)?;
+            let draft_content: Option<String> = row.get(22)?;
             
             Ok(Scene {
                 id: row.get(0)?,
@@ -101,6 +108,9 @@ impl SceneRepository {
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 confidence_score,
+                execution_stage,
+                outline_content,
+                draft_content,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -112,7 +122,8 @@ impl SceneRepository {
         let mut stmt = conn.prepare(
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
-                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score
+                    content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
+                    execution_stage, outline_content, draft_content
              FROM scenes WHERE id = ?1"
         )?;
 
@@ -129,6 +140,9 @@ impl SceneRepository {
             let created_str: String = row.get(17)?;
             let updated_str: String = row.get(18)?;
             let confidence_score: Option<f32> = row.get(19)?;
+            let execution_stage: Option<String> = row.get(20)?;
+            let outline_content: Option<String> = row.get(21)?;
+            let draft_content: Option<String> = row.get(22)?;
             
             Ok(Scene {
                 id: row.get(0)?,
@@ -151,6 +165,9 @@ impl SceneRepository {
                 created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                 updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 confidence_score,
+                execution_stage,
+                outline_content,
+                draft_content,
             })
         }).optional()?;
 
@@ -176,7 +193,10 @@ impl SceneRepository {
                 previous_scene_id = COALESCE(?12, previous_scene_id),
                 next_scene_id = COALESCE(?13, next_scene_id),
                 confidence_score = COALESCE(?14, confidence_score),
-                updated_at = ?15
+                execution_stage = COALESCE(?15, execution_stage),
+                outline_content = COALESCE(?16, outline_content),
+                draft_content = COALESCE(?17, draft_content),
+                updated_at = ?18
              WHERE id = ?1",
             params![
                 id,
@@ -193,6 +213,9 @@ impl SceneRepository {
                 updates.previous_scene_id,
                 updates.next_scene_id,
                 updates.confidence_score,
+                updates.execution_stage,
+                updates.outline_content,
+                updates.draft_content,
                 now
             ],
         )?;
@@ -231,6 +254,9 @@ pub struct SceneUpdate {
     pub previous_scene_id: Option<String>,
     pub next_scene_id: Option<String>,
     pub confidence_score: Option<f32>,
+    pub execution_stage: Option<String>,
+    pub outline_content: Option<String>,
+    pub draft_content: Option<String>,
 }
 
 // ==================== Scene Version Repository (新增) ====================
