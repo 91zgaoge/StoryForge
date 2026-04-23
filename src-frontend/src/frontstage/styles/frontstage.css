@@ -376,6 +376,73 @@ body {
   gap: 12px;
 }
 
+/* ===== Marquee Hints Bar ===== */
+.frontstage-marquee-bar {
+  height: 22px;
+  background: linear-gradient(90deg, var(--parchment-dark) 0%, oklch(94% 0.01 90) 50%, var(--parchment-dark) 100%);
+  border-bottom: 1px solid var(--warm-sand);
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.frontstage-marquee-track {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  animation: marquee-scroll 30s linear infinite;
+  will-change: transform;
+}
+
+.frontstage-marquee-item {
+  font-size: 11px;
+  color: var(--stone-gray);
+  font-family: var(--font-sans);
+  letter-spacing: 0.02em;
+  padding: 0 6px;
+}
+
+.frontstage-marquee-item kbd {
+  display: inline-block;
+  padding: 0 4px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  line-height: 14px;
+  color: var(--charcoal-light);
+  background: var(--parchment);
+  border: 1px solid var(--warm-sand);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 var(--warm-sand);
+  margin: 0 1px;
+}
+
+.frontstage-marquee-dot {
+  font-size: 11px;
+  color: var(--warm-sand);
+  opacity: 0.6;
+  padding: 0 4px;
+}
+
+@keyframes marquee-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.frontstage-marquee-bar:hover .frontstage-marquee-track {
+  animation-play-state: paused;
+}
+
+/* 禅模式隐藏走马灯 */
+.frontstage-container.zen-mode .frontstage-marquee-bar {
+  display: none;
+}
+
 .frontstage-status-bar {
   display: flex;
   align-items: center;

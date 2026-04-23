@@ -519,6 +519,38 @@ const FrontstageApp: React.FC = () => {
         )}
       </header>
 
+      {/* 走马灯功能提示栏 */}
+      {!isZenMode && (
+        <div className="frontstage-marquee-bar">
+          <div className="frontstage-marquee-track">
+            <span className="frontstage-marquee-item"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 续写</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>Ctrl</kbd>+<kbd>Space</kbd> 文思模式</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>F11</kbd> 禅模式</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>/</kbd> 命令菜单</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>Tab</kbd> 接受 <kbd>Esc</kbd> 拒绝</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item">点击标题回幕后</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 续写</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>Ctrl</kbd>+<kbd>Space</kbd> 文思模式</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>F11</kbd> 禅模式</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>/</kbd> 命令菜单</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item"><kbd>Tab</kbd> 接受 <kbd>Esc</kbd> 拒绝</span>
+            <span className="frontstage-marquee-dot">·</span>
+            <span className="frontstage-marquee-item">点击标题回幕后</span>
+            <span className="frontstage-marquee-dot">·</span>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Sidebar - Dock 工具栏 */}
