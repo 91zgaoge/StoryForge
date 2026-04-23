@@ -8,6 +8,7 @@ import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useIntent } from '@/hooks/useIntent';
 import { loadEditorConfig } from '@/components/EditorSettings';
 import ColorThemeDot from './components/ColorThemeDot';
 import { UpgradePanel } from './components/UpgradePanel';
@@ -68,6 +69,7 @@ const FrontstageApp: React.FC = () => {
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
+  const { parseIntent, executeIntent } = useIntent();
   const [isGenerating, setIsGenerating] = useState(false);
   const [orchestratorStatus, setOrchestratorStatus] = useState<{
     stepType: string;
@@ -438,7 +440,93 @@ const FrontstageApp: React.FC = () => {
     });
   }, []);
 
-  // 适配器：将编辑器的 onRequestGeneration 调用转为 handleRequestGeneration
+  // 智能生成入口 — 解析用户意图后调度到正确 Agent/技能/MCP
+  const handleSmartGeneration = useCallback(async (userInput: string) => {
+    if (isGenerating) {
+      toast('AI 正在生成中，请稍候...', { icon: '⏳' });
+      return;
+    }
+
+    // 智能状态调整
+    if (wensiMode !== 'active') {
+      setWensiMode('active');
+      toast('已自动开启文思模式 🔥', { icon: '🔥' });
+    }
+
+    // 智能判断：没有故事
+    if (!currentStory) {
+      toast.error('请先创建一个故事');
+      return;
+    }
+
+    // 智能判断：没有章节 → 自动创建第一章
+    let targetChapter = currentChapter;
+    if (!targetChapter) {
+      toast('正在创建第一章...', { icon: '📝' });
+      try {
+        const newChapter = await invoke<Chapter>('create_chapter', {
+          story_id: currentStory.id,
+          chapter_number: 1,
+          title: '第一章',
+          content: '',
+        });
+        setChapters([newChapter]);
+        setCurrentChapter(newChapter);
+        targetChapter = newChapter;
+        toast.success('第一章已创建');
+      } catch (e) {
+        console.error('Create chapter failed:', e);
+        toast.error('创建章节失败');
+        return;
+      }
+    }
+
+    // 意图解析
+    try {
+      const intent = await parseIntent(userInput);
+      if (!intent) {
+        // 解析失败，回退到自由指令续写
+        handleRequestGeneration(userInput);
+        return;
+      }
+
+      // 根据意图类型分发
+      if (intent.intent_type === 'text_generate' || intent.intent_type === 'unknown') {
+        // 文本生成 / 未知意图 → 走续写逻辑
+        const instruction = intent.constraints.length > 0
+          ? `${userInput}（要求：${intent.constraints.join('；')}）`
+          : userInput;
+        handleRequestGeneration(instruction);
+      } else if (intent.intent_type === 'text_rewrite') {
+        // 改写 → 走续写逻辑，传入改写指令
+        handleRequestGeneration(`请改写以下内容：${userInput}。要求：${intent.constraints.join('；')}`);
+      } else {
+        // 其他意图（plot_suggest, character_check, world_consistency, style_shift, outline_expand）
+        // → 调用 IntentExecutor，结果以 toast / ghost text 展示
+        setIsGenerating(true);
+        try {
+          const result = await executeIntent(intent, currentStory.id);
+          if (result) {
+            if (result.feedback_type === 'direct_apply' && result.summary) {
+              // 直接应用 → 以 ghost text 展示
+              setGeneratedText(result.summary);
+            } else {
+              // 建议卡片 / 系统通知 → 以 toast 展示
+              toast(result.summary, { icon: '💡', duration: 10000 });
+            }
+          }
+        } finally {
+          setIsGenerating(false);
+        }
+      }
+    } catch (e) {
+      console.error('Intent processing failed:', e);
+      // 异常回退到自由指令
+      handleRequestGeneration(userInput);
+    }
+  }, [isGenerating, wensiMode, currentStory, currentChapter, parseIntent, executeIntent, handleRequestGeneration]);
+
+  // 适配器：将编辑器的 onRequestGeneration 调用转为 handleRequestGeneration（明确续写路径）
   const handleRequestGenerationForEditor = useCallback((instruction?: string) => {
     handleRequestGeneration(instruction || '');
   }, [handleRequestGeneration]);
@@ -629,6 +717,7 @@ const FrontstageApp: React.FC = () => {
             onAcceptGeneration={handleAcceptGeneration}
             onRejectGeneration={handleRejectGeneration}
             onRequestGeneration={handleRequestGenerationForEditor}
+            onSmartGeneration={handleSmartGeneration}
             onSlashCommand={handleSlashCommand}
             placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
             characters={characters}
@@ -690,7 +779,7 @@ const FrontstageApp: React.FC = () => {
                   }
                 }}
                 onFreePrompt={(prompt) => {
-                  handleRequestGeneration(prompt);
+                  handleSmartGeneration(prompt);
                   setShowWenSiPanel(false);
                 }}
               />

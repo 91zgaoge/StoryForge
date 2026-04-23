@@ -60,8 +60,10 @@ interface RichTextEditorProps {
   storyId?: string;
   chapterId?: string;
   chapterNumber?: number;
-  /** 请求 AI 生成（供 /续写 等命令调用） */
+  /** 请求 AI 生成（供 Ctrl+Enter / 自动续写 等明确续写调用） */
   onRequestGeneration?: (instruction?: string) => void;
+  /** 智能生成入口（供 / 输入框自由指令调用，走意图引擎解析） */
+  onSmartGeneration?: (userInput: string) => void;
   /** Slash 命令回调（自动续写/审校/评点等） */
   onSlashCommand?: (commandId: string) => void;
   isRevisionMode?: boolean;
@@ -120,6 +122,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     chapterId,
     chapterNumber,
     onRequestGeneration,
+    onSmartGeneration,
     onSlashCommand,
     isRevisionMode: externalIsRevisionMode = false,
     onRevisionModeChange,
@@ -514,34 +517,23 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [editor, isAiThinking]);
 
-    // 处理 slash 输入框的提交
+    // 处理 slash 输入框的提交 — 将用户原始输入传递给上层做意图解析
     const handleSlashSubmit = useCallback(() => {
       const text = slashInputText.trim();
       if (!text) return;
       setShowSlashInput(false);
       setSlashInputText('');
-      // 根据输入内容路由
-      if (text === '续写') {
-        onRequestGeneration?.('续写');
-      } else if (text === '润色') {
-        onRequestGeneration?.('润色');
-      } else if (text === '古风' || text === '改写古风') {
-        onRequestGeneration?.('改写成古风');
-      } else if (text === '场景' || text === '补充场景') {
-        onRequestGeneration?.('补充场景描写');
-      } else if (text === '排版' || text === '格式') {
-        handleFormatText();
-      } else if (text === '评点' || text === '生成评点') {
-        onSlashCommand?.('commentary');
+      // 自由输入走智能生成（意图引擎解析），预定义命令走快捷路径
+      if (text === '续写' || text === '润色' || text === '古风' || text === '场景' || text === '排版' || text === '评点') {
+        onRequestGeneration?.(text);
       } else if (text === '自动续写') {
         onSlashCommand?.('auto_write');
-      } else if (text === '审校' || text === '全文审校') {
+      } else if (text === '审校') {
         onSlashCommand?.('auto_revise');
       } else {
-        // 任意其他内容作为自由指令
-        onRequestGeneration?.(text);
+        onSmartGeneration?.(text);
       }
-    }, [slashInputText, onRequestGeneration, onSlashCommand, handleFormatText]);
+    }, [slashInputText, onRequestGeneration, onSmartGeneration, onSlashCommand]);
 
     // 关闭 slash 输入框（取消）
     const handleSlashCancel = useCallback(() => {
