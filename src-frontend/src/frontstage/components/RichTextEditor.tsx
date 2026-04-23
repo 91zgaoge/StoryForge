@@ -137,22 +137,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // 选区状态（用于角色卡片弹窗）
     const [selectedRange, setSelectedRange] = useState<{ from: number; to: number; text: string } | null>(null);
 
-    // ===== 编辑器内 Slash 命令菜单 =====
-    const [showSlashMenu, setShowSlashMenu] = useState(false);
-    const [slashMenuIndex, setSlashMenuIndex] = useState(0);
-    const [slashMenuPos, setSlashMenuPos] = useState({ x: 0, y: 0 });
-
-    const slashCommands = [
-      { id: 'dialog', name: '自由指令', description: '输入任意创作指令', category: 'tools' },
-      { id: 'continue', name: '续写', description: '根据上下文续写', category: 'write' },
-      { id: 'polish', name: '润色', description: '润色当前段落', category: 'write' },
-      { id: 'ancient', name: '改写古风', description: '改写成古风文风', category: 'write' },
-      { id: 'scene', name: '补充场景', description: '补充环境/动作描写', category: 'write' },
-      { id: 'auto_write', name: '自动续写', description: '自动续写指定字数', category: 'advanced' },
-      { id: 'auto_revise', name: '全文审校', description: '自动审校并修改', category: 'advanced' },
-      { id: 'commentary', name: '生成评点', description: '生成古典评点', category: 'advanced' },
-      { id: 'format', name: '排版', description: '智能排版', category: 'tools' },
-    ];
+    // ===== 编辑器内 Slash 指令输入框 =====
+    const [showSlashInput, setShowSlashInput] = useState(false);
+    const [slashInputText, setSlashInputText] = useState('');
+    const [slashInputPos, setSlashInputPos] = useState({ x: 0, y: 0 });
+    const slashInputRef = useRef<HTMLInputElement>(null);
 
     // 修订模式状态（受控）
     const isRevisionMode = externalIsRevisionMode;
@@ -178,13 +167,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [showPopup, setShowPopup] = useState(false);
     const [popupAnchor, setPopupAnchor] = useState<HTMLElement | null>(null);
 
-    // 用于在 handleKeyDown 中调用 Slash 命令的 ref
-    const slashActionRef = useRef<(id: string) => void>(() => {});
     // 同步状态到 ref，避免 useEditor 闭包问题
-    const showSlashMenuRef = useRef(showSlashMenu);
-    const slashMenuIndexRef = useRef(slashMenuIndex);
-    useEffect(() => { showSlashMenuRef.current = showSlashMenu; }, [showSlashMenu]);
-    useEffect(() => { slashMenuIndexRef.current = slashMenuIndex; }, [slashMenuIndex]);
+    const showSlashInputRef = useRef(showSlashInput);
+    useEffect(() => { showSlashInputRef.current = showSlashInput; }, [showSlashInput]);
 
     const editor = useEditor({
       extensions: [
@@ -255,54 +240,29 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           },
         },
         handleKeyDown: (view, event) => {
-          // Slash 命令菜单
-          if (event.key === '/' && wensiMode !== 'off' && !isZenMode) {
+          // Slash 指令输入框 — 首次输入 /
+          if (event.key === '/' && wensiMode !== 'off' && !isZenMode && !showSlashInputRef.current) {
+            // 删除刚输入的 / 字符
+            const { from } = view.state.selection;
+            const textBefore = view.state.doc.textBetween(Math.max(0, from - 1), from);
+            if (textBefore === '/') {
+              view.dispatch(view.state.tr.delete(from - 1, from));
+            }
+            // 计算浮动输入框位置
             const pos = view.state.selection.from;
             const coords = view.coordsAtPos(pos);
             const containerRect = containerRef.current?.getBoundingClientRect();
             if (containerRect) {
-              setSlashMenuPos({
+              setSlashInputPos({
                 x: coords.left - containerRect.left,
                 y: coords.bottom - containerRect.top + 4,
               });
             }
-            setShowSlashMenu(true);
-            setSlashMenuIndex(0);
-            return false;
-          }
-
-          if (showSlashMenuRef.current) {
-            if (event.key === 'ArrowDown') {
-              event.preventDefault();
-              setSlashMenuIndex(i => (i + 1) % slashCommands.length);
-              return true;
-            }
-            if (event.key === 'ArrowUp') {
-              event.preventDefault();
-              setSlashMenuIndex(i => (i - 1 + slashCommands.length) % slashCommands.length);
-              return true;
-            }
-            if (event.key === 'Enter' || event.key === 'Tab') {
-              event.preventDefault();
-              const idx = slashMenuIndexRef.current;
-              const cmd = slashCommands[idx];
-              if (cmd) {
-                setShowSlashMenu(false);
-                // 删除输入的 / 字符
-                const { from } = view.state.selection;
-                const textBefore = view.state.doc.textBetween(Math.max(0, from - 1), from);
-                if (textBefore === '/') {
-                  view.dispatch(view.state.tr.delete(from - 1, from));
-                }
-                slashActionRef.current(cmd.id);
-              }
-              return true;
-            }
-            if (event.key === 'Escape') {
-              event.preventDefault();
-              setShowSlashMenu(false);
-              return true;
-            }
+            setSlashInputText('');
+            setShowSlashInput(true);
+            // 聚焦输入框（下一轮渲染后）
+            setTimeout(() => slashInputRef.current?.focus(), 0);
+            return true;
           }
 
           return false;
@@ -554,33 +514,49 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [editor, isAiThinking]);
 
-    // 执行 Slash 命令（在 editor 之后定义，通过 ref 被 handleKeyDown 调用）
-    const executeSlashCommand = useCallback((commandId: string) => {
-      switch (commandId) {
-        case 'continue':
-          onRequestGeneration?.('续写');
-          break;
-        case 'polish':
-          onRequestGeneration?.('润色');
-          break;
-        case 'ancient':
-          onRequestGeneration?.('改写成古风');
-          break;
-        case 'scene':
-          onRequestGeneration?.('补充场景描写');
-          break;
-        case 'format':
-          handleFormatText();
-          break;
-        default:
-          onSlashCommand?.(commandId);
+    // 处理 slash 输入框的提交
+    const handleSlashSubmit = useCallback(() => {
+      const text = slashInputText.trim();
+      if (!text) return;
+      setShowSlashInput(false);
+      setSlashInputText('');
+      // 根据输入内容路由
+      if (text === '续写') {
+        onRequestGeneration?.('续写');
+      } else if (text === '润色') {
+        onRequestGeneration?.('润色');
+      } else if (text === '古风' || text === '改写古风') {
+        onRequestGeneration?.('改写成古风');
+      } else if (text === '场景' || text === '补充场景') {
+        onRequestGeneration?.('补充场景描写');
+      } else if (text === '排版' || text === '格式') {
+        handleFormatText();
+      } else if (text === '评点' || text === '生成评点') {
+        onSlashCommand?.('commentary');
+      } else if (text === '自动续写') {
+        onSlashCommand?.('auto_write');
+      } else if (text === '审校' || text === '全文审校') {
+        onSlashCommand?.('auto_revise');
+      } else {
+        // 任意其他内容作为自由指令
+        onRequestGeneration?.(text);
       }
-    }, [onRequestGeneration, onSlashCommand, handleFormatText]);
+    }, [slashInputText, onRequestGeneration, onSlashCommand, handleFormatText]);
 
-    // 同步 slashActionRef
-    useEffect(() => {
-      slashActionRef.current = executeSlashCommand;
-    }, [executeSlashCommand]);
+    // 关闭 slash 输入框（取消）
+    const handleSlashCancel = useCallback(() => {
+      setShowSlashInput(false);
+      setSlashInputText('');
+    }, []);
+
+    // 关闭 slash 输入框并插入 /
+    const handleSlashInsertSlash = useCallback(() => {
+      setShowSlashInput(false);
+      setSlashInputText('');
+      if (editor) {
+        editor.commands.insertContent('/');
+      }
+    }, [editor]);
 
     const handleAcceptAndContinue = useCallback(() => {
       onAcceptGeneration?.();
@@ -848,23 +824,47 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
           <EditorContent editor={editor} />
 
-          {/* 编辑器内 Slash 命令菜单 */}
-          {showSlashMenu && (
+          {/* 编辑器内 Slash 指令输入框 */}
+          {showSlashInput && (
             <div
-              className="editor-slash-menu"
-              style={{ left: slashMenuPos.x, top: slashMenuPos.y }}
+              className="editor-slash-input-box"
+              style={{ left: slashInputPos.x, top: slashInputPos.y }}
             >
-              {slashCommands.map((cmd, i) => (
-                <div
-                  key={cmd.id}
-                  className={cn('editor-slash-item', i === slashMenuIndex && 'active')}
-                  onClick={() => executeSlashCommand(cmd.id)}
-                  onMouseEnter={() => setSlashMenuIndex(i)}
-                >
-                  <span className="editor-slash-name">{cmd.name}</span>
-                  <span className="editor-slash-desc">{cmd.description}</span>
-                </div>
-              ))}
+              <input
+                ref={slashInputRef}
+                type="text"
+                value={slashInputText}
+                onChange={(e) => setSlashInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSlashSubmit();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    handleSlashCancel();
+                  } else if (e.key === '/') {
+                    e.preventDefault();
+                    handleSlashInsertSlash();
+                  }
+                }}
+                onBlur={() => {
+                  // 延迟关闭，避免点击时先失焦
+                  setTimeout(() => {
+                    if (document.activeElement !== slashInputRef.current) {
+                      handleSlashCancel();
+                    }
+                  }, 150);
+                }}
+                placeholder="输入指令，如 续写 / 润色 / 古风，或任意创作要求..."
+                className="editor-slash-input"
+              />
+              <div className="editor-slash-input-hint">
+                <span>回车发送</span>
+                <span className="hint-dot">·</span>
+                <span>再按 / 输出字符</span>
+                <span className="hint-dot">·</span>
+                <span>Esc 取消</span>
+              </div>
             </div>
           )}
 
