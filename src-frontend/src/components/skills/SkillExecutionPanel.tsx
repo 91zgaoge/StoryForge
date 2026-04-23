@@ -197,7 +197,7 @@ export const SkillExecutionPanel: React.FC<SkillExecutionPanelProps> = ({
   const handleCancel = useCallback(async () => {
     if (!taskId) return;
     try {
-      await invoke('agent_cancel_task', { task_id: taskId });
+      await invoke('agent_cancel_task', { taskId });
     } catch (err) {
       // ignore cancel errors
     } finally {

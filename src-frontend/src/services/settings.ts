@@ -162,7 +162,7 @@ export async function deleteModel(id: string): Promise<void> {
 
 // 设置激活的模型
 export async function setActiveModel(type: ModelConfig['type'], modelId: string): Promise<void> {
-  return invoke('set_active_model', { model_type: type, model_id: modelId });
+  return invoke('set_active_model', { modelType: type, modelId });
 }
 
 // 获取Agent模型映射
@@ -218,7 +218,7 @@ async function browserTestModelConnection(modelId: string): Promise<{ success: b
 // 测试模型连接
 export async function testModelConnection(modelId: string): Promise<{ success: boolean; latency: number; error?: string }> {
   try {
-    return await invoke('test_model_connection', { model_id: modelId });
+    return await invoke('test_model_connection', { modelId });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {
@@ -231,7 +231,7 @@ export async function testModelConnection(modelId: string): Promise<{ success: b
 // 从 API 地址获取可用模型列表
 export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Promise<string[]> {
   try {
-    return await invoke<string[]>('fetch_models', { base_url: baseUrl, api_key: apiKey });
+    return await invoke<string[]>('fetch_models', { baseUrl, apiKey });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {

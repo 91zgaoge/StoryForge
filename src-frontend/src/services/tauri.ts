@@ -186,7 +186,7 @@ export interface SmartExecuteResult {
 }
 
 export const smartExecute = (req: SmartExecuteRequest) =>
-  invoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input });
+  invoke<SmartExecuteResult>('smart_execute', { userInput: req.user_input });
 
 // Feedback Recording
 export interface RecordFeedbackRequest {
