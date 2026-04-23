@@ -143,6 +143,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     const [slashMenuPos, setSlashMenuPos] = useState({ x: 0, y: 0 });
 
     const slashCommands = [
+      { id: 'dialog', name: '自由指令', description: '输入任意创作指令', category: 'tools' },
       { id: 'continue', name: '续写', description: '根据上下文续写', category: 'write' },
       { id: 'polish', name: '润色', description: '润色当前段落', category: 'write' },
       { id: 'ancient', name: '改写古风', description: '改写成古风文风', category: 'write' },
@@ -151,7 +152,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       { id: 'auto_revise', name: '全文审校', description: '自动审校并修改', category: 'advanced' },
       { id: 'commentary', name: '生成评点', description: '生成古典评点', category: 'advanced' },
       { id: 'format', name: '排版', description: '智能排版', category: 'tools' },
-      { id: 'dialog', name: '自由指令', description: '输入任意创作指令', category: 'tools' },
     ];
 
     // 修订模式状态（受控）
