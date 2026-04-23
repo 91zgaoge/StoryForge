@@ -72,7 +72,29 @@ impl PlanExecutor {
         } else {
             let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
             let generator = PlanGenerator::new(llm_service);
-            let plan = generator.generate_plan(context).await?;
+            let plan = match generator.generate_plan(context).await {
+                Ok(plan) => plan,
+                Err(e) => {
+                    log::warn!("[PlanExecutor] Plan generation failed ({}), falling back to direct writer", e);
+                    // Fallback: direct writer execution with user input as instruction
+                    ExecutionPlan {
+                        understanding: format!("Direct execution fallback for: {}", context.user_input),
+                        steps: vec![PlanStep {
+                            step_id: "fallback_writer".to_string(),
+                            capability_id: "writer".to_string(),
+                            purpose: "Fallback: execute user request directly via writer agent".to_string(),
+                            parameters: {
+                                let mut p = HashMap::new();
+                                p.insert("story_id".to_string(), serde_json::Value::String(context.current_story_id.clone().unwrap_or_default()));
+                                p.insert("instruction".to_string(), serde_json::Value::String(context.user_input.clone()));
+                                p
+                            },
+                            depends_on: vec![],
+                        }],
+                        fallback_message: "计划生成失败，已回退到直接写作模式".to_string(),
+                    }
+                }
+            };
             Ok(self.execute_plan(plan).await)
         }
     }

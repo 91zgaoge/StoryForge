@@ -34,6 +34,7 @@ pub struct PlanStep {
 pub struct ExecutionPlan {
     #[serde(default)]
     pub understanding: String,
+    #[serde(default)]
     pub steps: Vec<PlanStep>,
     #[serde(default)]
     pub fallback_message: String,
