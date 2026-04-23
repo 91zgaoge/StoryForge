@@ -341,8 +341,17 @@ npm test
 
 > **每次修改代码后，先推送到 GitHub，触发 GitHub Actions 全平台构建。**
 > **推送完成后，在本地执行构建并打包生成 Windows `.exe` / `.msi` 安装包。**
-> **每次推送到 GitHub，都必须逐条更新 GitHub 项目的 `README.md` 文件内容（包括截图、图标、功能列表等）。**
+> **每次推送到 GitHub，都必须逐条更新 GitHub 项目的 `README.md` 文件内容。包括但不限于：功能列表、版本号、截图、应用图标、安装说明、使用指南等所有相关信息。**
 > **Git tag、Cargo.toml、tauri.conf.json、package.json 中的版本号必须保持统一。**
+
+> **⚠️ README.md 更新检查清单（推送前必做）：**
+> - [ ] 版本号是否与当前 tag 一致
+> - [ ] 功能列表是否包含本次新增/修改的功能
+> - [ ] 截图是否更新为最新 UI（幕前 + 幕后）
+> - [ ] 应用图标/Logo 是否为最新版本
+> - [ ] 安装说明是否需要调整
+> - [ ] 使用指南是否反映最新交互方式
+> - [ ] CHANGELOG 链接是否有效
 
 **本地构建脚本**: `scripts/build-local.ps1`
 ```powershell
