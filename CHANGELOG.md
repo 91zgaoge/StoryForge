@@ -61,6 +61,38 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - 新增后端模块：canonical_state / audit / payoff_ledger
 - 新增前端页面：CreationWizard.tsx / ExecutionPanel.tsx / StreamOutput.tsx
 
+## [v4.1.0] - 幕前界面深度重构：化整为零，萤火随行（2026-04-22）
+
+> **设计理念**：从 20+ 可见 UI 元素缩减至 <5 持久元素。AI 功能以萤火暗示（firefly hints）形式按需浮现，用完即隐。
+
+### P0 核心重构
+- **顶栏精简**：44px 细线设计。小说标题（点击进入幕后）、章节信息、字数/总字数/字号、🔥 文思三态切换（`off·` / `passive✨` / `active🔥`）、禅模式按钮。移除：汉堡菜单、订阅徽章、"开启文思"按钮、"AI 续写"按钮、主行动按钮。
+- **底栏删除**：彻底删除底部聊天工具栏（chat input、模型状态点、WenSiPanel 嵌入、Slash textarea 菜单）。AI 生成结果以幽灵文本内联呈现，Tab 接受 / Esc 拒绝。
+- **侧边栏精简**：5 按钮 → 3 按钮（修/批/幕）。"修"=修订模式切换，"批"=生成古典评点，"幕"=进入幕后。
+- **键盘快捷键**：`Ctrl+Enter` / `Cmd+Enter` 全局触发续写，`Ctrl+Space` 循环文思模式，`F11` 禅模式。
+
+### P1 萤火系统
+- **幽灵文本**：编辑器末尾灰色斜体段落（`opacity: 0.35`），附带萤火操作栏（Tab 接受 / Esc 拒绝）。
+- **右边缘萤火**：`smartGhostText` 从编辑区右边缘淡入（0.8s）→ 停留 → 淡出（1.2s），不打扰写作流。
+- **空态引导**：编辑器无内容时居中显示诗意提示"开始写下第一句话，文思将随你而行 / 按 / 查看可用命令"。
+
+### P2 体验优化
+- **内联 `/` 命令菜单**：光标处触发，8 命令——续写/润色/古风/场景/自动续写/审校/评点/排版。方向键导航，回车执行，Esc 关闭，自动删除 `/` 字符。
+- **WenSiPanel 浮动化**：从底栏嵌入改为 FrontstageApp 右下角浮动卡片，通过 `/` 菜单高级命令（auto_write/auto_revise）触发。
+- **修订横幅精简**：从多行可展开缩减为 32px 单行，变更列表可滚动，默认折叠。
+- **古典评点保留**：AI 生成的段落评点（金圣叹式朱批）保留为内联段落，朱红色 `oklch(55% 0.18 25)`，`LXGW WenKai` 字体，左边框红色，`※` 前缀，缩进 3em。通过 `/` 菜单、sidebar "批"按钮或右键菜单触发。
+
+### 🗑️ 移除（设计决策）
+- **显式注释/评论系统**：sidebar "注"按钮、注释/评论面板、选中文本弹窗创建按钮、右键菜单注释项、所有相关 hooks（`useTextAnnotations`、`useCommentThreads`）。
+- **原因**：AI 写作工具不需要创作者标注自己的作品；AI 反馈应以幽灵文本或古典评点形式自然呈现。
+
+### 📊 统计
+- Rust 测试：160/160 全部通过
+- 前端构建：通过
+- 修改文件：Rust 0 个 + 前端 8 个（FrontstageApp / RichTextEditor / EditorContextMenu / frontstage.css / useTextAnnotations / useCommentThreads / hooks/index.ts 导出清理）
+- 删除代码：约 800 行（底栏、注释系统、评论面板）
+- 设计原则："化整为零，萤火随行" — 从显性 UI 到隐性 AI
+
 ## [v4.0.1] - 全面代码审计与空实现修复（2026-04-22）
 
 ### Phase A: 代码审计与 P0 修复

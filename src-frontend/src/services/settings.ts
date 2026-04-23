@@ -231,7 +231,7 @@ export async function testModelConnection(modelId: string): Promise<{ success: b
 // 从 API 地址获取可用模型列表
 export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Promise<string[]> {
   try {
-    return await invoke<string[]>('fetch_models', { baseUrl, apiKey });
+    return await invoke<string[]>('fetch_models', { base_url: baseUrl, api_key: apiKey });
   } catch (e) {
     const isTauri = !!(window as any).__TAURI__;
     if (!isTauri) {

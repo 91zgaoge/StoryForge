@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { GitBranch, StickyNote, MessageSquarePlus, Quote, Check, Loader2, Scissors, Copy, Clipboard, CheckSquare } from 'lucide-react';
+import { GitBranch, Quote, Check, Loader2, Scissors, Copy, Clipboard, CheckSquare } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface EditorContextMenuProps {
@@ -10,8 +10,6 @@ interface EditorContextMenuProps {
   editor: any;
   isRevisionMode: boolean;
   onToggleRevision: () => void;
-  onOpenAnnotation: () => void;
-  onOpenComment: () => void;
   onGenerateCommentary: () => void;
   isGeneratingCommentary: boolean;
   hasSelection: boolean;
@@ -25,8 +23,6 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
   editor,
   isRevisionMode,
   onToggleRevision,
-  onOpenAnnotation,
-  onOpenComment,
   onGenerateCommentary,
   isGeneratingCommentary,
   hasSelection,
@@ -151,16 +147,6 @@ export const EditorContextMenu: React.FC<EditorContextMenuProps> = ({
         <GitBranch className={cn('w-4 h-4', isRevisionMode ? 'text-[var(--terracotta)]' : 'text-[var(--stone-gray)]')} />
         <span className="flex-1">修订模式</span>
         {isRevisionMode && <Check className="w-4 h-4 text-[var(--terracotta)]" />}
-      </MenuItem>
-
-      <MenuItem onClick={onOpenAnnotation} disabled={!hasSelection}>
-        <StickyNote className="w-4 h-4 text-[var(--stone-gray)]" />
-        <span className="flex-1">添加批注</span>
-      </MenuItem>
-
-      <MenuItem onClick={onOpenComment} disabled={!hasSelection}>
-        <MessageSquarePlus className="w-4 h-4 text-[var(--stone-gray)]" />
-        <span className="flex-1">发起评论</span>
       </MenuItem>
 
       <Divider />
