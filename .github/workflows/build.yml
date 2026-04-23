@@ -107,7 +107,12 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: src-frontend/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            src-frontend/package-lock.json
+
+      - name: Install root dependencies (Playwright)
+        run: npm ci
 
       - name: Install frontend dependencies
         working-directory: src-frontend
