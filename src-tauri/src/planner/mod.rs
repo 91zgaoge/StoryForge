@@ -21,16 +21,21 @@ pub use executor::{PlanExecutor, PlanExecutionResult};
 pub struct PlanStep {
     pub step_id: String,
     pub capability_id: String,
+    #[serde(default)]
     pub purpose: String,
+    #[serde(default)]
     pub parameters: HashMap<String, serde_json::Value>,
+    #[serde(default)]
     pub depends_on: Vec<String>,
 }
 
 /// 完整的执行计划
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionPlan {
+    #[serde(default)]
     pub understanding: String,
     pub steps: Vec<PlanStep>,
+    #[serde(default)]
     pub fallback_message: String,
 }
 
@@ -110,18 +115,23 @@ Rules:
 
         let response = self.llm_service.generate(prompt, Some(2048), Some(0.3)).await?;
 
-        let json_str = response
-            .content
-            .trim()
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
+        // Robust JSON extraction: find first '{' and last '}'
+        let content = response.content.trim();
+        let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+            &content[start..=end]
+        } else {
+            // Fallback to markdown code block stripping
+            content
+                .trim_start_matches("```json")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim()
+        };
 
         let mut plan: ExecutionPlan = serde_json::from_str(json_str).map_err(|e| {
             format!(
-                "Failed to parse plan JSON: {}. Raw content: {}",
-                e, response.content
+                "Failed to parse plan JSON: {}. Extracted JSON: {}",
+                e, json_str
             )
         })?;
 

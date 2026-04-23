@@ -435,9 +435,10 @@ const FrontstageApp: React.FC = () => {
       if (result.messages.some(m => m.includes('story_created'))) {
         loadStories();
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Smart execution failed:', e);
-      toast.error('执行失败，请重试');
+      const msg = e?.message || String(e);
+      toast.error(`执行失败: ${msg}`);
     } finally {
       setIsGenerating(false);
     }

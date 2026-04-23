@@ -392,7 +392,6 @@ pub fn run() {
             commands_v3::generate_scene_draft,
             // Audit commands
             audit::commands::audit_scene,
-            smart_execute,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -971,17 +970,18 @@ async fn smart_execute(
     user_input: String,
     app_handle: AppHandle,
 ) -> Result<planner::PlanExecutionResult, String> {
-    let pool = get_pool().ok_or("Database not initialized")?;
+    let pool = get_pool().ok_or("[smart_execute] Database not initialized")?;
 
     // 构建 PlanContext：从当前系统状态推断
-    let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| e.to_string())?;
+    let stories = StoryRepository::new(pool.clone()).get_all()
+        .map_err(|e| format!("[smart_execute] Failed to load stories: {}", e))?;
     let current_story = stories.first().cloned();
     let current_story_id = current_story.as_ref().map(|s| s.id.clone());
 
     let chapters = if let Some(ref story_id) = current_story_id {
         ChapterRepository::new(pool.clone())
             .get_by_story(story_id)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("[smart_execute] Failed to load chapters: {}", e))?
     } else {
         vec![]
     };
@@ -1009,7 +1009,8 @@ async fn smart_execute(
 
     // 执行计划（内部会自动检查模板库并生成计划）
     let executor = planner::PlanExecutor::new(app_handle);
-    let result = executor.execute_with_context(&plan_context).await?;
+    let result = executor.execute_with_context(&plan_context).await
+        .map_err(|e| format!("[smart_execute] Plan execution failed: {}", e))?;
 
     Ok(result)
 }
