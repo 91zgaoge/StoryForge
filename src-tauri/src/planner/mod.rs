@@ -65,6 +65,20 @@ impl PlanGenerator {
         let registry = build_default_registry();
         let registry_context = registry.to_llm_context();
 
+        // Sanitize inputs to prevent prompt injection / format breakage
+        fn sanitize_for_prompt(s: &str) -> String {
+            s.replace('"', "'")
+                .replace('\n', " ")
+                .replace('\r', "")
+                .replace("{{", "〔")
+                .replace("}}", "〕")
+        }
+
+        let preview = context.current_content_preview.as_deref().unwrap_or("none");
+        let user_input_clean = sanitize_for_prompt(&context.user_input);
+        let preview_clean = sanitize_for_prompt(preview);
+        let registry_clean = sanitize_for_prompt(&registry_context);
+
         let prompt = format!(
             r#"You are an intelligent orchestrator for a creative writing application.
 
@@ -108,9 +122,9 @@ Rules:
             context.current_story_id.as_deref().unwrap_or("none"),
             context.has_chapters,
             context.chapter_count,
-            context.current_content_preview.as_deref().unwrap_or("none"),
-            context.user_input,
-            registry_context
+            preview_clean,
+            user_input_clean,
+            registry_clean
         );
 
         let response = self.llm_service.generate(prompt, Some(2048), Some(0.3)).await?;
