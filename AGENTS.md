@@ -353,6 +353,10 @@ npm test
 > - [ ] 使用指南是否反映最新交互方式
 > - [ ] CHANGELOG 链接是否有效
 
+> **⚠️ 代码更新后必做（永久记住）：**
+> - [ ] **重新构建 Windows `.exe`** — 任何前端代码（JS/CSS/TSX）或后端代码（Rust）修改后，必须执行 `cargo tauri build` 重新生成安装包，并复制产物到项目根目录
+> - [ ] 验证 `StoryForge.exe`、`StoryForge_latest.exe`、`.msi`、`-setup.exe` 修改时间是否最新
+
 **本地构建脚本**: `scripts/build-local.ps1`
 ```powershell
 # 推送前必执行：生成本地 Windows 安装包
