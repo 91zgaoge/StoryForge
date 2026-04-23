@@ -270,17 +270,46 @@ const FrontstageApp: React.FC = () => {
 
   // Request AI generation via writer_agent_execute
   const handleRequestGeneration = useCallback(async (context: string) => {
-    if (!currentChapter) {
-      toast.error('请先选择一个章节');
-      return;
-    }
-    if (wensiMode !== 'active') {
-      toast('请将文思模式切换到 🔥 活跃状态（Ctrl+Space）', { icon: '🔥' });
-      return;
-    }
     if (isGenerating) {
       toast('AI 正在生成中，请稍候...', { icon: '⏳' });
       return;
+    }
+
+    let targetChapter = currentChapter;
+    let targetContent = content;
+
+    // 智能判断：没有故事时，引导创建
+    if (!currentStory) {
+      toast.error('请先创建一个故事');
+      return;
+    }
+
+    // 智能判断：文思模式不是 active → 自动切换
+    if (wensiMode !== 'active') {
+      setWensiMode('active');
+      toast('已自动开启文思模式 🔥', { icon: '🔥' });
+    }
+
+    // 智能判断：没有章节 → 自动创建第一章
+    if (!targetChapter) {
+      toast('正在创建第一章...', { icon: '📝' });
+      try {
+        const newChapter = await invoke<Chapter>('create_chapter', {
+          story_id: currentStory.id,
+          chapter_number: 1,
+          title: '第一章',
+          content: '',
+        });
+        setChapters([newChapter]);
+        setCurrentChapter(newChapter);
+        targetChapter = newChapter;
+        targetContent = '';
+        toast.success('第一章已创建');
+      } catch (e) {
+        console.error('Create chapter failed:', e);
+        toast.error('创建章节失败');
+        return;
+      }
     }
 
     if (typewriterIntervalRef.current) {
@@ -293,7 +322,7 @@ const FrontstageApp: React.FC = () => {
     setOrchestratorStatus(null);
 
     const instruction = context || '请根据上下文续写接下来的内容，保持文风一致，情节连贯。';
-    const plainContent = content.replace(/<[^>]*>/g, '');
+    const plainContent = targetContent.replace(/<[^>]*>/g, '');
 
     let unlisten: (() => void) | null = null;
     try {
@@ -326,7 +355,7 @@ const FrontstageApp: React.FC = () => {
 
       const result = await writerAgentExecute({
         story_id: currentStory?.id || '',
-        chapter_number: currentChapter?.chapter_number,
+        chapter_number: targetChapter?.chapter_number,
         current_content: plainContent,
         instruction,
       });
@@ -366,7 +395,7 @@ const FrontstageApp: React.FC = () => {
         unlisten();
       }
     }
-  }, [currentChapter, wensiMode, isGenerating, content, currentStory]);
+  }, [currentChapter, wensiMode, isGenerating, content, currentStory, setWensiMode, setCurrentChapter, setChapters]);
 
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
@@ -439,8 +468,8 @@ const FrontstageApp: React.FC = () => {
         setIsZenMode(prev => !prev);
         return;
       }
-      // Ctrl+Enter / Cmd+Enter 续写（仅 active 模式）
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && wensiMode === 'active' && !isZenMode) {
+      // Ctrl+Enter / Cmd+Enter 续写（智能判断：非active时自动切换）
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !isZenMode) {
         e.preventDefault();
         handleRequestGeneration('');
         return;
@@ -661,10 +690,6 @@ const FrontstageApp: React.FC = () => {
                   }
                 }}
                 onFreePrompt={(prompt) => {
-                  if (!currentChapter) {
-                    toast.error('请先选择一个章节');
-                    return;
-                  }
                   handleRequestGeneration(prompt);
                   setShowWenSiPanel(false);
                 }}
