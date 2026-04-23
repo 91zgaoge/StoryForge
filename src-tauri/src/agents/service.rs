@@ -316,6 +316,15 @@ impl AgentService {
             temperature,
             tier,
         ).await?;
+
+        // 防御：LLM 返回空内容时记录并返回错误
+        if response.content.trim().is_empty() {
+            log::error!(
+                "[AgentService::execute_writer] LLM returned empty content. story_id={}, chapter_number={}, instruction_len={}",
+                task.context.story_id, task.context.chapter_number, task.input.len()
+            );
+            return Err("AI 返回了空内容，请检查模型配置或重试".to_string());
+        }
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Reviewing, "检查生成质量", 0.8);
         

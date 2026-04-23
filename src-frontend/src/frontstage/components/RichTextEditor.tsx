@@ -517,23 +517,21 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [editor, isAiThinking]);
 
-    // 处理 slash 输入框的提交 — 将用户原始输入传递给上层做意图解析
+    // 处理 slash 输入框的提交 — 所有用户输入统一走 smart_execute（后端模型驱动编排）
     const handleSlashSubmit = useCallback(() => {
       const text = slashInputText.trim();
       if (!text) return;
       setShowSlashInput(false);
       setSlashInputText('');
-      // 自由输入走智能生成（意图引擎解析），预定义命令走快捷路径
-      if (text === '续写' || text === '润色' || text === '古风' || text === '场景' || text === '排版' || text === '评点') {
-        onRequestGeneration?.(text);
-      } else if (text === '自动续写') {
+      // 仅保留需要打开面板的高级命令，其余全部交给模型驱动编排
+      if (text === '自动续写') {
         onSlashCommand?.('auto_write');
       } else if (text === '审校') {
         onSlashCommand?.('auto_revise');
       } else {
         onSmartGeneration?.(text);
       }
-    }, [slashInputText, onRequestGeneration, onSmartGeneration, onSlashCommand]);
+    }, [slashInputText, onSmartGeneration, onSlashCommand]);
 
     // 关闭 slash 输入框（取消）
     const handleSlashCancel = useCallback(() => {

@@ -3012,3 +3012,104 @@ body {
 }
 
 
+
+/* ===== AI Learning Indicator ===== */
+.ai-learning-indicator {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  width: 320px;
+  background: var(--parchment-dark, #faf8f5);
+  border: 1px solid var(--warm-sand, #e8e0d5);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  z-index: 50;
+  font-size: 13px;
+  animation: hint-slide-in 0.3s ease-out;
+}
+
+.ai-learning-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: var(--charcoal, #2d2a26);
+}
+
+.ai-learning-header button {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: var(--stone-gray);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.ai-learning-header button:hover {
+  background: var(--warm-sand);
+}
+
+.ai-learning-item {
+  padding: 10px;
+  background: rgba(0,0,0,0.03);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.ai-learning-item:last-child {
+  margin-bottom: 0;
+}
+
+.ai-learning-category {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--accent, #8b7355);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.ai-learning-observation {
+  margin: 4px 0;
+  color: var(--charcoal, #2d2a26);
+  line-height: 1.5;
+}
+
+.ai-learning-impact {
+  font-size: 12px;
+  color: var(--stone-gray, #6b6560);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.ai-learning-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ai-learning-actions button {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--warm-sand, #e8e0d5);
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--charcoal-light);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.ai-learning-actions button:hover {
+  background: var(--warm-sand, #e8e0d5);
+  color: var(--charcoal);
+}

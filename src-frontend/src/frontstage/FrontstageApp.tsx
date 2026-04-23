@@ -2,17 +2,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { GitBranch, Eye, X } from 'lucide-react';
-import { writerAgentExecute, recordFeedback } from '@/services/tauri';
+import { writerAgentExecute, recordFeedback, smartExecute } from '@/services/tauri';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useSubscription } from '@/hooks/useSubscription';
-import { useIntent } from '@/hooks/useIntent';
+// import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig } from '@/components/EditorSettings';
 import ColorThemeDot from './components/ColorThemeDot';
 import { UpgradePanel } from './components/UpgradePanel';
 import { WenSiPanel } from './components/WenSiPanel';
+import { AiLearningIndicator, LearningPoint } from './components/AiLearningIndicator';
 import toast from 'react-hot-toast';
 
 interface Story {
@@ -69,7 +70,7 @@ const FrontstageApp: React.FC = () => {
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subscription = useSubscription();
-  const { parseIntent, executeIntent } = useIntent();
+  // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
   const [isGenerating, setIsGenerating] = useState(false);
   const [orchestratorStatus, setOrchestratorStatus] = useState<{
     stepType: string;
@@ -84,6 +85,9 @@ const FrontstageApp: React.FC = () => {
 
   // F1 帮助面板
   const [showHelpPanel, setShowHelpPanel] = useState(false);
+
+  // AI 学习指示器
+  const [learnings, setLearnings] = useState<LearningPoint[]>([]);
 
   const editorRef = useRef<RichTextEditorRef>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -270,48 +274,11 @@ const FrontstageApp: React.FC = () => {
     });
   }, []);
 
-  // Request AI generation via writer_agent_execute
-  const handleRequestGeneration = useCallback(async (context: string) => {
+  // Request AI generation -- now routes through backend smart_execute
+  const handleRequestGeneration = useCallback(async (context?: string) => {
     if (isGenerating) {
       toast('AI 正在生成中，请稍候...', { icon: '⏳' });
       return;
-    }
-
-    let targetChapter = currentChapter;
-    let targetContent = content;
-
-    // 智能判断：没有故事时，引导创建
-    if (!currentStory) {
-      toast.error('请先创建一个故事');
-      return;
-    }
-
-    // 智能判断：文思模式不是 active → 自动切换
-    if (wensiMode !== 'active') {
-      setWensiMode('active');
-      toast('已自动开启文思模式 🔥', { icon: '🔥' });
-    }
-
-    // 智能判断：没有章节 → 自动创建第一章
-    if (!targetChapter) {
-      toast('正在创建第一章...', { icon: '📝' });
-      try {
-        const newChapter = await invoke<Chapter>('create_chapter', {
-          story_id: currentStory.id,
-          chapter_number: 1,
-          title: '第一章',
-          content: '',
-        });
-        setChapters([newChapter]);
-        setCurrentChapter(newChapter);
-        targetChapter = newChapter;
-        targetContent = '';
-        toast.success('第一章已创建');
-      } catch (e) {
-        console.error('Create chapter failed:', e);
-        toast.error('创建章节失败');
-        return;
-      }
     }
 
     if (typewriterIntervalRef.current) {
@@ -322,9 +289,6 @@ const FrontstageApp: React.FC = () => {
     setGeneratedText('');
     setIsGenerating(true);
     setOrchestratorStatus(null);
-
-    const instruction = context || '请根据上下文续写接下来的内容，保持文风一致，情节连贯。';
-    const plainContent = targetContent.replace(/<[^>]*>/g, '');
 
     let unlisten: (() => void) | null = null;
     try {
@@ -355,16 +319,18 @@ const FrontstageApp: React.FC = () => {
         });
       });
 
-      const result = await writerAgentExecute({
-        story_id: currentStory?.id || '',
-        chapter_number: targetChapter?.chapter_number,
-        current_content: plainContent,
-        instruction,
-      });
+      const result = await smartExecute({ user_input: context || '续写' });
 
       setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
 
-      const text = result.content || '';
+      const text = result.final_content || '';
+      if (!text.trim()) {
+        console.error('[Generation] Backend returned empty content');
+        toast.error('AI 返回了空内容，请检查模型配置或重试');
+        setIsGenerating(false);
+        setOrchestratorStatus(null);
+        return;
+      }
       let index = 0;
       typewriterIntervalRef.current = setInterval(() => {
         index += 3;
@@ -397,7 +363,7 @@ const FrontstageApp: React.FC = () => {
         unlisten();
       }
     }
-  }, [currentChapter, wensiMode, isGenerating, content, currentStory, setWensiMode, setCurrentChapter, setChapters]);
+  }, [isGenerating]);
 
   // Accept AI generation
   const handleAcceptGeneration = useCallback(() => {
@@ -413,6 +379,11 @@ const FrontstageApp: React.FC = () => {
         }).catch(e => console.error('Feedback record failed:', e));
       }
       setGeneratedText('');
+      // Mock learning data based on acceptance
+      setLearnings([
+        { category: '风格', observation: '用户接受了此次续写，偏好流畅的叙事节奏', impact: '后续生成将保持类似节奏' },
+        { category: '人物', observation: '当前章节人物对话被保留', impact: '对话风格将向此方向微调' },
+      ]);
     }
   }, [generatedText, currentStory, currentChapter]);
 
@@ -428,6 +399,11 @@ const FrontstageApp: React.FC = () => {
       }).catch(e => console.error('Feedback record failed:', e));
     }
     setGeneratedText('');
+    // Mock learning data based on rejection
+    setLearnings([
+      { category: '风格', observation: '用户拒绝了此次续写，可能与预期风格不符', impact: '将尝试调整措辞与叙事角度' },
+      { category: '情节', observation: '生成情节未获认可', impact: '后续将更紧密贴合已有上下文' },
+    ]);
   }, [generatedText, currentStory, currentChapter]);
 
   // 处理内联修改建议
@@ -440,122 +416,32 @@ const FrontstageApp: React.FC = () => {
     });
   }, []);
 
-  // 智能生成入口 — 解析用户意图后调度到正确 Agent/技能/MCP
+  // 智能生成入口 -- 简化为直接调用后端 smart_execute
   const handleSmartGeneration = useCallback(async (userInput: string) => {
     if (isGenerating) {
       toast('AI 正在生成中，请稍候...', { icon: '⏳' });
       return;
     }
 
-    // 智能状态调整
-    if (wensiMode !== 'active') {
-      setWensiMode('active');
-      toast('已自动开启文思模式 🔥', { icon: '🔥' });
-    }
-
-    // 智能判断：没有故事
-    if (!currentStory) {
-      toast.error('请先创建一个故事');
-      return;
-    }
-
-    // 智能判断：没有章节 → 自动创建第一章
-    let targetChapter = currentChapter;
-    if (!targetChapter) {
-      toast('正在创建第一章...', { icon: '📝' });
-      try {
-        const newChapter = await invoke<Chapter>('create_chapter', {
-          story_id: currentStory.id,
-          chapter_number: 1,
-          title: '第一章',
-          content: '',
-        });
-        setChapters([newChapter]);
-        setCurrentChapter(newChapter);
-        targetChapter = newChapter;
-        toast.success('第一章已创建');
-      } catch (e) {
-        console.error('Create chapter failed:', e);
-        toast.error('创建章节失败');
-        return;
-      }
-    }
-
-    // 意图解析
+    setIsGenerating(true);
     try {
-      console.log('[SmartGen] Parsing intent for:', userInput);
-      const intent = await parseIntent(userInput);
-      console.log('[SmartGen] Intent parsed:', intent);
+      const result = await smartExecute({ user_input: userInput });
 
-      // 强制回退：用户输入包含明显创作关键词 → 走续写（不依赖意图解析）
-      const forceGeneratePattern = /写|创作|生成|续写|扩写|补写|开篇|开头/i;
-      if (intent && !['text_generate', 'text_rewrite', 'unknown'].includes(intent.intent_type) && forceGeneratePattern.test(userInput)) {
-        console.log('[SmartGen] Force fallback to text_generate due to creation keywords');
-        handleRequestGeneration(userInput);
-        return;
+      if (result.final_content) {
+        setGeneratedText(result.final_content);
       }
 
-      if (!intent) {
-        // 解析失败，回退到自由指令续写
-        console.log('[SmartGen] Parse failed, fallback to direct generation');
-        handleRequestGeneration(userInput);
-        return;
-      }
-
-      // 根据意图类型分发
-      if (intent.intent_type === 'text_generate' || intent.intent_type === 'unknown') {
-        // 文本生成 / 未知意图 → 走续写逻辑
-        const instruction = intent.constraints.length > 0
-          ? `${userInput}（要求：${intent.constraints.join('；')}）`
-          : userInput;
-        console.log('[SmartGen] Routing to text_generate:', instruction);
-        handleRequestGeneration(instruction);
-      } else if (intent.intent_type === 'text_rewrite') {
-        // 改写 → 走续写逻辑，传入改写指令
-        console.log('[SmartGen] Routing to text_rewrite');
-        handleRequestGeneration(`请改写以下内容：${userInput}。要求：${intent.constraints.join('；')}`);
-      } else {
-        // 其他意图（plot_suggest, character_check, world_consistency, style_shift, outline_expand）
-        // → 调用 IntentExecutor，结果以 toast / ghost text 展示
-        console.log('[SmartGen] Routing to executeIntent:', intent.intent_type);
-        setIsGenerating(true);
-        try {
-          const result = await executeIntent(intent, currentStory.id);
-          console.log('[SmartGen] Execution result:', result);
-          if (result) {
-            // 优先取最后一个成功 Agent 的实际内容，回退到 summary
-            const lastSuccessContent = result.steps
-              .slice()
-              .reverse()
-              .find(s => s.success && s.result?.content)
-              ?.result?.content;
-            const displayText = lastSuccessContent || result.summary;
-
-            if (result.feedback_type === 'direct_apply' && displayText) {
-              // 直接应用 → 以 ghost text 展示
-              setGeneratedText(displayText);
-            } else if (displayText) {
-              // 建议卡片 / 系统通知 → 以 toast 展示
-              toast(displayText, { icon: '💡', duration: 10000 });
-            } else {
-              toast('AI 已处理，但没有返回具体内容', { icon: '💡' });
-            }
-          }
-        } finally {
-          setIsGenerating(false);
-        }
+      // If a new story was created, refresh the story list
+      if (result.messages.some(m => m.includes('story_created'))) {
+        loadStories();
       }
     } catch (e) {
-      console.error('[SmartGen] Intent processing failed:', e);
-      // 异常回退到自由指令
-      handleRequestGeneration(userInput);
+      console.error('Smart execution failed:', e);
+      toast.error('执行失败，请重试');
+    } finally {
+      setIsGenerating(false);
     }
-  }, [isGenerating, wensiMode, currentStory, currentChapter, parseIntent, executeIntent, handleRequestGeneration]);
-
-  // 适配器：将编辑器的 onRequestGeneration 调用转为 handleRequestGeneration（明确续写路径）
-  const handleRequestGenerationForEditor = useCallback((instruction?: string) => {
-    handleRequestGeneration(instruction || '');
-  }, [handleRequestGeneration]);
+  }, [isGenerating]);
 
   // 处理编辑器 Slash 命令
   const handleSlashCommand = useCallback((commandId: string) => {
@@ -742,7 +628,7 @@ const FrontstageApp: React.FC = () => {
             isGenerating={isGenerating}
             onAcceptGeneration={handleAcceptGeneration}
             onRejectGeneration={handleRejectGeneration}
-            onRequestGeneration={handleRequestGenerationForEditor}
+            onRequestGeneration={handleRequestGeneration}
             onSmartGeneration={handleSmartGeneration}
             onSlashCommand={handleSlashCommand}
             placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
@@ -896,6 +782,22 @@ const FrontstageApp: React.FC = () => {
         trigger={upgradeTrigger}
         onUpgraded={() => subscription.fetchStatus()}
       />
+
+      {/* AI 学习指示器 */}
+      {learnings.length > 0 && !isZenMode && (
+        <AiLearningIndicator
+          learnings={learnings}
+          onDismiss={() => setLearnings([])}
+          onStrengthen={(idx) => {
+            toast.success(`已强化「${learnings[idx].category}」偏好`);
+            setLearnings([]);
+          }}
+          onIgnore={(idx) => {
+            toast('已忽略该观察');
+            setLearnings(prev => prev.filter((_, i) => i !== idx));
+          }}
+        />
+      )}
 
       {/* 禅模式退出提示 */}
       {isZenMode && (

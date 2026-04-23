@@ -173,6 +173,21 @@ export const parseIntent = (req: IntentParseRequest) =>
 export const executeIntent = (intent: Intent, storyId: string) =>
   invoke<IntentExecutionResult>('execute_intent', { intent, story_id: storyId });
 
+// Smart Execute - Model-driven orchestration
+export interface SmartExecuteRequest {
+  user_input: string;
+}
+
+export interface SmartExecuteResult {
+  success: boolean;
+  steps_completed: number;
+  final_content?: string;
+  messages: string[];
+}
+
+export const smartExecute = (req: SmartExecuteRequest) =>
+  invoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input });
+
 // Feedback Recording
 export interface RecordFeedbackRequest {
   story_id: string;
@@ -302,6 +317,8 @@ export const writerAgentExecute = (params: {
   instruction: string;
 }) =>
   invoke<{ content: string; story_id?: string; chapter_id?: string; task_id: string }>('writer_agent_execute', { request: params });
+
+
 
 // Memory Compressor
 export const compressContent = (params: { story_id: string; content: string; target_ratio?: number }) =>

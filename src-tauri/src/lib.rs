@@ -30,6 +30,8 @@ mod subscription;
 mod book_deconstruction;
 mod task_system;
 mod canonical_state;
+mod capabilities;
+mod planner;
 mod audit;
 
 #[cfg(test)]
@@ -68,6 +70,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                log::info!("Window close requested, force exiting application to prevent zombie processes");
+                std::process::exit(0);
+            }
+        })
         .setup(|app| {
             let app_dir = app.path().app_data_dir()
                 .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
@@ -239,6 +247,8 @@ pub fn run() {
             parse_intent,
             execute_intent,
             record_feedback,
+            // Smart orchestrator
+            smart_execute,
             // Agent commands
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
@@ -382,6 +392,7 @@ pub fn run() {
             commands_v3::generate_scene_draft,
             // Audit commands
             audit::commands::audit_scene,
+            smart_execute,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
@@ -626,8 +637,18 @@ fn delete_chapter(id: String) -> Result<(), String> {
 
 #[tauri::command]
 fn create_chapter(story_id: String, chapter_number: i32, title: Option<String>, outline: Option<String>, content: Option<String>) -> Result<db::Chapter, String> {
+    let repo = ChapterRepository::new(get_pool().ok_or("DB not initialized")?);
+
+    // 如果该 chapter_number 已存在，直接返回已有章节（幂等）
+    if let Ok(chapters) = repo.get_by_story(&story_id) {
+        if let Some(existing) = chapters.into_iter().find(|c| c.chapter_number == chapter_number) {
+            log::info!("[create_chapter] Chapter {} already exists for story {}, returning existing", chapter_number, story_id);
+            return Ok(existing);
+        }
+    }
+
     let req = CreateChapterRequest { story_id, chapter_number, title, outline, content };
-    let chapter = ChapterRepository::new(get_pool().ok_or("DB not initialized")?).create(req).map_err(|e| e.to_string())?;
+    let chapter = repo.create(req).map_err(|e| e.to_string())?;
 
     // AfterChapterSave hook
     if let Some(manager) = SKILL_MANAGER.get() {
@@ -944,6 +965,55 @@ async fn execute_intent(
     executor.execute(intent, story_id).await
 }
 
+/// 智能执行命令 - 新一代意图理解与执行入口
+#[tauri::command]
+async fn smart_execute(
+    user_input: String,
+    app_handle: AppHandle,
+) -> Result<planner::PlanExecutionResult, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+
+    // 构建 PlanContext：从当前系统状态推断
+    let stories = StoryRepository::new(pool.clone()).get_all().map_err(|e| e.to_string())?;
+    let current_story = stories.first().cloned();
+    let current_story_id = current_story.as_ref().map(|s| s.id.clone());
+
+    let chapters = if let Some(ref story_id) = current_story_id {
+        ChapterRepository::new(pool.clone())
+            .get_by_story(story_id)
+            .map_err(|e| e.to_string())?
+    } else {
+        vec![]
+    };
+
+    let chapter_count = chapters.len();
+    let current_content_preview = chapters.last().and_then(|c| {
+        c.content.as_ref().map(|content| {
+            let preview: String = content.chars().take(200).collect();
+            if content.len() > 200 {
+                format!("{}...", preview)
+            } else {
+                preview
+            }
+        })
+    });
+
+    let plan_context = planner::PlanContext {
+        current_story_id,
+        has_story: !stories.is_empty(),
+        has_chapters: !chapters.is_empty(),
+        chapter_count,
+        current_content_preview,
+        user_input: user_input.clone(),
+    };
+
+    // 执行计划（内部会自动检查模板库并生成计划）
+    let executor = planner::PlanExecutor::new(app_handle);
+    let result = executor.execute_with_context(&plan_context).await?;
+
+    Ok(result)
+}
+
 #[derive(Debug, Deserialize)]
 struct RecordFeedbackRequest {
     story_id: String,
@@ -1159,3 +1229,7 @@ async fn get_canonical_state(story_id: String) -> Result<canonical_state::Canoni
     let manager = canonical_state::CanonicalStateManager::new(pool);
     manager.get_snapshot(&story_id).await
 }
+
+// ===== 模型驱动的智能编排命令 =====
+
+
