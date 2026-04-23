@@ -148,6 +148,19 @@ npm test
 
 ### 最近完成的功能
 
+- **v4.2.0 智能交互设计重构 V2：模型驱动的编排范式** (2026-04-23) — 从程序式编排转向模型式编排
+  - **核心理念**: 人类只定义能力能做什么（自然语言描述），模型负责编排（什么时候用、怎么用、按什么顺序）。移除所有关键词匹配、意图分类枚举、if/else 分支判断用户意图。
+  - **CapabilityRegistry（能力自描述系统）**: Agent 和 Skill 用自然语言描述自己（`description` / `when_to_use` / `input_description` / `output_description`），模型阅读描述自主选择。人类不再写死 Agent 映射规则。
+  - **PlanGenerator（模型计划生成器）**: 取代 IntentParser + IntentExecutor。LLM 接收系统状态 + 用户输入 + 能力清单，自主输出执行计划（自由文本理解 + 步骤列表 + 参数 + 依赖关系）。
+  - **PlanExecutor（计划执行引擎）**: Dumb executor，忠实执行 LLM 生成的计划。按顺序执行步骤、传递输出、处理失败。所有决策已在计划中。
+  - **PromptEvolver（提示词进化器）**: LLM 根据故事上下文（题材、叙事阶段、用户偏好）自由改写整个 prompt。不是模板变量替换，而是真正的"进化"。
+  - **AiLearningIndicator（记忆显性化）**: 前端组件，每次 AI 交互后展示"系统学到了什么"。让"越写越懂"对用户可见。
+  - **CapabilityEvolutionEngine（能力进化反馈环）**: 记录能力调用结果，长期优化能力描述准确性。
+  - **PlanTemplateLibrary（计划模板学习）**: 记录成功执行计划，类似请求复用或微调。
+  - **移除的程序式规则**: IntentType 枚举（11 类预设分类）、前端正则关键词检测、IntentExecutor.map_agents 写死映射、`if (!currentStory)` 强制报错流程。
+  - **前端简化**: `handleSmartGeneration` / `handleRequestGeneration` 统一走 `smart_execute`，用户任何输入都交给模型决定。
+  - 编译: `cargo check` 零错误零警告，`cargo test` 160/160，`npm run build` 通过
+
 - **v4.1.0 幕前界面深度重构：化整为零，萤火随行** (2026-04-22) — P0+P1+P2 全流程体验重构
   - **设计理念**: 从 20+ 可见 UI 元素缩减至 <5 持久元素。AI 功能以萤火暗示（firefly hints）形式按需浮现，用完即隐。"创作者不应在工具中花费精力标注自己的创作"——移除所有显式注释/评论创建 UI。
   - **P0 核心重构 (4 项)**:
@@ -334,6 +347,10 @@ npm test
 - `cargo check --release` ✅ | 警告: 0
 - `npm run build` ✅
 - `cargo test` ✅ 160/160
+
+---
+
+*最后更新: 2026-04-23 - v4.2.0 模型驱动的智能编排范式*
 
 ---
 
