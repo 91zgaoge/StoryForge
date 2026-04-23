@@ -270,7 +270,18 @@ const FrontstageApp: React.FC = () => {
 
   // Request AI generation via writer_agent_execute
   const handleRequestGeneration = useCallback(async (context: string) => {
-    if (!currentChapter || wensiMode !== 'active' || isGenerating) return;
+    if (!currentChapter) {
+      toast.error('请先选择一个章节');
+      return;
+    }
+    if (wensiMode !== 'active') {
+      toast('请将文思模式切换到 🔥 活跃状态（Ctrl+Space）', { icon: '🔥' });
+      return;
+    }
+    if (isGenerating) {
+      toast('AI 正在生成中，请稍候...', { icon: '⏳' });
+      return;
+    }
 
     if (typewriterIntervalRef.current) {
       clearInterval(typewriterIntervalRef.current);
