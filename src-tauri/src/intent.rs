@@ -133,7 +133,7 @@ impl IntentParser {
             r#"你是一个专业的创作助手意图解析器。请将用户的输入解析为固定的 JSON 格式。
 
 可识别的意图类型 (intent_type):
-- text_generate: 文本续写、扩展内容
+- text_generate: 文本续写、扩展内容、从头开始创作新内容。用户使用"写"、"创作"、"生成"、"续"、"扩"、"补"、"开篇"、"开头"等词时，必须识别为 text_generate
 - text_rewrite: 改写、润色已有文本
 - plot_suggest: 情节建议、反转设计、剧情推进
 - character_check: 角色一致性检查、角色动机分析
@@ -142,7 +142,7 @@ impl IntentParser {
 - memory_ingest: 知识摄取、更新记忆
 - visual_generate: 生成图像、概念图
 - scene_reorder: 场景结构调整、排序
-- outline_expand: 大纲扩展
+- outline_expand: 大纲扩展（仅在用户明确要求扩展大纲时使用，不要与 text_generate 混淆）
 - unknown: 无法识别或闲聊
 
 执行模式 (execution_mode):
@@ -150,27 +150,29 @@ impl IntentParser {
 - parallel: 并行执行
 
 反馈类型 (feedback_type):
-- direct_apply: 直接修改（适用于续写）
+- direct_apply: 直接修改（适用于续写、创作）
 - suggestion_card: 建议卡片（适用于情节建议）
 - diff_preview: Diff预览（适用于改写）
 - system_notice: 系统通知（适用于异步任务）
 - visual_highlight: 可视化高亮（适用于检查结果）
 
 可用 Agent (required_agents):
-- writer
-- style_mimic
-- plot_analyzer
-- outline_planner
-- character_agent
-- world_building_agent
-- memory_agent
-- inspector
+- writer: 写作助手，用于 text_generate/text_rewrite
+- style_mimic: 风格模仿师
+- plot_analyzer: 情节分析师
+- outline_planner: 大纲规划师
+- character_agent: 角色分析 Agent
+- world_building_agent: 世界观 Agent
+- memory_agent: 记忆 Agent
+- inspector: 质检员
 
-规则:
+关键规则:
 1. 必须且只能返回合法的 JSON，不要包含 markdown 代码块标记。
-2. target 字段用于指明操作对象，如场景、角色等。target_type 可选值: scene, character, story, paragraph。
-3. constraints 是用户对结果的具体约束条件列表。
-4. 如果用户只是打招呼或闲聊，返回 intent_type: unknown。
+2. 用户说"写一篇..."、"创作一个..."、"生成..."等明确请求生成文字内容时，intent_type 必须是 text_generate，required_agents 必须包含 writer，feedback_type 必须是 direct_apply。
+3. 用户说"帮我想个..."、"给点建议"等请求思路时，intent_type 是 plot_suggest，feedback_type 是 suggestion_card。
+4. target 字段用于指明操作对象，如场景、角色等。target_type 可选值: scene, character, story, paragraph。
+5. constraints 是用户对结果的具体约束条件列表。
+6. 如果用户只是打招呼或闲聊，返回 intent_type: unknown。
 
 JSON Schema:
 {{
@@ -447,6 +449,7 @@ impl IntentExecutor {
     }
 
     /// 构建执行结果摘要
+    /// 优先返回最后一个成功 Agent 的实际生成内容，让用户看到有用的结果
     fn build_summary(intent: &Intent, steps: &[AgentStepResult]) -> String {
         let success_count = steps.iter().filter(|s| s.success).count();
         let total_count = steps.len();
@@ -455,6 +458,16 @@ impl IntentExecutor {
             return "未执行任何 Agent 任务。".to_string();
         }
 
+        // 优先返回最后一个成功 Agent 的实际内容
+        if let Some(last_success) = steps.iter().rev().find(|s| s.success) {
+            if let Some(ref result) = last_success.result {
+                if !result.content.is_empty() {
+                    return result.content.clone();
+                }
+            }
+        }
+
+        // 回退到状态摘要
         if success_count == total_count {
             format!(
                 "{} 意图已完全执行，共调用 {} 个 Agent。",

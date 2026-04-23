@@ -483,9 +483,21 @@ const FrontstageApp: React.FC = () => {
 
     // 意图解析
     try {
+      console.log('[SmartGen] Parsing intent for:', userInput);
       const intent = await parseIntent(userInput);
+      console.log('[SmartGen] Intent parsed:', intent);
+
+      // 强制回退：用户输入包含明显创作关键词 → 走续写（不依赖意图解析）
+      const forceGeneratePattern = /写|创作|生成|续写|扩写|补写|开篇|开头/i;
+      if (intent && !['text_generate', 'text_rewrite', 'unknown'].includes(intent.intent_type) && forceGeneratePattern.test(userInput)) {
+        console.log('[SmartGen] Force fallback to text_generate due to creation keywords');
+        handleRequestGeneration(userInput);
+        return;
+      }
+
       if (!intent) {
         // 解析失败，回退到自由指令续写
+        console.log('[SmartGen] Parse failed, fallback to direct generation');
         handleRequestGeneration(userInput);
         return;
       }
@@ -496,23 +508,37 @@ const FrontstageApp: React.FC = () => {
         const instruction = intent.constraints.length > 0
           ? `${userInput}（要求：${intent.constraints.join('；')}）`
           : userInput;
+        console.log('[SmartGen] Routing to text_generate:', instruction);
         handleRequestGeneration(instruction);
       } else if (intent.intent_type === 'text_rewrite') {
         // 改写 → 走续写逻辑，传入改写指令
+        console.log('[SmartGen] Routing to text_rewrite');
         handleRequestGeneration(`请改写以下内容：${userInput}。要求：${intent.constraints.join('；')}`);
       } else {
         // 其他意图（plot_suggest, character_check, world_consistency, style_shift, outline_expand）
         // → 调用 IntentExecutor，结果以 toast / ghost text 展示
+        console.log('[SmartGen] Routing to executeIntent:', intent.intent_type);
         setIsGenerating(true);
         try {
           const result = await executeIntent(intent, currentStory.id);
+          console.log('[SmartGen] Execution result:', result);
           if (result) {
-            if (result.feedback_type === 'direct_apply' && result.summary) {
+            // 优先取最后一个成功 Agent 的实际内容，回退到 summary
+            const lastSuccessContent = result.steps
+              .slice()
+              .reverse()
+              .find(s => s.success && s.result?.content)
+              ?.result?.content;
+            const displayText = lastSuccessContent || result.summary;
+
+            if (result.feedback_type === 'direct_apply' && displayText) {
               // 直接应用 → 以 ghost text 展示
-              setGeneratedText(result.summary);
-            } else {
+              setGeneratedText(displayText);
+            } else if (displayText) {
               // 建议卡片 / 系统通知 → 以 toast 展示
-              toast(result.summary, { icon: '💡', duration: 10000 });
+              toast(displayText, { icon: '💡', duration: 10000 });
+            } else {
+              toast('AI 已处理，但没有返回具体内容', { icon: '💡' });
             }
           }
         } finally {
@@ -520,7 +546,7 @@ const FrontstageApp: React.FC = () => {
         }
       }
     } catch (e) {
-      console.error('Intent processing failed:', e);
+      console.error('[SmartGen] Intent processing failed:', e);
       // 异常回退到自由指令
       handleRequestGeneration(userInput);
     }
