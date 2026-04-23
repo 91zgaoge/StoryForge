@@ -2463,6 +2463,31 @@ body {
   opacity: 0.5;
 }
 
+.wensi-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--warm-sand);
+  border-radius: 8px;
+  background: var(--parchment);
+  color: var(--charcoal);
+  font-size: 13px;
+  font-family: var(--font-serif);
+  line-height: 1.6;
+  resize: vertical;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wensi-textarea:focus {
+  outline: none;
+  border-color: var(--terracotta-light);
+  box-shadow: 0 0 0 2px oklch(65% 0.12 45 / 0.15);
+}
+
+.wensi-textarea::placeholder {
+  color: var(--charcoal-light);
+  opacity: 0.6;
+}
+
 .wensi-select {
   padding: 4px 8px;
   border: 1px solid var(--warm-sand);

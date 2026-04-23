@@ -151,6 +151,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       { id: 'auto_revise', name: '全文审校', description: '自动审校并修改', category: 'advanced' },
       { id: 'commentary', name: '生成评点', description: '生成古典评点', category: 'advanced' },
       { id: 'format', name: '排版', description: '智能排版', category: 'tools' },
+      { id: 'dialog', name: '自由指令', description: '输入任意创作指令', category: 'tools' },
     ];
 
     // 修订模式状态（受控）
@@ -179,6 +180,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
 
     // 用于在 handleKeyDown 中调用 Slash 命令的 ref
     const slashActionRef = useRef<(id: string) => void>(() => {});
+    // 同步状态到 ref，避免 useEditor 闭包问题
+    const showSlashMenuRef = useRef(showSlashMenu);
+    const slashMenuIndexRef = useRef(slashMenuIndex);
+    useEffect(() => { showSlashMenuRef.current = showSlashMenu; }, [showSlashMenu]);
+    useEffect(() => { slashMenuIndexRef.current = slashMenuIndex; }, [slashMenuIndex]);
 
     const editor = useEditor({
       extensions: [
@@ -265,7 +271,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             return false;
           }
 
-          if (showSlashMenu) {
+          if (showSlashMenuRef.current) {
             if (event.key === 'ArrowDown') {
               event.preventDefault();
               setSlashMenuIndex(i => (i + 1) % slashCommands.length);
@@ -278,7 +284,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             }
             if (event.key === 'Enter' || event.key === 'Tab') {
               event.preventDefault();
-              const cmd = slashCommands[slashMenuIndex];
+              const idx = slashMenuIndexRef.current;
+              const cmd = slashCommands[idx];
               if (cmd) {
                 setShowSlashMenu(false);
                 // 删除输入的 / 字符

@@ -78,7 +78,7 @@ const FrontstageApp: React.FC = () => {
 
   // WenSi 浮动面板
   const [showWenSiPanel, setShowWenSiPanel] = useState(false);
-  const [wenSiTab, setWenSiTab] = useState<'write' | 'revise'>('write');
+  const [wenSiTab, setWenSiTab] = useState<'write' | 'revise' | 'dialog'>('write');
 
   const editorRef = useRef<RichTextEditorRef>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -410,6 +410,9 @@ const FrontstageApp: React.FC = () => {
       setShowWenSiPanel(true);
     } else if (commandId === 'commentary') {
       editorRef.current?.generateCommentary();
+    } else if (commandId === 'dialog') {
+      setWenSiTab('dialog');
+      setShowWenSiPanel(true);
     }
   }, []);
 
@@ -630,6 +633,14 @@ const FrontstageApp: React.FC = () => {
                     editorRef.current.insertText(html);
                     toast.success('修改内容已应用到编辑器');
                   }
+                }}
+                onFreePrompt={(prompt) => {
+                  if (!currentChapter) {
+                    toast.error('请先选择一个章节');
+                    return;
+                  }
+                  handleRequestGeneration(prompt);
+                  setShowWenSiPanel(false);
                 }}
               />
             </div>

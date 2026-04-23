@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Zap, Wand2, Play, Square, Loader2, Settings2, X, Check } from 'lucide-react';
+import { Zap, Wand2, Play, Square, Loader2, Settings2, X, Check, MessageSquare, Send } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { autoWrite, autoWriteCancel, autoRevise, autoReviseCancel, recordFeedback } from '@/services/tauri';
 import { StreamOutput } from '@/components/StreamOutput';
@@ -26,9 +26,10 @@ export interface WenSiPanelProps {
   editorContent?: string;
   selectedText?: string;
   onReviseResult?: (text: string) => void;
+  onFreePrompt?: (prompt: string) => void;
 }
 
-type PanelTab = 'none' | 'write' | 'revise';
+type PanelTab = 'none' | 'write' | 'revise' | 'dialog';
 
 export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   storyId,
@@ -41,6 +42,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   editorContent,
   selectedText,
   onReviseResult,
+  onFreePrompt,
 }) => {
   const [activeTab, setActiveTab] = useState<PanelTab>('none');
 
@@ -59,6 +61,9 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
   const [reviseType, setReviseType] = useState('comprehensive');
   const [reviseResultText, setReviseResultText] = useState('');
   const [showReviseResult, setShowReviseResult] = useState(false);
+
+  // 自由指令状态
+  const [freePromptText, setFreePromptText] = useState('');
 
   const unlistenRef = useRef<(() => void) | null>(null);
   const reviseUnlistenRef = useRef<(() => void) | null>(null);
@@ -354,6 +359,16 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
             <span>自动修改</span>
             {isAutoRevising && <Loader2 className="w-3 h-3 animate-spin" />}
           </button>
+          <button
+            onClick={() => setActiveTab(activeTab === 'dialog' ? 'none' : 'dialog')}
+            className={cn(
+              'wensi-tab',
+              activeTab === 'dialog' && 'wensi-tab-active'
+            )}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>自由指令</span>
+          </button>
         </div>
         <div className="wensi-quota" title="今日配额">
           <span className="wensi-quota-text">{quotaText}</span>
@@ -482,6 +497,44 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
                 停止修改
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 自由指令面板 */}
+      {activeTab === 'dialog' && (
+        <div className="wensi-section">
+          <div className="wensi-row flex-col items-stretch gap-2">
+            <textarea
+              value={freePromptText}
+              onChange={(e) => setFreePromptText(e.target.value)}
+              placeholder="输入创作指令，例如：写一篇武侠小说吧、让主角遭遇一场意外、增加一段环境描写..."
+              className="wensi-textarea"
+              rows={3}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.ctrlKey && freePromptText.trim()) {
+                  e.preventDefault();
+                  onFreePrompt?.(freePromptText.trim());
+                  setFreePromptText('');
+                }
+              }}
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-gray-500">Ctrl+Enter 发送</span>
+              <button
+                onClick={() => {
+                  if (freePromptText.trim()) {
+                    onFreePrompt?.(freePromptText.trim());
+                    setFreePromptText('');
+                  }
+                }}
+                disabled={!freePromptText.trim()}
+                className="wensi-btn-primary disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Send className="w-3 h-3" />
+                发送指令
+              </button>
+            </div>
           </div>
         </div>
       )}
