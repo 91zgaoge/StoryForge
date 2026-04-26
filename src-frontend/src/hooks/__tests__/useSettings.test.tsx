@@ -42,8 +42,8 @@ describe('useSetActiveModel', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invoke).toHaveBeenCalledWith('set_active_model', {
-      model_type: 'chat',
-      model_id: 'model-1',
+      modelType: 'chat',
+      modelId: 'model-1',
     });
   });
 
@@ -60,8 +60,8 @@ describe('useSetActiveModel', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invoke).toHaveBeenCalledWith('set_active_model', {
-      model_type: 'multimodal',
-      model_id: 'gemma-4',
+      modelType: 'multimodal',
+      modelId: 'gemma-4',
     });
   });
 
@@ -78,8 +78,8 @@ describe('useSetActiveModel', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invoke).toHaveBeenCalledWith('set_active_model', {
-      model_type: 'embedding',
-      model_id: 'bge-m3',
+      modelType: 'embedding',
+      modelId: 'bge-m3',
     });
   });
 
