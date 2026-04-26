@@ -68,40 +68,85 @@ impl NovelBootstrapWorkflow {
         let session_id = Uuid::new_v4().to_string();
         let total_steps = 5;
 
+        // 创建持久化会话记录
+        self.create_session(&session_id, total_steps).map_err(|e| format!("Failed to create session: {}", e))?;
+
         // Step 1: 生成故事概念
+        self.update_session(&session_id, "concept", 0, None).ok();
         self.emit_progress(&session_id, "构思故事", 1, total_steps, "正在生成故事概念...");
-        let story_concept = self.generate_story_concept(user_premise).await?;
+        let story_concept = match self.generate_story_concept(user_premise).await {
+            Ok(c) => c,
+            Err(e) => {
+                self.fail_session(&session_id, &format!("故事概念生成失败: {}", e)).ok();
+                return Err(e);
+            }
+        };
 
         // 创建 Story 记录
         let story_repo = StoryRepository::new(self.pool.clone());
-        let story = story_repo.create(CreateStoryRequest {
+        let story = match story_repo.create(CreateStoryRequest {
             title: story_concept.title.clone(),
             description: Some(story_concept.description.clone()),
             genre: Some(story_concept.genre.clone()),
             style_dna_id: None,
-        }).map_err(|e| e.to_string())?;
+        }) {
+            Ok(s) => s,
+            Err(e) => {
+                self.fail_session(&session_id, &format!("创建故事失败: {}", e)).ok();
+                return Err(e.to_string());
+            }
+        };
         let story_id = story.id.clone();
+        self.update_session(&session_id, "world_building", 1, Some(&story_id)).ok();
 
         self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事《{}》已创建", story.title));
 
         // Step 2: 生成世界观
         self.emit_progress(&session_id, "构建世界观", 2, total_steps, "正在生成世界观设定...");
-        let world_building = self.generate_world_building(&story_id, &story_concept).await?;
+        let world_building = match self.generate_world_building(&story_id, &story_concept).await {
+            Ok(w) => w,
+            Err(e) => {
+                self.fail_session(&session_id, &format!("世界观生成失败: {}", e)).ok();
+                return Err(e);
+            }
+        };
+        self.update_session(&session_id, "characters", 2, Some(&story_id)).ok();
         self.emit_progress(&session_id, "构建世界观", 2, total_steps, "世界观设定已保存");
 
         // Step 3: 生成角色
         self.emit_progress(&session_id, "设计角色", 3, total_steps, "正在生成主要角色...");
-        let characters = self.generate_characters(&story_id, &story_concept, &world_building).await?;
+        let characters = match self.generate_characters(&story_id, &story_concept, &world_building).await {
+            Ok(c) => c,
+            Err(e) => {
+                self.fail_session(&session_id, &format!("角色生成失败: {}", e)).ok();
+                return Err(e);
+            }
+        };
+        self.update_session(&session_id, "scenes", 3, Some(&story_id)).ok();
         self.emit_progress(&session_id, "设计角色", 3, total_steps, &format!("已创建 {} 个角色", characters.len()));
 
         // Step 4: 生成场景大纲
         self.emit_progress(&session_id, "规划场景", 4, total_steps, "正在生成场景大纲...");
-        let scenes = self.generate_scene_outline(&story_id, &story_concept, &characters).await?;
+        let scenes = match self.generate_scene_outline(&story_id, &story_concept, &characters).await {
+            Ok(s) => s,
+            Err(e) => {
+                self.fail_session(&session_id, &format!("场景大纲生成失败: {}", e)).ok();
+                return Err(e);
+            }
+        };
+        self.update_session(&session_id, "first_chapter", 4, Some(&story_id)).ok();
         self.emit_progress(&session_id, "规划场景", 4, total_steps, &format!("已规划 {} 个场景", scenes.len()));
 
         // Step 5: 生成第一章
         self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "正在撰写第一章...");
-        let _first_chapter = self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await?;
+        let _first_chapter = match self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await {
+            Ok(c) => c,
+            Err(e) => {
+                self.fail_session(&session_id, &format!("第一章生成失败: {}", e)).ok();
+                return Err(e);
+            }
+        };
+        self.complete_session(&session_id, &story_id).ok();
         self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "第一章已完成");
 
         // 发送 DataRefresh 事件让前端刷新故事列表
@@ -464,6 +509,52 @@ impl NovelBootstrapWorkflow {
             message: message.to_string(),
         };
         let _ = self.app_handle.emit("novel-bootstrap-progress", event);
+    }
+
+    // ==================== 会话持久化 ====================
+
+    fn create_session(&self, session_id: &str, total_steps: usize) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO novel_bootstrap_sessions (id, status, current_step, steps_completed, total_steps, created_at)
+             VALUES (?1, 'in_progress', 'concept', 0, ?2, ?3)",
+            rusqlite::params![session_id, total_steps as i32, chrono::Local::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    fn update_session(&self, session_id: &str, current_step: &str, steps_completed: usize, story_id: Option<&str>) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE novel_bootstrap_sessions
+             SET current_step = ?2, steps_completed = ?3, story_id = ?4
+             WHERE id = ?1",
+            rusqlite::params![session_id, current_step, steps_completed as i32, story_id],
+        )?;
+        Ok(())
+    }
+
+    fn complete_session(&self, session_id: &str, story_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE novel_bootstrap_sessions
+             SET status = 'completed', current_step = 'completed', steps_completed = total_steps,
+                 story_id = ?2, completed_at = ?3
+             WHERE id = ?1",
+            rusqlite::params![session_id, story_id, chrono::Local::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    fn fail_session(&self, session_id: &str, error_message: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "UPDATE novel_bootstrap_sessions
+             SET status = 'failed', error_message = ?2
+             WHERE id = ?1",
+            rusqlite::params![session_id, error_message],
+        )?;
+        Ok(())
     }
 
     fn extract_json(content: &str) -> Result<&str, String> {

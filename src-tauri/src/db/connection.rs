@@ -214,6 +214,35 @@ fn create_tables(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error>
         )?;
     }
 
+    // Migration 29: 创建小说初始化会话追踪表 (v4.2.0 - AI Director)
+    let bootstrap_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='novel_bootstrap_sessions'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if bootstrap_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE novel_bootstrap_sessions (
+                id TEXT PRIMARY KEY,
+                story_id TEXT,
+                status TEXT NOT NULL DEFAULT 'in_progress',
+                current_step TEXT NOT NULL DEFAULT 'concept',
+                steps_completed INTEGER DEFAULT 0,
+                total_steps INTEGER DEFAULT 5,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_bootstrap_story ON novel_bootstrap_sessions(story_id)",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
