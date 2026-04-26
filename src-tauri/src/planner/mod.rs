@@ -41,6 +41,17 @@ pub struct ExecutionPlan {
     pub fallback_message: String,
 }
 
+/// 场景结构摘要（用于计划生成）
+#[derive(Debug, Clone)]
+pub struct SceneStructureSummary {
+    pub scene_id: String,
+    pub sequence_number: i32,
+    pub title: Option<String>,
+    pub execution_stage: Option<String>,
+    pub has_content: bool,
+    pub word_count: usize,
+}
+
 /// 生成计划所需的上下文
 #[derive(Debug, Clone)]
 pub struct PlanContext {
@@ -50,6 +61,14 @@ pub struct PlanContext {
     pub chapter_count: usize,
     pub current_content_preview: Option<String>,
     pub user_input: String,
+    // Phase 3: 场景/章节结构感知
+    pub scene_count: usize,
+    pub scenes_summary: Vec<SceneStructureSummary>,
+    pub current_scene_id: Option<String>,
+    pub current_scene_stage: Option<String>,
+    pub total_word_count: usize,
+    pub latest_chapter_word_count: usize,
+    pub story_progress: String, // "just_started" | "developing" | "midpoint" | "climax" | "resolution"
 }
 
 /// 计划生成器
@@ -81,6 +100,27 @@ impl PlanGenerator {
         let preview_clean = sanitize_for_prompt(preview);
         let registry_clean = sanitize_for_prompt(&registry_context);
 
+        // Build scene structure summary for prompt
+        let scenes_summary = if context.scenes_summary.is_empty() {
+            "No scenes yet".to_string()
+        } else {
+            context.scenes_summary.iter()
+                .map(|s| {
+                    let stage = s.execution_stage.as_deref().unwrap_or("unknown");
+                    let title = s.title.as_deref().unwrap_or("Untitled");
+                    let content_flag = if s.has_content { "✓" } else { "○" };
+                    format!("  #{} [{}] {} {} ({} words)", s.sequence_number, stage, title, content_flag, s.word_count)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let current_scene_info = if let Some(ref id) = context.current_scene_id {
+            format!("Current scene ID: {} (stage: {})", id, context.current_scene_stage.as_deref().unwrap_or("unknown"))
+        } else {
+            "No current scene".to_string()
+        };
+
         let prompt = format!(
             r#"You are an intelligent orchestrator for a creative writing application.
 
@@ -89,7 +129,16 @@ Current system state:
 - Story ID: {}
 - Has chapters: {}
 - Chapter count: {}
-- Current content preview: {}
+- Total word count: {}
+- Latest chapter words: {}
+- Story progress: {}
+- Scene count: {}
+{}
+
+Scene structure:
+{}
+
+Current content preview: {}
 
 User input: "{}"
 
@@ -119,11 +168,21 @@ Rules:
 4. step_id must be unique within the plan.
 5. fallback_message should be helpful if execution fails.
 6. For parameters, you can reference output from a previous step using {{step_id}} syntax in string values.
-7. Available capability_id values include: writer, inspector, outline_planner, style_mimic, plot_analyzer, create_story, create_chapter, create_character, builtin.style_enhancer, builtin.plot_twist, builtin.text_formatter, builtin.character_voice, builtin.emotion_pacing."#,
+7. Available capability_id values include: writer, inspector, outline_planner, style_mimic, plot_analyzer, create_story, create_chapter, create_character, builtin.style_enhancer, builtin.plot_twist, builtin.text_formatter, builtin.character_voice, builtin.emotion_pacing.
+8. CRITICAL: If the user wants to continue writing and the current scene has no content or is in 'planning'/'outline' stage, use 'writer' to generate draft content.
+9. If the user wants to improve/refine text and there IS content, use 'inspector' first then 'writer'.
+10. If story progress is 'just_started' and user asks for next chapter/scene, use 'create_chapter' or 'outline_planner' first.
+11. If scenes are stuck in 'planning' or 'outline' stage, prioritize 'writer' to move them to 'drafting'."#,
             context.has_story,
             context.current_story_id.as_deref().unwrap_or("none"),
             context.has_chapters,
             context.chapter_count,
+            context.total_word_count,
+            context.latest_chapter_word_count,
+            context.story_progress,
+            context.scene_count,
+            current_scene_info,
+            scenes_summary,
             preview_clean,
             user_input_clean,
             registry_clean

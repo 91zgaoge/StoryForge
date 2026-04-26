@@ -1028,6 +1028,102 @@ async fn smart_execute(
         }
     }
 
+    // Phase 3: 加载场景结构信息
+    let (_scenes, scene_count, scenes_summary, current_scene_id, current_scene_stage, total_word_count, latest_chapter_word_count, story_progress) =
+        if let Some(ref story_id) = current_story_id {
+            let scene_repo = db::repositories_v3::SceneRepository::new(pool.clone());
+            let scenes = scene_repo.get_by_story(story_id)
+                .map_err(|e| format!("[smart_execute] Failed to load scenes: {}", e))?;
+            let scene_count = scenes.len();
+
+            let scenes_summary: Vec<planner::SceneStructureSummary> = scenes.iter().map(|s| {
+                let word_count = s.content.as_ref().map(|c| c.chars().count()).unwrap_or(0)
+                    + s.draft_content.as_ref().map(|c| c.chars().count()).unwrap_or(0);
+                planner::SceneStructureSummary {
+                    scene_id: s.id.clone(),
+                    sequence_number: s.sequence_number,
+                    title: s.title.clone(),
+                    execution_stage: s.execution_stage.clone(),
+                    has_content: s.content.is_some() || s.draft_content.is_some(),
+                    word_count,
+                }
+            }).collect();
+
+            // 当前场景 = 最新有内容的场景，或最新场景
+            let current_scene = scenes.iter()
+                .filter(|s| s.content.is_some() || s.draft_content.is_some())
+                .max_by_key(|s| s.sequence_number)
+                .or_else(|| scenes.iter().max_by_key(|s| s.sequence_number));
+
+            let current_scene_id = current_scene.map(|s| s.id.clone());
+            let current_scene_stage = current_scene.and_then(|s| s.execution_stage.clone());
+
+            let total_word_count = chapters.iter()
+                .filter_map(|c| c.word_count)
+                .map(|w| w as usize)
+                .sum::<usize>()
+                + scenes_summary.iter().map(|s| s.word_count).sum::<usize>();
+
+            let latest_chapter_word_count = chapters.last()
+                .and_then(|c| c.word_count)
+                .map(|w| w as usize)
+                .unwrap_or(0);
+
+            // 故事进度判断
+            let story_progress = if scene_count == 0 {
+                "just_started".to_string()
+            } else {
+                let completed_scenes = scenes_summary.iter().filter(|s| s.has_content).count();
+                let ratio = if scene_count > 0 { completed_scenes as f32 / scene_count as f32 } else { 0.0 };
+                if ratio < 0.15 {
+                    "just_started".to_string()
+                } else if ratio < 0.4 {
+                    "developing".to_string()
+                } else if ratio < 0.7 {
+                    "midpoint".to_string()
+                } else if ratio < 0.9 {
+                    "climax".to_string()
+                } else {
+                    "resolution".to_string()
+                }
+            };
+
+            (scenes, scene_count, scenes_summary, current_scene_id, current_scene_stage, total_word_count, latest_chapter_word_count, story_progress)
+        } else {
+            (vec![], 0, vec![], None, None, 0, 0, "no_story".to_string())
+        };
+
+    // Phase 3: 意图路由增强 — 自动检测更多用户意图
+    let auto_routed_plan = detect_and_route_intent(
+        &user_input,
+        &current_story_id,
+        scene_count,
+        &scenes_summary,
+        &current_scene_stage,
+        &story_progress,
+    );
+
+    if let Some(plan) = auto_routed_plan {
+        log::info!("[smart_execute] Auto-routed intent to plan: {}", plan.understanding);
+        let executor = planner::PlanExecutor::new(app_handle);
+        let result = executor.execute_plan(plan, &planner::PlanContext {
+            current_story_id: current_story_id.clone(),
+            has_story: !stories.is_empty(),
+            has_chapters: !chapters.is_empty(),
+            chapter_count,
+            current_content_preview: current_content_preview.clone(),
+            user_input: user_input.clone(),
+            scene_count,
+            scenes_summary: scenes_summary.clone(),
+            current_scene_id: current_scene_id.clone(),
+            current_scene_stage: current_scene_stage.clone(),
+            total_word_count,
+            latest_chapter_word_count,
+            story_progress: story_progress.clone(),
+        }).await;
+        return Ok(result);
+    }
+
     let plan_context = planner::PlanContext {
         current_story_id,
         has_story: !stories.is_empty(),
@@ -1035,6 +1131,13 @@ async fn smart_execute(
         chapter_count,
         current_content_preview,
         user_input: user_input.clone(),
+        scene_count,
+        scenes_summary,
+        current_scene_id,
+        current_scene_stage,
+        total_word_count,
+        latest_chapter_word_count,
+        story_progress,
     };
 
     // 执行计划（内部会自动检查模板库并生成计划）
@@ -1054,6 +1157,255 @@ fn is_novel_creation_intent(user_input: &str) -> bool {
         "novel", "story", "book", "小说", "故事", "书",
     ];
     creation_keywords.iter().any(|&kw| input.contains(kw))
+}
+
+/// Phase 3: 智能意图路由 — 基于关键词和故事结构自动检测用户意图
+/// 返回 Some(ExecutionPlan) 如果检测到明确意图，否则返回 None 让 LLM 生成计划
+fn detect_and_route_intent(
+    user_input: &str,
+    story_id: &Option<String>,
+    scene_count: usize,
+    _scenes_summary: &[planner::SceneStructureSummary],
+    current_scene_stage: &Option<String>,
+    _story_progress: &str,
+) -> Option<planner::ExecutionPlan> {
+    let input = user_input.to_lowercase();
+    let story_id = story_id.as_deref().unwrap_or("");
+
+    // Pattern 1: 续写/继续写/往下写
+    let is_continue = [
+        "续写", "继续写", "往下写", "接着写", "写下去", "继续",
+        "continue", "keep writing", "go on", "next paragraph",
+        "写", "generate", "write more",
+    ].iter().any(|kw| input.contains(kw));
+
+    // Pattern 2: 润色/修改/优化
+    let is_refine = [
+        "润色", "修改", "优化", "改进", "调整", "改一下", "改改",
+        "refine", "polish", "improve", "rewrite", "revise", "enhance",
+    ].iter().any(|kw| input.contains(kw));
+
+    // Pattern 3: 新章节/下一章/新场景
+    let is_new_chapter = [
+        "新章节", "下一章", "新的一章", "新建章节", "添加章节",
+        "new chapter", "next chapter", "add chapter",
+        "新场景", "下一个场景", "new scene", "next scene",
+    ].iter().any(|kw| input.contains(kw));
+
+    // Pattern 4: 分析/检查/审校
+    let is_analyze = [
+        "分析", "检查", "审校", "审查", "评估", "质检",
+        "analyze", "check", "audit", "review", "inspect", "evaluate",
+    ].iter().any(|kw| input.contains(kw));
+
+    // Pattern 5: 大纲/结构/规划
+    let is_outline = [
+        "大纲", "结构", "规划", "框架", "布局", "设计",
+        "outline", "structure", "plan", "framework", "plot",
+    ].iter().any(|kw| input.contains(kw));
+
+    // --- 路由决策 ---
+
+    // 路由 A: 续写（最常见）
+    if is_continue && !is_refine && !is_new_chapter && !is_analyze && !is_outline {
+        // 如果没有场景且不是创建意图，建议先创建场景
+        if scene_count == 0 && !story_id.is_empty() {
+            return Some(planner::ExecutionPlan {
+                understanding: "User wants to continue writing but no scenes exist yet. Creating first scene then writing.".to_string(),
+                steps: vec![
+                    planner::PlanStep {
+                        step_id: "auto_create_scene".to_string(),
+                        capability_id: "create_chapter".to_string(),
+                        purpose: "Auto-create first chapter/scene since none exist".to_string(),
+                        parameters: {
+                            let mut p = std::collections::HashMap::new();
+                            p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                            p.insert("chapter_number".to_string(), serde_json::Value::Number(1.into()));
+                            p.insert("title".to_string(), serde_json::Value::String("第一章".to_string()));
+                            p
+                        },
+                        depends_on: vec![],
+                    },
+                    planner::PlanStep {
+                        step_id: "auto_write".to_string(),
+                        capability_id: "writer".to_string(),
+                        purpose: "Continue writing the story".to_string(),
+                        parameters: {
+                            let mut p = std::collections::HashMap::new();
+                            p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                            p.insert("instruction".to_string(), serde_json::Value::String(user_input.to_string()));
+                            p
+                        },
+                        depends_on: vec!["auto_create_scene".to_string()],
+                    },
+                ],
+                fallback_message: "自动创建首章并继续写作".to_string(),
+            });
+        }
+
+        // 如果当前场景在 planning/outline 阶段，先写内容
+        let current_is_empty = current_scene_stage.as_deref()
+            .map(|s| s == "planning" || s == "outline")
+            .unwrap_or(true);
+
+        if current_is_empty && scene_count > 0 {
+            return Some(planner::ExecutionPlan {
+                understanding: "User wants to continue writing. Current scene is in planning/outline stage, generating draft content.".to_string(),
+                steps: vec![
+                    planner::PlanStep {
+                        step_id: "draft_current_scene".to_string(),
+                        capability_id: "writer".to_string(),
+                        purpose: "Generate draft content for the current scene".to_string(),
+                        parameters: {
+                            let mut p = std::collections::HashMap::new();
+                            p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                            p.insert("instruction".to_string(), serde_json::Value::String(format!("根据场景设定继续写作: {}", user_input)));
+                            p
+                        },
+                        depends_on: vec![],
+                    },
+                ],
+                fallback_message: "正在为空场景生成草稿内容".to_string(),
+            });
+        }
+
+        // 正常续写
+        return Some(planner::ExecutionPlan {
+            understanding: "User wants to continue writing the story".to_string(),
+            steps: vec![
+                planner::PlanStep {
+                    step_id: "continue_writing".to_string(),
+                    capability_id: "writer".to_string(),
+                    purpose: "Continue the story based on current context".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("instruction".to_string(), serde_json::Value::String(user_input.to_string()));
+                        p
+                    },
+                    depends_on: vec![],
+                },
+            ],
+            fallback_message: "正在继续写作".to_string(),
+        });
+    }
+
+    // 路由 B: 润色（inspector → writer）
+    if is_refine && !is_new_chapter {
+        return Some(planner::ExecutionPlan {
+            understanding: "User wants to refine/improve existing text".to_string(),
+            steps: vec![
+                planner::PlanStep {
+                    step_id: "inspect_text".to_string(),
+                    capability_id: "inspector".to_string(),
+                    purpose: "Analyze current text for improvement opportunities".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("draft".to_string(), serde_json::Value::String(user_input.to_string()));
+                        p
+                    },
+                    depends_on: vec![],
+                },
+                planner::PlanStep {
+                    step_id: "refine_text".to_string(),
+                    capability_id: "writer".to_string(),
+                    purpose: "Apply improvements based on inspection feedback".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("instruction".to_string(), serde_json::Value::String(format!("根据审校意见润色以下内容: {}", user_input)));
+                        p
+                    },
+                    depends_on: vec!["inspect_text".to_string()],
+                },
+            ],
+            fallback_message: "正在审校并润色文本".to_string(),
+        });
+    }
+
+    // 路由 C: 新章节/场景
+    if is_new_chapter {
+        let next_chapter_num = scene_count as u64 + 1;
+        return Some(planner::ExecutionPlan {
+            understanding: "User wants to create a new chapter or scene".to_string(),
+            steps: vec![
+                planner::PlanStep {
+                    step_id: "create_new_chapter".to_string(),
+                    capability_id: "create_chapter".to_string(),
+                    purpose: "Create new chapter for the story".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("chapter_number".to_string(), serde_json::Value::Number(next_chapter_num.into()));
+                        p.insert("title".to_string(), serde_json::Value::String(format!("第{}章", next_chapter_num)));
+                        p
+                    },
+                    depends_on: vec![],
+                },
+                planner::PlanStep {
+                    step_id: "outline_new_scene".to_string(),
+                    capability_id: "outline_planner".to_string(),
+                    purpose: "Generate outline for the new scene".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("premise".to_string(), serde_json::Value::String(user_input.to_string()));
+                        p
+                    },
+                    depends_on: vec!["create_new_chapter".to_string()],
+                },
+            ],
+            fallback_message: "正在创建新章节并生成大纲".to_string(),
+        });
+    }
+
+    // 路由 D: 分析
+    if is_analyze && !is_continue {
+        return Some(planner::ExecutionPlan {
+            understanding: "User wants to analyze or audit the story".to_string(),
+            steps: vec![
+                planner::PlanStep {
+                    step_id: "analyze_story".to_string(),
+                    capability_id: "plot_analyzer".to_string(),
+                    purpose: "Analyze story structure and plot".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("premise".to_string(), serde_json::Value::String(user_input.to_string()));
+                        p
+                    },
+                    depends_on: vec![],
+                },
+            ],
+            fallback_message: "正在分析故事结构".to_string(),
+        });
+    }
+
+    // 路由 E: 大纲/结构
+    if is_outline {
+        return Some(planner::ExecutionPlan {
+            understanding: "User wants to plan or restructure the story outline".to_string(),
+            steps: vec![
+                planner::PlanStep {
+                    step_id: "plan_outline".to_string(),
+                    capability_id: "outline_planner".to_string(),
+                    purpose: "Generate or update story outline".to_string(),
+                    parameters: {
+                        let mut p = std::collections::HashMap::new();
+                        p.insert("story_id".to_string(), serde_json::Value::String(story_id.to_string()));
+                        p.insert("premise".to_string(), serde_json::Value::String(user_input.to_string()));
+                        p
+                    },
+                    depends_on: vec![],
+                },
+            ],
+            fallback_message: "正在规划故事大纲".to_string(),
+        });
+    }
+
+    // 未检测到明确意图，让 LLM 决定
+    None
 }
 
 #[derive(Debug, Deserialize)]
