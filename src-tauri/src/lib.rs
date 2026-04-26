@@ -1002,6 +1002,32 @@ async fn smart_execute(
             }
         });
 
+    // 检测是否需要启动小说初始化工作流
+    let is_bootstrap_intent = stories.is_empty()
+        && is_novel_creation_intent(&user_input);
+
+    if is_bootstrap_intent {
+        log::info!("[smart_execute] Detected novel creation intent, starting NovelBootstrapWorkflow");
+        let bootstrap = planner::bootstrap::NovelBootstrapWorkflow::new(app_handle);
+        match bootstrap.run(&user_input).await {
+            Ok(session) => {
+                return Ok(planner::PlanExecutionResult {
+                    success: true,
+                    steps_completed: session.total_steps,
+                    final_content: None, // 前端通过 DataRefresh 事件加载新故事
+                    messages: vec![
+                        format!("story_created:{}", session.story_id.unwrap_or_default()),
+                        "novel_bootstrap_completed".to_string(),
+                    ],
+                });
+            }
+            Err(e) => {
+                log::error!("[smart_execute] NovelBootstrapWorkflow failed: {}", e);
+                return Err(format!("小说初始化失败: {}", e));
+            }
+        }
+    }
+
     let plan_context = planner::PlanContext {
         current_story_id,
         has_story: !stories.is_empty(),
@@ -1017,6 +1043,17 @@ async fn smart_execute(
         .map_err(|e| format!("[smart_execute] Plan execution failed: {}", e))?;
 
     Ok(result)
+}
+
+/// 检测用户输入是否包含"创建新小说"的意图
+fn is_novel_creation_intent(user_input: &str) -> bool {
+    let input = user_input.to_lowercase();
+    let creation_keywords = [
+        "写", "创作", "开始", "新建", "生成", "创建",
+        "write", "create", "start", "generate", "begin",
+        "novel", "story", "book", "小说", "故事", "书",
+    ];
+    creation_keywords.iter().any(|&kw| input.contains(kw))
 }
 
 #[derive(Debug, Deserialize)]

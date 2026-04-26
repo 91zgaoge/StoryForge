@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod executor;
+pub mod bootstrap;
 pub mod template_learning;
 pub use template_learning::PlanTemplateLibrary;
 #[allow(unused_imports)]
