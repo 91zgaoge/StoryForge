@@ -968,6 +968,7 @@ async fn execute_intent(
 #[tauri::command]
 async fn smart_execute(
     user_input: String,
+    current_content: Option<String>,
     app_handle: AppHandle,
 ) -> Result<planner::PlanExecutionResult, String> {
     let pool = get_pool().ok_or("[smart_execute] Database not initialized")?;
@@ -987,16 +988,19 @@ async fn smart_execute(
     };
 
     let chapter_count = chapters.len();
-    let current_content_preview = chapters.last().and_then(|c| {
-        c.content.as_ref().map(|content| {
-            let preview: String = content.chars().take(200).collect();
-            if content.len() > 200 {
+
+    // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的内容
+    let current_content_preview = current_content
+        .filter(|c| !c.trim().is_empty())
+        .or_else(|| chapters.last().and_then(|c| c.content.clone()))
+        .map(|content| {
+            let preview: String = content.chars().take(2000).collect();
+            if content.chars().count() > 2000 {
                 format!("{}...", preview)
             } else {
                 preview
             }
-        })
-    });
+        });
 
     let plan_context = planner::PlanContext {
         current_story_id,

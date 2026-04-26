@@ -176,6 +176,7 @@ export const executeIntent = (intent: Intent, storyId: string) =>
 // Smart Execute - Model-driven orchestration
 export interface SmartExecuteRequest {
   user_input: string;
+  current_content?: string;
 }
 
 export interface SmartExecuteResult {
@@ -186,7 +187,7 @@ export interface SmartExecuteResult {
 }
 
 export const smartExecute = (req: SmartExecuteRequest) =>
-  invoke<SmartExecuteResult>('smart_execute', { userInput: req.user_input });
+  invoke<SmartExecuteResult>('smart_execute', { userInput: req.user_input, currentContent: req.current_content });
 
 // Feedback Recording
 export interface RecordFeedbackRequest {

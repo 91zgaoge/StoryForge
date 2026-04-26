@@ -319,7 +319,7 @@ const FrontstageApp: React.FC = () => {
         });
       });
 
-      const result = await smartExecute({ user_input: context || '续写' });
+      const result = await smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText() });
 
       setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
 
@@ -425,7 +425,7 @@ const FrontstageApp: React.FC = () => {
 
     setIsGenerating(true);
     try {
-      const result = await smartExecute({ user_input: userInput });
+      const result = await smartExecute({ user_input: userInput, current_content: editorRef.current?.getText() });
 
       if (result.final_content) {
         setGeneratedText(result.final_content);
