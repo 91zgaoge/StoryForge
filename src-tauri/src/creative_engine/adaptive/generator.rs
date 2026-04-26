@@ -61,6 +61,20 @@ impl AdaptiveGenerator {
     /// 
     /// `base_temperature`: 用户模型配置中的 temperature，作为策略基础值
     pub fn build_strategy(&self, story_id: &str, base_temperature: Option<f32>) -> Result<GenerationStrategy, String> {
+        self.build_strategy_with_context(story_id, base_temperature, None, None)
+    }
+
+    /// Phase 5: 带上下文感知的生成策略构建
+    /// 
+    /// `story_progress`: 故事整体进度 (just_started/developing/midpoint/climax/resolution)
+    /// `scene_stage`: 当前场景执行阶段 (planning/outline/drafting/review/final)
+    pub fn build_strategy_with_context(
+        &self,
+        story_id: &str,
+        base_temperature: Option<f32>,
+        story_progress: Option<&str>,
+        scene_stage: Option<&str>,
+    ) -> Result<GenerationStrategy, String> {
         let mut strategy = GenerationStrategy::default();
         // 优先使用用户在 Settings 中设置的 temperature 作为基础值
         if let Some(base) = base_temperature {
@@ -84,10 +98,92 @@ impl AdaptiveGenerator {
             }
         }
 
+        // Phase 5: 根据故事进度动态调整
+        if let Some(progress) = story_progress {
+            self.apply_story_progress_adjustment(&mut strategy, progress);
+        }
+
+        // Phase 5: 根据场景阶段动态调整
+        if let Some(stage) = scene_stage {
+            self.apply_scene_stage_adjustment(&mut strategy, stage);
+        }
+
         // 综合调整 temperature
         strategy.temperature = self.calculate_temperature(&strategy);
 
         Ok(strategy)
+    }
+
+    /// 根据故事整体进度调整策略
+    fn apply_story_progress_adjustment(&self, strategy: &mut GenerationStrategy, progress: &str) {
+        match progress {
+            "just_started" => {
+                // 开头阶段：鼓励创意探索，温度稍高
+                strategy.temperature = (strategy.temperature + 0.05).min(1.0);
+                strategy.style_injections.push("故事开头阶段：注重世界观铺陈和角色引入，可适当放慢节奏".to_string());
+                strategy.max_tokens = (strategy.max_tokens as f32 * 0.9) as i32; // 开头不需要太长
+            }
+            "developing" => {
+                // 发展阶段：标准策略，推动情节
+                strategy.style_injections.push("故事发展阶段：推动情节前进，增加冲突和转折".to_string());
+            }
+            "midpoint" => {
+                // 中点阶段：降低温度，增加情节紧凑度
+                strategy.temperature = (strategy.temperature - 0.05).max(0.5);
+                strategy.style_injections.push("故事 midpoint 阶段：注意情节转折的冲击力，避免平淡过渡".to_string());
+                strategy.max_tokens = (strategy.max_tokens as f32 * 1.1) as i32;
+            }
+            "climax" => {
+                // 高潮阶段：降低温度追求质量，增加 token 预算
+                strategy.temperature = (strategy.temperature - 0.1).max(0.5);
+                strategy.max_tokens = (strategy.max_tokens as f32 * 1.25) as i32;
+                strategy.style_injections.push("故事高潮阶段：全力冲刺！加大冲突强度，提升叙事张力，让情感爆发".to_string());
+                strategy.content_constraints.push("高潮段落必须紧凑有力，避免冗余描写".to_string());
+            }
+            "resolution" => {
+                // 结局阶段：降低温度，注重收束和伏笔回收
+                strategy.temperature = (strategy.temperature - 0.05).max(0.5);
+                strategy.style_injections.push("故事结局阶段：注重收束感，回收主要伏笔，给读者满足感".to_string());
+                strategy.content_constraints.push("注意呼应前文的伏笔和设定，保持首尾一致".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    /// 根据场景执行阶段调整策略
+    fn apply_scene_stage_adjustment(&self, strategy: &mut GenerationStrategy, stage: &str) {
+        match stage {
+            "planning" => {
+                // 规划阶段：生成构思，token 减半
+                strategy.max_tokens = (strategy.max_tokens as f32 * 0.5) as i32;
+                strategy.temperature = (strategy.temperature + 0.1).min(1.0); // 创意阶段温度高
+                strategy.style_injections.push("场景规划阶段：生成创意构思，不必拘泥于具体文字".to_string());
+            }
+            "outline" => {
+                // 大纲阶段：生成详细大纲
+                strategy.max_tokens = (strategy.max_tokens as f32 * 0.7) as i32;
+                strategy.temperature = (strategy.temperature + 0.05).min(1.0);
+                strategy.style_injections.push("场景大纲阶段：生成结构化大纲，包含起承转合".to_string());
+            }
+            "drafting" => {
+                // 起草阶段：标准策略
+                strategy.style_injections.push("场景起草阶段：专注于叙事流畅性和角色表现".to_string());
+            }
+            "review" => {
+                // 审校阶段：降低温度，注重精确性
+                strategy.temperature = (strategy.temperature - 0.1).max(0.5);
+                strategy.style_injections.push("场景审校阶段：注重文字精确性和逻辑一致性".to_string());
+                strategy.content_constraints.push("仔细检查与前文的一致性，修正任何矛盾".to_string());
+            }
+            "final" => {
+                // 定稿阶段：最低温度，追求最终质量
+                strategy.temperature = (strategy.temperature - 0.15).max(0.4);
+                strategy.max_tokens = (strategy.max_tokens as f32 * 1.1) as i32;
+                strategy.style_injections.push("场景定稿阶段：精益求精，每个字都要有价值".to_string());
+                strategy.content_constraints.push("删除冗余描述，保留精华，确保节奏紧凑".to_string());
+            }
+            _ => {}
+        }
     }
 
     fn apply_dialogue_preference(&self, strategy: &mut GenerationStrategy, pref: &crate::db::models_v3::UserPreference) {
@@ -312,5 +408,63 @@ mod tests {
         s.content_constraints.push("c4".to_string());
         let temp = g.calculate_temperature(&s);
         assert_eq!(temp, 0.65); // 基于 0.7 继续微调，不是覆盖回 0.8
+    }
+
+    #[test]
+    fn test_story_progress_adjustment_climax() {
+        let g = AdaptiveGenerator::new(crate::db::DbPool::new(
+            r2d2_sqlite::SqliteConnectionManager::memory()
+        ).unwrap());
+        let mut s = GenerationStrategy::default();
+        g.apply_story_progress_adjustment(&mut s, "climax");
+        assert!(s.temperature < 0.8, "climax should lower temperature");
+        assert!(s.max_tokens > 2000, "climax should increase max_tokens");
+        assert!(s.style_injections.iter().any(|i| i.contains("高潮")), "should inject climax guidance");
+    }
+
+    #[test]
+    fn test_story_progress_adjustment_just_started() {
+        let g = AdaptiveGenerator::new(crate::db::DbPool::new(
+            r2d2_sqlite::SqliteConnectionManager::memory()
+        ).unwrap());
+        let mut s = GenerationStrategy::default();
+        g.apply_story_progress_adjustment(&mut s, "just_started");
+        assert!(s.temperature > 0.8, "just_started should increase temperature for creativity");
+        assert!(s.max_tokens < 2000, "just_started should reduce max_tokens");
+    }
+
+    #[test]
+    fn test_scene_stage_adjustment_planning() {
+        let g = AdaptiveGenerator::new(crate::db::DbPool::new(
+            r2d2_sqlite::SqliteConnectionManager::memory()
+        ).unwrap());
+        let mut s = GenerationStrategy::default();
+        g.apply_scene_stage_adjustment(&mut s, "planning");
+        assert!(s.temperature > 0.8, "planning should increase temperature for ideation");
+        assert!(s.max_tokens < 1500, "planning should halve max_tokens");
+    }
+
+    #[test]
+    fn test_scene_stage_adjustment_final() {
+        let g = AdaptiveGenerator::new(crate::db::DbPool::new(
+            r2d2_sqlite::SqliteConnectionManager::memory()
+        ).unwrap());
+        let mut s = GenerationStrategy::default();
+        g.apply_scene_stage_adjustment(&mut s, "final");
+        assert!(s.temperature < 0.7, "final should significantly lower temperature");
+        assert!(s.max_tokens > 2000, "final should increase max_tokens");
+    }
+
+    #[test]
+    fn test_combined_progress_and_stage() {
+        let g = AdaptiveGenerator::new(crate::db::DbPool::new(
+            r2d2_sqlite::SqliteConnectionManager::memory()
+        ).unwrap());
+        let mut s = GenerationStrategy::default();
+        // climax + final = very low temperature, high tokens
+        g.apply_story_progress_adjustment(&mut s, "climax");
+        g.apply_scene_stage_adjustment(&mut s, "final");
+        assert!(s.temperature < 0.65, "climax + final should result in very low temperature");
+        assert!(s.max_tokens > 2500, "climax + final should result in high token budget");
     }
 }

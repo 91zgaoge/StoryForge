@@ -286,19 +286,27 @@ impl AgentService {
         
         self.emit_event(&task.id, task.agent_type, AgentStage::Generating, "生成内容", 0.3);
         
-        // 动态生成策略：根据故事反馈历史调整 temperature 和 max_tokens
-        // 以用户在 Settings 中设置的模型 temperature 为基础值
+        // Phase 5: 动态生成策略 — 根据故事进度、场景阶段、用户反馈历史调整参数
         let user_temperature = self.llm_service.get_active_profile()
             .map(|p| p.temperature)
             .unwrap_or(0.8);
         
+        // 从 task parameters 读取 PlanContext 注入的结构信息
+        let story_progress = task.parameters.get("story_progress").and_then(|v| v.as_str());
+        let scene_stage = task.parameters.get("current_scene_stage").and_then(|v| v.as_str());
+        
         let (max_tokens, temperature) = {
             let pool = self.app_handle.state::<crate::db::DbPool>();
             let generator = crate::creative_engine::adaptive::AdaptiveGenerator::new(pool.inner().clone());
-            match generator.build_strategy(&task.context.story_id, Some(user_temperature)) {
+            match generator.build_strategy_with_context(
+                &task.context.story_id, 
+                Some(user_temperature),
+                story_progress,
+                scene_stage,
+            ) {
                 Ok(strategy) => {
-                    log::info!("[AgentService] Adaptive strategy for story {}: base_temp={}, adjusted_temp={}, max_tokens={}", 
-                        task.context.story_id, user_temperature, strategy.temperature, strategy.max_tokens);
+                    log::info!("[AgentService] Adaptive strategy for story {}: progress={:?}, stage={:?}, base_temp={}, adjusted_temp={}, max_tokens={}", 
+                        task.context.story_id, story_progress, scene_stage, user_temperature, strategy.temperature, strategy.max_tokens);
                     (Some(strategy.max_tokens), Some(strategy.temperature))
                 }
                 Err(e) => {

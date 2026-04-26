@@ -371,12 +371,26 @@ impl PlanExecutor {
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
         let context = self.build_agent_context(&story_id, current_content, None)?;
+
+        // Phase 5: 将 PlanContext 中的结构信息注入到 AgentTask 参数
+        let mut enriched_params = params.clone();
+        enriched_params.insert("story_progress".to_string(), serde_json::Value::String(plan_context.story_progress.clone()));
+        if let Some(ref stage) = plan_context.current_scene_stage {
+            enriched_params.insert("current_scene_stage".to_string(), serde_json::Value::String(stage.clone()));
+        }
+        if plan_context.scene_count > 0 {
+            enriched_params.insert("scene_count".to_string(), serde_json::Value::Number(plan_context.scene_count.into()));
+        }
+        if plan_context.total_word_count > 0 {
+            enriched_params.insert("total_word_count".to_string(), serde_json::Value::Number(plan_context.total_word_count.into()));
+        }
+
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::Writer,
             context,
             input: instruction,
-            parameters: params.clone(),
+            parameters: enriched_params,
             tier: None,
         };
 
