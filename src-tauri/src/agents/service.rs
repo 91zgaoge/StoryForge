@@ -791,6 +791,56 @@ impl AgentService {
             }
         }
 
+        // 注入 Canonical State（叙事阶段、伏笔、角色状态、活跃冲突）
+        {
+            use crate::db::DbPool;
+            use crate::canonical_state::CanonicalStateManager;
+            use tauri::Manager;
+
+            let pool = self.app_handle.state::<DbPool>();
+            let cs_manager = CanonicalStateManager::new(pool.inner().clone());
+            if let Ok(snapshot) = tauri::async_runtime::block_on(cs_manager.get_snapshot(&ctx.story_id)) {
+                system_prompt.push_str("\n\n【叙事阶段指导】\n");
+                system_prompt.push_str(&snapshot.narrative_phase.writer_guidance());
+                system_prompt.push('\n');
+
+                if !snapshot.story_context.active_conflicts.is_empty() {
+                    system_prompt.push_str("\n【当前活跃冲突】\n");
+                    for conflict in &snapshot.story_context.active_conflicts {
+                        system_prompt.push_str(&format!("- {}: 涉及 {}, 赌注: {}\n", conflict.conflict_type, conflict.parties.join(", "), conflict.stakes));
+                    }
+                }
+
+                if !snapshot.story_context.pending_payoffs.is_empty() {
+                    system_prompt.push_str("\n【待回收伏笔】\n");
+                    for payoff in &snapshot.story_context.pending_payoffs {
+                        system_prompt.push_str(&format!("- {}（重要度: {}）\n", payoff.content, payoff.importance));
+                    }
+                }
+
+                if !snapshot.story_context.overdue_payoffs.is_empty() {
+                    system_prompt.push_str("\n【⚠️ 逾期伏笔——请在续写中优先回收】\n");
+                    for payoff in &snapshot.story_context.overdue_payoffs {
+                        system_prompt.push_str(&format!("- {}（重要度: {}）\n", payoff.content, payoff.importance));
+                    }
+                }
+
+                if !snapshot.character_states.is_empty() {
+                    system_prompt.push_str("\n【角色当前状态】\n");
+                    for cs in &snapshot.character_states {
+                        let mut parts = vec![format!("{}:", cs.name)];
+                        if let Some(ref loc) = cs.current_location { parts.push(format!("位置: {}", loc)); }
+                        if let Some(ref emo) = cs.current_emotion { parts.push(format!("情绪: {}", emo)); }
+                        if let Some(ref goal) = cs.active_goal { parts.push(format!("目标: {}", goal)); }
+                        if !cs.secrets_known.is_empty() { parts.push(format!("已知秘密: {}", cs.secrets_known.join(", "))); }
+                        if !cs.secrets_unknown.is_empty() { parts.push(format!("未知秘密: {}", cs.secrets_unknown.join(", "))); }
+                        parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
+                        system_prompt.push_str(&format!("- {}\n", parts.join(" ")));
+                    }
+                }
+            }
+        }
+
         let user_prompt = if has_selection {
             vars.insert("selected_text".to_string(), ctx.selected_text.clone().unwrap_or_default());
             TemplateEngine::render_with_conditions(

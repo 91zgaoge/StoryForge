@@ -62,17 +62,16 @@ impl PlanExecutor {
     /// Execute a plan, checking the template library first
     pub async fn execute_with_context(&self, context: &PlanContext) -> Result<PlanExecutionResult, String> {
         // Before generating a new plan, check PlanTemplateLibrary for matching templates
-        if let Some(template_plan) = self.find_template(&context.user_input) {
+        let mut plan = if let Some(template_plan) = self.find_template(&context.user_input) {
             log::info!(
                 "[PlanExecutor] Using template plan for input: {}",
                 context.user_input
             );
-            let adapted_plan = self.adapt_template_plan(template_plan, context);
-            Ok(self.execute_plan(adapted_plan).await)
+            self.adapt_template_plan(template_plan, context)
         } else {
             let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
             let generator = PlanGenerator::new(llm_service);
-            let plan = match generator.generate_plan(context).await {
+            match generator.generate_plan(context).await {
                 Ok(plan) => plan,
                 Err(e) => {
                     log::warn!("[PlanExecutor] Plan generation failed ({}), falling back to direct writer", e);
@@ -94,12 +93,25 @@ impl PlanExecutor {
                         fallback_message: "计划生成失败，已回退到直接写作模式".to_string(),
                     }
                 }
-            };
-            Ok(self.execute_plan(plan).await)
+            }
+        };
+
+        // Inject PlanContext information into every step so agents get full context
+        for step in &mut plan.steps {
+            if let Some(ref preview) = context.current_content_preview {
+                step.parameters.entry("current_content".to_string())
+                    .or_insert_with(|| serde_json::Value::String(preview.clone()));
+            }
+            if let Some(ref story_id) = context.current_story_id {
+                step.parameters.entry("story_id".to_string())
+                    .or_insert_with(|| serde_json::Value::String(story_id.clone()));
+            }
         }
+
+        Ok(self.execute_plan(plan, context).await)
     }
 
-    pub async fn execute_plan(&self, plan: ExecutionPlan) -> PlanExecutionResult {
+    pub async fn execute_plan(&self, plan: ExecutionPlan, plan_context: &PlanContext) -> PlanExecutionResult {
         let mut messages = Vec::new();
         let mut step_outputs: HashMap<String, serde_json::Value> = HashMap::new();
         let mut steps_completed = 0;
@@ -125,7 +137,7 @@ impl PlanExecutor {
             }
 
             let resolved_params = self.resolve_parameters(&step.parameters, &step_outputs);
-            let result = self.execute_step(step, &resolved_params).await;
+            let result = self.execute_step(step, &resolved_params, plan_context).await;
             let step_duration = step_start.elapsed().as_millis() as u64;
 
             // Record execution result
@@ -172,19 +184,46 @@ impl PlanExecutor {
         }
     }
 
-    async fn execute_step(&self, step: &PlanStep, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_step(&self, step: &PlanStep, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         match step.capability_id.as_str() {
             "create_story" => self.execute_create_story(params).await,
             "create_chapter" => self.execute_create_chapter(params).await,
             "create_character" => self.execute_create_character(params).await,
-            "writer" => self.execute_writer(params).await,
-            "inspector" => self.execute_inspector(params).await,
-            "outline_planner" => self.execute_outline_planner(params).await,
-            "style_mimic" => self.execute_style_mimic(params).await,
-            "plot_analyzer" => self.execute_plot_analyzer(params).await,
-            skill_id if skill_id.starts_with("builtin.") => self.execute_skill(skill_id, params).await,
+            "writer" => self.execute_writer(params, plan_context).await,
+            "inspector" => self.execute_inspector(params, plan_context).await,
+            "outline_planner" => self.execute_outline_planner(params, plan_context).await,
+            "style_mimic" => self.execute_style_mimic(params, plan_context).await,
+            "plot_analyzer" => self.execute_plot_analyzer(params, plan_context).await,
+            skill_id if skill_id.starts_with("builtin.") => self.execute_skill(skill_id, params, plan_context).await,
             _ => Err(format!("Unknown capability: {}", step.capability_id)),
         }
+    }
+
+    /// Build a rich AgentContext using StoryContextBuilder instead of the minimal stub.
+    fn build_agent_context(
+        &self,
+        story_id: &str,
+        current_content: Option<String>,
+        selected_text: Option<String>,
+    ) -> Result<crate::agents::AgentContext, String> {
+        if story_id.is_empty() {
+            return Ok(crate::agents::AgentContext::minimal(story_id.to_string(), String::new()));
+        }
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let builder = crate::creative_engine::context_builder::StoryContextBuilder::new(pool.inner().clone());
+
+        // Resolve current scene number from DB (latest scene for the story)
+        let scene_number = self.get_current_scene_number(story_id).unwrap_or(None);
+
+        builder.build(story_id, scene_number, current_content, selected_text)
+    }
+
+    fn get_current_scene_number(&self, story_id: &str) -> Result<Option<i32>, String> {
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+        let scenes = repo.get_by_story(story_id).map_err(|e| e.to_string())?;
+        Ok(scenes.iter().max_by_key(|s| s.sequence_number).map(|s| s.sequence_number))
     }
 
     fn resolve_parameters(&self, params: &HashMap<String, serde_json::Value>, outputs: &HashMap<String, serde_json::Value>) -> HashMap<String, serde_json::Value> {
@@ -271,15 +310,18 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_writer(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_writer(&self, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let instruction = params.get("instruction").and_then(|v| v.as_str()).unwrap_or("Continue the story").to_string();
+        let current_content = params.get("current_content").and_then(|v| v.as_str()).map(|s| s.to_string())
+            .or_else(|| plan_context.current_content_preview.clone());
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let context = self.build_agent_context(&story_id, current_content, None)?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::Writer,
-            context: crate::agents::AgentContext::minimal(story_id.clone(), instruction.clone()),
+            context,
             input: instruction,
             parameters: params.clone(),
             tier: None,
@@ -292,15 +334,18 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_inspector(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_inspector(&self, params: &HashMap<String, serde_json::Value>, plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let draft = params.get("draft").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let current_content = params.get("current_content").and_then(|v| v.as_str()).map(|s| s.to_string())
+            .or_else(|| plan_context.current_content_preview.clone());
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let context = self.build_agent_context(&story_id, current_content, None)?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::Inspector,
-            context: crate::agents::AgentContext::minimal(story_id, draft.clone()),
+            context,
             input: draft,
             parameters: params.clone(),
             tier: None,
@@ -314,15 +359,16 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_outline_planner(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_outline_planner(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let premise = params.get("premise").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let context = self.build_agent_context(&story_id, None, None)?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::OutlinePlanner,
-            context: crate::agents::AgentContext::minimal(story_id, premise.clone()),
+            context,
             input: premise,
             parameters: params.clone(),
             tier: None,
@@ -335,7 +381,7 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_style_mimic(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_style_mimic(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -343,10 +389,11 @@ impl PlanExecutor {
         let mut task_params = params.clone();
         task_params.insert("style_sample".to_string(), params.get("style_sample").cloned().unwrap_or(serde_json::Value::Null));
 
+        let context = self.build_agent_context(&story_id, None, None)?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::StyleMimic,
-            context: crate::agents::AgentContext::minimal(story_id, content.clone()),
+            context,
             input: content,
             parameters: task_params,
             tier: None,
@@ -356,15 +403,16 @@ impl PlanExecutor {
         Ok(serde_json::json!({"content": result.content}))
     }
 
-    async fn execute_plot_analyzer(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_plot_analyzer(&self, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let context = self.build_agent_context(&story_id, None, None)?;
         let task = crate::agents::service::AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: crate::agents::service::AgentType::PlotAnalyzer,
-            context: crate::agents::AgentContext::minimal(story_id, content.clone()),
+            context,
             input: content,
             parameters: params.clone(),
             tier: None,
@@ -378,18 +426,15 @@ impl PlanExecutor {
         }))
     }
 
-    async fn execute_skill(&self, skill_id: &str, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+    async fn execute_skill(&self, skill_id: &str, params: &HashMap<String, serde_json::Value>, _plan_context: &PlanContext) -> Result<serde_json::Value, String> {
         let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let mut params = params.clone();
-        params.insert("story_id".to_string(), serde_json::Value::String(story_id));
+        params.insert("story_id".to_string(), serde_json::Value::String(story_id.clone()));
 
         let manager = crate::SKILL_MANAGER.get().ok_or("Skill manager not initialized")?;
         let skill_manager = manager.lock().map_err(|e| e.to_string())?.clone();
 
-        let agent_context = crate::agents::AgentContext::minimal(
-            params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            String::new(),
-        );
+        let agent_context = self.build_agent_context(&story_id, None, None)?;
 
         let result = skill_manager.execute_skill(skill_id, &agent_context, params).await?;
 
