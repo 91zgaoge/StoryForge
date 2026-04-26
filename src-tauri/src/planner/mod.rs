@@ -12,6 +12,7 @@ use std::collections::HashMap;
 pub mod executor;
 pub mod bootstrap;
 pub mod template_learning;
+pub mod swarm;
 pub use template_learning::PlanTemplateLibrary;
 #[allow(unused_imports)]
 pub use template_learning::PlanTemplate;
