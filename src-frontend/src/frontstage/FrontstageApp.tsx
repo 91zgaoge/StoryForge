@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { GitBranch, Eye, X } from 'lucide-react';
+import { GitBranch, Eye, X, Send, Sparkles } from 'lucide-react';
 import { writerAgentExecute, recordFeedback, smartExecute } from '@/services/tauri';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
@@ -93,6 +93,10 @@ const FrontstageApp: React.FC = () => {
 
   // F1 帮助面板
   const [showHelpPanel, setShowHelpPanel] = useState(false);
+
+  // 底部输入栏
+  const [inputValue, setInputValue] = useState('');
+  const bottomInputRef = useRef<HTMLTextAreaElement>(null);
 
   // AI 学习指示器
   const [learnings, setLearnings] = useState<LearningPoint[]>([]);
@@ -474,6 +478,21 @@ const FrontstageApp: React.FC = () => {
     }
   }, [isGenerating]);
 
+  // 底部输入栏提交
+  const handleInputSubmit = useCallback(() => {
+    const text = inputValue.trim();
+    if (!text) return;
+    handleSmartGeneration(text);
+    setInputValue('');
+  }, [inputValue, handleSmartGeneration]);
+
+  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleInputSubmit();
+    }
+  }, [handleInputSubmit]);
+
   // 处理编辑器 Slash 命令
   const handleSlashCommand = useCallback((commandId: string) => {
     if (commandId === 'auto_write') {
@@ -648,51 +667,119 @@ const FrontstageApp: React.FC = () => {
           </aside>
         )}
 
-        {/* Editor */}
-        <main className="frontstage-main">
-          {currentChapter && (
-            <div className="chapter-header">
-              <h1 className="chapter-title">
-                {currentChapter.title || `第${currentChapter.chapter_number}章`}
-              </h1>
+        {/* Editor + Bottom Input */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <main className="frontstage-main" style={{ flex: 1, minHeight: 0 }}>
+            {currentChapter && (
+              <div className="chapter-header">
+                <h1 className="chapter-title">
+                  {currentChapter.title || `第${currentChapter.chapter_number}章`}
+                </h1>
+              </div>
+            )}
+
+            <RichTextEditor
+              ref={editorRef}
+              content={content}
+              onChange={handleContentChange}
+              wensiMode={wensiMode}
+              generatedText={generatedText}
+              isGenerating={isGenerating}
+              onAcceptGeneration={handleAcceptGeneration}
+              onRejectGeneration={handleRejectGeneration}
+              onRequestGeneration={handleRequestGeneration}
+              onSmartGeneration={handleSmartGeneration}
+              onSlashCommand={handleSlashCommand}
+              placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
+              characters={characters}
+              fontSize={fontSize}
+              onFontSizeChange={setFontSize}
+              isZenMode={isZenMode}
+              onZenModeChange={setIsZenMode}
+              storyId={currentStory?.id}
+              chapterId={currentChapter?.id}
+              chapterNumber={currentChapter?.chapter_number}
+              isRevisionMode={isRevisionMode}
+              onRevisionModeChange={setIsRevisionMode}
+
+              smartGhostText={smartGhostText}
+              inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
+              onClearInlineSuggestion={() => setInlineSuggestion(null)}
+              subscription={subscription}
+              onQuotaExhausted={() => {
+                setQuotaExhausted(true);
+                setUpgradeTrigger('文思泉涌专业版');
+                setShowUpgradePanel(true);
+              }}
+            />
+          </main>
+
+          {/* Bottom Input Bar — 新用户友好入口 */}
+          {!isZenMode && (
+            <div className="frontstage-bottom-bar">
+              <div className="frontstage-bottom-bar-inner">
+                {/* 快捷操作 */}
+                <div className="frontstage-quick-actions">
+                  <button
+                    className="frontstage-quick-btn"
+                    onClick={() => handleSmartGeneration('续写')}
+                    disabled={isGenerating || !currentChapter}
+                    title="续写 (Ctrl+Enter)"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>续写</span>
+                  </button>
+                  <button
+                    className="frontstage-quick-btn"
+                    onClick={() => handleSmartGeneration('润色当前段落')}
+                    disabled={isGenerating || !currentChapter}
+                    title="润色"
+                  >
+                    <span>润色</span>
+                  </button>
+                  <button
+                    className="frontstage-quick-btn"
+                    onClick={() => editorRef.current?.generateCommentary()}
+                    disabled={isGenerating || !currentStory}
+                    title="评点"
+                  >
+                    <span>评点</span>
+                  </button>
+                  <button
+                    className="frontstage-quick-btn"
+                    onClick={() => { setWenSiTab('dialog'); setShowWenSiPanel(true); }}
+                    disabled={isGenerating || !currentChapter}
+                    title="对话"
+                  >
+                    <span>对话</span>
+                  </button>
+                </div>
+
+                {/* 输入框 */}
+                <div className="frontstage-input-pill">
+                  <textarea
+                    ref={bottomInputRef}
+                    className="frontstage-input-textarea"
+                    placeholder={currentChapter ? '输入指令，如：续写、润色、生成场景、调整角色…' : '请先选择一个章节'}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleInputKeyDown}
+                    disabled={!currentChapter || isGenerating}
+                    rows={1}
+                  />
+                  <button
+                    className="frontstage-input-send"
+                    onClick={handleInputSubmit}
+                    disabled={!inputValue.trim() || isGenerating || !currentChapter}
+                    title="发送"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
-
-          <RichTextEditor
-            ref={editorRef}
-            content={content}
-            onChange={handleContentChange}
-            wensiMode={wensiMode}
-            generatedText={generatedText}
-            isGenerating={isGenerating}
-            onAcceptGeneration={handleAcceptGeneration}
-            onRejectGeneration={handleRejectGeneration}
-            onRequestGeneration={handleRequestGeneration}
-            onSmartGeneration={handleSmartGeneration}
-            onSlashCommand={handleSlashCommand}
-            placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
-            characters={characters}
-            fontSize={fontSize}
-            onFontSizeChange={setFontSize}
-            isZenMode={isZenMode}
-            onZenModeChange={setIsZenMode}
-            storyId={currentStory?.id}
-            chapterId={currentChapter?.id}
-            chapterNumber={currentChapter?.chapter_number}
-            isRevisionMode={isRevisionMode}
-            onRevisionModeChange={setIsRevisionMode}
-
-            smartGhostText={smartGhostText}
-            inlineSuggestion={subscription.isPro ? inlineSuggestion : null}
-            onClearInlineSuggestion={() => setInlineSuggestion(null)}
-            subscription={subscription}
-            onQuotaExhausted={() => {
-              setQuotaExhausted(true);
-              setUpgradeTrigger('文思泉涌专业版');
-              setShowUpgradePanel(true);
-            }}
-          />
-        </main>
+        </div>
       </div>
 
       {/* Floating WenSi Panel */}

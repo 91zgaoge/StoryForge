@@ -3113,3 +3113,159 @@ body {
   background: var(--warm-sand, #e8e0d5);
   color: var(--charcoal);
 }
+
+
+/* ===== Bottom Input Bar (v4.3 新用户友好入口) ===== */
+
+.frontstage-bottom-bar {
+  flex-shrink: 0;
+  background: var(--parchment);
+  border-top: 1px solid var(--warm-sand);
+  padding: 10px 20px 14px;
+  z-index: 10;
+}
+
+.frontstage-bottom-bar-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 快捷操作按钮 */
+.frontstage-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.frontstage-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--warm-sand);
+  background: var(--parchment-dark);
+  color: var(--charcoal-light);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.frontstage-quick-btn:hover:not(:disabled) {
+  background: var(--warm-sand);
+  color: var(--charcoal);
+  border-color: var(--terracotta-light);
+}
+
+.frontstage-quick-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.frontstage-quick-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Pill 输入框 */
+.frontstage-input-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ivory);
+  border: 1px solid var(--warm-sand);
+  border-radius: 20px;
+  padding: 6px 6px 6px 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.frontstage-input-pill:hover {
+  border-color: var(--terracotta-light);
+}
+
+.frontstage-input-pill:focus-within {
+  border-color: var(--terracotta);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.frontstage-input-textarea {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--charcoal);
+  max-height: 60px;
+  padding: 3px 0;
+}
+
+.frontstage-input-textarea::placeholder {
+  color: var(--stone-gray);
+  opacity: 0.7;
+}
+
+.frontstage-input-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 发送按钮 */
+.frontstage-input-send {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--terracotta);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+  flex-shrink: 0;
+}
+
+.frontstage-input-send:hover:not(:disabled) {
+  background: var(--terracotta-dark);
+}
+
+.frontstage-input-send:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.frontstage-input-send:disabled {
+  background: var(--warm-sand);
+  color: var(--stone-gray);
+  cursor: not-allowed;
+}
+
+/* 禅模式隐藏底部栏 */
+.frontstage-container.zen-mode .frontstage-bottom-bar {
+  display: none;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .frontstage-bottom-bar {
+    padding: 8px 12px 10px;
+  }
+
+  .frontstage-quick-btn span {
+    display: none;
+  }
+
+  .frontstage-quick-btn {
+    padding: 4px 8px;
+  }
+}
