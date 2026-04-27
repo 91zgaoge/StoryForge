@@ -879,10 +879,10 @@ const FrontstageApp: React.FC = () => {
                   </div>
 
                   <button
-                    className="frontstage-input-send"
+                    className={`frontstage-input-send ${isGenerating ? 'generating' : ''}`}
                     onClick={handleInputSubmit}
                     disabled={!inputValue.trim() || isGenerating}
-                    title="发送"
+                    title={isGenerating ? '文思续写中...' : '发送'}
                   >
                     <Send className="w-4 h-4" />
                   </button>

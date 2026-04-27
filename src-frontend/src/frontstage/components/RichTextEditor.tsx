@@ -861,14 +861,8 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           {/* Ghost Text 正文延续 + 生成中指示器 */}
           {(generatedText || isGenerating) && (
             <div className="editor-ghost-continuation">
-              {generatedText ? (
+              {generatedText && (
                 <p className="ghost-paragraph">{generatedText}</p>
-              ) : (
-                <div className="generating-dots">
-                  <span className="generating-dot" />
-                  <span className="generating-dot" />
-                  <span className="generating-dot" />
-                </div>
               )}
               <div className="ghost-hint-bar">
                 {isGenerating ? (
