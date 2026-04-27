@@ -5,7 +5,6 @@ use std::collections::HashMap;
 pub mod engine;
 pub mod evolver;
 pub use engine::{TemplateEngine, PromptLibrary};
-pub use evolver::{PromptEvolver, EvolutionContext, PromptEvolution};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptTemplateDef {
