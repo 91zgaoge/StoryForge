@@ -702,6 +702,21 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       },
     }), [editor, handleGenerateCommentary, selectedRange]);
 
+    // AI 生成时自动滚动到编辑器底部，让幽灵文本和 Tab/Esc 提示可见
+    useEffect(() => {
+      if (generatedText || isGenerating) {
+        requestAnimationFrame(() => {
+          const scrollContainer = containerRef.current?.querySelector('.overflow-auto') as HTMLElement | null;
+          if (scrollContainer) {
+            scrollContainer.scrollTo({
+              top: scrollContainer.scrollHeight,
+              behavior: 'smooth',
+            });
+          }
+        });
+      }
+    }, [generatedText, isGenerating]);
+
     if (!editor) return null;
 
     const currentStyle = defaultStyle;
@@ -864,21 +879,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
               {generatedText && (
                 <p className="ghost-paragraph">{generatedText}</p>
               )}
-              <div className="ghost-hint-bar">
-                {isGenerating ? (
-                  <span className="ghost-hint-generating">
-                    <Loader2 className="w-3 h-3 animate-spin inline mr-1" />
-                    文思续写中...
-                  </span>
-                ) : (
-                  <>
-                    <kbd className="ghost-kbd">Tab</kbd>
-                    <span className="ghost-hint-text">接受</span>
-                    <kbd className="ghost-kbd">Esc</kbd>
-                    <span className="ghost-hint-text">拒绝</span>
-                  </>
-                )}
-              </div>
+              {generatedText && (
+                <div className="ghost-hint-bar">
+                  <kbd className="ghost-kbd">Tab</kbd>
+                  <span className="ghost-hint-text">接受</span>
+                  <kbd className="ghost-kbd">Esc</kbd>
+                  <span className="ghost-hint-text">拒绝</span>
+                </div>
+              )}
             </div>
           )}
 

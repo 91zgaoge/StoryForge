@@ -2333,36 +2333,39 @@ body {
 /* ===== 发送按钮脉冲闪光（生成中） ===== */
 .frontstage-input-send.generating {
   background: var(--terracotta);
-  animation: send-pulse-flash 1.2s ease-in-out infinite;
+  animation: send-pulse-flash 1.5s ease-in-out infinite;
 }
 
 .frontstage-input-send.generating svg {
-  animation: send-icon-fly 1.2s ease-in-out infinite;
+  animation: send-icon-launch 1.5s ease-in-out infinite;
 }
 
 @keyframes send-pulse-flash {
   0%, 100% {
-    box-shadow: 0 0 0 0 oklch(58% 0.13 45 / 0.4);
-    transform: scale(1);
+    box-shadow: 0 0 0 0 oklch(58% 0.13 45 / 0.5);
   }
   50% {
-    box-shadow: 0 0 0 8px oklch(58% 0.13 45 / 0);
-    transform: scale(1.08);
+    box-shadow: 0 0 0 10px oklch(58% 0.13 45 / 0);
   }
 }
 
-@keyframes send-icon-fly {
-  0%, 100% {
-    transform: translateX(0) scale(1);
-    opacity: 1;
+/* 纸飞机图标：从左下角外进入 → 向右上角外射出 → 消失 → 重新开始 */
+@keyframes send-icon-launch {
+  0% {
+    transform: translate(-12px, 12px) scale(0.3) rotate(-30deg);
+    opacity: 0;
   }
-  30% {
-    transform: translateX(3px) scale(0.9);
-    opacity: 0.6;
+  20% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    opacity: 1;
   }
   60% {
-    transform: translateX(-1px) scale(1.05);
-    opacity: 1;
+    transform: translate(10px, -10px) scale(0.85) rotate(10deg);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(24px, -24px) scale(0.2) rotate(25deg);
+    opacity: 0;
   }
 }
 
