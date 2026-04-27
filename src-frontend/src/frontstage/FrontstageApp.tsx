@@ -803,7 +803,7 @@ const FrontstageApp: React.FC = () => {
               onRequestGeneration={handleRequestGeneration}
               onSmartGeneration={handleSmartGeneration}
               onSlashCommand={handleSlashCommand}
-              placeholder={currentChapter ? '开始写作...' : '请选择一个章节开始创作'}
+              placeholder='开始写作...'
               characters={characters}
               fontSize={fontSize}
               onFontSizeChange={setFontSize}
@@ -867,12 +867,12 @@ const FrontstageApp: React.FC = () => {
                       <textarea
                         ref={bottomInputRef}
                         className="frontstage-input-textarea"
-                        placeholder={currentChapter ? '输入任意指令…' : '请先选择一个章节'}
+                        placeholder='输入任意指令…'
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         onKeyDown={handleInputKeyDown}
                         onFocus={handleInputFocus}
-                        disabled={!currentChapter || isGenerating}
+                        disabled={isGenerating}
                         rows={1}
                       />
                     </div>
@@ -881,7 +881,7 @@ const FrontstageApp: React.FC = () => {
                   <button
                     className="frontstage-input-send"
                     onClick={handleInputSubmit}
-                    disabled={!inputValue.trim() || isGenerating || !currentChapter}
+                    disabled={!inputValue.trim() || isGenerating}
                     title="发送"
                   >
                     <Send className="w-4 h-4" />

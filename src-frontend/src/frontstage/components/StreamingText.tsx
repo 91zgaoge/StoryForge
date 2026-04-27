@@ -168,8 +168,7 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
           className="user-text-editor"
           value={userContent}
           onChange={handleUserInput}
-          placeholder={chapterId ? '开始书写你的故事...' : '请选择一个章节开始创作'}
-          disabled={!chapterId}
+          placeholder='开始书写你的故事...'
           spellCheck={false}
         />
         

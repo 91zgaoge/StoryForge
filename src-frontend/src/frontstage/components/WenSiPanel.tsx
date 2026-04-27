@@ -228,7 +228,6 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
 
   const handleStartAutoWrite = useCallback(async () => {
     if (!storyId || !chapterId) {
-      toast.error('请先选择一个章节');
       return;
     }
     const requested = Math.min(charsPerLoop, targetChars);
@@ -277,7 +276,6 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
 
   const handleAutoRevise = useCallback(async () => {
     if (!storyId) {
-      toast.error('请先选择一个故事');
       return;
     }
     const textLen = (selectedText || editorContent || '').length;
