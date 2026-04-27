@@ -71,7 +71,7 @@ runTest(async (helper) => {
 
 **StoryForge (草苔)** - AI 辅助小说创作桌面应用
 
-- **版本**: v4.1.0
+- **版本**: v4.3.0
 - **GitHub**: https://github.com/91zgaoge/StoryForge
 - **技术栈**: Tauri 2.4 + Rust 1.94 + React 18 + TypeScript 5.8 + SQLite + Vitest
 
@@ -147,6 +147,14 @@ npm test
 ---
 
 ### 最近完成的功能
+
+- **v4.3.0 智能交互创作流程深度优化** (2026-04-27) — 从"能创作"到"懂创作"的全面升级
+  - **一键创作体验升级**: Bootstrap前端实时显示5步进度（构思→世界观→角色→场景→撰写）；创建完成后自动切换新故事并加载第一章；Chapter/Scene双轨同步确保前端零延迟加载
+  - **模型驱动编排全面落地**: 彻底移除`detect_and_route_intent`关键词匹配，所有用户输入交由PlanGenerator自由理解；PlanContext增强注入世界观摘要、角色列表、活跃伏笔、风格DNA、MCP可用工具
+  - **设定修改智能响应**: 新增`update_character`/`update_world_building`/`update_scene`能力，LLM解析用户修改意图自动更新后台设定；场景修改自动标记`needs_rewrite`，续写时自动重写受影响内容
+  - **MCP与技能自动化**: CapabilityRegistry注册MCP工具，PlanGenerator知道何时调用外部工具；内置技能（style_enhancer/character_voice/emotion_pacing）可由模型自主编排
+  - **PlanGenerator Prompt进化**: 新增技能调用指南、设定修改指南、MCP工具使用指南、伏笔处理指南（Rule 12-18）
+  - 编译: `cargo check` 零错误，`cargo test` 168/168，`npm run build` 通过
 
 - **v4.2.0 智能交互设计重构 V2：模型驱动的编排范式** (2026-04-23) — 从程序式编排转向模型式编排
   - **核心理念**: 人类只定义能力能做什么（自然语言描述），模型负责编排（什么时候用、怎么用、按什么顺序）。移除所有关键词匹配、意图分类枚举、if/else 分支判断用户意图。
