@@ -139,7 +139,7 @@ impl NovelBootstrapWorkflow {
 
         // Step 5: 生成第一章
         self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "正在撰写第一章...");
-        let _first_chapter = match self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await {
+        let (_first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await {
             Ok(c) => c,
             Err(e) => {
                 self.fail_session(&session_id, &format!("第一章生成失败: {}", e)).ok();
@@ -149,7 +149,16 @@ impl NovelBootstrapWorkflow {
         self.complete_session(&session_id, &story_id).ok();
         self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "第一章已完成");
 
-        // 发送 DataRefresh 事件让前端刷新故事列表
+        // 发送 ChapterSwitch 事件让前端自动切换到新故事
+        let _ = crate::window::WindowManager::send_to_frontstage(
+            &self.app_handle,
+            crate::window::FrontstageEvent::ChapterSwitch {
+                story_id: story_id.clone(),
+                chapter_id: chapter_id.clone(),
+                title: "第一章".to_string(),
+            }
+        );
+        // 同时发送 DataRefresh 事件让前端刷新故事列表
         let _ = crate::window::WindowManager::send_to_frontstage(
             &self.app_handle,
             crate::window::FrontstageEvent::DataRefresh { entity: "stories".to_string() }
@@ -448,7 +457,7 @@ impl NovelBootstrapWorkflow {
 
     // ==================== Step 5: 第一章 ====================
 
-    async fn generate_first_chapter(&self, story_id: &str, concept: &StoryConcept, world: &WorldBuildingResult, characters: &[GeneratedCharacter], scenes: &[GeneratedScene]) -> Result<String, String> {
+    async fn generate_first_chapter(&self, story_id: &str, concept: &StoryConcept, world: &WorldBuildingResult, characters: &[GeneratedCharacter], scenes: &[GeneratedScene]) -> Result<(String, String), String> {
         // 构建完整的 AgentContext
         let builder = crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone());
         let agent_context = builder.build(story_id, Some(1), None, None)?;
@@ -495,7 +504,17 @@ impl NovelBootstrapWorkflow {
             let _ = scene_repo.update(&first_scene.id, &updates);
         }
 
-        Ok(result.content)
+        // 同时创建 Chapter 记录，确保前端可以加载
+        let chapter_repo = crate::db::repositories::ChapterRepository::new(self.pool.clone());
+        let chapter = chapter_repo.create(crate::db::CreateChapterRequest {
+            story_id: story_id.to_string(),
+            chapter_number: 1,
+            title: Some("第一章".to_string()),
+            outline: None,
+            content: Some(result.content.clone()),
+        }).map_err(|e| e.to_string())?;
+
+        Ok((result.content, chapter.id))
     }
 
     // ==================== 辅助方法 ====================

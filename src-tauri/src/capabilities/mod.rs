@@ -285,5 +285,68 @@ pub fn build_default_registry() -> CapabilityRegistry {
         metadata: HashMap::new(),
     });
 
+    // 设定修改能力
+    registry.register(Capability {
+        id: "update_character".to_string(),
+        name: "Update Character".to_string(),
+        description: "Updates character attributes (name, personality, background, goals, etc.) based on user instructions.".to_string(),
+        when_to_use: "Use when the user wants to modify a character's traits, rename them, change their role, or adjust their backstory.".to_string(),
+        input_description: "Story ID, character identifier (name or ID), and a description of the changes to make.".to_string(),
+        output_description: "Updated character object with confirmation of changes applied.".to_string(),
+        parameters: vec![
+            CapabilityParam { name: "story_id".to_string(), description: "Target story ID".to_string(), required: true, param_type: "string".to_string() },
+            CapabilityParam { name: "character_id".to_string(), description: "Character ID or name".to_string(), required: true, param_type: "string".to_string() },
+            CapabilityParam { name: "changes".to_string(), description: "Natural language description of changes to apply".to_string(), required: true, param_type: "string".to_string() },
+        ],
+        source_type: CapabilitySource::SystemCommand,
+        metadata: HashMap::new(),
+    });
+
+    registry.register(Capability {
+        id: "update_world_building".to_string(),
+        name: "Update World Building".to_string(),
+        description: "Updates world-building elements (rules, history, locations, power systems) based on user instructions.".to_string(),
+        when_to_use: "Use when the user wants to modify the story's world rules, add new locations, change the magic system, or adjust historical background.".to_string(),
+        input_description: "Story ID and a description of the world-building changes to make.".to_string(),
+        output_description: "Updated world-building summary with confirmation of changes.".to_string(),
+        parameters: vec![
+            CapabilityParam { name: "story_id".to_string(), description: "Target story ID".to_string(), required: true, param_type: "string".to_string() },
+            CapabilityParam { name: "changes".to_string(), description: "Natural language description of world-building changes".to_string(), required: true, param_type: "string".to_string() },
+        ],
+        source_type: CapabilitySource::SystemCommand,
+        metadata: HashMap::new(),
+    });
+
+    registry.register(Capability {
+        id: "update_scene".to_string(),
+        name: "Update Scene".to_string(),
+        description: "Updates scene attributes (title, dramatic goal, conflict type, setting, characters present) based on user instructions.".to_string(),
+        when_to_use: "Use when the user wants to modify a scene's structure, change its setting, adjust the characters present, or redefine its dramatic purpose.".to_string(),
+        input_description: "Story ID, scene identifier, and a description of the changes to make.".to_string(),
+        output_description: "Updated scene object with confirmation of changes.".to_string(),
+        parameters: vec![
+            CapabilityParam { name: "story_id".to_string(), description: "Target story ID".to_string(), required: true, param_type: "string".to_string() },
+            CapabilityParam { name: "scene_id".to_string(), description: "Scene ID or sequence number".to_string(), required: true, param_type: "string".to_string() },
+            CapabilityParam { name: "changes".to_string(), description: "Natural language description of scene changes".to_string(), required: true, param_type: "string".to_string() },
+        ],
+        source_type: CapabilitySource::SystemCommand,
+        metadata: HashMap::new(),
+    });
+
+    registry.register(Capability {
+        id: "query_knowledge_graph".to_string(),
+        name: "Query Knowledge Graph".to_string(),
+        description: "Queries the story's knowledge graph for entities, relationships, and lore details.".to_string(),
+        when_to_use: "Use when you need to retrieve specific information from the story's accumulated knowledge before making a planning decision or generating content.".to_string(),
+        input_description: "Story ID and query string describing what information is needed.".to_string(),
+        output_description: "Knowledge graph query results with relevant entities and relations.".to_string(),
+        parameters: vec![
+            CapabilityParam { name: "story_id".to_string(), description: "Target story ID".to_string(), required: true, param_type: "string".to_string() },
+            CapabilityParam { name: "query".to_string(), description: "What to search for in the knowledge graph".to_string(), required: true, param_type: "string".to_string() },
+        ],
+        source_type: CapabilitySource::SystemCommand,
+        metadata: HashMap::new(),
+    });
+
     registry
 }

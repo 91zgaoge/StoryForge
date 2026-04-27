@@ -70,6 +70,12 @@ pub struct PlanContext {
     pub total_word_count: usize,
     pub latest_chapter_word_count: usize,
     pub story_progress: String, // "just_started" | "developing" | "midpoint" | "climax" | "resolution"
+    // Phase 4: 增强上下文 - 世界观、角色、伏笔、风格、MCP
+    pub world_building_summary: Option<String>,
+    pub character_list: Vec<String>,
+    pub foreshadowing_status: Vec<String>,
+    pub style_dna_info: Option<String>,
+    pub mcp_tools_available: Vec<String>,
 }
 
 /// 计划生成器
@@ -122,6 +128,25 @@ impl PlanGenerator {
             "No current scene".to_string()
         };
 
+        // 构建增强上下文信息
+        let world_building_text = context.world_building_summary.as_deref().unwrap_or("No world building yet");
+        let characters_text = if context.character_list.is_empty() {
+            "No characters yet".to_string()
+        } else {
+            format!("Characters: {}", context.character_list.join(", "))
+        };
+        let foreshadowing_text = if context.foreshadowing_status.is_empty() {
+            "No active foreshadowing".to_string()
+        } else {
+            format!("Active foreshadowing:\n{}", context.foreshadowing_status.iter().map(|f| format!("  - {}", f)).collect::<Vec<_>>().join("\n"))
+        };
+        let style_dna_text = context.style_dna_info.as_deref().unwrap_or("No style DNA configured");
+        let mcp_tools_text = if context.mcp_tools_available.is_empty() {
+            "No MCP tools available".to_string()
+        } else {
+            format!("Available MCP tools:\n{}", context.mcp_tools_available.iter().map(|t| format!("  - {}", t)).collect::<Vec<_>>().join("\n"))
+        };
+
         let prompt = format!(
             r#"You are an intelligent orchestrator for a creative writing application.
 
@@ -137,6 +162,17 @@ Current system state:
 {}
 
 Scene structure:
+{}
+
+World building:
+{}
+
+{}
+
+{}
+
+Style: {}
+
 {}
 
 Current content preview: {}
@@ -169,11 +205,22 @@ Rules:
 4. step_id must be unique within the plan.
 5. fallback_message should be helpful if execution fails.
 6. For parameters, you can reference output from a previous step using {{step_id}} syntax in string values.
-7. Available capability_id values include: writer, inspector, outline_planner, style_mimic, plot_analyzer, create_story, create_chapter, create_character, builtin.style_enhancer, builtin.plot_twist, builtin.text_formatter, builtin.character_voice, builtin.emotion_pacing.
+7. Available capability_id values include:
+   - Agents: writer, inspector, outline_planner, style_mimic, plot_analyzer
+   - System: create_story, create_chapter, create_character, update_character, update_world_building, update_scene, query_knowledge_graph
+   - Skills: builtin.style_enhancer, builtin.plot_twist, builtin.text_formatter, builtin.character_voice, builtin.emotion_pacing
+   - MCP: mcp.{{server_id}}.{{tool_name}} (use only when external data is needed)
 8. CRITICAL: If the user wants to continue writing and the current scene has no content or is in 'planning'/'outline' stage, use 'writer' to generate draft content.
 9. If the user wants to improve/refine text and there IS content, use 'inspector' first then 'writer'.
 10. If story progress is 'just_started' and user asks for next chapter/scene, use 'create_chapter' or 'outline_planner' first.
-11. If scenes are stuck in 'planning' or 'outline' stage, prioritize 'writer' to move them to 'drafting'."#,
+11. If scenes are stuck in 'planning' or 'outline' stage, prioritize 'writer' to move them to 'drafting'.
+12. If user asks to modify a character, use 'update_character' with character_id and changes parameters.
+13. If user asks to modify world rules or setting, use 'update_world_building' with changes parameter.
+14. If user asks to modify a scene structure, use 'update_scene' with scene_id and changes parameters.
+15. If you need external information (research, facts, current events), use MCP tools: mcp.{{server_id}}.{{tool_name}}.
+16. After updating story elements (character/world/scene), if the current content might be affected, add a 'writer' step to rewrite content with the new settings.
+17. If user requests style enhancement, dialogue improvement, or emotional pacing, prefer using builtin skills over raw writer.
+18. Consider active foreshadowing when planning writing steps - reference unresolved setup items to create payoff moments."#,
             context.has_story,
             context.current_story_id.as_deref().unwrap_or("none"),
             context.has_chapters,
@@ -184,6 +231,11 @@ Rules:
             context.scene_count,
             current_scene_info,
             scenes_summary,
+            world_building_text,
+            characters_text,
+            foreshadowing_text,
+            style_dna_text,
+            mcp_tools_text,
             preview_clean,
             user_input_clean,
             registry_clean

@@ -247,7 +247,12 @@ impl PlanExecutor {
             "outline_planner" => self.execute_outline_planner(params, plan_context).await,
             "style_mimic" => self.execute_style_mimic(params, plan_context).await,
             "plot_analyzer" => self.execute_plot_analyzer(params, plan_context).await,
+            "update_character" => self.execute_update_character(params).await,
+            "update_world_building" => self.execute_update_world_building(params).await,
+            "update_scene" => self.execute_update_scene(params).await,
+            "query_knowledge_graph" => self.execute_query_knowledge_graph(params).await,
             skill_id if skill_id.starts_with("builtin.") => self.execute_skill(skill_id, params, plan_context).await,
+            skill_id if skill_id.starts_with("mcp.") => self.execute_mcp_tool(skill_id, params).await,
             _ => Err(format!("Unknown capability: {}", step.capability_id)),
         }
     }
@@ -510,5 +515,310 @@ impl PlanExecutor {
         }
 
         Ok(result.data)
+    }
+
+    // ==================== 设定修改执行器 ====================
+
+    async fn execute_update_character(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+        let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let character_id = params.get("character_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let char_repo = crate::db::repositories::CharacterRepository::new(pool.inner().clone());
+
+        // 先尝试按ID查找，失败则按名称查找
+        let character = if let Ok(Some(c)) = char_repo.get_by_id(&character_id) {
+            c
+        } else {
+            let all = char_repo.get_by_story(&story_id).map_err(|e| e.to_string())?;
+            all.into_iter().find(|c| c.name == character_id)
+                .ok_or_else(|| format!("Character '{}' not found", character_id))?
+        };
+
+        // 使用LLM解析修改意图并生成新属性值
+        let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
+        let prompt = format!(
+            r#"你是一位角色编辑助手。请根据用户的修改要求，为角色生成新的属性值。
+
+角色当前信息：
+- 姓名：{}
+- 背景：{}
+- 性格：{}
+- 目标：{}
+
+用户修改要求："{}"
+
+请用 JSON 格式回复，只包含需要修改的字段：
+{{{{
+  "name": "新姓名（如不需要修改则留空或省略）",
+  "background": "新背景（如不需要修改则留空或省略）",
+  "personality": "新性格（如不需要修改则留空或省略）",
+  "goals": "新目标（如不需要修改则留空或省略）"
+}}}}
+
+注意：只输出 JSON，不要其他内容。"#,
+            character.name,
+            character.background.as_deref().unwrap_or("未设定"),
+            character.personality.as_deref().unwrap_or("未设定"),
+            character.goals.as_deref().unwrap_or("未设定"),
+            changes.replace('"', "'")
+        );
+
+        let response = llm_service.generate(prompt, Some(1024), Some(0.3)).await?;
+        let content = response.content.trim();
+        let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+            &content[start..=end]
+        } else {
+            content
+        };
+
+        let updates: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse character update JSON: {}", e))?;
+
+        let new_name = updates.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+        let new_background = updates.get("background").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+        let new_personality = updates.get("personality").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+        let new_goals = updates.get("goals").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+
+        char_repo.update(&character.id, new_name.map(|s| s.to_string()), new_background.map(|s| s.to_string()), new_personality.map(|s| s.to_string()), new_goals.map(|s| s.to_string()))
+            .map_err(|e| e.to_string())?;
+
+        Ok(serde_json::json!({
+            "character_id": character.id,
+            "name": new_name.unwrap_or(&character.name),
+            "message": format!("角色 '{}' 已更新", character.name),
+        }))
+    }
+
+    async fn execute_update_world_building(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+        let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let wb_repo = crate::db::repositories_v3::WorldBuildingRepository::new(pool.inner().clone());
+
+        let wb = wb_repo.get_by_story(&story_id).map_err(|e| e.to_string())?
+            .ok_or_else(|| "World building not found for this story".to_string())?;
+
+        // 使用LLM解析修改意图
+        let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
+        let prompt = format!(
+            r#"你是一位世界观编辑助手。请根据用户的修改要求，生成新的世界观设定。
+
+当前世界观：
+- 核心概念：{}
+- 规则：{}
+- 历史：{}
+
+用户修改要求："{}"
+
+请用 JSON 格式回复：
+{{{{
+  "concept": "新概念（如不需要修改则留空或省略）",
+  "rules_to_add": [{{"name": "新规则名", "description": "规则描述", "rule_type": "physical|magic|social|historical", "importance": 8}}],
+  "history_update": "历史补充或修改（如不需要则留空或省略）"
+}}}}
+
+注意：只输出 JSON，不要其他内容。"#,
+            wb.concept,
+            wb.rules.iter().map(|r| format!("{}: {}", r.name, r.description.as_deref().unwrap_or(""))).collect::<Vec<_>>().join("; "),
+            wb.history.as_deref().unwrap_or("未设定"),
+            changes.replace('"', "'")
+        );
+
+        let response = llm_service.generate(prompt, Some(2048), Some(0.3)).await?;
+        let content = response.content.trim();
+        let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+            &content[start..=end]
+        } else {
+            content
+        };
+
+        let updates: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse world building update JSON: {}", e))?;
+
+        let new_concept = updates.get("concept").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+
+        // 解析新规则
+        let mut all_rules = wb.rules.clone();
+        if let Some(new_rules) = updates.get("rules_to_add").and_then(|v| v.as_array()) {
+            for rule_val in new_rules {
+                if let (Some(name), Some(desc), Some(rule_type), Some(importance)) = (
+                    rule_val.get("name").and_then(|v| v.as_str()),
+                    rule_val.get("description").and_then(|v| v.as_str()),
+                    rule_val.get("rule_type").and_then(|v| v.as_str()),
+                    rule_val.get("importance").and_then(|v| v.as_i64()),
+                ) {
+                    use crate::db::models_v3::{WorldRule, RuleType};
+                    all_rules.push(WorldRule {
+                        id: Uuid::new_v4().to_string(),
+                        name: name.to_string(),
+                        description: Some(desc.to_string()),
+                        rule_type: match rule_type {
+                            "physical" => RuleType::Physical,
+                            "magic" => RuleType::Magic,
+                            "social" => RuleType::Social,
+                            "historical" => RuleType::Historical,
+                            _ => RuleType::Custom,
+                        },
+                        importance: importance as i32,
+                    });
+                }
+            }
+        }
+
+        let history_update = updates.get("history_update").and_then(|v| v.as_str());
+        let new_history = if let Some(update) = history_update {
+            Some(format!("{}\n\n【更新】{}", wb.history.as_deref().unwrap_or(""), update))
+        } else {
+            wb.history.clone()
+        };
+
+        wb_repo.update(&wb.id, new_concept, Some(&all_rules), new_history.as_deref(), None)
+            .map_err(|e| e.to_string())?;
+
+        Ok(serde_json::json!({
+            "world_building_id": wb.id,
+            "message": "世界观设定已更新",
+        }))
+    }
+
+    async fn execute_update_scene(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+        let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let scene_id = params.get("scene_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let changes = params.get("changes").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let scene_repo = crate::db::repositories_v3::SceneRepository::new(pool.inner().clone());
+
+        // 按ID或sequence_number查找场景
+        let scene = if let Ok(Some(s)) = scene_repo.get_by_id(&scene_id) {
+            s
+        } else {
+            let all = scene_repo.get_by_story(&story_id).map_err(|e| e.to_string())?;
+            if let Ok(seq) = scene_id.parse::<i32>() {
+                all.into_iter().find(|s| s.sequence_number == seq)
+                    .ok_or_else(|| format!("Scene '{}' not found", scene_id))?
+            } else {
+                return Err(format!("Scene '{}' not found", scene_id));
+            }
+        };
+
+        // 使用LLM解析修改意图
+        let llm_service = crate::llm::LlmService::new(self.app_handle.clone());
+        let prompt = format!(
+            r#"你是一位场景编辑助手。请根据用户的修改要求，生成新的场景属性。
+
+当前场景：
+- 标题：{}
+- 戏剧目标：{}
+- 外部压力：{}
+- 地点：{}
+- 时间：{}
+
+用户修改要求："{}"
+
+请用 JSON 格式回复，只包含需要修改的字段：
+{{{{
+  "title": "新标题（如不需要修改则留空或省略）",
+  "dramatic_goal": "新戏剧目标（如不需要修改则留空或省略）",
+  "external_pressure": "新外部压力（如不需要修改则留空或省略）",
+  "setting_location": "新地点（如不需要修改则留空或省略）",
+  "setting_time": "新时间（如不需要修改则留空或省略）"
+}}}}
+
+注意：只输出 JSON，不要其他内容。"#,
+            scene.title.as_deref().unwrap_or("未设定"),
+            scene.dramatic_goal.as_deref().unwrap_or("未设定"),
+            scene.external_pressure.as_deref().unwrap_or("未设定"),
+            scene.setting_location.as_deref().unwrap_or("未设定"),
+            scene.setting_time.as_deref().unwrap_or("未设定"),
+            changes.replace('"', "'")
+        );
+
+        let response = llm_service.generate(prompt, Some(1024), Some(0.3)).await?;
+        let content = response.content.trim();
+        let json_str = if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
+            &content[start..=end]
+        } else {
+            content
+        };
+
+        let updates: serde_json::Value = serde_json::from_str(json_str)
+            .map_err(|e| format!("Failed to parse scene update JSON: {}", e))?;
+
+        let mut scene_update = crate::db::repositories_v3::SceneUpdate {
+            title: updates.get("title").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            dramatic_goal: updates.get("dramatic_goal").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            external_pressure: updates.get("external_pressure").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            setting_location: updates.get("setting_location").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            setting_time: updates.get("setting_time").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            ..Default::default()
+        };
+
+        // 如果修改了关键设定，标记场景可能需要重写
+        if scene_update.dramatic_goal.is_some() || scene_update.setting_location.is_some() {
+            scene_update.execution_stage = Some("needs_rewrite".to_string());
+        }
+
+        scene_repo.update(&scene.id, &scene_update).map_err(|e| e.to_string())?;
+
+        Ok(serde_json::json!({
+            "scene_id": scene.id,
+            "message": format!("场景 '{}' 已更新", scene.title.as_deref().unwrap_or("未命名")),
+        }))
+    }
+
+    async fn execute_query_knowledge_graph(&self, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+        let story_id = params.get("story_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let pool = self.app_handle.state::<crate::db::DbPool>();
+        let kg_repo = crate::db::repositories_v3::KnowledgeGraphRepository::new(pool.inner().clone());
+
+        // 简化查询：获取所有实体，由LLM筛选
+        let entities = kg_repo.get_entities_by_story(&story_id).map_err(|e| e.to_string())?;
+
+        let relevant: Vec<serde_json::Value> = entities.into_iter()
+            .filter(|e| {
+                let search_text = format!("{} {}", e.name, e.attributes.get("description").and_then(|v| v.as_str()).unwrap_or(""));
+                query.split_whitespace().any(|kw| search_text.to_lowercase().contains(&kw.to_lowercase()))
+            })
+            .take(10)
+            .map(|e| serde_json::json!({
+                "id": e.id,
+                "name": e.name,
+                "entity_type": e.entity_type,
+                "attributes": e.attributes,
+            }))
+            .collect();
+
+        Ok(serde_json::json!({
+            "query": query,
+            "results": relevant,
+            "count": relevant.len(),
+        }))
+    }
+
+    async fn execute_mcp_tool(&self, capability_id: &str, params: &HashMap<String, serde_json::Value>) -> Result<serde_json::Value, String> {
+        // capability_id格式: "mcp.{server_id}.{tool_name}"
+        let parts: Vec<&str> = capability_id.splitn(3, '.').collect();
+        if parts.len() != 3 {
+            return Err(format!("Invalid MCP capability ID: {}", capability_id));
+        }
+        let server_id = parts[1];
+        let tool_name = parts[2];
+
+        let arguments = params.get("arguments").cloned().unwrap_or(serde_json::Value::Null);
+
+        let mut connections = crate::MCP_CONNECTIONS.lock().await;
+        let client = connections.get_mut(server_id)
+            .ok_or_else(|| format!("MCP server {} not connected", server_id))?;
+
+        let result = client.call_tool(tool_name, arguments).await
+            .map_err(|e| format!("MCP tool call failed: {}", e))?;
+
+        Ok(result)
     }
 }

@@ -79,6 +79,14 @@ const FrontstageApp: React.FC = () => {
     message: string;
   } | null>(null);
 
+  // Bootstrap 进度
+  const [bootstrapProgress, setBootstrapProgress] = useState<{
+    stepName: string;
+    stepNumber: number;
+    totalSteps: number;
+    message: string;
+  } | null>(null);
+
   // WenSi 浮动面板
   const [showWenSiPanel, setShowWenSiPanel] = useState(false);
   const [wenSiTab, setWenSiTab] = useState<'write' | 'revise' | 'dialog'>('write');
@@ -121,6 +129,7 @@ const FrontstageApp: React.FC = () => {
   // Setup Tauri event listeners
   const setupEventListeners = async () => {
     try {
+      // 监听 frontstage-update 事件
       await listen<FrontstageEvent>('frontstage-update', (event) => {
         const { type, payload } = event.payload;
 
@@ -172,6 +181,27 @@ const FrontstageApp: React.FC = () => {
               }
             }
             break;
+        }
+      });
+
+      // 监听 novel-bootstrap-progress 事件
+      await listen<{
+        session_id: string;
+        step_name: string;
+        step_number: number;
+        total_steps: number;
+        message: string;
+      }>('novel-bootstrap-progress', (event) => {
+        const p = event.payload;
+        setBootstrapProgress({
+          stepName: p.step_name,
+          stepNumber: p.step_number,
+          totalSteps: p.total_steps,
+          message: p.message,
+        });
+        // 完成后清除进度显示
+        if (p.step_number >= p.total_steps) {
+          setTimeout(() => setBootstrapProgress(null), 3000);
         }
       });
     } catch (e) {
@@ -543,6 +573,14 @@ const FrontstageApp: React.FC = () => {
                 <span className="status-separator">·</span>
                 <span className="status-item saving" title="AI 编排器状态">
                   {orchestratorStatus.message}
+                </span>
+              </>
+            )}
+            {bootstrapProgress && (
+              <>
+                <span className="status-separator">·</span>
+                <span className="status-item saving" title="小说初始化进度">
+                  {bootstrapProgress.stepName} ({bootstrapProgress.stepNumber}/{bootstrapProgress.totalSteps})
                 </span>
               </>
             )}
