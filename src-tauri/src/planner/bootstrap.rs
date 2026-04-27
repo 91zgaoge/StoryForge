@@ -29,6 +29,8 @@ pub struct BootstrapSession {
     pub total_steps: usize,
     pub story_id: Option<String>,
     pub error_message: Option<String>,
+    /// 生成的小说正文开头内容（直接返回给前端展示）
+    pub first_chapter_content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,7 +141,7 @@ impl NovelBootstrapWorkflow {
 
         // Step 5: 生成第一章
         self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "正在撰写第一章...");
-        let (_first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await {
+        let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await {
             Ok(c) => c,
             Err(e) => {
                 self.fail_session(&session_id, &format!("第一章生成失败: {}", e)).ok();
@@ -172,6 +174,7 @@ impl NovelBootstrapWorkflow {
             total_steps,
             story_id: Some(story_id),
             error_message: None,
+            first_chapter_content: Some(first_chapter_content),
         })
     }
 

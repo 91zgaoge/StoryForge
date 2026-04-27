@@ -220,7 +220,8 @@ Rules:
 15. If you need external information (research, facts, current events), use MCP tools: mcp.{{server_id}}.{{tool_name}}.
 16. After updating story elements (character/world/scene), if the current content might be affected, add a 'writer' step to rewrite content with the new settings.
 17. If user requests style enhancement, dialogue improvement, or emotional pacing, prefer using builtin skills over raw writer.
-18. Consider active foreshadowing when planning writing steps - reference unresolved setup items to create payoff moments."#,
+18. Consider active foreshadowing when planning writing steps - reference unresolved setup items to create payoff moments.
+19. CRITICAL: When the user explicitly asks to 'write a novel', 'write a story', 'start writing', '写小说', '写故事', '开始写', or any clear prose-generation request, ALWAYS use 'writer' to generate actual prose content. Do NOT use 'outline_planner' or return conversational greetings. The user wants to see story text, not planning advice."#,
             context.has_story,
             context.current_story_id.as_deref().unwrap_or("none"),
             context.has_chapters,

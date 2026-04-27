@@ -1015,7 +1015,8 @@ async fn smart_execute(
                 return Ok(planner::PlanExecutionResult {
                     success: true,
                     steps_completed: session.total_steps,
-                    final_content: None, // 前端通过 DataRefresh 事件加载新故事
+                    // 直接返回生成的小说正文开头，前端以 ghost text 形式展示
+                    final_content: session.first_chapter_content,
                     messages: vec![
                         format!("story_created:{}", session.story_id.unwrap_or_default()),
                         "novel_bootstrap_completed".to_string(),
