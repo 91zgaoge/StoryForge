@@ -249,6 +249,7 @@ pub fn run() {
             record_feedback,
             // Smart orchestrator
             smart_execute,
+            get_input_hint,
             // Agent commands
             agents::commands::agent_execute,
             agents::commands::agent_execute_stream,
@@ -1279,6 +1280,121 @@ async fn record_feedback(request: RecordFeedbackRequest) -> Result<(), String> {
     }
     
     result
+}
+
+/// 获取输入栏智能提示 — 由LLM根据当前故事上下文生成建议
+#[tauri::command]
+async fn get_input_hint(
+    app_handle: AppHandle,
+    current_content: Option<String>,
+) -> Result<String, String> {
+    let pool = get_pool().ok_or("Database not initialized")?;
+
+    // 获取当前故事状态
+    let stories = StoryRepository::new(pool.clone()).get_all()
+        .map_err(|e| format!("Failed to load stories: {}", e))?;
+    let current_story = stories.first().cloned();
+    let current_story_id = current_story.as_ref().map(|s| s.id.clone());
+
+    let chapters = if let Some(ref story_id) = current_story_id {
+        ChapterRepository::new(pool.clone())
+            .get_by_story(story_id)
+            .map_err(|e| format!("Failed to load chapters: {}", e))?
+    } else {
+        vec![]
+    };
+
+    let content_preview = current_content
+        .filter(|c| !c.trim().is_empty())
+        .or_else(|| chapters.last().and_then(|c| c.content.clone()));
+
+    let word_count = content_preview.as_ref().map(|c| c.chars().count()).unwrap_or(0);
+
+    // 构建规则驱动的候选建议
+    let mut candidates: Vec<String> = vec![];
+
+    if stories.is_empty() {
+        candidates.push("写一个新故事".to_string());
+        candidates.push("创作一部科幻小说".to_string());
+        candidates.push("我想写一个关于...的故事".to_string());
+    } else if chapters.is_empty() {
+        candidates.push("创建第一章".to_string());
+        candidates.push("开始写作".to_string());
+    } else if word_count < 100 {
+        candidates.push("续写".to_string());
+        candidates.push("展开这个场景".to_string());
+        candidates.push("增加环境描写".to_string());
+    } else if word_count < 1000 {
+        candidates.push("续写下一段".to_string());
+        candidates.push("润色当前段落".to_string());
+        candidates.push("增加对话".to_string());
+    } else {
+        candidates.push("续写".to_string());
+        candidates.push("调整节奏".to_string());
+        candidates.push("生成古典评点".to_string());
+        candidates.push("优化对话".to_string());
+    }
+
+    // 如果有角色，添加角色相关建议
+    if let Some(ref story_id) = current_story_id {
+        let char_repo = db::repositories::CharacterRepository::new(pool.clone());
+        if let Ok(chars) = char_repo.get_by_story(story_id) {
+            if let Some(first_char) = chars.first() {
+                candidates.push(format!("让{}出场", first_char.name));
+            }
+            if chars.len() >= 2 {
+                candidates.push("增加人物冲突".to_string());
+            }
+        }
+
+        // 如果有场景信息，添加场景相关建议
+        let scene_repo = db::repositories_v3::SceneRepository::new(pool.clone());
+        if let Ok(scenes) = scene_repo.get_by_story(story_id) {
+            let scene_count = scenes.len();
+            let has_content = scenes.iter().any(|s| s.content.is_some() || s.draft_content.is_some());
+            if scene_count > 0 && !has_content {
+                candidates.push("为当前场景写内容".to_string());
+            }
+        }
+    }
+
+    // 尝试用 LLM 生成更个性化的建议
+    let llm_hint = if let Some(ref story) = current_story {
+        let llm_service = crate::llm::LlmService::new(app_handle);
+        let prompt = format!(
+            "你是一个AI写作助手。当前故事：{}，字数：{}，章节数：{}。\
+             请生成一条简短的输入建议（12字以内），告诉用户下一步可以做什么。\
+             建议要自然、有创意、贴合故事。只输出建议内容，不要解释。",
+            story.title,
+            word_count,
+            chapters.len()
+        );
+        match llm_service.generate(prompt, Some(30), Some(0.7)).await {
+            Ok(response) => {
+                let hint = response.content.trim().replace(['"', '\'', '「', '」'], "").trim().to_string();
+                if !hint.is_empty() && hint.chars().count() <= 20 {
+                    Some(hint)
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                log::debug!("[get_input_hint] LLM generation failed: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // 优先返回 LLM 建议，否则返回规则建议
+    if let Some(hint) = llm_hint {
+        Ok(hint)
+    } else if let Some(hint) = candidates.first() {
+        Ok(hint.clone())
+    } else {
+        Ok("输入指令开始创作".to_string())
+    }
 }
 
 #[tauri::command]

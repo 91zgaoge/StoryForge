@@ -3115,7 +3115,7 @@ body {
 }
 
 
-/* ===== Bottom Input Bar (v4.3 新用户友好入口) ===== */
+/* ===== Bottom Input Bar (v4.3 智能提示版) ===== */
 
 .frontstage-bottom-bar {
   flex-shrink: 0;
@@ -3133,54 +3133,15 @@ body {
   gap: 8px;
 }
 
-/* 快捷操作按钮 */
-.frontstage-quick-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.frontstage-quick-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--warm-sand);
-  background: var(--parchment-dark);
-  color: var(--charcoal-light);
-  font-size: 12px;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.frontstage-quick-btn:hover:not(:disabled) {
-  background: var(--warm-sand);
-  color: var(--charcoal);
-  border-color: var(--terracotta-light);
-}
-
-.frontstage-quick-btn:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.frontstage-quick-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 /* Pill 输入框 */
 .frontstage-input-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   background: var(--ivory);
   border: 1px solid var(--warm-sand);
   border-radius: 20px;
-  padding: 6px 6px 6px 14px;
+  padding: 6px 6px 6px 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -3194,9 +3155,49 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.frontstage-input-textarea {
+/* 输入框中间区域 */
+.frontstage-input-middle {
   flex: 1;
   min-width: 0;
+  position: relative;
+}
+
+/* Ghost Hint 层叠容器 */
+.frontstage-input-ghost-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+/* Ghost Hint 灰色提示 */
+.frontstage-input-ghost {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--stone-gray);
+  opacity: 0.5;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  z-index: 1;
+}
+
+.frontstage-input-ghost-hint {
+  color: var(--terracotta);
+  opacity: 0.7;
+  font-size: 12px;
+  margin-left: 4px;
+  font-family: var(--font-sans);
+}
+
+.frontstage-input-textarea {
+  position: relative;
+  z-index: 2;
+  width: 100%;
   background: transparent;
   border: none;
   outline: none;
@@ -3211,7 +3212,7 @@ body {
 
 .frontstage-input-textarea::placeholder {
   color: var(--stone-gray);
-  opacity: 0.7;
+  opacity: 0.5;
 }
 
 .frontstage-input-textarea:disabled {
@@ -3250,6 +3251,19 @@ body {
   cursor: not-allowed;
 }
 
+/* 模型状态文字颜色 */
+.model-status-text.status-connected {
+  color: oklch(65% 0.22 145);
+}
+
+.model-status-text.status-disconnected {
+  color: oklch(60% 0.22 25);
+}
+
+.model-status-text.status-connecting {
+  color: oklch(75% 0.16 95);
+}
+
 /* 禅模式隐藏底部栏 */
 .frontstage-container.zen-mode .frontstage-bottom-bar {
   display: none;
@@ -3259,13 +3273,5 @@ body {
 @media (max-width: 768px) {
   .frontstage-bottom-bar {
     padding: 8px 12px 10px;
-  }
-
-  .frontstage-quick-btn span {
-    display: none;
-  }
-
-  .frontstage-quick-btn {
-    padding: 4px 8px;
   }
 }

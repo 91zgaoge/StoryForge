@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { GitBranch, Eye, X, Send, Sparkles } from 'lucide-react';
-import { writerAgentExecute, recordFeedback, smartExecute } from '@/services/tauri';
+import { GitBranch, Eye, X, Send } from 'lucide-react';
+import { writerAgentExecute, recordFeedback, smartExecute, getInputHint } from '@/services/tauri';
+import { modelService } from '@/services/modelService';
 import { cn } from '@/utils/cn';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import { SmartHintSystem } from './ai-perception';
@@ -97,6 +98,15 @@ const FrontstageApp: React.FC = () => {
   // 底部输入栏
   const [inputValue, setInputValue] = useState('');
   const bottomInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 输入栏智能提示系统
+  const [ghostHint, setGhostHint] = useState('');           // 灰色提示内容
+  const [hintSource, setHintSource] = useState<'llm' | 'history'>('llm');
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);      // -1=LLM建议, 0+=历史
+  const [modelStatus, setModelStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting');
+  const [modelName, setModelName] = useState('');
+  const [showModelTooltip, setShowModelTooltip] = useState(false);
 
   // AI 学习指示器
   const [learnings, setLearnings] = useState<LearningPoint[]>([]);
@@ -482,16 +492,119 @@ const FrontstageApp: React.FC = () => {
   const handleInputSubmit = useCallback(() => {
     const text = inputValue.trim();
     if (!text) return;
+    // 保存到历史
+    setInputHistory(prev => {
+      const filtered = prev.filter(h => h !== text);
+      return [text, ...filtered].slice(0, 20);
+    });
+    setGhostHint('');
+    setHistoryIndex(-1);
     handleSmartGeneration(text);
     setInputValue('');
   }, [inputValue, handleSmartGeneration]);
 
+  // 获取LLM智能输入建议
+  const fetchSmartHint = useCallback(async () => {
+    if (!currentChapter) return;
+    try {
+      const hint = await getInputHint(editorRef.current?.getText());
+      if (hint && !inputValue) {
+        setGhostHint(hint);
+        setHintSource('llm');
+        setHistoryIndex(-1);
+      }
+    } catch (e) {
+      console.error('Failed to fetch input hint:', e);
+    }
+  }, [currentChapter]);
+
+  // 检测模型状态
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const status = await modelService.checkModelStatus();
+        setModelStatus(status);
+        const model = await modelService.getCurrentModel();
+        setModelName(model.name || model.id);
+      } catch (e) {
+        setModelStatus('disconnected');
+      }
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 输入栏获得焦点时获取智能建议
+  const handleInputFocus = useCallback(() => {
+    if (!inputValue && !ghostHint) {
+      fetchSmartHint();
+    }
+  }, [inputValue, ghostHint, fetchSmartHint]);
+
   const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter 发送
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleInputSubmit();
+      return;
     }
-  }, [handleInputSubmit]);
+    // ↑ 键：切换显示 ghost hint（LLM建议 → 历史记录）
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (hintSource === 'llm' && inputHistory.length > 0) {
+        // 切换到第一条历史
+        setHintSource('history');
+        setHistoryIndex(0);
+        setGhostHint(inputHistory[0]);
+      } else if (hintSource === 'history' && historyIndex < inputHistory.length - 1) {
+        // 下一条历史
+        const nextIdx = historyIndex + 1;
+        setHistoryIndex(nextIdx);
+        setGhostHint(inputHistory[nextIdx]);
+      } else if (hintSource === 'history') {
+        // 循环回到 LLM 建议
+        setHintSource('llm');
+        setHistoryIndex(-1);
+        fetchSmartHint();
+      } else {
+        // 当前是LLM建议但没有历史，重新获取
+        fetchSmartHint();
+      }
+      return;
+    }
+    // ↓ 键：从历史回到 LLM 建议
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (hintSource === 'history') {
+        if (historyIndex > 0) {
+          const prevIdx = historyIndex - 1;
+          setHistoryIndex(prevIdx);
+          setGhostHint(inputHistory[prevIdx]);
+        } else {
+          setHintSource('llm');
+          setHistoryIndex(-1);
+          fetchSmartHint();
+        }
+      }
+      return;
+    }
+    // → 键：确认填充 ghost hint
+    if (e.key === 'ArrowRight' && ghostHint && !inputValue) {
+      e.preventDefault();
+      setInputValue(ghostHint);
+      setGhostHint('');
+      setHistoryIndex(-1);
+      setHintSource('llm');
+      return;
+    }
+    // 任意键输入时清除 ghost hint
+    if (e.key.length === 1 && ghostHint) {
+      setGhostHint('');
+      setHistoryIndex(-1);
+      setHintSource('llm');
+    }
+  }, [handleInputSubmit, ghostHint, inputValue, hintSource, historyIndex, inputHistory, fetchSmartHint]);
 
   // 处理编辑器 Slash 命令
   const handleSlashCommand = useCallback((commandId: string) => {
@@ -714,59 +827,57 @@ const FrontstageApp: React.FC = () => {
             />
           </main>
 
-          {/* Bottom Input Bar — 新用户友好入口 */}
+          {/* Bottom Input Bar — v2: 模型状态 + 智能提示 + 历史 */}
           {!isZenMode && (
             <div className="frontstage-bottom-bar">
               <div className="frontstage-bottom-bar-inner">
-                {/* 快捷操作 */}
-                <div className="frontstage-quick-actions">
-                  <button
-                    className="frontstage-quick-btn"
-                    onClick={() => handleSmartGeneration('续写')}
-                    disabled={isGenerating || !currentChapter}
-                    title="续写 (Ctrl+Enter)"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>续写</span>
-                  </button>
-                  <button
-                    className="frontstage-quick-btn"
-                    onClick={() => handleSmartGeneration('润色当前段落')}
-                    disabled={isGenerating || !currentChapter}
-                    title="润色"
-                  >
-                    <span>润色</span>
-                  </button>
-                  <button
-                    className="frontstage-quick-btn"
-                    onClick={() => editorRef.current?.generateCommentary()}
-                    disabled={isGenerating || !currentStory}
-                    title="评点"
-                  >
-                    <span>评点</span>
-                  </button>
-                  <button
-                    className="frontstage-quick-btn"
-                    onClick={() => { setWenSiTab('dialog'); setShowWenSiPanel(true); }}
-                    disabled={isGenerating || !currentChapter}
-                    title="对话"
-                  >
-                    <span>对话</span>
-                  </button>
-                </div>
-
                 {/* 输入框 */}
                 <div className="frontstage-input-pill">
-                  <textarea
-                    ref={bottomInputRef}
-                    className="frontstage-input-textarea"
-                    placeholder={currentChapter ? '输入指令，如：续写、润色、生成场景、调整角色…' : '请先选择一个章节'}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleInputKeyDown}
-                    disabled={!currentChapter || isGenerating}
-                    rows={1}
-                  />
+                  {/* 模型状态指示器 */}
+                  <div
+                    className="model-status-wrapper"
+                    onMouseEnter={() => setShowModelTooltip(true)}
+                    onMouseLeave={() => setShowModelTooltip(false)}
+                  >
+                    <div className={`model-status-dot status-${modelStatus}`} />
+                    {showModelTooltip && (
+                      <div className="model-tooltip">
+                        <div className="model-tooltip-header">
+                          <span className="model-name">{modelName || '未配置'}</span>
+                          <span className={`model-status-text status-${modelStatus}`}>
+                            {modelStatus === 'connected' ? '已连接' : modelStatus === 'connecting' ? '检测中' : '未连接'}
+                          </span>
+                        </div>
+                        <div className="model-id">{modelStatus === 'connected' ? '模型就绪，可直接输入指令' : '请检查模型配置'}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 输入框 + Ghost Hint */}
+                  <div className="frontstage-input-middle">
+                    <div className="frontstage-input-ghost-wrapper">
+                      {ghostHint && !inputValue && (
+                        <span className="frontstage-input-ghost">
+                          {ghostHint}
+                          <span className="frontstage-input-ghost-hint">
+                            {hintSource === 'llm' ? ' · →确认' : ' · ↑↓切换 · →确认'}
+                          </span>
+                        </span>
+                      )}
+                      <textarea
+                        ref={bottomInputRef}
+                        className="frontstage-input-textarea"
+                        placeholder={currentChapter ? '输入任意指令…' : '请先选择一个章节'}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={handleInputKeyDown}
+                        onFocus={handleInputFocus}
+                        disabled={!currentChapter || isGenerating}
+                        rows={1}
+                      />
+                    </div>
+                  </div>
+
                   <button
                     className="frontstage-input-send"
                     onClick={handleInputSubmit}

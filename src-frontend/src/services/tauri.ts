@@ -432,3 +432,7 @@ export const autoReviseCancel = (taskId: string) =>
 // Window communication
 export const notifyFrontstageDataRefresh = (entity: string) =>
   invoke<void>('notify_frontstage_data_refresh', { entity });
+
+// Input hint — LLM智能输入建议
+export const getInputHint = (currentContent?: string) =>
+  invoke<string>('get_input_hint', { currentContent });
