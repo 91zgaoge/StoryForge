@@ -7,11 +7,11 @@
 use super::OAuthProvider;
 use oauth2::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge, PkceCodeVerifier,
-    RedirectUrl, RevocationUrl, Scope, TokenUrl, AuthorizationCode,
+    Scope, TokenUrl, AuthorizationCode,
     basic::BasicClient, TokenResponse,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
 /// 存储正在进行的OAuth流程状态（state -> PKCE verifier映射）
@@ -38,10 +38,21 @@ pub struct OAuthUserProfile {
 }
 
 /// 开始OAuth流程，返回授权URL和state
-pub fn start_oauth_flow(provider: OAuthProvider, client_id: &str, client_secret: Option<&str>) -> Result<(String, String, u16), String> {
-    let (auth_url, token_url, revoke_url) = get_provider_urls(provider);
+pub fn start_oauth_flow(
+    provider: OAuthProvider,
+    client_id: &str,
+    client_secret: Option<&str>,
+) -> Result<(String, String, u16), String> {
+    let (auth_url, token_url, _revoke_url) = get_provider_urls(provider);
 
-    let client = build_oauth_client(client_id, client_secret, auth_url, token_url, revoke_url)?;
+    // 构建 OAuth client（oauth2 v5 类型状态模式）
+    let mut client = BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_auth_uri(auth_url)
+        .set_token_uri(token_url);
+
+    if let Some(secret) = client_secret {
+        client = client.set_client_secret(ClientSecret::new(secret.to_string()));
+    }
 
     // 生成 PKCE 挑战
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -72,7 +83,6 @@ pub fn start_oauth_flow(provider: OAuthProvider, client_id: &str, client_secret:
         store.insert(state.clone(), oauth_state);
     }
 
-    // 更新redirect URL（使用本地回调端口）
     let auth_url_str = auth_url_obj.to_string();
 
     Ok((auth_url_str, state, port))
@@ -93,17 +103,29 @@ pub async fn handle_oauth_callback(
 
     let provider = oauth_state.provider;
 
-    let (auth_url, token_url, revoke_url) = get_provider_urls(provider);
+    let (auth_url, token_url, _revoke_url) = get_provider_urls(provider);
 
-    let client = build_oauth_client(client_id, client_secret, auth_url, token_url, revoke_url)?;
+    // 构建 OAuth client
+    let mut client = BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_auth_uri(auth_url)
+        .set_token_uri(token_url);
+
+    if let Some(secret) = client_secret {
+        client = client.set_client_secret(ClientSecret::new(secret.to_string()));
+    }
 
     // 用code交换token
     let pkce_verifier = PkceCodeVerifier::new(oauth_state.pkce_verifier);
 
+    let http_client = reqwest::ClientBuilder::new()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .set_pkce_verifier(pkce_verifier)
-        .request_async(oauth2::reqwest::async_http_client)
+        .request_async(&http_client)
         .await
         .map_err(|e| format!("Token exchange failed: {}", e))?;
 
@@ -132,31 +154,13 @@ pub async fn handle_oauth_callback(
     })
 }
 
-/// 构建OAuth客户端
-fn build_oauth_client(
-    client_id: &str,
-    client_secret: Option<&str>,
-    auth_url: AuthUrl,
-    token_url: TokenUrl,
-    _revoke_url: Option<RevocationUrl>,
-) -> Result<BasicClient, String> {
-    let client = BasicClient::new(
-        ClientId::new(client_id.to_string()),
-        client_secret.map(|s| ClientSecret::new(s.to_string())),
-        auth_url,
-        Some(token_url),
-    );
-
-    Ok(client)
-}
-
 /// 获取各Provider的OAuth URL
-fn get_provider_urls(provider: OAuthProvider) -> (AuthUrl, TokenUrl, Option<RevocationUrl>) {
+fn get_provider_urls(provider: OAuthProvider) -> (AuthUrl, TokenUrl, Option<oauth2::RevocationUrl>) {
     match provider {
         OAuthProvider::Google => (
             AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string()).unwrap(),
             TokenUrl::new("https://oauth2.googleapis.com/token".to_string()).unwrap(),
-            Some(RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string()).unwrap()),
+            Some(oauth2::RevocationUrl::new("https://oauth2.googleapis.com/revoke".to_string()).unwrap()),
         ),
         OAuthProvider::Github => (
             AuthUrl::new("https://github.com/login/oauth/authorize".to_string()).unwrap(),
@@ -262,7 +266,7 @@ async fn fetch_github_email(access_token: &str) -> Result<String, String> {
     let emails: Vec<serde_json::Value> = response.json().await.map_err(|e| e.to_string())?;
 
     // 找到primary邮箱
-    for email_entry in emails {
+    for email_entry in &emails {
         if email_entry.get("primary").and_then(|v| v.as_bool()).unwrap_or(false) {
             if let Some(email) = email_entry["email"].as_str() {
                 return Ok(email.to_string());

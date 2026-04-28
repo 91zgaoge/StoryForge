@@ -130,25 +130,32 @@ pub async fn oauth_callback(
     let user_repo = UserRepository::new(pool);
 
     // 查找或创建用户
-    let user = match user_repo.find_by_oauth(&profile.provider, &profile.provider_account_id)? {
+    let user = match user_repo
+        .find_by_oauth(&profile.provider, &profile.provider_account_id)
+        .map_err(|e| e.to_string())?
+    {
         Some(existing_user) => existing_user,
         None => {
             // 创建新用户
-            let new_user = user_repo.create_user(
-                profile.email.clone(),
-                profile.display_name.clone(),
-                profile.avatar_url.clone(),
-            )?;
+            let new_user = user_repo
+                .create_user(
+                    profile.email.clone(),
+                    profile.display_name.clone(),
+                    profile.avatar_url.clone(),
+                )
+                .map_err(|e| e.to_string())?;
 
             // 创建OAuth账号关联
-            user_repo.create_oauth_account(
-                &new_user.id,
-                &profile.provider,
-                &profile.provider_account_id,
-                Some(profile.access_token),
-                profile.refresh_token,
-                profile.expires_at,
-            )?;
+            user_repo
+                .create_oauth_account(
+                    &new_user.id,
+                    &profile.provider,
+                    &profile.provider_account_id,
+                    Some(profile.access_token),
+                    profile.refresh_token,
+                    profile.expires_at,
+                )
+                .map_err(|e| e.to_string())?;
 
             new_user
         }
@@ -157,14 +164,16 @@ pub async fn oauth_callback(
     // 创建session
     let token = session::create_token(&user.id)?;
     let expires_at = chrono::Local::now() + chrono::Duration::days(7);
-    user_repo.create_session(&user.id, &token, expires_at)?;
+    user_repo
+        .create_session(&user.id, &token, expires_at)
+        .map_err(|e| e.to_string())?;
 
     Ok(user_repo.to_user_info(&user))
 }
 
 /// 获取当前登录用户
 #[tauri::command]
-pub fn get_current_user(pool: State<'_, DbPool>) -> Result<Option<crate::db::UserInfo>, String> {
+pub fn get_current_user(_pool: State<'_, DbPool>) -> Result<Option<crate::db::UserInfo>, String> {
     // 桌面端简化实现：从内存/session存储中获取
     // 实际应用中可以通过前端传递token来验证
     // 这里返回None表示未实现完整的session持久化检查

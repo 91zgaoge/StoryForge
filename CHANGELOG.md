@@ -2,6 +2,27 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v4.5.0] - 多账号认证与云端主站（2026-04-28）
+
+### 🎯 多账号 OAuth 登录系统
+- **桌面端 OAuth2 登录**：支持 Google / GitHub OAuth2 登录，PKCE + Authorization Code 流程
+- **可选登录、本地优先**：不登录可正常使用所有功能，登录后解锁未来云同步能力
+- **微信/QQ 预留框架**：OAuth URL 和类型已定义，二期补充具体实现
+- **数据层**：`users` / `oauth_accounts` / `sessions` 表 + UserRepository 持久化
+- **JWT Session 管理**：`jsonwebtoken` 签发/验证，7 天有效期
+
+### 🎯 云端主站（Linux 服务端）
+- **Actix-web 后端**：RESTful API，PostgreSQL 持久化，JWT 中间件认证
+- **Web 前端**：Vite + React + Tailwind CSS，落地页 / 登录页 / 用户后台
+- **Docker 部署**：`docker-compose.yml` + `.env.example` + `deploy.sh`，一键部署
+- **数据库迁移**：`src-server/migrations/` 完整表结构（users / oauth_accounts / sessions / stories）
+
+### 🎯 构建与部署
+- **Rust 升级**：1.85.0 → 1.95.0（MSVC toolchain）
+- **oauth2 v5.0 兼容**：修复 Breaking API 变化（类型状态模式 builder）
+- **GitHub Actions**：全平台构建触发
+- **本地构建**：Windows `.exe` + `.msi` + `-setup.exe` 已生成
+
 ## [v4.4.0] - 3风格三角框架：通用风格混合系统（2026-04-28）
 
 ### 🎯 通用风格混合系统（StyleBlend）

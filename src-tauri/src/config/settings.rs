@@ -317,6 +317,7 @@ impl Default for AppConfig {
             rewrite_threshold: 0.75,
             max_feedback_loops: 2,
             writing_strategy: WritingStrategy::default(),
+            auth_clients: Default::default(),
         }
     }
 }

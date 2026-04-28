@@ -1,6 +1,6 @@
 [package]
 name = "storyforge"
-version = "4.4.0"
+version = "4.5.0"
 edition = "2021"
 
 [build-dependencies]
@@ -63,7 +63,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 # Authentication
-oauth2 = "5.0"
+oauth2 = { version = "5.0", features = ["reqwest"] }
 jsonwebtoken = "9"
 argon2 = "0.5"
 
