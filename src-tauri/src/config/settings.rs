@@ -68,6 +68,9 @@ pub struct AppConfig {
     pub max_feedback_loops: u32,
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
+    /// OAuth 客户端配置 (v4.5.0)
+    #[serde(default)]
+    pub auth_clients: Option<HashMap<String, crate::auth::OAuthClientConfig>>,
 }
 
 fn default_rewrite_threshold() -> f32 {

@@ -6,6 +6,7 @@ import {
   ListChecks,
   Eye
 } from 'lucide-react';
+import { UserMenu } from '@/components/UserMenu';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -124,22 +125,10 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           </div>
         )}
 
-        {/* User Info */}
-        {currentUser && (
-          <div className="mt-3 pt-3 border-t border-cinema-800/50">
-            <div className="flex items-center gap-2 px-2">
-              <div className="w-8 h-8 rounded-full bg-cinema-700 flex items-center justify-center flex-shrink-0">
-                <span className="text-sm font-medium text-gray-300">
-                  {currentUser.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="hidden lg:block flex-1 min-w-0">
-                <p className="text-sm text-white truncate">{currentUser.name}</p>
-                <p className="text-xs text-gray-500">在线</p>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* User Menu */}
+        <div className="mt-3 pt-3 border-t border-cinema-800/50">
+          <UserMenu />
+        </div>
       </div>
     </aside>
   );

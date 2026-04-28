@@ -1,8 +1,10 @@
 use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub struct OpenAiAdapter {
+    client: Client,
     api_key: String,
     model: String,
     api_base: String,
@@ -73,7 +75,13 @@ impl OpenAiAdapter {
         max_tokens: i32,
         temperature: f32,
     ) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(120))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
+            client,
             api_key,
             model,
             api_base: api_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
@@ -113,7 +121,6 @@ impl LlmAdapter for OpenAiAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        let client = Client::new();
         
         let openai_req = OpenAiRequest {
             model: self.model.clone(),
@@ -122,7 +129,7 @@ impl LlmAdapter for OpenAiAdapter {
             temperature: request.temperature.unwrap_or(self.default_temperature),
         };
 
-        let response = client
+        let response = self.client
             .post(format!("{}/chat/completions", self.api_base))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
@@ -155,7 +162,6 @@ impl LlmAdapter for OpenAiAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
-        let client = Client::new();
         let openai_req = OpenAiStreamRequest {
             model: self.model.clone(),
             messages: self.build_messages(request.prompt),
@@ -164,7 +170,7 @@ impl LlmAdapter for OpenAiAdapter {
             stream: true,
         };
 
-        let response = client
+        let response = self.client
             .post(format!("{}/chat/completions", self.api_base))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")

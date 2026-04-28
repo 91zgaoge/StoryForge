@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-cinema-950 text-gray-100 antialiased;
+    font-family: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+  }
+}

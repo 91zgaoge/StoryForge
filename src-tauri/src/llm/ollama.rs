@@ -1,8 +1,10 @@
 use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub struct OllamaAdapter {
+    client: Client,
     model: String,
     api_base: String,
     default_max_tokens: i32,
@@ -41,7 +43,13 @@ impl OllamaAdapter {
         max_tokens: i32,
         temperature: f32,
     ) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(120))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
+            client,
             model,
             api_base: api_base.unwrap_or_else(|| "http://localhost:11434".to_string()),
             default_max_tokens: max_tokens,
@@ -56,7 +64,6 @@ impl LlmAdapter for OllamaAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        let client = Client::new();
         let ollama_req = OllamaRequest {
             model: self.model.clone(),
             prompt: request.prompt,
@@ -67,7 +74,7 @@ impl LlmAdapter for OllamaAdapter {
             }),
         };
 
-        let response = client
+        let response = self.client
             .post(format!("{}/api/generate", self.api_base))
             .header("Content-Type", "application/json")
             .json(&ollama_req)
@@ -93,7 +100,6 @@ impl LlmAdapter for OllamaAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
-        let client = Client::new();
         let ollama_req = OllamaRequest {
             model: self.model.clone(),
             prompt: request.prompt,
@@ -104,7 +110,7 @@ impl LlmAdapter for OllamaAdapter {
             }),
         };
 
-        let response = client
+        let response = self.client
             .post(format!("{}/api/generate", self.api_base))
             .header("Content-Type", "application/json")
             .json(&ollama_req)

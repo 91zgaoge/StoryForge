@@ -1,8 +1,10 @@
 use super::{GenerateRequest, GenerateResponse, LlmAdapter};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub struct AnthropicAdapter {
+    client: Client,
     api_key: String,
     model: String,
     api_base: String,
@@ -55,7 +57,13 @@ impl AnthropicAdapter {
         max_tokens: i32,
         temperature: f32,
     ) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(120))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
+            client,
             api_key,
             model,
             api_base: api_base.unwrap_or_else(|| "https://api.anthropic.com/v1".to_string()),
@@ -81,7 +89,6 @@ impl LlmAdapter for AnthropicAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        let client = Client::new();
         let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
@@ -94,7 +101,7 @@ impl LlmAdapter for AnthropicAdapter {
             stream: false,
         };
 
-        let response = client
+        let response = self.client
             .post(format!("{}/messages", self.api_base))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -132,7 +139,6 @@ impl LlmAdapter for AnthropicAdapter {
         &self,
         request: GenerateRequest,
     ) -> Result<tokio::sync::mpsc::Receiver<Result<String, Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
-        let client = Client::new();
         let anthropic_req = AnthropicRequest {
             model: self.model.clone(),
             max_tokens: request.max_tokens.unwrap_or(self.default_max_tokens),
@@ -145,7 +151,7 @@ impl LlmAdapter for AnthropicAdapter {
             stream: true,
         };
 
-        let response = client
+        let response = self.client
             .post(format!("{}/messages", self.api_base))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")

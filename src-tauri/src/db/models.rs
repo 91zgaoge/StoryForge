@@ -86,3 +86,61 @@ pub struct CreateChapterRequest {
     pub outline: Option<String>,
     pub content: Option<String>,
 }
+
+// ==================== Auth Models (v4.5.0) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub id: String,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub is_local_user: bool,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthAccount {
+    pub id: String,
+    pub user_id: String,
+    pub provider: String,
+    pub provider_account_id: String,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub expires_at: Option<DateTime<Local>>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub user_id: String,
+    pub token: String,
+    pub expires_at: DateTime<Local>,
+    pub created_at: DateTime<Local>,
+}
+
+// Auth request/response models
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub id: String,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthUrlResponse {
+    pub auth_url: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConfig {
+    pub google_enabled: bool,
+    pub github_enabled: bool,
+    pub wechat_enabled: bool,
+    pub qq_enabled: bool,
+}

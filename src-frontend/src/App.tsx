@@ -19,12 +19,14 @@ import { ConnectionStatus } from '@/components/ConnectionStatus';
 import { FrontstageLauncher } from '@/components/FrontstageLauncher';
 import { UpdateNotification } from '@/components/updater';
 import { useUpdater } from '@/hooks/useUpdater';
+import { LoginModal } from '@/pages/Login';
 import type { ViewType } from '@/types';
 import toast from 'react-hot-toast';
 
 function App() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [isFrontstageOpen, setIsFrontstageOpen] = useState(false);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
 
   // 自动更新检测
   const {
@@ -49,6 +51,13 @@ function App() {
     };
 
     checkFrontstage();
+  }, []);
+
+  // 监听登录弹窗事件
+  useEffect(() => {
+    const handleShowLogin = () => setIsLoginOpen(true);
+    window.addEventListener('show-login-modal', handleShowLogin);
+    return () => window.removeEventListener('show-login-modal', handleShowLogin);
   }, []);
 
   // 监听 backstage-update 事件（幕前 → 幕后联动）
@@ -131,6 +140,7 @@ function App() {
           isOpen={isFrontstageOpen}
           onToggle={() => setIsFrontstageOpen(!isFrontstageOpen)}
         />
+        <LoginModal isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />
         <main className="flex-1 overflow-auto">
           {renderView()}

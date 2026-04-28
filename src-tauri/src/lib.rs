@@ -33,6 +33,7 @@ mod canonical_state;
 mod capabilities;
 mod planner;
 mod audit;
+mod auth;
 
 #[cfg(test)]
 mod test_utils;
@@ -413,6 +414,12 @@ pub fn run() {
             commands_v3::generate_scene_draft,
             // Audit commands
             audit::commands::audit_scene,
+            // Auth commands (v4.5.0)
+            auth::commands::get_auth_config,
+            auth::commands::oauth_start,
+            auth::commands::oauth_callback,
+            auth::commands::get_current_user,
+            auth::commands::logout,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

@@ -221,8 +221,9 @@ Rules:
 16. After updating story elements (character/world/scene), if the current content might be affected, add a 'writer' step to rewrite content with the new settings.
 17. If user requests style enhancement, dialogue improvement, or emotional pacing, prefer using builtin skills over raw writer.
 18. Consider active foreshadowing when planning writing steps - reference unresolved setup items to create payoff moments.
-19. CRITICAL: When the user explicitly asks to 'write a novel', 'write a story', 'start writing', '写小说', '写故事', '开始写', or any clear prose-generation request, ALWAYS use 'writer' to generate actual prose content. Do NOT use 'outline_planner' or return conversational greetings. The user wants to see story text, not planning advice.
-20. If a style blend configuration is active (multiple style DNAs with weights), the writer must follow the blend rules: dominant style sets the overall tone, secondary styles permeate specific scenes (dialogue/rhythm/psychological depth/atmosphere). Do NOT ignore the blend weights."#,
+19. CRITICAL — HIGHEST PRIORITY: When the user explicitly asks to 'write a novel', 'write a story', 'start writing', '写小说', '写故事', '开始写', '写一部', or any clear prose-generation request, ALWAYS use 'writer' to generate actual prose content. Do NOT use 'outline_planner' or return conversational greetings. This rule OVERRIDES Rule 10 — even if story progress is 'just_started', a direct writing request means the user wants to see story text immediately, not planning advice.
+20. If a style blend configuration is active (multiple style DNAs with weights), the writer must follow the blend rules: dominant style sets the overall tone, secondary styles permeate specific scenes (dialogue/rhythm/psychological depth/atmosphere). Do NOT ignore the blend weights.
+21. DEFINITIVE PROSE CHECK: If the user input contains '写' / 'write' / '创作' followed by ANY story-related subject (novel/story/chapter/scene/正文/开篇/章节/网文), this is UNAMBIGUOUSLY a prose-generation request. Use 'writer'. Never use 'outline_planner' for these inputs."#,
             context.has_story,
             context.current_story_id.as_deref().unwrap_or("none"),
             context.has_chapters,
@@ -279,6 +280,28 @@ Rules:
                 true
             }
         });
+
+        // 防线 2：强制修正 — 如果用户输入明确是写作请求但 LLM 选择了 outline_planner，强制替换为 writer
+        if !plan.steps.is_empty() && plan.steps[0].capability_id == "outline_planner" {
+            let input_lower = context.user_input.to_lowercase();
+            let prose_keywords = [
+                "写", "write", "创作", "开始写", "写小说", "写故事", "写一章", "写开篇", "写正文",
+                "start writing", "write a novel", "write a story", "write chapter", "begin writing",
+            ];
+            let is_prose_request = prose_keywords.iter().any(|&kw| input_lower.contains(kw));
+            if is_prose_request {
+                log::warn!(
+                    "[PlanGenerator] Force-correcting outline_planner → writer for prose request: {}",
+                    context.user_input
+                );
+                plan.steps[0].capability_id = "writer".to_string();
+                plan.steps[0].purpose = "Auto-corrected: user wants prose generation, not structural planning".to_string();
+                plan.understanding = format!(
+                    "{} [auto-corrected: prose-generation keywords detected in user input, forcing writer instead of outline_planner]",
+                    plan.understanding
+                );
+            }
+        }
 
         Ok(plan)
     }
