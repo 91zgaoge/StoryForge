@@ -529,10 +529,21 @@ function ModelModal({
       enabled: data.enabled !== false,
     };
     
-    // API Key：新建时必须传；编辑时如果为空表示未修改，保留旧值由后端处理
-    if (!model || (data.api_key && data.api_key !== '***')) {
-      payload.api_key = data.api_key || undefined;
+    // API Key 处理：
+    // - 新建模型：始终传递用户输入的值（包括空字符串）
+    // - 编辑模型：
+    //   * 如果原始模型有密钥（后端返回 '***'），用户输入非空值 → 更新为新密钥
+    //   * 如果原始模型有密钥，用户未输入（空） → 不传递 api_key，后端保留旧值
+    //   * 如果原始模型无密钥，用户输入了值 → 添加密钥
+    //   * 如果原始模型无密钥，用户未输入 → 不传递，保持无密钥
+    if (!model) {
+      // 新建：传递用户输入，即使为空字符串
+      payload.api_key = data.api_key || '';
+    } else if (data.api_key && data.api_key !== '') {
+      // 编辑：用户输入了非空值，传递它（即使是 '***' 也传递，后端会保存）
+      payload.api_key = data.api_key;
     }
+    // 编辑且空字符串：不传递 api_key 字段，后端保留旧值
     
     if (type === 'chat' || type === 'multimodal') {
       payload.temperature = Number(data.temperature);

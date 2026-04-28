@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::time::{timeout, Duration};
 
 /// 流式生成事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,7 +124,7 @@ impl LlmService {
         }
     }
 
-    /// 同步生成文本
+    /// 同步生成文本（带 60 秒整体超时）
     pub async fn generate(
         &self,
         prompt: String,
@@ -141,7 +142,9 @@ impl LlmService {
             temperature,
         };
         
-        adapter.generate(request).await
+        timeout(Duration::from_secs(60), adapter.generate(request))
+            .await
+            .map_err(|_| "模型生成超时（60秒无响应）".to_string())?
             .map_err(|e| format!("Generation failed: {}", e))
     }
 
@@ -168,8 +171,8 @@ impl LlmService {
             .map_err(|e| format!("Generation failed: {}", e))
     }
 
-    /// 流式生成文本
-    /// 
+    /// 流式生成文本（带整体 90 秒超时 + chunk 15 秒超时）
+    ///
     /// 通过Tauri事件向前端发送生成进度
     /// 事件名称: `llm-stream-chunk`, `llm-stream-complete`, `llm-stream-error`
     pub async fn generate_stream(
@@ -181,16 +184,16 @@ impl LlmService {
         temperature: Option<f32>,
     ) -> Result<(), String> {
         let start_time = std::time::Instant::now();
-        
+
         let profile = self.get_active_profile()
             .ok_or("No active LLM profile configured")?;
-        
+
         // 构建增强提示词
         let enhanced_prompt = self.build_writing_prompt(&prompt, context.as_deref());
-        
+
         log::info!("[LLM] Starting stream generation with request_id: {}", request_id);
         log::debug!("[LLM] Prompt: {}...", &enhanced_prompt[..enhanced_prompt.len().min(100)]);
-        
+
         let adapter = self.create_adapter(&profile)?;
 
         let request = GenerateRequest {
@@ -199,7 +202,10 @@ impl LlmService {
             temperature,
         };
 
-        let mut rx = adapter.generate_stream(request).await
+        // 整体流式生成启动超时 30 秒（建立连接 + 收到第一个 chunk）
+        let mut rx = timeout(Duration::from_secs(30), adapter.generate_stream(request))
+            .await
+            .map_err(|_| "模型连接超时（30秒内未开始响应）".to_string())?
             .map_err(|e| format!("Stream setup failed: {}", e))?;
 
         let mut full_text = String::new();
@@ -212,11 +218,14 @@ impl LlmService {
             senders.insert(request_id.clone(), cancel_tx);
         }
 
+        // chunk 超时：15 秒没有收到新数据就中断
+        let chunk_timeout = Duration::from_secs(15);
+
         loop {
             tokio::select! {
-                chunk_result = rx.recv() => {
+                chunk_result = timeout(chunk_timeout, rx.recv()) => {
                     match chunk_result {
-                        Some(Ok(chunk)) => {
+                        Ok(Some(Ok(chunk))) => {
                             full_text.push_str(&chunk);
                             let stream_chunk = StreamChunk {
                                 chunk,
@@ -227,7 +236,7 @@ impl LlmService {
                             let _ = self.app_handle.emit(&format!("llm-stream-chunk-{}", request_id), stream_chunk);
                             is_first = false;
                         }
-                        Some(Err(e)) => {
+                        Ok(Some(Err(e))) => {
                             let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
                             let error = GenerationError {
                                 error: e.to_string(),
@@ -236,7 +245,17 @@ impl LlmService {
                             let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
                             return Err(format!("Stream error: {}", e));
                         }
-                        None => break,
+                        Ok(None) => break,
+                        Err(_) => {
+                            // chunk 超时
+                            let _ = self.cancel_senders.lock().unwrap().remove(&request_id);
+                            let error = GenerationError {
+                                error: "模型响应超时（15秒内未收到新数据）".to_string(),
+                                error_code: "CHUNK_TIMEOUT".to_string(),
+                            };
+                            let _ = self.app_handle.emit(&format!("llm-stream-error-{}", request_id), error);
+                            return Err("Stream chunk timed out after 15 seconds".to_string());
+                        }
                     }
                 }
                 _ = cancel_rx.recv() => {

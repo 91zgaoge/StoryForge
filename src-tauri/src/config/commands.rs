@@ -433,36 +433,130 @@ pub fn create_model(config: ModelConfigInput, app_handle: AppHandle) -> Result<s
     }))
 }
 
-/// 更新模型配置
+/// 更新模型配置（直接修改，避免 delete+create 导致数据丢失）
 #[command]
-pub fn update_model(id: String, mut config: ModelConfigInput, app_handle: AppHandle) -> Result<(), String> {
+pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle) -> Result<(), String> {
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app dir: {}", e))?;
     let mut app_config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
 
-    // 如果前端没传 API Key（空字符串表示未修改），保留旧值
-    let old_api_key = app_config.llm_profiles.get(&id)
-        .map(|p| p.api_key.clone())
-        .or_else(|| app_config.embedding_profiles.get(&id).map(|p| p.api_key.clone()));
+    // 确定模型当前在哪个集合中
+    let in_llm = app_config.llm_profiles.contains_key(&id);
+    let in_embedding = app_config.embedding_profiles.contains_key(&id);
 
-    // 先临时取消默认标记，避免 delete_model 因"不能删除默认模型"而失败
-    if let Some(p) = app_config.llm_profiles.get_mut(&id) {
-        p.is_default = false;
+    if !in_llm && !in_embedding {
+        return Err(format!("Model '{}' not found", id));
     }
-    if let Some(p) = app_config.embedding_profiles.get_mut(&id) {
-        p.is_default = false;
+
+    match config.model_type {
+        ModelType::Chat | ModelType::Multimodal => {
+            // 先处理默认标记（避免与后续 get_mut 冲突）
+            if let Some(is_def) = config.is_default {
+                if is_def {
+                    for p in app_config.llm_profiles.values_mut() {
+                        p.is_default = false;
+                    }
+                }
+            }
+
+            let profile = app_config.llm_profiles.get_mut(&id)
+                .ok_or_else(|| format!("Chat/Multimodal model '{}' not found", id))?;
+
+            profile.name = config.name;
+            if let Some(desc) = config.description {
+                profile.description = if desc.is_empty() { None } else { Some(desc) };
+            }
+            profile.provider = match config.provider.as_str() {
+                "anthropic" => LlmProvider::Anthropic,
+                "azure" => LlmProvider::Azure,
+                "ollama" => LlmProvider::Ollama,
+                "deepseek" => LlmProvider::DeepSeek,
+                "qwen" => LlmProvider::Qwen,
+                "custom" => LlmProvider::Custom,
+                _ => LlmProvider::OpenAI,
+            };
+            profile.model = config.model;
+
+            // API Key: 前端传了值就更新（包括空字符串表示清空）；None 表示未修改，保留旧值
+            if let Some(key) = config.api_key {
+                profile.api_key = key;
+            }
+
+            if let Some(base) = config.api_base {
+                profile.api_base = if base.is_empty() { None } else { Some(base) };
+            }
+            if let Some(temp) = config.temperature {
+                profile.temperature = temp;
+            }
+            if let Some(max_tok) = config.max_tokens {
+                profile.max_tokens = max_tok;
+            }
+            if let Some(caps) = config.capabilities {
+                profile.capabilities = caps.into_iter()
+                    .filter_map(|c| match c.as_str() {
+                        "chat" => Some(ModelCapability::Chat),
+                        "completion" => Some(ModelCapability::Completion),
+                        "function_calling" => Some(ModelCapability::FunctionCalling),
+                        "json_mode" => Some(ModelCapability::JsonMode),
+                        "vision" => Some(ModelCapability::Vision),
+                        "long_context" => Some(ModelCapability::LongContext),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            if let Some(is_def) = config.is_default {
+                profile.is_default = is_def;
+            }
+        }
+        ModelType::Embedding => {
+            // 先处理默认标记（避免与后续 get_mut 冲突）
+            if let Some(is_def) = config.is_default {
+                if is_def {
+                    for p in app_config.embedding_profiles.values_mut() {
+                        p.is_default = false;
+                    }
+                }
+            }
+
+            let profile = app_config.embedding_profiles.get_mut(&id)
+                .ok_or_else(|| format!("Embedding model '{}' not found", id))?;
+
+            profile.name = config.name;
+            if let Some(desc) = config.description {
+                profile.description = if desc.is_empty() { None } else { Some(desc) };
+            }
+            profile.provider = match config.provider.as_str() {
+                "azure" => EmbeddingProvider::Azure,
+                "ollama" => EmbeddingProvider::Ollama,
+                "local" => EmbeddingProvider::Local,
+                "custom" => EmbeddingProvider::Custom,
+                _ => EmbeddingProvider::OpenAI,
+            };
+            profile.model = config.model;
+
+            // API Key: 前端传了值就更新；None 表示未修改，保留旧值
+            if let Some(key) = config.api_key {
+                profile.api_key = key;
+            }
+
+            if let Some(base) = config.api_base {
+                profile.api_base = if base.is_empty() { None } else { Some(base) };
+            }
+            if let Some(dims) = config.dimensions {
+                profile.dimensions = dims;
+            }
+            if let Some(is_def) = config.is_default {
+                profile.is_default = is_def;
+            }
+        }
+        ModelType::Image => {
+            return Err("图像生成模型暂未实现".to_string());
+        }
     }
+
     app_config.save(&app_dir).map_err(|e| e.to_string())?;
-
-    // 简化实现：删除旧配置，创建新配置
-    delete_model(id.clone(), app_handle.clone())?;
-    if config.api_key.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
-        config.api_key = old_api_key;
-    }
-    config.id = Some(id);
-    create_model(config, app_handle)?;
     Ok(())
 }
 
