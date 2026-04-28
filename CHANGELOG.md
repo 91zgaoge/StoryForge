@@ -17,6 +17,12 @@ All notable changes to StoryForge (草苔) project will be documented in this fi
 - **Docker 部署**：`docker-compose.yml` + `.env.example` + `deploy.sh`，一键部署
 - **数据库迁移**：`src-server/migrations/` 完整表结构（users / oauth_accounts / sessions / stories）
 
+### 🎯 Bug 修复
+- **API KEY 保存**：重写 `update_model` 为直接字段修改（取代 delete+create 模式），避免密钥在多次读写配置时丢失
+- **前端密钥逻辑**：编辑模型时，用户输入非空值才更新 API Key，未输入则保留旧值
+- **LLM 流式生成超时**：`generate_stream` 添加 30 秒启动超时 + 15 秒 chunk 超时，防止服务器挂起导致无响应
+- **LLM 同步生成超时**：`generate` 添加 60 秒整体超时
+
 ### 🎯 构建与部署
 - **Rust 升级**：1.85.0 → 1.95.0（MSVC toolchain）
 - **oauth2 v5.0 兼容**：修复 Breaking API 变化（类型状态模式 builder）
