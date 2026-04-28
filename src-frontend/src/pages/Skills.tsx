@@ -125,8 +125,16 @@ export function Skills() {
     setDetailLoading(true);
     try {
       const fullSkill = await getSkill(skill.id);
-      setSelectedSkill(fullSkill);
-      setEditedSkill(JSON.parse(JSON.stringify(fullSkill)));
+      // 防御性编程：确保关键字段始终存在，防止 undefined 导致的渲染错误
+      const safeSkill: Skill = {
+        ...fullSkill,
+        config: fullSkill.config ?? {},
+        parameters: fullSkill.parameters ?? [],
+        hooks: fullSkill.hooks ?? [],
+        capabilities: fullSkill.capabilities ?? [],
+      };
+      setSelectedSkill(safeSkill);
+      setEditedSkill(JSON.parse(JSON.stringify(safeSkill)));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '加载技能详情失败');
       setIsDetailOpen(false);
@@ -145,7 +153,21 @@ export function Skills() {
     if (!editedSkill) return;
     try {
       setDetailSaving(true);
-      await updateSkill(editedSkill.id, editedSkill);
+      // 只传递 SkillManifest 需要的字段，避免后端反序列化失败
+      const manifest = {
+        id: editedSkill.id,
+        name: editedSkill.name,
+        version: editedSkill.version,
+        description: editedSkill.description,
+        author: editedSkill.author,
+        category: editedSkill.category,
+        entry_point: editedSkill.entry_point,
+        parameters: editedSkill.parameters ?? [],
+        capabilities: editedSkill.capabilities ?? [],
+        hooks: editedSkill.hooks ?? [],
+        config: editedSkill.config ?? {},
+      };
+      await updateSkill(editedSkill.id, manifest);
       toast.success('技能配置已保存');
       await fetchSkills();
       closeDetail();
@@ -405,7 +427,7 @@ export function Skills() {
                     <button
                       onClick={() => setEditedSkill({
                         ...editedSkill,
-                        parameters: [...editedSkill.parameters, { name: '', description: '', param_type: 'string', required: false }]
+                        parameters: [...(editedSkill.parameters ?? []), { name: '', description: '', param_type: 'string', required: false }]
                       })}
                       className="text-xs flex items-center gap-1 text-cinema-gold hover:text-cinema-gold-light"
                     >
@@ -413,7 +435,7 @@ export function Skills() {
                     </button>
                   </div>
                   <div className="space-y-2">
-                    {editedSkill.parameters.map((param, idx) => (
+                    {(editedSkill.parameters ?? []).map((param, idx) => (
                       <div key={idx} className="bg-cinema-800/50 border border-cinema-700 rounded-lg p-3 space-y-2">
                         <div className="grid grid-cols-2 gap-2">
                           <input
@@ -486,7 +508,7 @@ export function Skills() {
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-cinema-gold uppercase tracking-wider">配置 (Config)</h3>
                   <textarea
-                    value={JSON.stringify(editedSkill.config, null, 2)}
+                    value={JSON.stringify(editedSkill.config ?? {}, null, 2)}
                     onChange={(e) => {
                       try {
                         const config = JSON.parse(e.target.value);

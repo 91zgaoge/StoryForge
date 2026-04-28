@@ -65,10 +65,10 @@ impl NovelBootstrapWorkflow {
         Self { app_handle, llm_service, pool }
     }
 
-    /// 运行完整的小说初始化工作流
+    /// 运行小说初始化工作流 — 优化版：先直出正文，后台补全世界观/角色/场景
     pub async fn run(&self, user_premise: &str) -> Result<BootstrapSession, String> {
         let session_id = Uuid::new_v4().to_string();
-        let total_steps = 5;
+        let total_steps = 2; // 只保留用户可见的 2 步：概念 + 正文
 
         // 创建持久化会话记录
         self.create_session(&session_id, total_steps).map_err(|e| format!("Failed to create session: {}", e))?;
@@ -99,49 +99,14 @@ impl NovelBootstrapWorkflow {
             }
         };
         let story_id = story.id.clone();
-        self.update_session(&session_id, "world_building", 1, Some(&story_id)).ok();
-
+        self.update_session(&session_id, "first_chapter", 1, Some(&story_id)).ok();
         self.emit_progress(&session_id, "构思故事", 1, total_steps, &format!("故事《{}》已创建", story.title));
 
-        // Step 2: 生成世界观
-        self.emit_progress(&session_id, "构建世界观", 2, total_steps, "正在生成世界观设定...");
-        let world_building = match self.generate_world_building(&story_id, &story_concept).await {
-            Ok(w) => w,
-            Err(e) => {
-                self.fail_session(&session_id, &format!("世界观生成失败: {}", e)).ok();
-                return Err(e);
-            }
-        };
-        self.update_session(&session_id, "characters", 2, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "构建世界观", 2, total_steps, "世界观设定已保存");
-
-        // Step 3: 生成角色
-        self.emit_progress(&session_id, "设计角色", 3, total_steps, "正在生成主要角色...");
-        let characters = match self.generate_characters(&story_id, &story_concept, &world_building).await {
-            Ok(c) => c,
-            Err(e) => {
-                self.fail_session(&session_id, &format!("角色生成失败: {}", e)).ok();
-                return Err(e);
-            }
-        };
-        self.update_session(&session_id, "scenes", 3, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "设计角色", 3, total_steps, &format!("已创建 {} 个角色", characters.len()));
-
-        // Step 4: 生成场景大纲
-        self.emit_progress(&session_id, "规划场景", 4, total_steps, "正在生成场景大纲...");
-        let scenes = match self.generate_scene_outline(&story_id, &story_concept, &characters).await {
-            Ok(s) => s,
-            Err(e) => {
-                self.fail_session(&session_id, &format!("场景大纲生成失败: {}", e)).ok();
-                return Err(e);
-            }
-        };
-        self.update_session(&session_id, "first_chapter", 4, Some(&story_id)).ok();
-        self.emit_progress(&session_id, "规划场景", 4, total_steps, &format!("已规划 {} 个场景", scenes.len()));
-
-        // Step 5: 生成第一章
-        self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "正在撰写第一章...");
-        let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &world_building, &characters, &scenes).await {
+        // Step 2: 立即生成第一章正文（不等待世界观/角色/场景，后台异步补全）
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "正在撰写第一章...");
+        // 传入空的世界观/角色/场景 — StoryContextBuilder 能优雅处理空数据
+        let empty_world = WorldBuildingResult { concept: story_concept.description.clone(), rules: vec![] };
+        let (first_chapter_content, chapter_id) = match self.generate_first_chapter(&story_id, &story_concept, &empty_world, &[], &[]).await {
             Ok(c) => c,
             Err(e) => {
                 self.fail_session(&session_id, &format!("第一章生成失败: {}", e)).ok();
@@ -149,7 +114,7 @@ impl NovelBootstrapWorkflow {
             }
         };
         self.complete_session(&session_id, &story_id).ok();
-        self.emit_progress(&session_id, "撰写开篇", 5, total_steps, "第一章已完成");
+        self.emit_progress(&session_id, "撰写开篇", 2, total_steps, "第一章已完成");
 
         // 发送 ChapterSwitch 事件让前端自动切换到新故事
         let _ = crate::window::WindowManager::send_to_frontstage(
@@ -165,6 +130,35 @@ impl NovelBootstrapWorkflow {
             &self.app_handle,
             crate::window::FrontstageEvent::DataRefresh { entity: "stories".to_string() }
         );
+
+        // ===== 后台异步补全世界观、角色、场景 =====
+        // 用户已经看到了正文，这些卡片在幕后静默创建即可
+        let app_handle = self.app_handle.clone();
+        let concept = story_concept.clone();
+        let sid = story_id.clone();
+        tauri::async_runtime::spawn(async move {
+            let workflow = NovelBootstrapWorkflow::new(app_handle.clone());
+            log::info!("[NovelBootstrapWorkflow] 后台开始补全世界观/角色/场景 for story {}", sid);
+            if let Ok(world) = workflow.generate_world_building(&sid, &concept).await {
+                if let Ok(characters) = workflow.generate_characters(&sid, &concept, &world).await {
+                    let _ = workflow.generate_scene_outline(&sid, &concept, &characters).await;
+                    log::info!("[NovelBootstrapWorkflow] 后台补全完成 for story {}", sid);
+                    // 后台补全完成后，通知前端刷新数据（让幕后世界观/角色/场景卡片自动出现）
+                    let _ = crate::window::WindowManager::send_to_frontstage(
+                        &app_handle,
+                        crate::window::FrontstageEvent::DataRefresh { entity: "all".to_string() }
+                    );
+                    let _ = crate::window::WindowManager::send_to_backstage(
+                        &app_handle,
+                        crate::window::BackstageEvent::DataRefresh { entity: "world_building".to_string() }
+                    );
+                } else {
+                    log::warn!("[NovelBootstrapWorkflow] 后台角色生成失败 for story {}", sid);
+                }
+            } else {
+                log::warn!("[NovelBootstrapWorkflow] 后台世界观生成失败 for story {}", sid);
+            }
+        });
 
         Ok(BootstrapSession {
             id: session_id,
@@ -465,17 +459,35 @@ impl NovelBootstrapWorkflow {
         let builder = crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone());
         let agent_context = builder.build(story_id, Some(1), None, None)?;
 
+        // 构建丰富的写作指令 — 即使世界观/角色尚未生成，也注入故事概念的全部信息
+        let character_info = if characters.is_empty() {
+            format!("【待生成】题材为{}，请根据题材和简介创造合适的主角", concept.genre)
+        } else {
+            characters.iter().map(|c| format!("{}({}): {}", c.name, c.role, c.personality)).collect::<Vec<_>>().join("; ")
+        };
+        let scene_info = if scenes.is_empty() {
+            "【待生成】请根据故事概念自行设计开篇场景".to_string()
+        } else {
+            scenes.first().map(|s| format!("{} - {}", s.title, s.summary)).unwrap_or_default()
+        };
+
         let service = AgentService::new(self.app_handle.clone());
         let task = AgentTask {
             id: Uuid::new_v4().to_string(),
             agent_type: AgentType::Writer,
             context: agent_context,
             input: format!(
-                "请撰写《{}》的第一章开头（3000-5000字）。\n\n这是故事的开篇，需要：\n1. 迅速建立世界观和氛围\n2. 引入主角，展示其性格和目标\n3. 埋下至少一个伏笔\n4. 在第一幕结尾制造一个冲突或悬念\n\n世界观核心：{}\n核心角色：{}\n第一章场景：{}",
+                "请撰写《{}》的第一章开头（3000-5000字）。\n\n【故事概念】\n题材：{}\n基调：{}\n节奏：{}\n简介：{}\n主题：{}\n预计篇幅：{}\n\n这是故事的开篇，需要：\n1. 迅速建立世界观和氛围（紧扣题材和基调）\n2. 引入主角，展示其性格和目标\n3. 埋下至少一个伏笔\n4. 在第一幕结尾制造一个冲突或悬念\n\n世界观核心：{}\n核心角色：{}\n第一章场景：{}",
                 concept.title,
+                concept.genre,
+                concept.tone,
+                concept.pacing,
+                concept.description,
+                concept.themes.join(", "),
+                concept.target_length,
                 world.concept,
-                characters.iter().map(|c| format!("{}({}): {}", c.name, c.role, c.personality)).collect::<Vec<_>>().join("; "),
-                scenes.first().map(|s| format!("{} - {}", s.title, s.summary)).unwrap_or_default()
+                character_info,
+                scene_info
             ),
             parameters: HashMap::new(),
             tier: None,
@@ -693,3 +705,68 @@ struct GeneratedScene {
     title: String,
     summary: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_json_plain() {
+        let input = r#"{"title": "测试", "genre": "科幻"}"#;
+        let result = NovelBootstrapWorkflow::extract_json(input).unwrap();
+        assert_eq!(result, r#"{"title": "测试", "genre": "科幻"}"#);
+    }
+
+    #[test]
+    fn test_extract_json_with_markdown() {
+        let input = "这里有一些解释\n```json\n{\"title\": \"测试\"}\n```\n更多解释";
+        let result = NovelBootstrapWorkflow::extract_json(input).unwrap();
+        assert_eq!(result, r#"{"title": "测试"}"#);
+    }
+
+    #[test]
+    fn test_extract_json_with_prefix_text() {
+        let input = "好的，这是你的JSON:\n{\"name\": \"value\"}\n希望这有帮助";
+        let result = NovelBootstrapWorkflow::extract_json(input).unwrap();
+        assert_eq!(result, r#"{"name": "value"}"#);
+    }
+
+    #[test]
+    fn test_extract_json_no_json() {
+        let input = "这里没有JSON对象";
+        assert!(NovelBootstrapWorkflow::extract_json(input).is_err());
+    }
+
+    #[test]
+    fn test_extract_json_nested() {
+        let input = r#"{"outer": {"inner": "value"}}"#;
+        let result = NovelBootstrapWorkflow::extract_json(input).unwrap();
+        assert_eq!(result, r#"{"outer": {"inner": "value"}}"#);
+    }
+
+    #[test]
+    fn test_story_concept_deserialization() {
+        let json = r#"{
+            "title": "都市仙尊",
+            "description": "一个现代都市中的修仙故事",
+            "genre": "都市玄幻",
+            "tone": "热血",
+            "pacing": "快节奏",
+            "themes": ["复仇", "成长"],
+            "target_length": "长篇100万字"
+        }"#;
+        let concept: StoryConcept = serde_json::from_str(json).unwrap();
+        assert_eq!(concept.title, "都市仙尊");
+        assert_eq!(concept.genre, "都市玄幻");
+        assert_eq!(concept.themes.len(), 2);
+    }
+
+    #[test]
+    fn test_story_concept_deserialization_defaults() {
+        let json = r#"{"title": "极简", "description": "测试", "genre": "测试", "tone": "轻松", "pacing": "慢热"}"#;
+        let concept: StoryConcept = serde_json::from_str(json).unwrap();
+        assert!(concept.themes.is_empty());
+        assert!(concept.target_length.is_empty());
+    }
+}
+

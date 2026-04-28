@@ -154,7 +154,9 @@ npm test
   - **设定修改智能响应**: 新增`update_character`/`update_world_building`/`update_scene`能力，LLM解析用户修改意图自动更新后台设定；场景修改自动标记`needs_rewrite`，续写时自动重写受影响内容
   - **MCP与技能自动化**: CapabilityRegistry注册MCP工具，PlanGenerator知道何时调用外部工具；内置技能（style_enhancer/character_voice/emotion_pacing）可由模型自主编排
   - **PlanGenerator Prompt进化**: 新增技能调用指南、设定修改指南、MCP工具使用指南、伏笔处理指南（Rule 12-18）
-  - 编译: `cargo check` 零错误，`cargo test` 168/168，`npm run build` 通过
+  - 编译: `cargo check` 零错误零警告，`cargo test` 183/183，`npm run build` 通过
+  - 新增测试: planner/bootstrap 7个（JSON提取/概念序列化）、planner/executor 4个（参数解析）、planner/mod 4个（PlanContext/PlanStep）
+  - 修复: bootstrap.rs 编译警告、第一章 prompt 增强（注入题材/基调/简介）
 
 - **v4.2.0 智能交互设计重构 V2：模型驱动的编排范式** (2026-04-23) — 从程序式编排转向模型式编排
   - **核心理念**: 人类只定义能力能做什么（自然语言描述），模型负责编排（什么时候用、怎么用、按什么顺序）。移除所有关键词匹配、意图分类枚举、if/else 分支判断用户意图。
@@ -354,11 +356,11 @@ npm test
 - `cargo check` ✅ | 警告: 0
 - `cargo check --release` ✅ | 警告: 0
 - `npm run build` ✅
-- `cargo test` ✅ 160/160
+- `cargo test` ✅ 183/183
 
 ---
 
-*最后更新: 2026-04-23 - v4.2.0 模型驱动的智能编排范式*
+*最后更新: 2026-04-27 - v4.3.0 智能交互创作流程验证通过，新增15个单元测试*
 
 ---
 

@@ -83,7 +83,7 @@ export const disableSkill = (skillId: string) =>
 export const uninstallSkill = (skillId: string) => 
   invoke<void>('uninstall_skill', { skill_id: skillId });
 
-export const updateSkill = (skillId: string, manifest: Skill) => 
+export const updateSkill = (skillId: string, manifest: Partial<Skill>) => 
   invoke<void>('update_skill', { skill_id: skillId, manifest });
 
 export const executeSkill = (skillId: string, params: Record<string, unknown>) => 

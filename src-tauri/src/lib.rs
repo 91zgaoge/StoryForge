@@ -70,10 +70,25 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                log::info!("Window close requested, force exiting application to prevent zombie processes");
-                std::process::exit(0);
+                match window.label() {
+                    "backstage" => {
+                        // 关闭幕后窗口时，只隐藏它，不退出应用，也不影响幕前窗口
+                        log::info!("Backstage close requested, hiding instead of exiting");
+                        let _ = window.hide();
+                    }
+                    "frontstage" => {
+                        // 关闭幕前窗口时，默认退出整个应用
+                        log::info!("Frontstage close requested, exiting application");
+                        std::process::exit(0);
+                    }
+                    _ => {
+                        // 其他窗口默认退出
+                        log::info!("Window {} close requested, exiting application", window.label());
+                        std::process::exit(0);
+                    }
+                }
             }
         })
         .setup(|app| {

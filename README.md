@@ -185,8 +185,8 @@ StoryForge 独创**"幕前 - 幕后"**双界面架构，让创作与阅读完美
 
 ### 🏗️ 架构与质量
 
-- **168 项测试全部通过**（Rust 168 + 前端 21）
-- `cargo check` 零错误
+- **183 项 Rust 测试全部通过**（新增 15 项 planner 模块测试：bootstrap JSON 提取/概念序列化、executor 参数解析、mod PlanContext/PlanStep）
+- `cargo check` 零错误零警告
 - `npm run build` 通过
 - 版本号统一：Cargo.toml / package.json / tauri.conf.json → 4.3.0
 

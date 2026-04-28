@@ -162,7 +162,7 @@ impl PlanExecutor {
                 }
 
                 // Phase 4: Swarm 闭环增强 — Inspector→Writer 之间注入质量反馈
-                let mut resolved_params = self.resolve_parameters(&step.parameters, &step_outputs);
+                let mut resolved_params = Self::resolve_parameters(&step.parameters, &step_outputs);
                 if let Some((ref inspect_id, _)) = has_loop {
                     if step.capability_id == "writer" && step.depends_on.contains(inspect_id) {
                         if let Some(inspector_output) = step_outputs.get(inspect_id) {
@@ -284,7 +284,7 @@ impl PlanExecutor {
         Ok(scenes.iter().max_by_key(|s| s.sequence_number).map(|s| s.sequence_number))
     }
 
-    fn resolve_parameters(&self, params: &HashMap<String, serde_json::Value>, outputs: &HashMap<String, serde_json::Value>) -> HashMap<String, serde_json::Value> {
+    fn resolve_parameters(params: &HashMap<String, serde_json::Value>, outputs: &HashMap<String, serde_json::Value>) -> HashMap<String, serde_json::Value> {
         let mut resolved = params.clone();
 
         for (key, value) in params.iter() {
@@ -822,3 +822,62 @@ impl PlanExecutor {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_parameters_simple() {
+        let mut params = HashMap::new();
+        params.insert("key1".to_string(), serde_json::Value::String("value1".to_string()));
+
+        let outputs = HashMap::new();
+        let resolved = PlanExecutor::resolve_parameters(&params, &outputs);
+        assert_eq!(resolved.get("key1").unwrap().as_str().unwrap(), "value1");
+    }
+
+    #[test]
+    fn test_resolve_parameters_with_placeholder() {
+        let mut params = HashMap::new();
+        params.insert("instruction".to_string(), serde_json::Value::String("基于{{step_1}}继续".to_string()));
+
+        let mut outputs = HashMap::new();
+        let mut step_output = serde_json::Map::new();
+        step_output.insert("content".to_string(), serde_json::Value::String("前文内容".to_string()));
+        outputs.insert("step_1".to_string(), serde_json::Value::Object(step_output));
+
+        let resolved = PlanExecutor::resolve_parameters(&params, &outputs);
+        assert_eq!(resolved.get("instruction").unwrap().as_str().unwrap(), "基于前文内容继续");
+    }
+
+    #[test]
+    fn test_resolve_parameters_multiple_placeholders() {
+        let mut params = HashMap::new();
+        params.insert("combined".to_string(), serde_json::Value::String("{{a}} and {{b}}".to_string()));
+
+        let mut outputs = HashMap::new();
+        let mut out_a = serde_json::Map::new();
+        out_a.insert("content".to_string(), serde_json::Value::String("Alpha".to_string()));
+        outputs.insert("a".to_string(), serde_json::Value::Object(out_a));
+
+        let mut out_b = serde_json::Map::new();
+        out_b.insert("content".to_string(), serde_json::Value::String("Beta".to_string()));
+        outputs.insert("b".to_string(), serde_json::Value::Object(out_b));
+
+        let resolved = PlanExecutor::resolve_parameters(&params, &outputs);
+        assert_eq!(resolved.get("combined").unwrap().as_str().unwrap(), "Alpha and Beta");
+    }
+
+    #[test]
+    fn test_resolve_parameters_missing_placeholder() {
+        let mut params = HashMap::new();
+        params.insert("text".to_string(), serde_json::Value::String("{{missing}}".to_string()));
+
+        let outputs = HashMap::new();
+        let resolved = PlanExecutor::resolve_parameters(&params, &outputs);
+        // 当依赖步骤不存在时，保留原始占位符（不静默删除，便于调试）
+        assert_eq!(resolved.get("text").unwrap().as_str().unwrap(), "{{missing}}");
+    }
+}
+

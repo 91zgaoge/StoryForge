@@ -282,3 +282,70 @@ Rules:
         Ok(plan)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plan_step_creation() {
+        let step = PlanStep {
+            step_id: "step_1".to_string(),
+            capability_id: "writer".to_string(),
+            purpose: "Generate opening".to_string(),
+            parameters: HashMap::new(),
+            depends_on: vec![],
+        };
+        assert_eq!(step.step_id, "step_1");
+        assert_eq!(step.capability_id, "writer");
+    }
+
+    #[test]
+    fn test_execution_plan_default() {
+        let plan: ExecutionPlan = serde_json::from_str(r#"{"steps": []}"#).unwrap();
+        assert!(plan.steps.is_empty());
+        assert!(plan.understanding.is_empty());
+        assert!(plan.fallback_message.is_empty());
+    }
+
+    #[test]
+    fn test_scene_structure_summary_has_content() {
+        let summary = SceneStructureSummary {
+            scene_id: "s1".to_string(),
+            sequence_number: 1,
+            title: Some("开篇".to_string()),
+            execution_stage: Some("drafting".to_string()),
+            has_content: true,
+            word_count: 1500,
+        };
+        assert_eq!(summary.sequence_number, 1);
+        assert!(summary.has_content);
+    }
+
+    #[test]
+    fn test_plan_context_defaults() {
+        let ctx = PlanContext {
+            current_story_id: None,
+            has_story: false,
+            has_chapters: false,
+            chapter_count: 0,
+            current_content_preview: None,
+            user_input: "test".to_string(),
+            scene_count: 0,
+            scenes_summary: vec![],
+            current_scene_id: None,
+            current_scene_stage: None,
+            total_word_count: 0,
+            latest_chapter_word_count: 0,
+            story_progress: "just_started".to_string(),
+            world_building_summary: None,
+            character_list: vec![],
+            foreshadowing_status: vec![],
+            style_dna_info: None,
+            mcp_tools_available: vec![],
+        };
+        assert!(!ctx.has_story);
+        assert_eq!(ctx.story_progress, "just_started");
+    }
+}
+
