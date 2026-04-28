@@ -49,6 +49,9 @@ pub struct Scene {
     
     // 置信度评分 (0-1)
     pub confidence_score: Option<f32>,
+    
+    // 风格混合覆盖 (v4.4.0 - 章节级风格控制)
+    pub style_blend_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -917,6 +920,20 @@ pub struct StyleDNA {
     pub is_builtin: bool,
     pub is_user_created: bool,
     pub created_at: DateTime<Local>,
+}
+
+
+// ==================== 风格混合配置模型 (v4.4.0 - 3风格三角框架) ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryStyleConfig {
+    pub id: String,
+    pub story_id: String,
+    pub name: String,
+    pub blend_json: String,  // JSON serialized Vec<BlendComponent>
+    pub is_active: bool,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
 }
 
 

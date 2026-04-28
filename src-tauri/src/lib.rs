@@ -375,6 +375,11 @@ pub fn run() {
             commands_v3::list_style_dnas,
             commands_v3::set_story_style_dna,
             commands_v3::analyze_style_sample,
+            // Style blend commands (v4.4.0 - 3风格三角框架)
+            commands_v3::get_story_style_blend,
+            commands_v3::set_story_style_blend,
+            commands_v3::update_scene_style_blend,
+            commands_v3::check_style_drift,
             // Book deconstruction commands
             book_deconstruction::commands::upload_book,
             book_deconstruction::commands::get_analysis_status,
@@ -780,6 +785,7 @@ async fn execute_skill(
             methodology_id: None,
             methodology_step: None,
             style_dna_id: None,
+            style_blend: None,
         }
     };
 
@@ -1134,12 +1140,40 @@ async fn smart_execute(
             records.into_iter().take(5).map(|r| r.content).collect()
         }).unwrap_or_default();
 
-        // 风格DNA
-        let style_dna_info = current_story.as_ref().and_then(|s| s.style_dna_id.clone()).and_then(|dna_id| {
-            // 简化：从settings中获取风格DNA名称
-            // 实际实现可能需要查询style_dnas表
-            Some(format!("风格DNA ID: {}", dna_id))
-        });
+        // 风格DNA / 风格混合
+        let style_dna_info = {
+            use crate::db::repositories_v3::StoryStyleConfigRepository;
+            use crate::creative_engine::style::blend::StyleBlendConfig;
+            
+            // 优先检查混合配置
+            let blend_info = if let Some(ref story) = current_story {
+                let blend_repo = StoryStyleConfigRepository::new(pool.clone());
+                if let Ok(Some(config)) = blend_repo.get_active_by_story(&story.id) {
+                    if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(&config.blend_json) {
+                        let comps = blend.components.iter()
+                            .map(|c| format!("{}:{:.0}%", c.dna_name, c.weight * 100.0))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        Some(format!("风格混合 [{}]: {}", blend.name, comps))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            // 回退到单一风格DNA
+            if blend_info.is_some() {
+                blend_info
+            } else {
+                current_story.as_ref().and_then(|s| s.style_dna_id.clone()).map(|dna_id| {
+                    format!("风格DNA ID: {}", dna_id)
+                })
+            }
+        };
 
         // 异步加载MCP工具列表
         let mcp_tools_available = {

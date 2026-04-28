@@ -33,6 +33,38 @@ export interface StyleDNA {
   is_user_created: boolean;
 }
 
+// v4.4.0 - 3风格三角框架
+export type BlendRole = 'dominant' | 'secondary' | 'tertiary';
+
+export interface BlendComponent {
+  dna_id: string;
+  dna_name: string;
+  weight: number;
+  role: BlendRole;
+}
+
+export interface StyleBlendConfig {
+  name: string;
+  components: BlendComponent[];
+  drift_check_enabled: boolean;
+}
+
+export interface DriftCheckItem {
+  dimension: string;
+  target_min: number;
+  target_max: number;
+  actual_value: number;
+  score: number;
+  passed: boolean;
+  suggestion: string;
+}
+
+export interface DriftCheckResult {
+  passed: boolean;
+  overall_score: number;
+  checks: DriftCheckItem[];
+}
+
 export interface Character {
   id: string;
   story_id: string;

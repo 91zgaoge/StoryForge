@@ -147,8 +147,30 @@ impl AgentOrchestrator {
             let mut inspect_score = inspect_result.score.unwrap_or(0.0);
             let mut style_issues = Vec::new();
 
-            // StyleChecker 验证：如果有目标 StyleDNA，检查风格匹配度
-            if let Some(ref style_id) = task.context.style_dna_id {
+            // StyleChecker 验证：支持混合风格和单一 DNA
+            if let Some(ref blend) = task.context.style_blend {
+                let pool = self.app_handle.state::<DbPool>();
+                {
+                    let dna_repo = StyleDnaRepository::new(pool.inner().clone());
+                    let mut dnas = Vec::new();
+                    for comp in &blend.components {
+                        if let Ok(Some(db_dna)) = dna_repo.get_by_id(&comp.dna_id) {
+                            if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                                dnas.push(dna);
+                            }
+                        }
+                    }
+                    if !dnas.is_empty() {
+                        let check_result = StyleChecker::check_blend(&current_content, blend, &dnas);
+                        if !check_result.passed {
+                            style_issues = check_result.issues;
+                            inspect_score = inspect_score
+                                .min(self.config.rewrite_threshold - 0.01)
+                                .max(0.0);
+                        }
+                    }
+                }
+            } else if let Some(ref style_id) = task.context.style_dna_id {
                 let pool = self.app_handle.state::<DbPool>();
                 {
                     let repo = StyleDnaRepository::new(pool.inner().clone());

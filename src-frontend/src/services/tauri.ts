@@ -117,13 +117,26 @@ export const runCreationWorkflow = (storyId: string, mode: string, initialInput:
   }>('run_creation_workflow', { story_id: storyId, mode, initial_input: initialInput });
 
 export const listStyleDnas = () =>
-  invoke<Array<{ id: string; name: string; author?: string; is_builtin: boolean }>>('list_style_dnas');
+  invoke<Array<{ id: string; name: string; author?: string; is_builtin: boolean; is_user_created: boolean }>>('list_style_dnas');
 
 export const setStoryStyleDna = (storyId: string, styleDnaId: string | null) =>
   invoke<void>('set_story_style_dna', { story_id: storyId, style_dna_id: styleDnaId });
 
 export const analyzeStyleSample = (text: string, name?: string) =>
   invoke<{ id: string; name: string; author?: string; is_builtin: boolean; is_user_created: boolean }>('analyze_style_sample', { text, name });
+
+// v4.4.0 - 风格混合命令
+export const getStoryStyleBlend = (storyId: string) =>
+  invoke<{ id: string; story_id: string; name: string; blend: import('@/types/index').StyleBlendConfig; is_active: boolean } | null>('get_story_style_blend', { story_id: storyId });
+
+export const setStoryStyleBlend = (storyId: string, name: string, blendJson: string) =>
+  invoke<{ id: string; story_id: string; name: string; blend: import('@/types/index').StyleBlendConfig; is_active: boolean; updated?: boolean; created?: boolean }>('set_story_style_blend', { story_id: storyId, name, blend_json: blendJson });
+
+export const updateSceneStyleBlend = (sceneId: string, blendOverride?: string) =>
+  invoke<void>('update_scene_style_blend', { scene_id: sceneId, blend_override: blendOverride });
+
+export const checkStyleDrift = (text: string, storyId: string, sceneNumber?: number) =>
+  invoke<import('@/types/index').DriftCheckResult>('check_style_drift', { text, story_id: storyId, scene_number: sceneNumber });
 
 // Vector Search (NEW - LanceDB)
 export const searchSimilar = (req: VectorSearchRequest) =>

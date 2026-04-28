@@ -59,7 +59,8 @@ pub struct AgentContext {
     pub scene_structure: Option<String>, // 场景结构（注入系统提示词）
     pub methodology_id: Option<String>,  // 创作方法论ID（如 snowflake, scene_structure）
     pub methodology_step: Option<String>, // 方法论当前步骤
-    pub style_dna_id: Option<String>,    // 风格DNA ID
+    pub style_dna_id: Option<String>,    // 风格DNA ID（向后兼容）
+    pub style_blend: Option<crate::creative_engine::style::blend::StyleBlendConfig>, // 风格混合配置（v4.4.0）
 }
 
 /// 角色信息
@@ -107,6 +108,7 @@ impl AgentContext {
             methodology_id: None,
             methodology_step: None,
             style_dna_id: None,
+            style_blend: None,
         }
     }
     

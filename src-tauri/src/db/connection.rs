@@ -1473,5 +1473,51 @@ fn run_migrations(conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error
         )?;
     }
 
+    // Migration 30: 创建故事风格混合配置表 (v4.4.0 - 3风格三角框架)
+    let story_style_config_tables: Vec<String> = conn.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='story_style_configs'"
+    )?.query_map([], |row| {
+        let name: String = row.get(0)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if story_style_config_tables.is_empty() {
+        conn.execute(
+            "CREATE TABLE story_style_configs (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                name TEXT NOT NULL DEFAULT '默认混合',
+                blend_json TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_style_configs_story ON story_style_configs(story_id)",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX idx_story_style_configs_active ON story_style_configs(story_id, is_active)",
+            [],
+        )?;
+    }
+
+    // Migration 31: 为 scenes 表添加风格混合覆盖字段 (v4.4.0 - 章节级风格控制)
+    let scene_columns_m31: Vec<String> = conn.prepare(
+        "PRAGMA table_info(scenes)"
+    )?.query_map([], |row| {
+        let name: String = row.get(1)?;
+        Ok(name)
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    if !scene_columns_m31.iter().any(|c| c == "style_blend_override") {
+        conn.execute(
+            "ALTER TABLE scenes ADD COLUMN style_blend_override TEXT",
+            [],
+        )?;
+    }
+
     Ok(())
 }

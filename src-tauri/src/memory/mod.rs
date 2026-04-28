@@ -93,6 +93,7 @@ impl ShortTermMemory {
             methodology_id: None,
             methodology_step: None,
             style_dna_id: None,
+            style_blend: None,
         }
     }
 

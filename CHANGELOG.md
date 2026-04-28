@@ -2,6 +2,49 @@
 
 All notable changes to StoryForge (草苔) project will be documented in this file.
 
+## [v4.4.0] - 3风格三角框架：通用风格混合系统（2026-04-28）
+
+### 🎯 通用风格混合系统（StyleBlend）
+- **新增 `StyleBlendConfig` + `BlendComponent`**：支持任意 2-5 个 StyleDNA 按权重组合，不绑定固定三角
+- **主导/辅助角色自动分配**：权重 >= 50% → Dominant，>= 20% → Secondary，其余 Tertiary
+- **权重归一化**：拖动滑块自动调整，总和始终为 100%
+- **验证机制**：主导风格必须存在，最多 5 个风格，权重总和必须为 1.0
+
+### 🎯 3风格三角创作框架
+- **新增内置风格 DNA**：普鲁斯特（意识流/长句/内心独白 70%）+ 马尔克斯（魔幻现实/全知视角/循环时间）
+- **海明威风格已存在**：极简/短句/对话驱动，avg_sentence_length=15
+- **三角示例**：普鲁斯特 65% + 海明威 20% + 马尔克斯 15% = 心理深度 + 节奏对话 + 氛围哲理的有机融合
+
+### 🎯 混合风格 Prompt 注入
+- **主导风格完整注入**：Writer prompt 中注入完整 StyleDNA.to_prompt_extension()
+- **辅助风格差异注入**：仅注入与主导风格的关键差异维度（句长/对话比/比喻密度/内心独白/情感外露）
+- **融合规则**：主导定基调，辅助在特定场景渗透；冲突时以主导为准，辅助渗透"精神"而非"形式"
+- **PlanGenerator Rule 20**：模型必须遵循混合权重，主动判断当前场景适合哪种风格元素主导
+
+### 🎯 防漂移自检清单（5项检查）
+- **新增 `StyleDriftChecker`**：每章生成后自动运行风格匹配度检查
+- 1. 句长检查：加权平均 ± 30% 容差
+- 2. 对话比例检查：加权平均 ± 15% 容差
+- 3. 比喻密度检查：加权平均 ± 50% 相对容差
+- 4. 内心独白比例检查：加权平均 ± 20% 容差
+- 5. 情感外露检查：加权平均情感词密度 ± 30% 容差
+- **评分机制**：每项 0.0-1.0，总体 >= 0.7 且单项全部通过才算合格
+
+### 🎯 数据层扩展
+- **Migration 30**：`story_style_configs` 表（story_id + blend_json + is_active）
+- **Migration 31**：`scenes` 表新增 `style_blend_override` 字段，支持章节级风格覆盖
+- **新增 `StoryStyleConfigRepository`**：CRUD + set_active 激活配置
+
+### 🎯 前端 UI 升级
+- **Stories.tsx 风格配置面板**："单一风格" / "风格混合" 双标签页
+- **`StyleBlendPanel` 组件**：添加/移除风格、权重滑块、实时归一化、验证提示
+- **新增 IPC 命令**：`get_story_style_blend` / `set_story_style_blend` / `update_scene_style_blend` / `check_style_drift`
+- **向后兼容**：保留 `style_dna_id` 单一风格选择，混合配置优先于单一风格
+
+### 测试
+- Rust 测试：193/193 全部通过（新增 blend 4 项 + drift_checker 3 项 + classic_styles 2 项）
+- 前端构建：npm run build 通过
+
 ## [v4.0.0] - 借鉴 AI-Novel-Writing-Assistant 全面优化（2026-04-22）
 
 ### 🎯 Canonical State 规范状态系统

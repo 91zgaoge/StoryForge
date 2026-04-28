@@ -122,6 +122,7 @@ impl StoryContextBuilder {
             current_scene.as_ref(),
             &relevant_entities,
         );
+        let style_blend = self.fetch_style_blend(story_id, scene_number, current_scene.as_ref());
 
         Ok(AgentContext {
             story_id: story_id.to_string(),
@@ -142,7 +143,8 @@ impl StoryContextBuilder {
             scene_structure: scene_structure_text,
             methodology_id: None,
             methodology_step: None,
-            style_dna_id: None,
+            style_dna_id: story.style_dna_id,
+            style_blend,
         })
     }
 
@@ -314,6 +316,38 @@ impl StoryContextBuilder {
         Ok(results)
     }
 
+    /// 获取风格混合配置（v4.4.0）
+    /// 
+    /// 优先检查 scene 级别的 override，否则回退到 story 级别的 active 配置
+    fn fetch_style_blend(
+        &self,
+        story_id: &str,
+        _scene_number: Option<i32>,
+        current_scene: Option<&crate::db::models_v3::Scene>,
+    ) -> Option<crate::creative_engine::style::blend::StyleBlendConfig> {
+        use crate::db::repositories_v3::StoryStyleConfigRepository;
+        use crate::creative_engine::style::blend::StyleBlendConfig;
+
+        // 1. 检查 scene 级别的 override
+        if let Some(scene) = current_scene {
+            if let Some(ref override_json) = scene.style_blend_override {
+                if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(override_json) {
+                    return Some(blend);
+                }
+            }
+        }
+
+        // 2. 回退到 story 级别的 active 配置
+        let repo = StoryStyleConfigRepository::new(self.pool.clone());
+        if let Ok(Some(config)) = repo.get_active_by_story(story_id) {
+            if let Ok(blend) = serde_json::from_str::<StyleBlendConfig>(&config.blend_json) {
+                return Some(blend);
+            }
+        }
+
+        None
+    }
+
     // ==================== 上下文格式化 ====================
 
     /// 格式化世界观规则为系统提示词可用文本
@@ -422,6 +456,7 @@ mod tests {
             execution_stage: None,
             outline_content: None,
             draft_content: None,
+            style_blend_override: None,
         };
 
         let text = StoryContextBuilder::format_scene_structure(Some(&scene), &[]).unwrap();

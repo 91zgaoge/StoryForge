@@ -438,6 +438,7 @@ impl NovelBootstrapWorkflow {
                 execution_stage: None,
                 outline_content: None,
                 draft_content: None,
+                style_blend_override: None,
             };
             let _ = repo.update(&scene.id, &updates);
 
@@ -515,6 +516,7 @@ impl NovelBootstrapWorkflow {
                 execution_stage: None,
                 outline_content: None,
                 draft_content: None,
+                style_blend_override: None,
             };
             let _ = scene_repo.update(&first_scene.id, &updates);
         }

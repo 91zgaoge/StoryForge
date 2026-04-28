@@ -4,14 +4,20 @@
 //!
 //! 核心组件：
 //! - StyleDNA: 风格量化描述（词汇/句法/修辞/视角/情感/对话六维）
+//! - StyleBlend: 多风格混合引擎（v4.4.0 - 3风格三角框架）
+//! - StyleDriftChecker: 防漂移自检清单（5项检查）
 //! - StyleAnalyzer: 从文本样例自动解析生成 StyleDNA
 //! - StyleChecker: 验证生成内容是否符合目标 StyleDNA
 //! - ClassicStyles: 内置经典作家风格库
 
 pub mod dna;
+pub mod blend;
+pub mod drift_checker;
 pub mod classic_styles;
 
 pub use dna::StyleDNA;
+pub use blend::StyleBlendConfig;
+pub use drift_checker::StyleDriftChecker;
 
 use serde::{Deserialize, Serialize};
 use crate::llm::service::LlmService;
@@ -345,6 +351,19 @@ impl StyleChecker {
             score: final_score,
             passed: final_score >= 0.7,
             issues,
+        }
+    }
+
+    /// 检查文本与混合风格的匹配度（v4.4.0）
+    pub fn check_blend(text: &str, blend: &StyleBlendConfig, dnas: &[StyleDNA]) -> StyleCheckResult {
+        let drift_result = StyleDriftChecker::check(text, blend, dnas);
+        StyleCheckResult {
+            score: drift_result.overall_score,
+            passed: drift_result.passed,
+            issues: drift_result.checks.iter().filter(|c| !c.passed).map(|c| {
+                format!("{}: {} (实际 {:.2}, 目标 {:.2}-{:.2})", 
+                    c.dimension, c.suggestion, c.actual_value, c.target_min, c.target_max)
+            }).collect(),
         }
     }
 

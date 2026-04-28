@@ -9,7 +9,9 @@ import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
 import type { Story } from '@/types/index';
 import toast from 'react-hot-toast';
-import { runCreationWorkflow, listStyleDnas, setStoryStyleDna, analyzeStyleSample } from '@/services/tauri';
+import { runCreationWorkflow, listStyleDnas, setStoryStyleDna, analyzeStyleSample, getStoryStyleBlend, setStoryStyleBlend } from '@/services/tauri';
+import { StyleBlendPanel } from '@/components/style/StyleBlendPanel';
+import type { StyleBlendConfig } from '@/types/index';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export function Stories() {
@@ -26,6 +28,9 @@ export function Stories() {
   const [showStyleSampleInput, setShowStyleSampleInput] = useState(false);
   const [styleSampleText, setStyleSampleText] = useState('');
   const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
+  const [showBlendPanel, setShowBlendPanel] = useState(false);
+  const [currentBlend, setCurrentBlend] = useState<StyleBlendConfig | undefined>(undefined);
+  const [blendTab, setBlendTab] = useState<'single' | 'blend'>('single');
   const queryClient = useQueryClient();
   const [creationMode, setCreationMode] = useState<'ai_only' | 'ai_draft_human_edit' | 'human_draft_ai_polish'>('ai_only');
   const { progress, isActive: isWorkflowActive, startListening, stopListening } = useWorkflowProgress();
@@ -37,6 +42,19 @@ export function Stories() {
     queryFn: listStyleDnas,
     staleTime: 5 * 60 * 1000,
   });
+
+  // 加载当前故事的混合配置
+  useEffect(() => {
+    if (styleDnaModalStory && blendTab === 'blend') {
+      getStoryStyleBlend(styleDnaModalStory.id).then((result) => {
+        if (result?.blend) {
+          setCurrentBlend(result.blend);
+        } else {
+          setCurrentBlend(undefined);
+        }
+      }).catch(() => setCurrentBlend(undefined));
+    }
+  }, [styleDnaModalStory, blendTab]);
 
   const currentStory = useAppStore((s) => s.currentStory);
   const setCurrentStory = useAppStore((s) => s.setCurrentStory);
@@ -555,71 +573,121 @@ export function Stories() {
       {/* StyleDNA Selector Modal */}
       {styleDnaModalStory && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-lg mx-4">
+          <Card className="w-full max-w-xl mx-4">
             <CardContent className="p-6">
               <h2 className="font-display text-xl font-bold text-white mb-2">
-                选择写作风格
+                写作风格配置
               </h2>
               <p className="text-sm text-gray-400 mb-4">
-                为「{styleDnaModalStory.title}」选择一种风格 DNA，AI 创作时将模仿该风格。
+                为「{styleDnaModalStory.title}」配置风格，AI 创作时将按此风格进行。
               </p>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
+
+              {/* 标签页切换 */}
+              <div className="flex gap-1 mb-4 p-1 bg-cinema-800 rounded-lg">
                 <button
-                  onClick={async () => {
-                    await setStoryStyleDna(styleDnaModalStory.id, null);
-                    setStyleDnaModalStory(null);
-                    toast.success('已清除风格设置');
-                  }}
-                  className={`w-full p-3 rounded-lg text-left transition-colors border ${
-                    !styleDnaModalStory.style_dna_id
-                      ? 'bg-cinema-gold/20 border-cinema-gold/50'
-                      : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                  onClick={() => setBlendTab('single')}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-sm transition-colors ${
+                    blendTab === 'single'
+                      ? 'bg-cinema-700 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
                   }`}
                 >
-                  <div className="font-medium text-white">默认风格</div>
-                  <div className="text-xs text-gray-400">不指定特定风格，使用通用创作风格</div>
+                  单一风格
                 </button>
-                {styleDnas.map((dna) => (
-                  <button
-                    key={dna.id}
-                    onClick={async () => {
-                      await setStoryStyleDna(styleDnaModalStory.id, dna.id);
-                      setStyleDnaModalStory(null);
-                      toast.success(`已设置风格：${dna.name}`);
-                    }}
-                    className={`w-full p-3 rounded-lg text-left transition-colors border ${
-                      styleDnaModalStory.style_dna_id === dna.id
-                        ? 'bg-cinema-gold/20 border-cinema-gold/50'
-                        : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-white">{dna.name}</span>
-                      {dna.is_builtin && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold">
-                          内置
-                        </span>
-                      )}
-                    </div>
-                    {dna.author && (
-                      <div className="text-xs text-gray-400">作者：{dna.author}</div>
-                    )}
-                  </button>
-                ))}
-              </div>
-              <div className="flex justify-between mt-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowStyleSampleInput(true)}
+                <button
+                  onClick={() => setBlendTab('blend')}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-sm transition-colors ${
+                    blendTab === 'blend'
+                      ? 'bg-cinema-700 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
                 >
-                  <Sparkles className="w-4 h-4 mr-1 text-cinema-gold" />
-                  从文本生成风格
-                </Button>
-                <Button variant="ghost" onClick={() => setStyleDnaModalStory(null)}>
-                  取消
-                </Button>
+                  风格混合
+                </button>
               </div>
+
+              {blendTab === 'single' ? (
+                <>
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    <button
+                      onClick={async () => {
+                        await setStoryStyleDna(styleDnaModalStory.id, null);
+                        setStyleDnaModalStory(null);
+                        toast.success('已清除风格设置');
+                      }}
+                      className={`w-full p-3 rounded-lg text-left transition-colors border ${
+                        !styleDnaModalStory.style_dna_id
+                          ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                          : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                      }`}
+                    >
+                      <div className="font-medium text-white">默认风格</div>
+                      <div className="text-xs text-gray-400">不指定特定风格，使用通用创作风格</div>
+                    </button>
+                    {styleDnas.map((dna) => (
+                      <button
+                        key={dna.id}
+                        onClick={async () => {
+                          await setStoryStyleDna(styleDnaModalStory.id, dna.id);
+                          setStyleDnaModalStory(null);
+                          toast.success(`已设置风格：${dna.name}`);
+                        }}
+                        className={`w-full p-3 rounded-lg text-left transition-colors border ${
+                          styleDnaModalStory.style_dna_id === dna.id
+                            ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                            : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-white">{dna.name}</span>
+                          {dna.is_builtin && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cinema-gold/20 text-cinema-gold">
+                              内置
+                            </span>
+                          )}
+                        </div>
+                        {dna.author && (
+                          <div className="text-xs text-gray-400">作者：{dna.author}</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex justify-between mt-4">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowStyleSampleInput(true)}
+                    >
+                      <Sparkles className="w-4 h-4 mr-1 text-cinema-gold" />
+                      从文本生成风格
+                    </Button>
+                    <Button variant="ghost" onClick={() => setStyleDnaModalStory(null)}>
+                      取消
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <StyleBlendPanel
+                  storyId={styleDnaModalStory.id}
+                  availableDnas={styleDnas}
+                  initialBlend={currentBlend}
+                  onSave={async (blend) => {
+                    try {
+                      const blendJson = JSON.stringify(blend);
+                      await setStoryStyleBlend(styleDnaModalStory.id, blend.name, blendJson);
+                      setStyleDnaModalStory(null);
+                      setCurrentBlend(undefined);
+                      toast.success(`风格混合「${blend.name}」已保存`);
+                    } catch (err: any) {
+                      toast.error(`保存失败: ${err?.message || String(err)}`);
+                    }
+                  }}
+                  onCancel={() => {
+                    setStyleDnaModalStory(null);
+                    setCurrentBlend(undefined);
+                  }}
+                />
+              )}
             </CardContent>
           </Card>
         </div>

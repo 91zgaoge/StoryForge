@@ -659,6 +659,7 @@ pub async fn generate_paragraph_commentaries(
         methodology_id: None,
         methodology_step: None,
         style_dna_id: None,
+        style_blend: None,
     };
 
     let llm_service = LlmService::new(app_handle);
@@ -2144,4 +2145,191 @@ pub async fn generate_scene_draft(
     });
 
     Ok(result)
+}
+
+
+// ==================== 风格混合命令 (v4.4.0 - 3风格三角框架) ====================
+
+#[command]
+pub async fn get_story_style_blend(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Option<serde_json::Value>, String> {
+    use crate::db::repositories_v3::StoryStyleConfigRepository;
+    use crate::creative_engine::style::blend::StyleBlendConfig;
+
+    let repo = StoryStyleConfigRepository::new(pool.inner().clone());
+    
+    // 优先返回 active 配置
+    if let Ok(Some(config)) = repo.get_active_by_story(&story_id) {
+        let blend: StyleBlendConfig = serde_json::from_str(&config.blend_json)
+            .map_err(|e| format!("解析混合配置失败: {}", e))?;
+        return Ok(Some(serde_json::json!({
+            "id": config.id,
+            "story_id": config.story_id,
+            "name": config.name,
+            "blend": blend,
+            "is_active": config.is_active,
+        })));
+    }
+    
+    Ok(None)
+}
+
+#[command]
+pub async fn set_story_style_blend(
+    story_id: String,
+    name: String,
+    blend_json: String,
+    pool: State<'_, DbPool>,
+) -> Result<serde_json::Value, String> {
+    use crate::db::repositories_v3::StoryStyleConfigRepository;
+    use crate::creative_engine::style::blend::StyleBlendConfig;
+
+    // 验证 JSON 格式
+    let blend: StyleBlendConfig = serde_json::from_str(&blend_json)
+        .map_err(|e| format!("混合配置格式错误: {}", e))?;
+    
+    // 验证权重合理性
+    if let Err(errors) = blend.validate() {
+        return Err(format!("验证失败: {}", errors.join("; ")));
+    }
+
+    let repo = StoryStyleConfigRepository::new(pool.inner().clone());
+    
+    // 查找是否已有同名配置
+    let existing = repo.get_all_by_story(&story_id)
+        .map_err(|e| e.to_string())?;
+    
+    if let Some(existing_config) = existing.iter().find(|c| c.name == name) {
+        // 更新现有配置
+        repo.update(&existing_config.id, Some(&name), Some(&blend_json))
+            .map_err(|e| e.to_string())?;
+        repo.set_active(&story_id, &existing_config.id)
+            .map_err(|e| e.to_string())?;
+        
+        Ok(serde_json::json!({
+            "id": existing_config.id,
+            "story_id": story_id,
+            "name": name,
+            "blend": blend,
+            "is_active": true,
+            "updated": true,
+        }))
+    } else {
+        // 创建新配置并设为 active
+        let config = repo.create(&story_id, &name, &blend_json)
+            .map_err(|e| e.to_string())?;
+        repo.set_active(&story_id, &config.id)
+            .map_err(|e| e.to_string())?;
+        
+        Ok(serde_json::json!({
+            "id": config.id,
+            "story_id": story_id,
+            "name": name,
+            "blend": blend,
+            "is_active": true,
+            "created": true,
+        }))
+    }
+}
+
+#[command]
+pub async fn update_scene_style_blend(
+    scene_id: String,
+    blend_override: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    use crate::db::repositories_v3::SceneRepository;
+    use crate::db::repositories_v3::SceneUpdate;
+    use crate::creative_engine::style::blend::StyleBlendConfig;
+
+    // 验证 JSON 格式（如果提供了）
+    if let Some(ref json) = blend_override {
+        let _: StyleBlendConfig = serde_json::from_str(json)
+            .map_err(|e| format!("混合配置格式错误: {}", e))?;
+    }
+
+    let repo = SceneRepository::new(pool.inner().clone());
+    let updates = SceneUpdate {
+        style_blend_override: blend_override,
+        ..Default::default()
+    };
+    repo.update(&scene_id, &updates)
+        .map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+#[command]
+pub async fn check_style_drift(
+    text: String,
+    story_id: String,
+    scene_number: Option<i32>,
+    pool: State<'_, DbPool>,
+) -> Result<serde_json::Value, String> {
+    use crate::db::repositories_v3::{StoryStyleConfigRepository, SceneRepository, StyleDnaRepository};
+    use crate::creative_engine::style::blend::StyleBlendConfig;
+    use crate::creative_engine::style::dna::StyleDNA;
+    use crate::creative_engine::style::StyleDriftChecker;
+
+    // 1. 获取风格混合配置（scene override → story active）
+    let blend = if let Some(n) = scene_number {
+        let scene_repo = SceneRepository::new(pool.inner().clone());
+        if let Ok(Some(scene)) = scene_repo.get_by_story(&story_id)
+            .map(|scenes| scenes.into_iter().find(|s| s.sequence_number == n)) 
+        {
+            if let Some(ref override_json) = scene.style_blend_override {
+                serde_json::from_str::<StyleBlendConfig>(override_json).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    let blend = blend.or_else(|| {
+        let repo = StoryStyleConfigRepository::new(pool.inner().clone());
+        repo.get_active_by_story(&story_id).ok().flatten()
+            .and_then(|c| serde_json::from_str::<StyleBlendConfig>(&c.blend_json).ok())
+    });
+
+    let blend = blend.ok_or("未找到风格混合配置")?;
+
+    // 2. 加载所有涉及的 DNA
+    let dna_repo = StyleDnaRepository::new(pool.inner().clone());
+    let mut dnas = Vec::new();
+    for comp in &blend.components {
+        if let Ok(Some(db_dna)) = dna_repo.get_by_id(&comp.dna_id) {
+            if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                dnas.push(dna);
+            }
+        }
+    }
+
+    if dnas.is_empty() {
+        return Err("无法加载风格 DNA 数据".to_string());
+    }
+
+    // 3. 运行自检
+    let result = StyleDriftChecker::check(&text, &blend, &dnas);
+
+    Ok(serde_json::json!({
+        "passed": result.passed,
+        "overall_score": result.overall_score,
+        "checks": result.checks.iter().map(|c| {
+            serde_json::json!({
+                "dimension": &c.dimension,
+                "target_min": c.target_min,
+                "target_max": c.target_max,
+                "actual_value": c.actual_value,
+                "score": c.score,
+                "passed": c.passed,
+                "suggestion": &c.suggestion,
+            })
+        }).collect::<Vec<_>>(),
+    }))
 }

@@ -472,6 +472,7 @@ mod tests {
             execution_stage: None,
             outline_content: None,
             draft_content: None,
+            style_blend_override: None,
         };
 
         let count = scene_repo.update(&scene.id, &updates).unwrap();

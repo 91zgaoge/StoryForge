@@ -18,6 +18,8 @@ pub fn get_builtin_styles() -> Vec<StyleDNA> {
         noir_detective(),
         wuxia_poetic(),
         romance_flowery(),
+        proust(),
+        marquez(),
     ]
 }
 
@@ -631,6 +633,130 @@ pub fn romance_flowery() -> StyleDNA {
     }
 }
 
+/// 普鲁斯特风格
+/// 特征：心理深度、内省、长句、意识流、时间感细腻
+pub fn proust() -> StyleDNA {
+    StyleDNA {
+        meta: StyleMeta {
+            name: "普鲁斯特".to_string(),
+            author: Some("马塞尔·普鲁斯特".to_string()),
+            description: "意识流文学大师，以绵延不绝的长句探索记忆与时间的深渊，心理描写极致细腻".to_string(),
+            genre_association: Some("文学/心理".to_string()),
+        },
+        vocabulary: VocabularyProfile {
+            density: "high".to_string(),
+            abstraction: "abstract".to_string(),
+            temporal_quality: "mixed".to_string(),
+            preferred_categories: vec![
+                "感官词汇".to_string(),
+                "记忆触发词".to_string(),
+                "色彩与光线".to_string(),
+                "时间概念".to_string(),
+            ],
+            signature_words: vec!["记忆".to_string(), "时间".to_string(), "感觉".to_string(), "回忆".to_string()],
+            avoided_patterns: vec!["直白叙述".to_string(),"短促句式".to_string()],
+        },
+        syntax: SyntaxProfile {
+            avg_sentence_length: 80,
+            clause_complexity: "complex".to_string(),
+            rhythm_pattern: "绵延起伏，层层递进".to_string(),
+            preferred_structures: vec!["长句嵌套".to_string(),"从句堆叠".to_string(),"渐进式展开".to_string()],
+            opening_variety: "varied".to_string(),
+            punctuation_style: "分号、冒号、破折号大量使用".to_string(),
+        },
+        rhetoric: RhetoricProfile {
+            metaphor_density: 0.15,
+            preferred_devices: vec!["隐喻".to_string(),"通感".to_string(),"联想".to_string()],
+            imagery_preference: vec!["感官意象".to_string(),"时间意象".to_string(),"空间意象".to_string()],
+            parallelism_frequency: "moderate".to_string(),
+            irony_usage: "subtle".to_string(),
+        },
+        perspective: PerspectiveProfile {
+            pov_type: "first_person".to_string(),
+            narrative_distance: "intimate".to_string(),
+            interior_monologue_ratio: 0.7,
+            omniscience_level: 0.0,
+            temporal_handling: "stream".to_string(),
+        },
+        emotion: EmotionProfile {
+            expressiveness: "expressive".to_string(),
+            emotion_word_density: 0.08,
+            dominant_mood: "怀旧 melancholy".to_string(),
+            emotional_arc_pattern: "gradual".to_string(),
+            humor_style: "witty".to_string(),
+        },
+        dialogue: DialogueProfile {
+            dialogue_ratio: 0.15,
+            dialogue_length: "verbose".to_string(),
+            subtext_ratio: 0.8,
+            signature_patterns: vec!["对话中穿插大量心理活动".to_string(),"间接引语".to_string()],
+            tag_style: "varied_tags".to_string(),
+        },
+    }
+}
+
+/// 马尔克斯风格（魔幻现实主义）
+/// 特征：氛围哲理、象征、循环时间、奇幻与现实交织
+pub fn marquez() -> StyleDNA {
+    StyleDNA {
+        meta: StyleMeta {
+            name: "马尔克斯".to_string(),
+            author: Some("加西亚·马尔克斯".to_string()),
+            description: "魔幻现实主义巨匠，以宏大的叙事循环和诗意的氛围构建，将奇幻与现实无缝融合".to_string(),
+            genre_association: Some("魔幻现实".to_string()),
+        },
+        vocabulary: VocabularyProfile {
+            density: "medium".to_string(),
+            abstraction: "balanced".to_string(),
+            temporal_quality: "mixed".to_string(),
+            preferred_categories: vec![
+                "自然元素".to_string(),
+                "家族称谓".to_string(),
+                "色彩词汇".to_string(),
+                "魔幻描述".to_string(),
+            ],
+            signature_words: vec!["孤独".to_string(),"百年".to_string(),"雨".to_string(),"家族".to_string()],
+            avoided_patterns: vec!["直白解释".to_string(),"现代科技术语".to_string()],
+        },
+        syntax: SyntaxProfile {
+            avg_sentence_length: 45,
+            clause_complexity: "complex".to_string(),
+            rhythm_pattern: "史诗般的节奏，长句与短句交替".to_string(),
+            preferred_structures: vec!["循环结构".to_string(),"预言式叙述".to_string(),"全景式铺陈".to_string()],
+            opening_variety: "varied".to_string(),
+            punctuation_style: "长句为主，段落长".to_string(),
+        },
+        rhetoric: RhetoricProfile {
+            metaphor_density: 0.12,
+            preferred_devices: vec!["象征".to_string(),"预言".to_string(),"夸张".to_string(),"魔幻现实".to_string()],
+            imagery_preference: vec!["自然意象".to_string(),"家族意象".to_string(),"时间意象".to_string()],
+            parallelism_frequency: "frequent".to_string(),
+            irony_usage: "subtle".to_string(),
+        },
+        perspective: PerspectiveProfile {
+            pov_type: "omniscient".to_string(),
+            narrative_distance: "distant".to_string(),
+            interior_monologue_ratio: 0.2,
+            omniscience_level: 0.9,
+            temporal_handling: "nonlinear".to_string(),
+        },
+        emotion: EmotionProfile {
+            expressiveness: "balanced".to_string(),
+            emotion_word_density: 0.05,
+            dominant_mood: "孤独与宿命".to_string(),
+            emotional_arc_pattern: "cyclical".to_string(),
+            humor_style: "dark".to_string(),
+        },
+        dialogue: DialogueProfile {
+            dialogue_ratio: 0.25,
+            dialogue_length: "moderate".to_string(),
+            subtext_ratio: 0.6,
+            signature_patterns: vec!["预言式对话".to_string(),"家族 gossip".to_string(),"口语化史诗感".to_string()],
+            tag_style: "minimal".to_string(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,7 +764,7 @@ mod tests {
     #[test]
     fn test_builtin_styles_count() {
         let styles = get_builtin_styles();
-        assert_eq!(styles.len(), 10);
+        assert_eq!(styles.len(), 12);
     }
 
     #[test]
@@ -663,5 +789,23 @@ mod tests {
         let dna = hemingway();
         assert_eq!(dna.syntax.avg_sentence_length, 15);
         assert_eq!(dna.dialogue.tag_style, "said_only");
+    }
+
+    #[test]
+    fn test_proust_dna() {
+        let dna = proust();
+        assert_eq!(dna.meta.name, "普鲁斯特");
+        assert_eq!(dna.syntax.avg_sentence_length, 80);
+        assert_eq!(dna.perspective.interior_monologue_ratio, 0.7);
+        assert_eq!(dna.perspective.temporal_handling, "stream");
+    }
+
+    #[test]
+    fn test_marquez_dna() {
+        let dna = marquez();
+        assert_eq!(dna.meta.name, "马尔克斯");
+        assert_eq!(dna.syntax.avg_sentence_length, 45);
+        assert_eq!(dna.perspective.pov_type, "omniscient");
+        assert_eq!(dna.perspective.temporal_handling, "nonlinear");
     }
 }

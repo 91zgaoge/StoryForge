@@ -762,8 +762,31 @@ impl AgentService {
                 }
             }
 
-            // 注入风格 DNA（仅专业版）
-            if let Some(ref style_id) = ctx.style_dna_id {
+            // 注入风格（混合优先，单一 DNA 回退，仅专业版）
+            if let Some(ref blend) = ctx.style_blend {
+                use crate::db::DbPool;
+                use crate::db::repositories_v3::StyleDnaRepository;
+                use crate::creative_engine::style::dna::StyleDNA;
+                use tauri::Manager;
+
+                let pool = self.app_handle.state::<DbPool>();
+                let dna_repo = StyleDnaRepository::new(pool.inner().clone());
+                let mut dnas = Vec::new();
+                for comp in &blend.components {
+                    if let Ok(Some(db_dna)) = dna_repo.get_by_id(&comp.dna_id) {
+                        if let Ok(dna) = serde_json::from_str::<StyleDNA>(&db_dna.dna_json) {
+                            dnas.push(dna);
+                        }
+                    }
+                }
+                if !dnas.is_empty() {
+                    let extension = blend.to_prompt_extension(&dnas);
+                    if !extension.is_empty() {
+                        system_prompt.push_str("\n\n");
+                        system_prompt.push_str(&extension);
+                    }
+                }
+            } else if let Some(ref style_id) = ctx.style_dna_id {
                 use crate::db::DbPool;
                 use crate::db::repositories_v3::StyleDnaRepository;
                 use crate::creative_engine::style::dna::StyleDNA;

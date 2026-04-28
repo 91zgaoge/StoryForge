@@ -5,6 +5,7 @@ use super::{DbPool, Scene, ConflictType, CharacterConflict, WorldBuilding, World
 use super::{WritingStyle, StudioConfig};
 use super::{LlmStudioConfig, UiStudioConfig, AgentBotConfig, Entity, Relation};
 use super::{SceneVersion, CreatorType, SceneAnnotation, TextAnnotation, StorySummary, ChangeTrack, ChangeType, ChangeStatus, CommentThread, CommentMessage, CommentThreadWithMessages, AnchorType, ThreadStatus};
+use super::StoryStyleConfig;
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
 use serde::{Serialize, Deserialize};
@@ -57,6 +58,7 @@ impl SceneRepository {
             created_at: now,
             updated_at: now,
             confidence_score: None,
+            style_blend_override: None,
         })
     }
 
@@ -66,7 +68,7 @@ impl SceneRepository {
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content
+                    execution_stage, outline_content, draft_content, style_blend_override
              FROM scenes WHERE story_id = ?1 ORDER BY sequence_number"
         )?;
 
@@ -111,6 +113,7 @@ impl SceneRepository {
                 execution_stage,
                 outline_content,
                 draft_content,
+                style_blend_override: row.get(23)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -123,7 +126,7 @@ impl SceneRepository {
             "SELECT id, story_id, sequence_number, title, dramatic_goal, external_pressure, conflict_type,
                     characters_present, character_conflicts, setting_location, setting_time, setting_atmosphere,
                     content, previous_scene_id, next_scene_id, model_used, cost, created_at, updated_at, confidence_score,
-                    execution_stage, outline_content, draft_content
+                    execution_stage, outline_content, draft_content, style_blend_override
              FROM scenes WHERE id = ?1"
         )?;
 
@@ -168,6 +171,7 @@ impl SceneRepository {
                 execution_stage,
                 outline_content,
                 draft_content,
+                style_blend_override: row.get(23)?,
             })
         }).optional()?;
 
@@ -196,7 +200,8 @@ impl SceneRepository {
                 execution_stage = COALESCE(?15, execution_stage),
                 outline_content = COALESCE(?16, outline_content),
                 draft_content = COALESCE(?17, draft_content),
-                updated_at = ?18
+                style_blend_override = COALESCE(?18, style_blend_override),
+                updated_at = ?19
              WHERE id = ?1",
             params![
                 id,
@@ -216,6 +221,7 @@ impl SceneRepository {
                 updates.execution_stage,
                 updates.outline_content,
                 updates.draft_content,
+                updates.style_blend_override,
                 now
             ],
         )?;
@@ -257,6 +263,7 @@ pub struct SceneUpdate {
     pub execution_stage: Option<String>,
     pub outline_content: Option<String>,
     pub draft_content: Option<String>,
+    pub style_blend_override: Option<String>,
 }
 
 // ==================== Scene Version Repository (新增) ====================
@@ -2071,6 +2078,127 @@ impl CommentThreadRepository {
         conn.execute(
             "DELETE FROM comment_threads WHERE id = ?1",
             params![thread_id],
+        )
+    }
+}
+
+
+// ==================== StoryStyleConfig Repository (v4.4.0 - 风格混合配置) ====================
+
+pub struct StoryStyleConfigRepository {
+    pool: DbPool,
+}
+
+impl StoryStyleConfigRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(&self, story_id: &str, name: &str, blend_json: &str) -> Result<StoryStyleConfig, rusqlite::Error> {
+        let id = Uuid::new_v4().to_string();
+        let now = Local::now().to_rfc3339();
+
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO story_style_configs (id, story_id, name, blend_json, is_active, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![&id, story_id, name, blend_json, 1, &now, &now],
+        )?;
+
+        Ok(StoryStyleConfig {
+            id,
+            story_id: story_id.to_string(),
+            name: name.to_string(),
+            blend_json: blend_json.to_string(),
+            is_active: true,
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        })
+    }
+
+    pub fn get_active_by_story(&self, story_id: &str) -> Result<Option<StoryStyleConfig>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, blend_json, is_active, created_at, updated_at
+             FROM story_style_configs WHERE story_id = ?1 AND is_active = 1 LIMIT 1"
+        )?;
+
+        let result = stmt.query_row([story_id], |row| {
+            let is_active: i32 = row.get(4)?;
+            let created_str: String = row.get(5)?;
+            let updated_str: String = row.get(6)?;
+            Ok(StoryStyleConfig {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                blend_json: row.get(3)?,
+                is_active: is_active != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        }).optional()?;
+
+        Ok(result)
+    }
+
+    pub fn get_all_by_story(&self, story_id: &str) -> Result<Vec<StoryStyleConfig>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, name, blend_json, is_active, created_at, updated_at
+             FROM story_style_configs WHERE story_id = ?1 ORDER BY updated_at DESC"
+        )?;
+
+        let configs = stmt.query_map([story_id], |row| {
+            let is_active: i32 = row.get(4)?;
+            let created_str: String = row.get(5)?;
+            let updated_str: String = row.get(6)?;
+            Ok(StoryStyleConfig {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                name: row.get(2)?,
+                blend_json: row.get(3)?,
+                is_active: is_active != 0,
+                created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+                updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(configs)
+    }
+
+    pub fn update(&self, id: &str, name: Option<&str>, blend_json: Option<&str>) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        conn.execute(
+            "UPDATE story_style_configs SET
+                name = COALESCE(?2, name),
+                blend_json = COALESCE(?3, blend_json),
+                updated_at = ?4
+             WHERE id = ?1",
+            params![id, name, blend_json, now],
+        )
+    }
+
+    pub fn set_active(&self, story_id: &str, config_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        // 先取消该 story 下所有配置的 active 状态
+        conn.execute(
+            "UPDATE story_style_configs SET is_active = 0 WHERE story_id = ?1",
+            params![story_id],
+        )?;
+        // 再设置指定配置为 active
+        conn.execute(
+            "UPDATE story_style_configs SET is_active = 1 WHERE id = ?1 AND story_id = ?2",
+            params![config_id, story_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM story_style_configs WHERE id = ?1",
+            params![id],
         )
     }
 }
