@@ -20,7 +20,7 @@ import {
   Plus, Trash2, Edit2, Download, Upload,
   Check, X, Bot, Sparkles, Image, MessageSquare,
   RefreshCw, Star, BookOpen, Zap, Compass, PenTool,
-  User, Shield, Link2
+  User, Shield, Link2, Eye, EyeOff
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -35,7 +35,7 @@ import { EditorSettings } from '@/components/EditorSettings';
 import { useForm } from 'react-hook-form';
 import { cn } from '@/utils/cn';
 import type { ModelConfig, ModelType, LlmProvider } from '@/types/llm';
-import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi } from '@/services/settings';
+import { getModelProviders, getProviderDefaultModels, testModelConnection, fetchModelsFromApi, getModelApiKey } from '@/services/settings';
 
 type TabType = 'chat' | 'embedding' | 'multimodal' | 'image' | 'agents' | 'methodology' | 'general' | 'account';
 
@@ -361,7 +361,8 @@ function ModelCard({ model, isActive, connectionStatus, onEdit, onSetActive }: {
   const isDefault = model.is_default;
   const providerMeta = getModelProviders().find(p => p.id === model.provider);
   const requiresApiKey = providerMeta?.requiresApiKey ?? true;
-  const hasApiKey = model.api_key && model.api_key !== '***' && model.api_key.length > 0;
+  // 后端 api_key 返回 '***' 表示有密钥，null/undefined/'' 表示无密钥
+  const hasApiKey = model.api_key === '***' || (!!model.api_key && model.api_key !== '');
   
   return (
     <Card className={cn(isActive && 'border-cinema-gold ring-1 ring-cinema-gold/30')}> 
@@ -516,6 +517,8 @@ function ModelModal({
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false);
   
   const onSubmit = (data: any) => {
     const payload: any = {
@@ -645,13 +648,54 @@ function ModelModal({
               {showApiKeyField && (
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">API Key</label>
-                  <input
-                    {...register('api_key')}
-                    type="password"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
-                    placeholder="sk-..."
-                  />
-                  <p className="text-xs text-gray-500 mt-1">API Key将被安全存储</p>
+                  <div className="flex gap-2">
+                    <input
+                      {...register('api_key')}
+                      type={showApiKey ? 'text' : 'password'}
+                      className="flex-1 px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                      placeholder={model?.api_key === '***' ? '****' : 'sk-...'}
+                    />
+                    {model?.api_key === '***' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (showApiKey) {
+                            setShowApiKey(false);
+                            setValue('api_key', '');
+                          } else {
+                            setIsRevealing(true);
+                            try {
+                              const key = await getModelApiKey(model.id);
+                              setValue('api_key', key || '');
+                              setShowApiKey(true);
+                            } catch {
+                              toast.error('获取密钥失败');
+                            } finally {
+                              setIsRevealing(false);
+                            }
+                          }
+                        }}
+                        disabled={isRevealing}
+                        className="px-3 py-2 bg-cinema-700 hover:bg-cinema-600 disabled:opacity-50 text-gray-300 rounded-xl transition-colors flex items-center justify-center"
+                        title={showApiKey ? '隐藏密钥' : '显示密钥'}
+                      >
+                        {isRevealing ? (
+                          <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : showApiKey ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs mt-1">
+                    {model?.api_key === '***' ? (
+                      <span className="text-green-400">✓ API Key 已设置{showApiKey ? '（明文显示中）' : '，输入新值覆盖'}</span>
+                    ) : (
+                      <span className="text-gray-500">API Key 将被安全存储</span>
+                    )}
+                  </p>
                 </div>
               )}
               

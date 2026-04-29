@@ -228,6 +228,11 @@ export async function testModelConnection(modelId: string): Promise<{ success: b
   }
 }
 
+// 获取模型真实 API Key（编辑时明文显示用）
+export async function getModelApiKey(modelId: string): Promise<string | null> {
+  return invoke<string | null>('get_model_api_key', { modelId });
+}
+
 // 从 API 地址获取可用模型列表
 export async function fetchModelsFromApi(baseUrl: string, apiKey?: string): Promise<string[]> {
   try {

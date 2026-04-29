@@ -246,6 +246,7 @@ pub fn run() {
             config::export_settings,
             config::import_settings,
             config::get_models,
+            config::get_model_api_key,
             config::create_model,
             config::update_model,
             config::delete_model,

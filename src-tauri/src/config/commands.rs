@@ -560,6 +560,25 @@ pub fn update_model(id: String, config: ModelConfigInput, app_handle: AppHandle)
     Ok(())
 }
 
+/// 获取模型真实 API Key（编辑时明文显示用，不随列表批量暴露）
+#[command]
+pub fn get_model_api_key(model_id: String, app_handle: AppHandle) -> Result<Option<String>, String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app dir: {}", e))?;
+    let config = AppConfig::load(&app_dir).map_err(|e| e.to_string())?;
+
+    if let Some(p) = config.llm_profiles.get(&model_id) {
+        return Ok(if p.api_key.is_empty() { None } else { Some(p.api_key.clone()) });
+    }
+    if let Some(p) = config.embedding_profiles.get(&model_id) {
+        return Ok(if p.api_key.is_empty() { None } else { Some(p.api_key.clone()) });
+    }
+
+    Err(format!("Model '{}' not found", model_id))
+}
+
 /// 删除模型配置
 #[command]
 pub fn delete_model(id: String, app_handle: AppHandle) -> Result<(), String> {
