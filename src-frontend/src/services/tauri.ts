@@ -200,7 +200,7 @@ export interface SmartExecuteResult {
 }
 
 export const smartExecute = (req: SmartExecuteRequest) =>
-  invoke<SmartExecuteResult>('smart_execute', { userInput: req.user_input, currentContent: req.current_content });
+  invoke<SmartExecuteResult>('smart_execute', { user_input: req.user_input, current_content: req.current_content });
 
 // Feedback Recording
 export interface RecordFeedbackRequest {
@@ -448,4 +448,4 @@ export const notifyFrontstageDataRefresh = (entity: string) =>
 
 // Input hint — LLM智能输入建议
 export const getInputHint = (currentContent?: string) =>
-  invoke<string>('get_input_hint', { currentContent });
+  invoke<string>('get_input_hint', { current_content: currentContent });

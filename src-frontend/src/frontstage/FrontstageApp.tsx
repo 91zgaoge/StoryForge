@@ -73,6 +73,7 @@ const FrontstageApp: React.FC = () => {
   const subscription = useSubscription();
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState('');
   const [orchestratorStatus, setOrchestratorStatus] = useState<{
     stepType: string;
     loopIdx?: number;
@@ -213,9 +214,13 @@ const FrontstageApp: React.FC = () => {
           totalSteps: p.total_steps,
           message: p.message,
         });
+        setGenerationStatus(p.message);
         // 完成后清除进度显示
         if (p.step_number >= p.total_steps) {
-          setTimeout(() => setBootstrapProgress(null), 3000);
+          setTimeout(() => {
+            setBootstrapProgress(null);
+            setGenerationStatus('');
+          }, 3000);
         }
       });
     } catch (e) {
@@ -332,6 +337,7 @@ const FrontstageApp: React.FC = () => {
 
     setGeneratedText('');
     setIsGenerating(true);
+    setGenerationStatus('✍️ 正在续写...');
     setOrchestratorStatus(null);
 
     let unlisten: (() => void) | null = null;
@@ -355,6 +361,7 @@ const FrontstageApp: React.FC = () => {
         if (p.step_type === '质检' && typeof p.score === 'number') {
           message = `质检中... 评分 ${p.score}%`;
         }
+        setGenerationStatus(message);
         setOrchestratorStatus({
           stepType: p.step_type,
           loopIdx: p.loop_idx,
@@ -365,6 +372,7 @@ const FrontstageApp: React.FC = () => {
 
       const result = await smartExecute({ user_input: context || '续写', current_content: editorRef.current?.getText() });
 
+      setGenerationStatus('✨ 质检通过，生成完成');
       setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
 
       const text = result.final_content || '';
@@ -372,6 +380,7 @@ const FrontstageApp: React.FC = () => {
         console.error('[Generation] Backend returned empty content');
         toast.error('AI 返回了空内容，请检查模型配置或重试');
         setIsGenerating(false);
+        setGenerationStatus('');
         setOrchestratorStatus(null);
         return;
       }
@@ -468,11 +477,15 @@ const FrontstageApp: React.FC = () => {
     }
 
     setIsGenerating(true);
+    setGenerationStatus('🧠 正在理解您的创作意图...');
+    const toastId = toast.loading('🧠 正在理解您的创作意图...', { duration: Infinity });
     try {
       const result = await smartExecute({ user_input: userInput, current_content: editorRef.current?.getText() });
 
+      toast.dismiss(toastId);
       if (result.final_content) {
         setGeneratedText(result.final_content);
+        toast.success('✨ 创作完成！');
       }
 
       // If a new story was created, refresh the story list
@@ -480,11 +493,18 @@ const FrontstageApp: React.FC = () => {
         loadStories();
       }
     } catch (e: any) {
+      toast.dismiss(toastId);
       console.error('Smart execution failed:', e);
       const msg = e?.message || String(e);
-      toast.error(`执行失败: ${msg}`);
+      // 区分超时错误和其他错误
+      if (msg.includes('超时') || msg.includes('timed out') || msg.includes('timeout')) {
+        toast.error(`⏱ 模型响应超时：${msg}\n请检查模型服务是否正常运行`, { duration: 6000 });
+      } else {
+        toast.error(`执行失败: ${msg}`);
+      }
     } finally {
       setIsGenerating(false);
+      setGenerationStatus('');
     }
   }, [isGenerating]);
 
@@ -878,11 +898,16 @@ const FrontstageApp: React.FC = () => {
                     </div>
                   </div>
 
+                  {isGenerating && generationStatus && (
+                    <span className="generation-status-text" title={generationStatus}>
+                      {generationStatus}
+                    </span>
+                  )}
                   <button
                     className={`frontstage-input-send ${isGenerating ? 'generating' : ''}`}
                     onClick={handleInputSubmit}
                     disabled={!inputValue.trim() || isGenerating}
-                    title={isGenerating ? '文思续写中...' : '发送'}
+                    title={isGenerating ? generationStatus || '文思续写中...' : '发送'}
                   >
                     <Send className="w-4 h-4" />
                   </button>
