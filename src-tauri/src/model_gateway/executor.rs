@@ -17,6 +17,7 @@ use crate::{
     error::AppError,
     error_recovery::retry_with_backoff,
     llm::{adapter::GenerateRequest, service::LlmService, GenerateResponse as LlmGenerateResponse},
+    ports::{LlmPort, LlmPortRequest},
 };
 
 /// v0.23.59: 活跃模型连续失败降级阈值。
@@ -1381,6 +1382,53 @@ impl<R: Runtime> GatewayExecutor<R> {
     }
 }
 
+#[async_trait::async_trait]
+impl<R: Runtime> LlmPort for GatewayExecutor<R> {
+    async fn generate(&self, request: LlmPortRequest) -> Result<LlmGenerateResponse, AppError> {
+        let gateway_request = super::types::GatewayRequest {
+            prompt: request.prompt,
+            agent_id: request.agent_id,
+            task: request.task,
+            complexity: Some(request.complexity),
+            budget_priority: request.budget_priority,
+            speed_priority: request.speed_priority,
+            estimated_input_tokens: request.estimated_input_tokens,
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            stream: false,
+            request_id: request.request_id,
+            context_label: request.context_label,
+            timeout_seconds_override: request.timeout_seconds_override,
+            max_retries_override: request.max_retries_override,
+            intent_verb: request.intent_verb,
+            intent_object: request.intent_object,
+            asset_tags: request.asset_tags,
+            discovered_asset_ids: request.discovered_asset_ids,
+            response_format: request.response_format,
+            system_prompt: request.system_prompt,
+            model_role: request.model_role,
+            trace_id: request.trace_id,
+        };
+        self.generate(gateway_request).await
+    }
+
+    fn select_fastest_profile(&self) -> Option<crate::config::settings::LlmProfile> {
+        self.select_fastest_profile()
+    }
+
+    fn is_health_fresh(&self, model_id: &str) -> bool {
+        self.is_health_fresh_public(model_id)
+    }
+
+    fn mark_unhealthy(&self, model_id: &str, model_name: &str, error: Option<String>) {
+        self.mark_unhealthy(model_id, model_name, error);
+    }
+
+    fn record_success(&self, model_id: &str, model_name: &str) {
+        self.record_success_public(model_id, model_name);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Mutex, OnceLock};
@@ -1862,5 +1910,16 @@ mod tests {
             Some("solo-model"),
             "单模型时 Tool 档必须回退到唯一可用的 active 模型"
         );
+    }
+
+    /// v0.30.2: `GatewayExecutor` 必须实现 `LlmPort`，供 `LlmService` 通过
+    /// `Arc<dyn LlmPort>` 依赖注入。
+    #[test]
+    fn test_gateway_executor_implements_llm_port() {
+        fn assert_implements<T: LlmPort>(_: &T) {}
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("port-model", "Port")));
+        let (executor, _app) = test_executor(GatewayRegistry::new(registry_inner));
+        assert_implements(&executor);
     }
 }

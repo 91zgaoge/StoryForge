@@ -39,6 +39,7 @@ use crate::{
     error::AppError,
     events::{emit_generation_status, GenerationPhase},
     memory::tokenizer::count_tokens,
+    ports::{LlmPort, LlmPortRequest, NoOpLlmPort},
     router::{
         Complexity, Priority, RoutingRequest, TaskType, UnifiedModelRegistry, UnifiedModelRouter,
     },
@@ -325,6 +326,9 @@ pub struct LlmService<R: Runtime = Wry> {
     writer_local_semaphore: Arc<Semaphore>,
     /// 远端模型 Writer 全局并发限制（默认 2）
     writer_remote_semaphore: Arc<Semaphore>,
+    /// v0.30.2: 模型网关端口。启动阶段由 `lib.rs` 在构造 `GatewayExecutor`
+    /// 后注入，打破 `llm` 与 `model_gateway` 的循环依赖。
+    llm_port: Arc<Mutex<Arc<dyn LlmPort>>>,
 }
 
 impl<R: Runtime> LlmService<R> {
@@ -357,6 +361,15 @@ impl<R: Runtime> LlmService<R> {
             cancelled_requests: Arc::new(Mutex::new(HashSet::new())),
             writer_local_semaphore: Arc::new(Semaphore::new(writer_local_concurrency)),
             writer_remote_semaphore: Arc::new(Semaphore::new(writer_remote_concurrency)),
+            llm_port: Arc::new(Mutex::new(Arc::new(NoOpLlmPort))),
+        }
+    }
+
+    /// v0.30.2: 注入模型网关端口。必须在 `GatewayExecutor` 构造完成后调用，
+    /// 通常在 `lib.rs` 的组合根中一次性注入。
+    pub fn set_llm_port(&self, port: Arc<dyn LlmPort>) {
+        if let Ok(mut guard) = self.llm_port.lock() {
+            *guard = port;
         }
     }
 
@@ -540,23 +553,23 @@ impl<R: Runtime> LlmService<R> {
         // 优先尝试模型网关
         self.workflow_log(
             "llm.generate.pre_gateway",
-            "准备调用 gateway.generate",
+            "准备调用 LlmPort.generate",
             Some(serde_json::json!({"request_id": req_id, "context_label": context_label, "trace_id": trace_id})),
         );
-        let gateway = self
-            .app_handle
-            .state::<crate::model_gateway::executor::GatewayExecutor>();
-        let gateway_request = crate::model_gateway::types::GatewayRequest {
+        let port = {
+            let guard = self.llm_port.lock().unwrap();
+            guard.clone()
+        };
+        let port_request = LlmPortRequest {
             prompt: prompt.clone(),
             agent_id: context_label.unwrap_or("llm_service").to_string(),
             task: request.task,
-            complexity: Some(request.complexity),
+            complexity: request.complexity,
             budget_priority: request.budget_priority,
             speed_priority: request.speed_priority,
             estimated_input_tokens: request.estimated_input_tokens,
             max_tokens,
             temperature,
-            stream: false,
             request_id: req_id.clone(),
             context_label: context_label.map(|s| s.to_string()),
             timeout_seconds_override,
@@ -579,17 +592,17 @@ impl<R: Runtime> LlmService<R> {
             // v0.26.0: 生成链路 trace_id 透传
             trace_id: trace_id.clone(),
         };
-        match gateway.generate(gateway_request).await {
+        match port.generate(port_request).await {
             Ok(resp) => {
                 self.workflow_log(
                     "llm.generate.gateway_ok",
-                    "gateway.generate 返回成功",
+                    "LlmPort.generate 返回成功",
                     Some(serde_json::json!({"request_id": req_id})),
                 );
                 return (req_id, Ok(resp));
             }
             Err(e) => {
-                log::warn!("[LlmService] ModelGateway 调用失败，回退旧路径: {}", e);
+                log::warn!("[LlmService] LlmPort 调用失败，回退旧路径: {}", e);
             }
         }
 
@@ -876,22 +889,19 @@ impl<R: Runtime> LlmService<R> {
         temperature: Option<f32>,
         context_label: Option<&str>,
     ) -> Result<GenerateResponse, AppError> {
-        let gw = self
-            .app_handle
-            .try_state::<crate::model_gateway::executor::GatewayExecutor>();
+        let port = {
+            let guard = self.llm_port.lock().unwrap();
+            guard.clone()
+        };
 
-        let profile = gw
-            .as_ref()
-            .and_then(|gw| gw.select_fastest_profile())
+        let profile = port
+            .select_fastest_profile()
             .or_else(|| self.get_active_profile())
             .ok_or_else(|| AppError::internal("无可用模型（generate_with_fastest）".to_string()))?;
 
         // v0.23.59: 5s 预探测——验证最快模型确实可用，避免死模型挂起。
         // v0.23.60: 若后台 keepalive 已保持健康数据新鲜（<15s），跳过探测。
-        let health_fresh = gw
-            .as_ref()
-            .map(|gw| gw.is_health_fresh_public(&profile.id))
-            .unwrap_or(false);
+        let health_fresh = port.is_health_fresh(&profile.id);
         let probe_ok = if health_fresh {
             log::debug!(
                 "[LlmService] generate_with_fastest: {} 健康数据新鲜，跳过预探测",
@@ -904,9 +914,7 @@ impl<R: Runtime> LlmService<R> {
 
         if probe_ok {
             // 探测通过：直接调用，保留最快模型速度优势
-            if let Some(gw) = gw.as_ref() {
-                gw.record_success_public(&profile.id, &profile.name);
-            }
+            port.record_success(&profile.id, &profile.name);
             let (_, result) = self
                 .generate_with_profile_and_request_id(
                     &profile.id,
@@ -927,13 +935,11 @@ impl<R: Runtime> LlmService<R> {
             "[LlmService] generate_with_fastest: 最快模型 {} 预探测失败，回退到网关候选链",
             profile.id
         );
-        if let Some(gw) = gw.as_ref() {
-            gw.mark_unhealthy(
-                &profile.id,
-                &profile.name,
-                Some("generate_with_fastest pre-call probe failed".to_string()),
-            );
-        }
+        port.mark_unhealthy(
+            &profile.id,
+            &profile.name,
+            Some("generate_with_fastest pre-call probe failed".to_string()),
+        );
 
         // 回退：走网关候选链（自带 5s 探测 + 候选 fallback）
         let request = crate::router::RoutingRequest {
@@ -2732,6 +2738,7 @@ impl<R: Runtime> Clone for LlmService<R> {
             cancelled_requests: Arc::clone(&self.cancelled_requests),
             writer_local_semaphore: Arc::clone(&self.writer_local_semaphore),
             writer_remote_semaphore: Arc::clone(&self.writer_remote_semaphore),
+            llm_port: Arc::clone(&self.llm_port),
         }
     }
 }
@@ -3321,5 +3328,85 @@ mod tests {
         );
         assert_eq!(derive_model_role_from_label(Some("普通写作")), None);
         assert_eq!(derive_model_role_from_label(None), None);
+    }
+
+    // ====================================================================
+    // v0.30.2: LlmPort 注入测试 — 验证 LlmService 不再依赖具体 GatewayExecutor
+    // ====================================================================
+
+    struct FakeLlmPort {
+        response: GenerateResponse,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmPort for FakeLlmPort {
+        async fn generate(&self, request: LlmPortRequest) -> Result<GenerateResponse, AppError> {
+            Ok(GenerateResponse {
+                content: format!("fake:{}:{}", self.response.content, request.request_id),
+                ..self.response.clone()
+            })
+        }
+
+        fn select_fastest_profile(&self) -> Option<LlmProfile> {
+            None
+        }
+
+        fn is_health_fresh(&self, _model_id: &str) -> bool {
+            false
+        }
+
+        fn mark_unhealthy(&self, _model_id: &str, _model_name: &str, _error: Option<String>) {}
+
+        fn record_success(&self, _model_id: &str, _model_name: &str) {}
+    }
+
+    #[tokio::test]
+    async fn test_llm_service_uses_injected_llm_port() {
+        let app = tauri::test::mock_app();
+        let service = LlmService::new(app.handle().clone());
+
+        let expected_request_id = "test-req-42".to_string();
+        let fake_port = Arc::new(FakeLlmPort {
+            response: GenerateResponse {
+                content: "OK".to_string(),
+                model: "fake-model".to_string(),
+                tokens_used: 1,
+                cost: 0.0,
+            },
+        });
+        service.set_llm_port(fake_port);
+
+        let request = RoutingRequest {
+            task: TaskType::Analysis,
+            complexity: Complexity::Low,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::High,
+            estimated_input_tokens: 0,
+            constraints: vec![],
+        };
+        let (request_id, result) = service
+            .generate_for_request_with_request_id(
+                request,
+                "hello".to_string(),
+                Some(10),
+                Some(0.0),
+                Some("test-label"),
+                Some(expected_request_id.clone()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+
+        assert_eq!(request_id, expected_request_id);
+        let response = result.expect("应使用 fake port 返回成功结果");
+        assert_eq!(response.content, "fake:OK:test-req-42");
+        assert_eq!(response.model, "fake-model");
     }
 }

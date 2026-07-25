@@ -907,9 +907,12 @@ pub fn run() {
                 let gateway_executor = crate::model_gateway::executor::GatewayExecutor::new(
                     app.handle().clone(),
                     gateway_registry,
-                    llm_service,
+                    llm_service.clone(),
                     db_pool.clone(),
                 );
+                // v0.30.2: 将 GatewayExecutor 作为 LlmPort 注入 LlmService，
+                // 使 llm 模块不再直接依赖 model_gateway 具体类型。
+                llm_service.set_llm_port(std::sync::Arc::new(gateway_executor.clone()));
                 app.manage(gateway_executor.clone());
                 crate::model_gateway::scheduler::spawn_health_probe_scheduler(
                     app.handle().clone(),
