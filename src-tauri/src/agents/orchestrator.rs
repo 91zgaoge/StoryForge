@@ -8,12 +8,8 @@
 
 use std::sync::Arc;
 
-use once_cell::sync::Lazy;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::{
-    sync::Semaphore,
-    time::{timeout, Duration},
-};
+use tokio::time::{timeout, Duration};
 
 use super::service::{AgentService, AgentTask};
 use crate::{
@@ -31,14 +27,6 @@ use crate::{
     events::{emit_generation_status, GenerationPhase},
     workflow_logger::WorkflowLogger,
 };
-
-/// v0.23.60: 后台 LLM 调用全局并发限制（1 个）。
-///
-/// Call 3 完成后，BGP-1（审计）、BGP-3（ingest）等后台 LLM 任务
-/// 会并发发射。在只有 1 个健康模型时，3 个并发调用竞争同一模型，
-/// 造成不必要的超时/错误。此信号量限制同时最多 1 个后台 LLM 调用。
-pub static BACKGROUND_LLM_SEMAPHORE: Lazy<Arc<Semaphore>> =
-    Lazy::new(|| Arc::new(Semaphore::new(1)));
 
 /// 生成模式 — 决定 Orchestrator 执行路径
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2074,7 +2062,8 @@ impl AgentOrchestrator {
 
         // ===== Phase 4: 后台 agent（全部静默，0 LLM 在关键路径）=====
 
-        // BGP-1: 后台异步审计（v0.23.60: 受 BACKGROUND_LLM_SEMAPHORE 限流）
+        // BGP-1: 后台异步审计（v0.23.60: 受
+        // crate::concurrency::BACKGROUND_LLM_SEMAPHORE 限流）
         let audit_content = content.clone();
         let audit_story_id = task.context.story.story_id.clone();
         let audit_pool = pool.inner().clone();
@@ -2083,7 +2072,7 @@ impl AgentOrchestrator {
         let audit_story_title = bundle.story_meta.title.clone();
         let audit_genre = bundle.story_meta.genre.clone();
         tokio::spawn(async move {
-            let _permit = BACKGROUND_LLM_SEMAPHORE.acquire().await;
+            let _permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
             let executor = crate::task_system::audit_executor::AuditExecutor {
                 pool: audit_pool,
                 app_handle: audit_handle,
@@ -2102,13 +2091,14 @@ impl AgentOrchestrator {
                 .await;
         });
 
-        // BGP-3: 后台入库（v0.23.60: 受 BACKGROUND_LLM_SEMAPHORE 限流）
+        // BGP-3: 后台入库（v0.23.60: 受 crate::concurrency::BACKGROUND_LLM_SEMAPHORE
+        // 限流）
         let ingest_content_text = content.clone();
         let ingest_story_id = task.context.story.story_id.clone();
         let ingest_app_handle = self.app_handle.clone();
         let ingest_pool = pool.inner().clone();
         tokio::spawn(async move {
-            let _permit = BACKGROUND_LLM_SEMAPHORE.acquire().await;
+            let _permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
             let llm_service = crate::llm::LlmService::new(ingest_app_handle.clone());
             let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
                 .with_pool(ingest_pool.clone())
@@ -2160,10 +2150,10 @@ impl AgentOrchestrator {
             .await
             .unwrap_or(false);
             if should {
-                // v0.23.66: BGP-4 深度洞察加 BACKGROUND_LLM_SEMAPHORE 保护，
-                // 防止与 Genesis 后台流水线（世界观/大纲/角色 3 路）同时打向同一本地模型，
-                // 导致模型过载 → 前端页面崩溃。
-                let _bg_permit = BACKGROUND_LLM_SEMAPHORE.acquire().await;
+                // v0.23.66: BGP-4 深度洞察加 crate::concurrency::BACKGROUND_LLM_SEMAPHORE
+                // 保护， 防止与 Genesis 后台流水线（世界观/大纲/角色 3
+                // 路）同时打向同一本地模型， 导致模型过载 → 前端页面崩溃。
+                let _bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
                 let executor = crate::task_system::insight_executor::InsightExecutor {
                     pool: insight_pool,
                     app_handle: insight_handle,

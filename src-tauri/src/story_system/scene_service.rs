@@ -133,9 +133,7 @@ impl SceneIngestor {
     ) {
         tauri::async_runtime::spawn(async move {
             // v0.26.50: 与创作路径串行化，避免打字/保存触发的 ingest 抢占本地模型。
-            let bg_permit = crate::agents::orchestrator::BACKGROUND_LLM_SEMAPHORE
-                .acquire()
-                .await;
+            let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
             if bg_permit.is_err() {
                 log::warn!(
                     "[SceneIngestor] Scene {}: failed to acquire BACKGROUND_LLM_SEMAPHORE",

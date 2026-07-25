@@ -6,6 +6,9 @@ mod domain;
 // 基础设施 ports（trait 契约），必须在具体实现模块之前声明。
 mod ports;
 
+// 中性并发原语模块，供 agents / story_system / llm 等层共享，避免循环依赖。
+mod concurrency;
+
 pub mod agency;
 mod agents;
 mod analytics;

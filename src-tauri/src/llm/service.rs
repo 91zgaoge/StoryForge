@@ -260,8 +260,9 @@ fn derive_intent_from_label(label: Option<&str>) -> (Option<&str>, Option<&str>)
 /// v0.23.69: 从 context_label 推导模型角色。
 ///
 /// 含"世界观/大纲/角色/场景/伏笔/图谱/后台/审计/洞察/入库/记忆"等关键字的
-/// 标注为 Background，确保后台任务通过 BACKGROUND_LLM_SEMAPHORE 串行化后
-/// 使用后台模型而非抢占创作/工具模型。
+/// 标注为 Background，确保后台任务通过
+/// `crate::concurrency::BACKGROUND_LLM_SEMAPHORE`
+/// 串行化后使用后台模型而非抢占创作/工具模型。
 pub(crate) fn derive_model_role_from_label(
     label: Option<&str>,
 ) -> Option<crate::config::settings::ModelRole> {
