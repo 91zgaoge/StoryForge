@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 
 pub struct CharacterRepository {
@@ -23,11 +25,9 @@ impl CharacterRepository {
 
         tx.execute(
             "INSERT INTO characters (id, story_id, name, background, personality, goals, \
-             appearance, gender, age, dynamic_traits, cs_location, cs_power_level, \
-             cs_physical_state, cs_mental_state, cs_key_items, cs_recent_events, \
-             cs_updated_at_chapter, cs_json, source, is_auto_generated, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-             ?18, ?19, ?20, ?21, ?22)",
+             appearance, gender, age, dynamic_traits, source, is_auto_generated, created_at, \
+             updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 &id,
                 &req.story_id,
@@ -39,14 +39,6 @@ impl CharacterRepository {
                 req.gender,
                 req.age,
                 traits_json,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
-                rusqlite::types::Null,
                 source,
                 is_auto_generated,
                 now.to_rfc3339(),
@@ -65,14 +57,6 @@ impl CharacterRepository {
             gender: req.gender,
             age: req.age,
             dynamic_traits: vec![],
-            cs_location: None,
-            cs_power_level: None,
-            cs_physical_state: None,
-            cs_mental_state: None,
-            cs_key_items: None,
-            cs_recent_events: None,
-            cs_updated_at_chapter: None,
-            cs_json: None,
             source: Some(source.to_string()),
             is_auto_generated: Some(is_auto_generated != 0),
             created_at: now,
@@ -98,9 +82,8 @@ impl CharacterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
-             dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, \
-             cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, source, \
-             is_auto_generated, created_at, updated_at FROM characters WHERE story_id = ?1",
+             dynamic_traits, source, is_auto_generated, created_at, updated_at FROM characters \
+             WHERE story_id = ?1",
         )?;
 
         let characters = stmt
@@ -113,9 +96,9 @@ impl CharacterRepository {
                     .unwrap_or_else(|| "[]".to_string());
                 let dynamic_traits: Vec<DynamicTrait> =
                     serde_json::from_str(&traits_json).unwrap_or_default();
-                let created_str: String = row.get(20)?;
-                let updated_str: String = row.get(21)?;
-                let is_auto_generated: Option<i32> = row.get(19).ok();
+                let created_str: String = row.get(12)?;
+                let updated_str: String = row.get(13)?;
+                let is_auto_generated: Option<i32> = row.get(11).ok();
 
                 Ok(Character {
                     id: row.get(0)?,
@@ -128,15 +111,7 @@ impl CharacterRepository {
                     gender: row.get(7)?,
                     age: row.get(8)?,
                     dynamic_traits,
-                    cs_location: row.get(10).ok(),
-                    cs_power_level: row.get(11).ok(),
-                    cs_physical_state: row.get(12).ok(),
-                    cs_mental_state: row.get(13).ok(),
-                    cs_key_items: row.get(14).ok(),
-                    cs_recent_events: row.get(15).ok(),
-                    cs_updated_at_chapter: row.get(16).ok(),
-                    cs_json: row.get(17).ok(),
-                    source: row.get(18).ok(),
+                    source: row.get(10).ok(),
                     is_auto_generated: is_auto_generated.map(|v| v != 0),
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
@@ -154,9 +129,8 @@ impl CharacterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
-             dynamic_traits, cs_location, cs_power_level, cs_physical_state, cs_mental_state, \
-             cs_key_items, cs_recent_events, cs_updated_at_chapter, cs_json, source, \
-             is_auto_generated, created_at, updated_at FROM characters WHERE id = ?1",
+             dynamic_traits, source, is_auto_generated, created_at, updated_at FROM characters \
+             WHERE id = ?1",
         )?;
 
         let character = stmt
@@ -169,9 +143,9 @@ impl CharacterRepository {
                     .unwrap_or_else(|| "[]".to_string());
                 let dynamic_traits: Vec<DynamicTrait> =
                     serde_json::from_str(&traits_json).unwrap_or_default();
-                let created_str: String = row.get(20)?;
-                let updated_str: String = row.get(21)?;
-                let is_auto_generated: Option<i32> = row.get(19).ok();
+                let created_str: String = row.get(12)?;
+                let updated_str: String = row.get(13)?;
+                let is_auto_generated: Option<i32> = row.get(11).ok();
 
                 Ok(Character {
                     id: row.get(0)?,
@@ -184,15 +158,7 @@ impl CharacterRepository {
                     gender: row.get(7)?,
                     age: row.get(8)?,
                     dynamic_traits,
-                    cs_location: row.get(10).ok(),
-                    cs_power_level: row.get(11).ok(),
-                    cs_physical_state: row.get(12).ok(),
-                    cs_mental_state: row.get(13).ok(),
-                    cs_key_items: row.get(14).ok(),
-                    cs_recent_events: row.get(15).ok(),
-                    cs_updated_at_chapter: row.get(16).ok(),
-                    cs_json: row.get(17).ok(),
-                    source: row.get(18).ok(),
+                    source: row.get(10).ok(),
                     is_auto_generated: is_auto_generated.map(|v| v != 0),
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
@@ -241,6 +207,8 @@ impl CharacterRepository {
         Ok(count)
     }
 
+    /// 将角色动态状态写入 `character_states` 表（而非 `characters` 的 `cs_*`
+    /// 列）。
     pub fn update_character_state(
         &self,
         character_id: &str,
@@ -252,17 +220,19 @@ impl CharacterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let now = Local::now().to_rfc3339();
 
+        // 先尝试更新已有行，保留其他列（如 current_location / secrets_known 等）。
         let count = conn.execute(
-            "UPDATE characters SET
-                cs_location = COALESCE(?2, cs_location),
-                cs_power_level = COALESCE(?3, cs_power_level),
-                cs_physical_state = COALESCE(?4, cs_physical_state),
-                cs_mental_state = COALESCE(?5, cs_mental_state),
-                cs_key_items = COALESCE(?6, cs_key_items),
-                cs_recent_events = COALESCE(?7, cs_recent_events),
-                cs_updated_at_chapter = COALESCE(?8, cs_updated_at_chapter),
-                updated_at = ?9
-            WHERE id = ?1",
+            "UPDATE character_states SET
+                location = COALESCE(?2, location),
+                power_level = COALESCE(?3, power_level),
+                physical_state = COALESCE(?4, physical_state),
+                mental_state = COALESCE(?5, mental_state),
+                key_items = COALESCE(?6, key_items),
+                recent_events = COALESCE(?7, recent_events),
+                updated_at_chapter = COALESCE(?8, updated_at_chapter),
+                cs_json = COALESCE(?9, cs_json),
+                last_updated = ?10
+            WHERE character_id = ?1",
             params![
                 character_id,
                 state.location,
@@ -272,10 +242,38 @@ impl CharacterRepository {
                 state.key_items,
                 state.recent_events,
                 state.updated_at_chapter,
+                state.cs_json,
                 now,
             ],
         )?;
-        Ok(count)
+
+        if count == 0 {
+            conn.execute(
+                "INSERT INTO character_states (
+                    id, story_id, character_id, location, power_level, physical_state,
+                    mental_state, key_items, recent_events, updated_at_chapter, cs_json,
+                    last_updated
+                )
+                SELECT ?1, c.story_id, c.id, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+                FROM characters c
+                WHERE c.id = ?2",
+                params![
+                    Uuid::new_v4().to_string(),
+                    character_id,
+                    state.location,
+                    state.power_level,
+                    state.physical_state,
+                    state.mental_state,
+                    state.key_items,
+                    state.recent_events,
+                    state.updated_at_chapter,
+                    state.cs_json,
+                    now,
+                ],
+            )?;
+        }
+
+        Ok(count.max(1))
     }
 
     pub fn get_character_state(
@@ -287,8 +285,9 @@ impl CharacterRepository {
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT cs_location, cs_power_level, cs_physical_state, cs_mental_state, \
-             cs_key_items, cs_recent_events, cs_updated_at_chapter FROM characters WHERE id = ?1",
+            "SELECT location, power_level, physical_state, mental_state, key_items, recent_events, \
+             updated_at_chapter, cs_json, state_transitions_json, arc_type \
+             FROM character_states WHERE character_id = ?1 LIMIT 1",
         )?;
 
         let state = stmt
@@ -301,13 +300,55 @@ impl CharacterRepository {
                     key_items: row.get(4).ok(),
                     recent_events: row.get(5).ok(),
                     updated_at_chapter: row.get(6).ok(),
-                    arc_type: None,
-                    state_transitions_json: None,
+                    cs_json: row.get(7).ok(),
+                    state_transitions_json: row.get(8).ok(),
+                    arc_type: row.get(9).ok(),
                 })
             })
             .optional()?;
 
         Ok(state)
+    }
+
+    /// 一次性加载故事下所有角色的动态状态，按 `character_id` 索引。
+    pub fn get_character_states_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<HashMap<String, CharacterState>, rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT character_id, location, power_level, physical_state, mental_state, key_items, \
+             recent_events, updated_at_chapter, cs_json, state_transitions_json, arc_type \
+             FROM character_states WHERE story_id = ?1",
+        )?;
+
+        let rows = stmt.query_map([story_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                CharacterState {
+                    location: row.get(1).ok(),
+                    power_level: row.get(2).ok(),
+                    physical_state: row.get(3).ok(),
+                    mental_state: row.get(4).ok(),
+                    key_items: row.get(5).ok(),
+                    recent_events: row.get(6).ok(),
+                    updated_at_chapter: row.get(7).ok(),
+                    cs_json: row.get(8).ok(),
+                    state_transitions_json: row.get(9).ok(),
+                    arc_type: row.get(10).ok(),
+                },
+            ))
+        })?;
+
+        let mut map = HashMap::new();
+        for row in rows {
+            let (character_id, state) = row?;
+            map.insert(character_id, state);
+        }
+        Ok(map)
     }
 
     pub fn delete(&self, id: &str) -> Result<usize, rusqlite::Error> {

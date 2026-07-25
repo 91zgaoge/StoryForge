@@ -898,8 +898,10 @@ pub mod V098__narrative_tables_status_v2;
 pub mod V099__source_and_auto_generated_columns;
 pub mod V103__ensure_source_columns;
 pub mod V115__drop_chapter_content;
+pub mod V116__migrate_character_cs_columns;
 
-/// Returns all Rust-coded migrations (versions 28-103, 115) ordered by version.
+/// Returns all Rust-coded migrations (versions 28-103, 115-116) ordered by
+/// version.
 pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
     vec![
         Box::new(V028__scene_structure_fields::Migration),
@@ -974,5 +976,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V099__source_and_auto_generated_columns::Migration),
         Box::new(V103__ensure_source_columns::Migration),
         Box::new(V115__drop_chapter_content::Migration),
+        Box::new(V116__migrate_character_cs_columns::Migration),
     ]
 }

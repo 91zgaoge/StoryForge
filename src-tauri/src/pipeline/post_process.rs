@@ -247,6 +247,10 @@ async fn run_character_cards(
         return Ok(());
     }
 
+    let states = char_repo
+        .get_character_states_by_story(story_id)
+        .unwrap_or_default();
+
     let content_preview = if draft_content.len() > 6000 {
         &draft_content[..6000]
     } else {
@@ -260,19 +264,20 @@ async fn run_character_cards(
         if let Some(ref bg) = c.background {
             parts.push(format!("背景: {}", bg));
         }
-        if let Some(ref loc) = c.cs_location {
+        let state = states.get(&c.id);
+        if let Some(ref loc) = state.and_then(|s| s.location.as_ref()) {
             parts.push(format!("当前位置: {}", loc));
         }
-        if let Some(ref phys) = c.cs_physical_state {
+        if let Some(ref phys) = state.and_then(|s| s.physical_state.as_ref()) {
             parts.push(format!("身体状态: {}", phys));
         }
-        if let Some(ref mental) = c.cs_mental_state {
+        if let Some(ref mental) = state.and_then(|s| s.mental_state.as_ref()) {
             parts.push(format!("心理状态: {}", mental));
         }
-        if let Some(ref items) = c.cs_key_items {
+        if let Some(ref items) = state.and_then(|s| s.key_items.as_ref()) {
             parts.push(format!("持有物品: {}", items));
         }
-        if let Some(ref recent) = c.cs_recent_events {
+        if let Some(ref recent) = state.and_then(|s| s.recent_events.as_ref()) {
             parts.push(format!("近期事件: {}", recent));
         }
         char_context_parts.push(parts.join(" | "));
@@ -352,16 +357,20 @@ async fn run_character_cards(
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
 
+                            let existing = states.get(&character.id);
                             let state = CharacterState {
-                                location: new_location.or(character.cs_location.clone()),
-                                power_level: character.cs_power_level.clone(),
+                                location: new_location
+                                    .or(existing.and_then(|s| s.location.clone())),
+                                power_level: existing.and_then(|s| s.power_level.clone()),
                                 physical_state: new_physical
-                                    .or(character.cs_physical_state.clone()),
-                                mental_state: new_mental.or(character.cs_mental_state.clone()),
-                                key_items: new_items.or(character.cs_key_items.clone()),
+                                    .or(existing.and_then(|s| s.physical_state.clone())),
+                                mental_state: new_mental
+                                    .or(existing.and_then(|s| s.mental_state.clone())),
+                                key_items: new_items.or(existing.and_then(|s| s.key_items.clone())),
                                 recent_events: new_recent
                                     .or(Some(format!("[第{}章] 出场", chapter_number))),
                                 updated_at_chapter: Some(chapter_number),
+                                cs_json: existing.and_then(|s| s.cs_json.clone()),
                                 state_transitions_json: None,
                                 arc_type: None,
                             };
@@ -400,14 +409,16 @@ async fn run_character_cards(
             }
 
             // 如果角色没有被 LLM 更新过，至少标记出场
+            let existing = states.get(&character.id);
             let state = CharacterState {
-                location: character.cs_location.clone(),
-                power_level: character.cs_power_level.clone(),
-                physical_state: character.cs_physical_state.clone(),
-                mental_state: character.cs_mental_state.clone(),
-                key_items: character.cs_key_items.clone(),
+                location: existing.and_then(|s| s.location.clone()),
+                power_level: existing.and_then(|s| s.power_level.clone()),
+                physical_state: existing.and_then(|s| s.physical_state.clone()),
+                mental_state: existing.and_then(|s| s.mental_state.clone()),
+                key_items: existing.and_then(|s| s.key_items.clone()),
                 recent_events: Some(format!("[第{}章] 出场", chapter_number)),
                 updated_at_chapter: Some(chapter_number),
+                cs_json: existing.and_then(|s| s.cs_json.clone()),
                 state_transitions_json: None,
                 arc_type: None,
             };

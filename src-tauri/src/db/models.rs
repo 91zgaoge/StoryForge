@@ -1137,15 +1137,6 @@ pub struct Character {
     pub gender: Option<String>,
     pub age: Option<i32>,
     pub dynamic_traits: Vec<DynamicTrait>,
-    // --- 动态状态字段 ---
-    pub cs_location: Option<String>,
-    pub cs_power_level: Option<String>,
-    pub cs_physical_state: Option<String>,
-    pub cs_mental_state: Option<String>,
-    pub cs_key_items: Option<String>,
-    pub cs_recent_events: Option<String>,
-    pub cs_updated_at_chapter: Option<i32>,
-    pub cs_json: Option<String>,
     pub source: Option<String>,
     pub is_auto_generated: Option<bool>,
     pub created_at: DateTime<Local>,
@@ -1762,6 +1753,9 @@ pub struct CharacterState {
     pub key_items: Option<String>,
     pub recent_events: Option<String>,
     pub updated_at_chapter: Option<i32>,
+
+    // 遗留 JSON 快照（V116 从 characters.cs_json 迁移而来）
+    pub cs_json: Option<String>,
 
     // LitSeg: 角色弧光追踪（从 narrative_threads.character_arc 合并）
     pub state_transitions_json: Option<String>,

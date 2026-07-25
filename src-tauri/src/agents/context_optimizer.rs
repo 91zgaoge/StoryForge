@@ -713,6 +713,9 @@ impl ContextOptimizer {
             let characters = repo
                 .get_by_story(&story_id)
                 .map_err(|e| AppError::internal(format!("获取角色失败: {}", e)))?;
+            let states = repo
+                .get_character_states_by_story(&story_id)
+                .unwrap_or_default();
 
             Ok(characters
                 .into_iter()
@@ -727,6 +730,7 @@ impl ContextOptimizer {
                         (None, Some(g)) => format!("目标：{}", g),
                         (None, None) => "性格未定".to_string(),
                     };
+                    let state = states.get(&c.id);
 
                     CharacterCard {
                         name: c.name,
@@ -735,13 +739,13 @@ impl ContextOptimizer {
                         appearance: c.appearance,
                         gender: c.gender,
                         age: c.age,
-                        location: c.cs_location,
-                        power_level: c.cs_power_level,
-                        physical_state: c.cs_physical_state,
-                        mental_state: c.cs_mental_state,
-                        key_items: c.cs_key_items,
-                        recent_events: c.cs_recent_events,
-                        updated_at_chapter: c.cs_updated_at_chapter,
+                        location: state.and_then(|s| s.location.clone()),
+                        power_level: state.and_then(|s| s.power_level.clone()),
+                        physical_state: state.and_then(|s| s.physical_state.clone()),
+                        mental_state: state.and_then(|s| s.mental_state.clone()),
+                        key_items: state.and_then(|s| s.key_items.clone()),
+                        recent_events: state.and_then(|s| s.recent_events.clone()),
+                        updated_at_chapter: state.and_then(|s| s.updated_at_chapter),
                     }
                 })
                 .collect())
@@ -958,6 +962,8 @@ impl ContextOptimizer {
             .find(|c| c.name == character_name)
             .ok_or_else(|| AppError::not_found("character", character_name))?;
 
+        let state = repo.get_character_state(&character.id).unwrap_or_default();
+
         let mut parts = vec![
             format!("角色: {}", character.name),
             format!("背景: {}", character.background.unwrap_or_default()),
@@ -965,22 +971,22 @@ impl ContextOptimizer {
             format!("目标: {}", character.goals.unwrap_or_default()),
         ];
 
-        if let Some(ref loc) = character.cs_location {
+        if let Some(ref loc) = state.as_ref().and_then(|s| s.location.as_ref()) {
             parts.push(format!("当前位置: {}", loc));
         }
-        if let Some(ref power) = character.cs_power_level {
+        if let Some(ref power) = state.as_ref().and_then(|s| s.power_level.as_ref()) {
             parts.push(format!("实力: {}", power));
         }
-        if let Some(ref phys) = character.cs_physical_state {
+        if let Some(ref phys) = state.as_ref().and_then(|s| s.physical_state.as_ref()) {
             parts.push(format!("身体状态: {}", phys));
         }
-        if let Some(ref mental) = character.cs_mental_state {
+        if let Some(ref mental) = state.as_ref().and_then(|s| s.mental_state.as_ref()) {
             parts.push(format!("心理状态: {}", mental));
         }
-        if let Some(ref items) = character.cs_key_items {
+        if let Some(ref items) = state.as_ref().and_then(|s| s.key_items.as_ref()) {
             parts.push(format!("关键物品: {}", items));
         }
-        if let Some(ref recent) = character.cs_recent_events {
+        if let Some(ref recent) = state.as_ref().and_then(|s| s.recent_events.as_ref()) {
             parts.push(format!("近期事件: {}", recent));
         }
 
@@ -1062,15 +1068,20 @@ impl ContextOptimizer {
         // 简单的启发式检查
         // 1. 检查角色名一致性
         let repo = CharacterRepository::new(self.pool.clone());
+        let states = repo
+            .get_character_states_by_story(story_id)
+            .unwrap_or_default();
         if let Ok(characters) = repo.get_by_story(story_id) {
             for char in &characters {
                 if content.contains(&char.name) {
                     // 角色出现，检查是否有明显状态矛盾
-                    if let Some(ref phys) = char.cs_physical_state {
-                        if phys.contains("受伤") || phys.contains("昏迷") {
-                            // 简单启发：如果前文说角色昏迷，
-                            // 新内容中角色行动正常
-                            // 这是一个简单检查，真正的连续性检查应使用 LLM
+                    if let Some(state) = states.get(&char.id) {
+                        if let Some(ref phys) = state.physical_state {
+                            if phys.contains("受伤") || phys.contains("昏迷") {
+                                // 简单启发：如果前文说角色昏迷，
+                                // 新内容中角色行动正常
+                                // 这是一个简单检查，真正的连续性检查应使用 LLM
+                            }
                         }
                     }
                 }

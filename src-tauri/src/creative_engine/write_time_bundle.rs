@@ -97,17 +97,25 @@ impl WriteTimeBundle {
         // 3. 角色核心
         let char_repo = CharacterRepository::new(pool.clone());
         let core_characters: Vec<CoreCharacter> = match char_repo.get_by_story(story_id) {
-            Ok(chars) => chars
-                .iter()
-                .map(|c: &Character| CoreCharacter {
-                    name: c.name.clone(),
-                    identity: c.background.clone(),
-                    physical_state: c.cs_physical_state.clone(),
-                    mental_state: c.cs_mental_state.clone(),
-                    location: c.cs_location.clone(),
-                    personality: c.personality.clone(),
-                })
-                .collect(),
+            Ok(chars) => {
+                let states = char_repo
+                    .get_character_states_by_story(story_id)
+                    .unwrap_or_default();
+                chars
+                    .iter()
+                    .map(|c: &Character| {
+                        let state = states.get(&c.id);
+                        CoreCharacter {
+                            name: c.name.clone(),
+                            identity: c.background.clone(),
+                            physical_state: state.and_then(|s| s.physical_state.clone()),
+                            mental_state: state.and_then(|s| s.mental_state.clone()),
+                            location: state.and_then(|s| s.location.clone()),
+                            personality: c.personality.clone(),
+                        }
+                    })
+                    .collect()
+            }
             Err(e) => {
                 log::warn!("[WriteTimeBundle] 查询角色失败: {}", e);
                 vec![]
