@@ -34,6 +34,14 @@ impl CreativeEngineAdapter {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
+
+    fn runtime_contract_provider(
+        &self,
+    ) -> Arc<dyn crate::domain::creative_engine::RuntimeContractProvider> {
+        Arc::new(crate::story_system::StorySystemEngine::new(
+            self.pool.clone(),
+        ))
+    }
 }
 
 #[async_trait]
@@ -45,18 +53,13 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         style_slice_override: Option<String>,
         secondary_genre_profile_ids: Option<Vec<String>>,
     ) -> Result<WriteTimeBundle, AppError> {
-        let contract_provider: Option<
-            Arc<dyn crate::domain::creative_engine::RuntimeContractProvider>,
-        > = Some(Arc::new(crate::story_system::StorySystemEngine::new(
-            self.pool.clone(),
-        )));
         WriteTimeBundle::load_sync(
             &self.pool,
             story_id,
             chapter_number,
             style_slice_override,
             secondary_genre_profile_ids,
-            contract_provider,
+            Some(self.runtime_contract_provider()),
         )
         .map_err(AppError::from)
     }
@@ -248,6 +251,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         chapter_number: Option<i32>,
     ) -> Result<NarrativeStructureContext, AppError> {
         crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone())
+            .with_contract_provider(self.runtime_contract_provider())
             .build_narrative_structure_context_async(story_id, chapter_number)
             .await
             .map_err(AppError::from)
@@ -255,6 +259,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
 
     async fn fetch_active_threads(&self, story_id: &str) -> Result<Vec<String>, AppError> {
         crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone())
+            .with_contract_provider(self.runtime_contract_provider())
             .fetch_active_threads_async(story_id)
             .await
             .map_err(AppError::from)
@@ -265,6 +270,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         story_id: &str,
     ) -> Result<Option<String>, AppError> {
         crate::creative_engine::context_builder::StoryContextBuilder::new(self.pool.clone())
+            .with_contract_provider(self.runtime_contract_provider())
             .build_narrative_event_history_async(story_id)
             .await
             .map_err(AppError::from)

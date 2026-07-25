@@ -287,6 +287,7 @@ pub struct StoryContextBuilder {
     pool: DbPool,
     cache: Option<ContextCache>,
     budget: ContextBudget,
+    contract_provider: Option<Arc<dyn crate::domain::creative_engine::RuntimeContractProvider>>,
 }
 
 impl StoryContextBuilder {
@@ -302,6 +303,7 @@ impl StoryContextBuilder {
             pool,
             cache: None,
             budget: ContextBudget::default(),
+            contract_provider: None,
         }
     }
 
@@ -311,7 +313,17 @@ impl StoryContextBuilder {
             pool,
             cache: Some(cache),
             budget: ContextBudget::default(),
+            contract_provider: None,
         }
+    }
+
+    /// 注入运行时合同提供者，用于加载写前真源。
+    pub fn with_contract_provider(
+        mut self,
+        provider: Arc<dyn crate::domain::creative_engine::RuntimeContractProvider>,
+    ) -> Self {
+        self.contract_provider = Some(provider);
+        self
     }
 
     /// 设置目标模型的上下文预算
@@ -935,8 +947,8 @@ impl StoryContextBuilder {
         story_id: &str,
         chapter_number: i32,
     ) -> Option<crate::domain::contracts::RuntimeContract> {
-        let engine = crate::story_system::StorySystemEngine::new(self.pool.clone());
-        match engine.get_runtime_contract(story_id, chapter_number) {
+        let provider = self.contract_provider.as_ref()?;
+        match provider.get_runtime_contract(story_id, chapter_number) {
             Ok(contract) => Some(contract),
             Err(e) => {
                 log::debug!(
