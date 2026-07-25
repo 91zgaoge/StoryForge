@@ -523,7 +523,6 @@ mod tests {
         assert_eq!(paged.len(), 2);
         assert_eq!(paged[0].chapter_number, 1);
         assert_eq!(paged[0].title, Some("第1章".to_string()));
-        assert_eq!(paged[0].content, None);
         assert_eq!(paged[0].outline, None);
 
         let second_page = chapter_repo.get_by_story_paged(&story.id, 2, 2).unwrap();

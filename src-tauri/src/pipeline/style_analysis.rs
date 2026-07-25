@@ -102,10 +102,13 @@ pub fn analyze_style_for_story(
                 combined_text.push_str(&draft.content);
                 combined_text.push('\n');
             }
-        } else if let Some(ref content) = chapter.content {
-            // 回退到 chapter 原始内容
+        } else {
+            // 回退到 Scene 聚合后的章节内容
+            let content = chapter_repo
+                .get_content(&chapter.id)
+                .map_err(|e| format!("获取章节内容失败: {}", e))?;
             if !content.is_empty() {
-                combined_text.push_str(content);
+                combined_text.push_str(&content);
                 combined_text.push('\n');
             }
         }

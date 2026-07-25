@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use super::ExportConfig;
+use super::{ExportChapter, ExportConfig};
 
 /// Render a story using a Tera template string.
 pub fn render_template(
     template_content: &str,
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[ExportChapter],
     characters: &[crate::db::Character],
     config: &ExportConfig,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -98,8 +98,8 @@ struct ChapterContext {
     word_count: Option<i32>,
 }
 
-impl From<&crate::db::Chapter> for ChapterContext {
-    fn from(c: &crate::db::Chapter) -> Self {
+impl From<&ExportChapter> for ChapterContext {
+    fn from(c: &ExportChapter) -> Self {
         Self {
             id: c.id.clone(),
             chapter_number: c.chapter_number,

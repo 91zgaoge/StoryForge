@@ -213,10 +213,14 @@ async fn smart_execute_inner(
         }
     };
 
-    // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的内容
+    // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的 Scene 聚合内容
     let current_content_preview = current_content
         .filter(|c| !c.trim().is_empty())
-        .or_else(|| chapters.last().and_then(|c| c.content.clone()))
+        .or_else(|| {
+            chapters
+                .last()
+                .and_then(|c| ChapterRepository::new(pool.clone()).get_content(&c.id).ok())
+        })
         .map(|content| {
             let max_chars = 6000;
             let total = content.chars().count();
@@ -856,7 +860,11 @@ pub async fn get_input_hint(
 
     let content_preview = current_content
         .filter(|c| !c.trim().is_empty())
-        .or_else(|| chapters.last().and_then(|c| c.content.clone()));
+        .or_else(|| {
+            chapters
+                .last()
+                .and_then(|c| ChapterRepository::new(pool.clone()).get_content(&c.id).ok())
+        });
 
     let word_count = content_preview
         .as_ref()

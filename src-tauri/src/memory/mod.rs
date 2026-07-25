@@ -8,7 +8,7 @@
 //! - 多助手独立会话
 
 use crate::{
-    db::{Chapter, Character, Story},
+    db::{Chapter, ChapterRepository, Character, Story},
     domain::agent_context::{
         AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
         StoryContext, StyleContext, WorldContext,
@@ -64,13 +64,17 @@ impl ShortTermMemory {
         _outline: &str,
     ) -> AgentContext {
         // 构建章节摘要（最近 N 章）
+        let chapter_repo = ChapterRepository::new(pool.clone());
         let mut previous_chapters: Vec<ChapterSummary> = chapters
             .iter()
             .filter(|c| c.chapter_number < target_chapter_number as i32)
-            .map(|c| ChapterSummary {
-                number: c.chapter_number as u32,
-                title: c.title.clone().unwrap_or_default(),
-                summary: self.summarize_chapter(c),
+            .map(|c| {
+                let content = chapter_repo.get_content(&c.id).unwrap_or_default();
+                ChapterSummary {
+                    number: c.chapter_number as u32,
+                    title: c.title.clone().unwrap_or_default(),
+                    summary: self.summarize_chapter(c, &content),
+                }
             })
             .collect();
 
@@ -172,8 +176,7 @@ impl ShortTermMemory {
     }
 
     /// 生成章节摘要（首尾提取 + 关键词密度启发式摘要）
-    fn summarize_chapter(&self, chapter: &Chapter) -> String {
-        let content = chapter.content.as_ref().map(|s| s.as_str()).unwrap_or("");
+    fn summarize_chapter(&self, _chapter: &Chapter, content: &str) -> String {
         if content.is_empty() {
             return "No content".to_string();
         }

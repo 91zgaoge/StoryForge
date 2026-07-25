@@ -7,7 +7,7 @@ pub mod assemble;
 pub mod builtin_templates;
 pub mod templates;
 
-pub use assemble::{assemble_export_chapters, chapter_display_title};
+pub use assemble::{assemble_export_chapters, chapter_display_title, ExportChapter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExportFormat {
@@ -48,7 +48,7 @@ impl StoryExporter {
     pub fn export_to_file(
         &self,
         story: &crate::db::Story,
-        chapters: &[crate::db::Chapter],
+        chapters: &[ExportChapter],
         characters: &[crate::db::Character],
         scenes: &[crate::db::Scene],
         config: &ExportConfig,
@@ -219,7 +219,7 @@ pub mod pdf;
 // Generate Markdown export
 fn generate_markdown(
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[ExportChapter],
     characters: &[crate::db::Character],
     config: &ExportConfig,
 ) -> String {
@@ -298,7 +298,7 @@ fn generate_markdown(
 // Generate HTML export
 fn generate_html(
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[ExportChapter],
     characters: &[crate::db::Character],
     config: &ExportConfig,
 ) -> String {
@@ -418,7 +418,7 @@ fn generate_html(
 // Generate Plain Text export
 fn generate_plaintext(
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[ExportChapter],
     characters: &[crate::db::Character],
     config: &ExportConfig,
 ) -> String {
@@ -495,7 +495,7 @@ fn generate_plaintext(
 // Generate JSON export
 fn generate_json(
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[ExportChapter],
     characters: &[crate::db::Character],
     scenes: &[crate::db::Scene],
     config: &ExportConfig,
@@ -505,7 +505,7 @@ fn generate_json(
         #[serde(flatten)]
         story: crate::db::Story,
         characters: Vec<crate::db::Character>,
-        chapters: Vec<crate::db::Chapter>,
+        chapters: Vec<ExportChapter>,
         scenes: Vec<crate::db::Scene>,
         export_config: ExportConfig,
     }

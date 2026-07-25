@@ -334,10 +334,9 @@ impl AutoContractBuilder {
         if !chapters.is_empty() {
             prompt.push_str("\n已有章节摘要:\n");
             for ch in chapters.iter().take(5) {
-                let summary = ch
-                    .content
-                    .as_deref()
-                    .unwrap_or("")
+                let summary = chapter_repo
+                    .get_content(&ch.id)
+                    .unwrap_or_default()
                     .chars()
                     .take(300)
                     .collect::<String>();
@@ -487,10 +486,9 @@ impl AutoContractBuilder {
 
         // 前一章信息
         if let Some(ref prev) = prev_chapter {
-            let content = prev
-                .content
-                .as_deref()
-                .unwrap_or("")
+            let content = chapter_repo
+                .get_content(&prev.id)
+                .unwrap_or_default()
                 .chars()
                 .take(500)
                 .collect::<String>();
@@ -504,10 +502,9 @@ impl AutoContractBuilder {
 
         // 当前章信息
         if let Some(ref current) = current_chapter {
-            let content = current
-                .content
-                .as_deref()
-                .unwrap_or("")
+            let content = chapter_repo
+                .get_content(&current.id)
+                .unwrap_or_default()
                 .chars()
                 .take(1000)
                 .collect::<String>();
@@ -526,10 +523,9 @@ impl AutoContractBuilder {
 
         // 后一章信息
         if let Some(ref next) = next_chapter {
-            let content = next
-                .content
-                .as_deref()
-                .unwrap_or("")
+            let content = chapter_repo
+                .get_content(&next.id)
+                .unwrap_or_default()
                 .chars()
                 .take(300)
                 .collect::<String>();
@@ -785,10 +781,9 @@ impl AutoContractBuilder {
 
         // 当前章节内容
         if let Some(ref ch) = current_chapter {
-            let content = ch
-                .content
-                .as_deref()
-                .unwrap_or("")
+            let content = chapter_repo
+                .get_content(&ch.id)
+                .unwrap_or_default()
                 .chars()
                 .take(500)
                 .collect::<String>();

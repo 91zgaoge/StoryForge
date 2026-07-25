@@ -6,7 +6,7 @@ use super::{chapter_display_title, ExportConfig, ExportResult};
 
 pub fn generate_epub(
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[super::ExportChapter],
     characters: &[crate::db::Character],
     config: &ExportConfig,
     output_path: &Path,
@@ -137,7 +137,7 @@ pub fn generate_epub(
     })
 }
 
-fn generate_toc_html(story: &crate::db::Story, chapters: &[crate::db::Chapter]) -> String {
+fn generate_toc_html(story: &crate::db::Story, chapters: &[super::ExportChapter]) -> String {
     let mut html = String::new();
     html.push_str("<?xml version='1.0' encoding='utf-8'?>\n");
     html.push_str("<!DOCTYPE html>\n");

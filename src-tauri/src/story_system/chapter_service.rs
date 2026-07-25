@@ -90,12 +90,13 @@ impl ChapterCommitDebouncer {
             if should_commit {
                 let repo = ChapterRepository::new(pool.clone());
                 let scene_repo = SceneRepository::new(pool.clone());
-                if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
+                if let Ok(Some(_chapter)) = repo.get_by_id(&chapter_id) {
                     let scene_id = scene_repo
                         .get_by_chapter(&chapter_id)
                         .ok()
                         .and_then(|scenes| scenes.into_iter().next())
                         .map(|s| s.id);
+                    let content = repo.get_content(&chapter_id).unwrap_or_default();
                     let service = SceneCommitService::new(pool);
                     let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
                     if let Err(e) = service
@@ -104,7 +105,7 @@ impl ChapterCommitDebouncer {
                             scene_id.as_deref(),
                             Some(&chapter_id),
                             chapter_number,
-                            chapter.content.as_deref(),
+                            Some(&content),
                             None,
                             Some(app_handle),
                             store,
@@ -381,7 +382,14 @@ impl ChapterService {
         let app_handle = self.app_handle.clone();
         let story_id = chapter.story_id.clone();
         let chapter_number = chapter.chapter_number;
-        let content = chapter.content.clone();
+        let content = ChapterRepository::new(self.pool.clone())
+            .get_content(&chapter_id)
+            .unwrap_or_default();
+        let content_for_commit = if content.is_empty() {
+            None
+        } else {
+            Some(content)
+        };
         let pool = self.pool.clone();
         let vector_store = self.vector_store.clone();
 
@@ -394,7 +402,7 @@ impl ChapterService {
                     scene_id_for_commit.as_deref(),
                     Some(&chapter_id),
                     chapter_number,
-                    content.as_deref(),
+                    content_for_commit.as_deref(),
                     None,
                     Some(app_handle),
                     store,

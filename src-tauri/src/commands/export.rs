@@ -35,7 +35,7 @@ pub async fn export_story(
         .get_by_story(&options.story_id)
         .map_err(AppError::from)?;
 
-    // scenes.content 为叙事真相源；有场景时覆盖 chapters.content 投影
+    // scenes.content 为叙事真相源；装配为 ExportChapter（含聚合 content）
     let chapters = crate::export::assemble_export_chapters(&chapters, &scenes);
 
     let format = match options.format.as_str() {

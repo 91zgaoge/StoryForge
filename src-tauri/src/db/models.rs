@@ -1159,7 +1159,6 @@ pub struct Chapter {
     pub chapter_number: i32,
     pub title: Option<String>,
     pub outline: Option<String>,
-    pub content: Option<String>,
     pub word_count: Option<i32>,
     pub model_used: Option<String>,
     pub cost: Option<f64>,

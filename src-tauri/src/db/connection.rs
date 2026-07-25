@@ -985,9 +985,9 @@ mod tests {
 
         // 尝试插入一个引用不存在故事的章节，应该失败
         let result = conn.execute(
-            "INSERT INTO chapters (id, story_id, title, content, chapter_number, created_at, updated_at)
-             VALUES ('test-chapter', 'non-existent-story', 'Test Chapter', 'Test content', 1, 0, 0)",
-            []
+            "INSERT INTO chapters (id, story_id, title, chapter_number, created_at, updated_at)
+             VALUES ('test-chapter', 'non-existent-story', 'Test Chapter', 1, 0, 0)",
+            [],
         );
 
         // 应该因为外键约束而失败
@@ -1020,9 +1020,8 @@ mod tests {
 
         // 创建一个测试章节
         conn.execute(
-            "INSERT INTO chapters (id, story_id, title, content, chapter_number, created_at, \
-             updated_at)
-             VALUES ('test-chapter', 'test-story', 'Test Chapter', 'Test content', 1, 0, 0)",
+            "INSERT INTO chapters (id, story_id, title, chapter_number, created_at, updated_at)
+             VALUES ('test-chapter', 'test-story', 'Test Chapter', 1, 0, 0)",
             [],
         )
         .expect("Failed to insert test chapter");

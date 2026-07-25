@@ -6,7 +6,7 @@ use super::{chapter_display_title, ExportConfig, ExportResult};
 
 pub fn generate_pdf(
     story: &crate::db::Story,
-    chapters: &[crate::db::Chapter],
+    chapters: &[super::ExportChapter],
     characters: &[crate::db::Character],
     config: &ExportConfig,
     output_path: &std::path::Path,

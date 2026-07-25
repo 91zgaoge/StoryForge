@@ -448,7 +448,7 @@ async fn init_vector_store_async(
             let repo = db::ChapterRepository::new(pool.clone());
             if let Ok(Some(chapter)) = repo.get_by_id(&chapter_id) {
                 let story_id = chapter.story_id.clone();
-                let content_text = chapter.content.clone().unwrap_or_default();
+                let content_text = repo.get_content(&chapter_id).unwrap_or_default();
                 if content_text.len() >= 20 {
                     match embeddings::embed_text_async(content_text.clone()).await {
                         Ok(embedding) => {

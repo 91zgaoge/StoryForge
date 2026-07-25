@@ -19,11 +19,11 @@ impl ChapterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
 
-        // 1. 插入 Chapter（Phase 1: content 不再写入 chapters 表，Scene 为真相源）
+        // 1. 插入 Chapter（Scene 为唯一内容真相源，chapters 表不再存 content）
         tx.execute(
-            "INSERT INTO chapters (id, story_id, chapter_number, title, outline, content, \
-             word_count, model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, \
-             '', ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO chapters (id, story_id, chapter_number, title, outline, word_count, \
+             model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
+             ?9, ?10)",
             params![
                 &id,
                 &req.story_id,
@@ -90,7 +90,6 @@ impl ChapterRepository {
             chapter_number: req.chapter_number,
             title: req.title,
             outline: req.outline,
-            content: req.content, // 从请求参数传回（Scene 为真相源，此处为便利字段）
             word_count,
             model_used: None,
             cost: None,
@@ -99,50 +98,36 @@ impl ChapterRepository {
         })
     }
 
-    /// Phase 1: content 字段优先读 chapters.content（兼容旧数据），
-    /// 为空时从 scenes 表聚合（新数据路径）。
+    /// 查询 story 下的全部章节（Scene 为唯一内容真相源，需内容请用
+    /// get_content）。
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Chapter>, rusqlite::Error> {
         let conn = self
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, title, outline, content, word_count, \
-             model_used, cost, created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY \
-             chapter_number",
+            "SELECT id, story_id, chapter_number, title, outline, word_count, model_used, cost, \
+             created_at, updated_at FROM chapters WHERE story_id = ?1 ORDER BY chapter_number",
         )?;
 
-        let mut chapters: Vec<Chapter> = stmt
+        let chapters: Vec<Chapter> = stmt
             .query_map([story_id], |row| {
-                let created_str: String = row.get(9)?;
-                let updated_str: String = row.get(10)?;
+                let created_str: String = row.get(8)?;
+                let updated_str: String = row.get(9)?;
                 Ok(Chapter {
                     id: row.get(0)?,
                     story_id: row.get(1)?,
                     chapter_number: row.get(2)?,
                     title: row.get(3)?,
                     outline: row.get(4)?,
-                    content: row.get(5)?,
-                    word_count: row.get(6)?,
-                    model_used: row.get(7)?,
-                    cost: row.get(8)?,
+                    word_count: row.get(5)?,
+                    model_used: row.get(6)?,
+                    cost: row.get(7)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
-
-        // Phase 1: 当 chapters.content 为空时，从 scenes 表聚合
-        for chapter in &mut chapters {
-            if chapter.content.as_ref().map_or(true, |c| c.is_empty()) {
-                chapter.content = Some(self.get_content(&chapter.id)?);
-                // 同步更新 word_count
-                if chapter.word_count.unwrap_or(0) == 0 {
-                    chapter.word_count =
-                        Some(chapter.content.as_ref().map_or(0, |c| c.len() as i32));
-                }
-            }
-        }
 
         Ok(chapters)
     }
@@ -174,7 +159,6 @@ impl ChapterRepository {
                     chapter_number: row.get(2)?,
                     title: row.get(3)?,
                     outline: None,
-                    content: None,
                     word_count: row.get(4)?,
                     model_used: row.get(5)?,
                     cost: row.get(6)?,
@@ -233,47 +217,35 @@ impl ChapterRepository {
         Ok(parts.concat())
     }
 
-    /// Phase 1: content 字段优先读 chapters.content（兼容旧数据），
-    /// 为空时从 scenes 表聚合（新数据路径）。
+    /// 按 ID 查询章节（Scene 为唯一内容真相源，需内容请用 get_content）。
     pub fn get_by_id(&self, id: &str) -> Result<Option<Chapter>, rusqlite::Error> {
         let conn = self
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, story_id, chapter_number, title, outline, content, word_count, \
-             model_used, cost, created_at, updated_at FROM chapters WHERE id = ?1",
+            "SELECT id, story_id, chapter_number, title, outline, word_count, model_used, cost, \
+             created_at, updated_at FROM chapters WHERE id = ?1",
         )?;
 
-        let mut chapter = stmt
+        let chapter = stmt
             .query_row([id], |row| {
-                let created_str: String = row.get(9)?;
-                let updated_str: String = row.get(10)?;
+                let created_str: String = row.get(8)?;
+                let updated_str: String = row.get(9)?;
                 Ok(Chapter {
                     id: row.get(0)?,
                     story_id: row.get(1)?,
                     chapter_number: row.get(2)?,
                     title: row.get(3)?,
                     outline: row.get(4)?,
-                    content: row.get(5)?,
-                    word_count: row.get(6)?,
-                    model_used: row.get(7)?,
-                    cost: row.get(8)?,
+                    word_count: row.get(5)?,
+                    model_used: row.get(6)?,
+                    cost: row.get(7)?,
                     created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
                     updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
                 })
             })
             .optional()?;
-
-        // Phase 1: 当 chapters.content 为空时，从 scenes 表聚合
-        if let Some(ref mut ch) = chapter {
-            if ch.content.as_ref().map_or(true, |c| c.is_empty()) {
-                ch.content = Some(self.get_content(&ch.id)?);
-                if ch.word_count.unwrap_or(0) == 0 {
-                    ch.word_count = Some(ch.content.as_ref().map_or(0, |c| c.len() as i32));
-                }
-            }
-        }
 
         Ok(chapter)
     }
