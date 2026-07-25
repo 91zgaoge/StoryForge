@@ -1,12 +1,16 @@
 #![allow(dead_code)]
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::{NodeExecutionStatus, NodeType, WorkflowEngine, WorkflowInstance, WorkflowStatus};
+use crate::task_system::{
+    models::{CreateTaskRequest, TaskStatus, TaskType},
+    service::TaskService,
+};
 
 /// Workflow scheduler - manages task execution with an in-memory queue
 pub struct WorkflowScheduler {
@@ -394,243 +398,6 @@ impl WorkflowScheduler {
     ) -> Result<serde_json::Value, String> {
         match node.node_type {
             NodeType::Start => Ok(serde_json::json!({ "started": true })),
-            NodeType::WriteChapter => {
-                let story_id = instance.story_id.clone();
-                let instruction = node
-                    .config
-                    .parameters
-                    .get("instruction")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Continue writing the story")
-                    .to_string();
-
-                // Try to get previous content from upstream nodes
-                let previous_content = instance
-                    .context
-                    .variables
-                    .values()
-                    .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
-                    .last()
-                    .unwrap_or("")
-                    .to_string();
-
-                let input = if previous_content.is_empty() {
-                    instruction
-                } else {
-                    format!("{instruction}\n\nPrevious content:\n{previous_content}")
-                };
-
-                // W2-B3: Workflow 节点嵌套 Orchestrator，禁止直接调用 Writer Agent
-                let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
-                let orchestrator_config = crate::config::AppConfig::load(&app_dir)
-                    .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
-                    .unwrap_or_default();
-                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
-                    agent_service,
-                    orchestrator_config,
-                    app_handle.clone(),
-                );
-                let context =
-                    crate::domain::agent_context::AgentContext::minimal(story_id, String::new());
-                let task = crate::domain::agent_types::AgentTask {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::domain::agent_types::AgentType::Writer,
-                    context,
-                    input,
-                    parameters: HashMap::new(),
-                    tier: None,
-                };
-
-                match orchestrator
-                    .generate(task, crate::agents::orchestrator::GenerationMode::Full)
-                    .await
-                {
-                    Ok(workflow_result) => Ok(serde_json::json!({
-                        "content": workflow_result.final_content,
-                        "score": workflow_result.final_score,
-                        "was_rewritten": workflow_result.was_rewritten,
-                        "rewrite_count": workflow_result.rewrite_count,
-                        "request_id": workflow_result.request_id,
-                    })),
-                    Err(e) => Err(format!("Writer execution failed: {}", e)),
-                }
-            }
-            NodeType::Inspect => {
-                let content = instance
-                    .context
-                    .variables
-                    .values()
-                    .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
-                    .last()
-                    .unwrap_or("")
-                    .to_string();
-
-                if content.is_empty() {
-                    return Ok(
-                        serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to inspect" }),
-                    );
-                }
-
-                let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let context = crate::domain::agent_context::AgentContext::minimal(
-                    instance.story_id.clone(),
-                    String::new(),
-                );
-                let task = crate::domain::agent_types::AgentTask {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::domain::agent_types::AgentType::Inspector,
-                    context,
-                    input: content,
-                    parameters: HashMap::new(),
-                    tier: None,
-                };
-
-                match agent_service.execute_task(task).await {
-                    Ok(result) => Ok(serde_json::json!({
-                        "content": result.content,
-                        "score": result.score,
-                    })),
-                    Err(e) => Err(format!("Inspector execution failed: {}", e)),
-                }
-            }
-            NodeType::Revise => {
-                let variables = &instance.context.variables;
-                let content = variables
-                    .values()
-                    .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
-                    .last()
-                    .unwrap_or("")
-                    .to_string();
-                let inspect_result = variables
-                    .values()
-                    .filter_map(|v| v.get("score").and_then(|s| s.as_f64()))
-                    .last()
-                    .unwrap_or(0.0);
-
-                if content.is_empty() {
-                    return Ok(
-                        serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to revise" }),
-                    );
-                }
-
-                let instruction = format!(
-                    "Please revise the following content based on the inspection score \
-                     {:.0}%:\n\n{}",
-                    inspect_result * 100.0,
-                    content
-                );
-
-                let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
-                let orchestrator_config = crate::config::AppConfig::load(&app_dir)
-                    .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
-                    .unwrap_or_default();
-                let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
-                    agent_service,
-                    orchestrator_config,
-                    app_handle.clone(),
-                );
-                let context = crate::domain::agent_context::AgentContext::minimal(
-                    instance.story_id.clone(),
-                    String::new(),
-                );
-                let task = crate::domain::agent_types::AgentTask {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::domain::agent_types::AgentType::Writer,
-                    context,
-                    input: instruction,
-                    parameters: HashMap::new(),
-                    tier: None,
-                };
-
-                match orchestrator
-                    .generate(task, crate::agents::orchestrator::GenerationMode::Full)
-                    .await
-                {
-                    Ok(workflow_result) => Ok(serde_json::json!({
-                        "content": workflow_result.final_content,
-                        "score": Some(workflow_result.final_score as f64),
-                        "request_id": workflow_result.request_id,
-                    })),
-                    Err(e) => Err(format!("Revision failed: {}", e)),
-                }
-            }
-            NodeType::VectorIndex => {
-                let content = instance
-                    .context
-                    .variables
-                    .values()
-                    .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
-                    .last()
-                    .unwrap_or("")
-                    .to_string();
-
-                if content.len() > 50 {
-                    let llm_service = crate::llm::LlmService::new(app_handle.clone());
-                    let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
-                    let pipeline =
-                        crate::memory::ingest::IngestPipeline::new(llm_service).with_pool(pool);
-                    let ingest_content = crate::memory::ingest::IngestContent {
-                        text: content.clone(),
-                        source: format!("workflow:{}", instance.id),
-                        story_id: instance.story_id.clone(),
-                        scene_id: None,
-                    };
-
-                    match pipeline.ingest(&ingest_content).await {
-                        Ok(result) => Ok(serde_json::json!({
-                            "indexed": true,
-                            "entities": result.entities.len(),
-                            "relations": result.relations.len(),
-                        })),
-                        Err(e) => {
-                            log::warn!("[Workflow] Ingest failed: {}", e);
-                            Ok(serde_json::json!({ "indexed": false, "error": e.to_string() }))
-                        }
-                    }
-                } else {
-                    Ok(serde_json::json!({ "indexed": false, "reason": "content too short" }))
-                }
-            }
-            NodeType::AnalyzePlot => {
-                let content = instance
-                    .context
-                    .variables
-                    .values()
-                    .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
-                    .last()
-                    .unwrap_or("")
-                    .to_string();
-
-                if content.is_empty() {
-                    return Ok(
-                        serde_json::json!({ "content": "", "score": 0.0, "warning": "No content to analyze" }),
-                    );
-                }
-
-                let agent_service = crate::agents::service::AgentService::new(app_handle.clone());
-                let context = crate::domain::agent_context::AgentContext::minimal(
-                    instance.story_id.clone(),
-                    String::new(),
-                );
-                let task = crate::domain::agent_types::AgentTask {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    agent_type: crate::domain::agent_types::AgentType::PlotAnalyzer,
-                    context,
-                    input: content,
-                    parameters: HashMap::new(),
-                    tier: None,
-                };
-
-                match agent_service.execute_task(task).await {
-                    Ok(result) => Ok(serde_json::json!({
-                        "content": result.content,
-                        "score": result.score,
-                    })),
-                    Err(e) => Err(format!("Plot analysis failed: {}", e)),
-                }
-            }
             NodeType::Condition => {
                 let condition = node
                     .config
@@ -647,6 +414,142 @@ impl WorkflowScheduler {
                 Ok(serde_json::json!({ "parallel": true }))
             }
             NodeType::End => Ok(serde_json::json!({ "completed": true })),
+            _ => {
+                self.execute_node_via_task_system(node, instance, app_handle)
+                    .await
+            }
+        }
+    }
+
+    /// Build payload input/parameters for a workflow node
+    fn build_node_payload(
+        &self,
+        node: &super::WorkflowNode,
+        instance: &WorkflowInstance,
+    ) -> (String, serde_json::Value) {
+        match node.node_type {
+            NodeType::WriteChapter => {
+                let instruction = node
+                    .config
+                    .parameters
+                    .get("instruction")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Continue writing the story")
+                    .to_string();
+                let previous_content = get_last_content(&instance.context.variables);
+                let input = if previous_content.is_empty() {
+                    instruction
+                } else {
+                    format!("{instruction}\n\nPrevious content:\n{previous_content}")
+                };
+                (input, serde_json::json!({}))
+            }
+            NodeType::Revise => {
+                let content = get_last_content(&instance.context.variables);
+                let inspect_score = get_last_score(&instance.context.variables);
+                let input = format!(
+                    "Please revise the following content based on the inspection score \
+                     {:.0}%:\n\n{}",
+                    inspect_score * 100.0,
+                    content
+                );
+                let parameters = serde_json::json!({
+                    "inspect_score": inspect_score,
+                });
+                (input, parameters)
+            }
+            _ => {
+                let content = get_last_content(&instance.context.variables);
+                (content, serde_json::json!({}))
+            }
+        }
+    }
+
+    /// Delegate workflow node execution to task_system
+    async fn execute_node_via_task_system(
+        &self,
+        node: &super::WorkflowNode,
+        instance: &WorkflowInstance,
+        app_handle: &AppHandle,
+    ) -> Result<serde_json::Value, String> {
+        let task_service = app_handle.state::<TaskService>().inner().clone();
+
+        let (input, parameters) = self.build_node_payload(node, instance);
+        let timeout_secs = node.config.timeout_seconds.unwrap_or(300);
+
+        let payload = serde_json::json!({
+            "instance_id": instance.id,
+            "node_id": node.id,
+            "story_id": instance.story_id,
+            "node_type": format!("{:?}", node.node_type),
+            "input": input,
+            "parameters": parameters,
+        });
+
+        let req = CreateTaskRequest {
+            name: format!("Workflow Node {} ({:?})", node.id, node.node_type),
+            description: Some(format!(
+                "instance: {}, story: {}",
+                instance.id, instance.story_id
+            )),
+            task_type: TaskType::WorkflowNode.to_string(),
+            schedule_type: "once".to_string(),
+            cron_pattern: None,
+            payload: Some(payload.to_string()),
+            enabled: Some(false),
+            max_retries: Some(0),
+            heartbeat_timeout_seconds: Some(timeout_secs as i32),
+        };
+
+        let task = task_service
+            .create_task(req)
+            .map_err(|e| format!("Failed to create workflow node task: {}", e))?;
+        let task_id = task.id;
+
+        task_service
+            .trigger_task(&task_id)
+            .map_err(|e| format!("Failed to trigger workflow node task: {}", e))?;
+
+        let poll_interval = std::time::Duration::from_millis(200);
+        let timeout = std::time::Duration::from_secs(timeout_secs);
+        let start = std::time::Instant::now();
+
+        loop {
+            if start.elapsed() >= timeout {
+                let _ = task_service.cancel_task(&task_id);
+                return Err(format!(
+                    "Workflow node task {} timed out ({} seconds)",
+                    task_id, timeout_secs
+                ));
+            }
+
+            match task_service.get_task(&task_id) {
+                Ok(Some(task)) => match task.status {
+                    TaskStatus::Completed => {
+                        let result_json = task.result.unwrap_or_else(|| "{}".to_string());
+                        return serde_json::from_str(&result_json)
+                            .map_err(|e| format!("Failed to parse workflow node result: {}", e));
+                    }
+                    TaskStatus::Failed => {
+                        let err = task
+                            .error_message
+                            .unwrap_or_else(|| "Workflow node task failed".to_string());
+                        return Err(err);
+                    }
+                    TaskStatus::Cancelled => {
+                        return Err("Workflow node task was cancelled".to_string());
+                    }
+                    _ => {}
+                },
+                Ok(None) => {
+                    return Err(format!("Workflow node task {} not found", task_id));
+                }
+                Err(e) => {
+                    return Err(format!("Failed to get workflow node task status: {}", e));
+                }
+            }
+
+            tokio::time::sleep(poll_interval).await;
         }
     }
 
@@ -752,6 +655,23 @@ impl WorkflowScheduler {
                 .unwrap_or(false)
         })
     }
+}
+
+fn get_last_content(variables: &std::collections::HashMap<String, serde_json::Value>) -> String {
+    variables
+        .values()
+        .filter_map(|v| v.get("content").and_then(|c| c.as_str()))
+        .last()
+        .unwrap_or("")
+        .to_string()
+}
+
+fn get_last_score(variables: &std::collections::HashMap<String, serde_json::Value>) -> f64 {
+    variables
+        .values()
+        .filter_map(|v| v.get("score").and_then(|s| s.as_f64()))
+        .last()
+        .unwrap_or(0.0)
 }
 
 /// 轻量级条件表达式求值（P1-10 修复）

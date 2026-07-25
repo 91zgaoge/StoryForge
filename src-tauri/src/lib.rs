@@ -413,6 +413,10 @@ fn init_task_system_and_automation(
         app_handle: app_handle.clone(),
     });
     task_service.register_executor(insight_executor);
+    let workflow_node_executor = std::sync::Arc::new(
+        workflow::executor::WorkflowNodeExecutor::new(app_handle.clone()),
+    );
+    task_service.register_executor(workflow_node_executor);
     if let Err(e) = task_service.bootstrap() {
         log::error!("Failed to bootstrap task system: {}", e);
     } else {

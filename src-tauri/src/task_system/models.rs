@@ -81,6 +81,7 @@ pub enum TaskType {
     CascadeRewrite,     // 级联改写
     AiGeneration,       // AI 长文本生成
     PipelineReview,     // Pipeline 审校
+    WorkflowNode,       // Workflow 节点执行
     Ingest,             // 知识图谱 Ingest
     AsyncAudit,         // 异步审计（分时架构时间线 2：Inspector → annotation 回流）
     DeepInsight,        // 深度洞察（分时架构时间线 3：追读力/KG/向量/漂移，跨章节）
@@ -94,6 +95,7 @@ impl fmt::Display for TaskType {
             TaskType::CascadeRewrite => write!(f, "cascade_rewrite"),
             TaskType::AiGeneration => write!(f, "ai_generation"),
             TaskType::PipelineReview => write!(f, "pipeline_review"),
+            TaskType::WorkflowNode => write!(f, "workflow_node"),
             TaskType::Ingest => write!(f, "ingest"),
             TaskType::AsyncAudit => write!(f, "async_audit"),
             TaskType::DeepInsight => write!(f, "deep_insight"),
@@ -109,6 +111,7 @@ impl TaskType {
             "cascade_rewrite" => TaskType::CascadeRewrite,
             "ai_generation" => TaskType::AiGeneration,
             "pipeline_review" => TaskType::PipelineReview,
+            "workflow_node" => TaskType::WorkflowNode,
             "ingest" => TaskType::Ingest,
             "async_audit" => TaskType::AsyncAudit,
             "deep_insight" => TaskType::DeepInsight,

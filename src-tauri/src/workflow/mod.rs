@@ -7,6 +7,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub mod executor;
 pub mod loader;
 pub mod scheduler;
 pub use loader::{LoadedWorkflow, WorkflowLoader};
