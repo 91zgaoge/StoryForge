@@ -211,7 +211,7 @@ pub async fn auto_write(
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
     // v0.8.0: 读取当前场景内容和序号，正确传递章节号用于记忆构建
-    let (_current_content, current_scene) = match scene_repo
+    let (current_content, current_scene) = match scene_repo
         .get_by_id(&request.chapter_id)
         .map_err(AppError::from)?
     {
@@ -221,7 +221,7 @@ pub async fn auto_write(
         }
         None => (String::new(), None),
     };
-    let scene_sequence = current_scene
+    let _scene_sequence = current_scene
         .as_ref()
         .map(|s| s.sequence_number as u32)
         .unwrap_or(1);
@@ -231,13 +231,10 @@ pub async fn auto_write(
     let story_id = request.story_id.clone();
     let chapter_id = request.chapter_id.clone();
     let target_chars = request.target_chars;
-    // 旧参数字段（chars_per_loop / reference_text / style_weight）由 agency
-    // coordinator 内部决策， 此处仅保留签名兼容性，不再透传给 AgentService。
-    let _ = (
-        request.chars_per_loop,
-        request.reference_text.clone(),
-        request.style_weight,
-    );
+    let chars_per_loop = request.chars_per_loop;
+    let reference_text = request.reference_text.clone();
+    let style_weight = request.style_weight;
+    let current_content_for_task = current_content.clone();
 
     // 在后台委托 agency coordinator 续写
     let handle = tokio::spawn(async move {
@@ -261,21 +258,75 @@ pub async fn auto_write(
             },
         );
 
+        // 构建携带请求参数的任务描述
+        let mut task_description = format!(
+            "请继续续写以下内容。目标字数：{}，每次续写参考字数：{}。请直接输出续写内容，不要重复前文，保持故事连贯性和风格一致性。",
+            target_chars, chars_per_loop
+        );
+        if let Some(ref rt) = reference_text {
+            if !rt.is_empty() {
+                task_description.push_str(&format!("\n\n【参考文本】\n{}", rt));
+            }
+        }
+        if style_weight != 50 {
+            task_description.push_str(&format!(
+                "\n【风格权重】{}（0=叙事优先，100=风格优先）",
+                style_weight
+            ));
+        }
+
         match coordinator
-            .run_continue(&task_id_clone, &story_id, scene_sequence as i32)
+            .run_role_task(
+                &task_id_clone,
+                &story_id,
+                crate::agency::models::AgentRole::Writer,
+                &current_content_for_task,
+                &task_description,
+            )
             .await
         {
             Ok(result) => {
                 let pool = app_handle_clone.state::<DbPool>();
                 let scene_repo = SceneRepository::new(pool.inner().clone());
-                let content_len = scene_repo
-                    .get_by_id(&result.scene_id)
-                    .ok()
-                    .flatten()
-                    .and_then(|s| s.content)
-                    .map(|c| c.chars().count() as i32)
-                    .unwrap_or(0);
 
+                let new_content = match scene_repo.get_by_id(&chapter_id).map_err(AppError::from) {
+                    Ok(Some(scene)) => {
+                        let mut content = scene.content.unwrap_or_default();
+                        content.push_str(&result.output);
+                        content
+                    }
+                    Ok(None) => {
+                        log::warn!(
+                            "[auto_write] Scene {} not found, using generated content only",
+                            chapter_id
+                        );
+                        result.output
+                    }
+                    Err(e) => {
+                        log::error!("[auto_write] Failed to fetch scene {}: {}", chapter_id, e);
+                        let _ = app_handle_clone
+                            .emit(&format!("auto-write-error-{}", task_id_clone), e);
+                        return;
+                    }
+                };
+
+                if let Err(e) = scene_repo.update(
+                    &chapter_id,
+                    &SceneUpdate {
+                        title: None,
+                        content: Some(new_content.clone()),
+                        ..Default::default()
+                    },
+                ) {
+                    log::error!("[auto_write] Failed to update scene {}: {}", chapter_id, e);
+                    let _ = app_handle_clone.emit(
+                        &format!("auto-write-error-{}", task_id_clone),
+                        AppError::from(e),
+                    );
+                    return;
+                }
+
+                let content_len = new_content.chars().count() as i32;
                 let _ = app_handle_clone.emit(
                     &format!("auto-write-complete-{}", task_id_clone),
                     AutoWriteProgressEvent {
@@ -290,13 +341,13 @@ pub async fn auto_write(
                     },
                 );
                 log::info!(
-                    "[auto_write] agency run_continue completed run={} scene={}",
-                    result.run_id,
-                    result.scene_id
+                    "[auto_write] Saved {} chars to scene {}",
+                    content_len,
+                    chapter_id
                 );
             }
             Err(e) => {
-                log::error!("[auto_write] agency run_continue failed: {}", e);
+                log::error!("[auto_write] agency run_role_task failed: {}", e);
                 let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
             }
         }
@@ -491,7 +542,7 @@ pub async fn auto_revise(
             .run_role_task(
                 &task_id_clone,
                 &story_id,
-                crate::agency::models::AgentRole::EditorAuditor,
+                crate::agency::models::AgentRole::Writer,
                 &target_text,
                 &task_description,
             )
