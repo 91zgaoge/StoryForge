@@ -570,7 +570,7 @@ pub struct Entity {
     pub is_auto_generated: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntityType {
     Character,
     Location,
@@ -1125,6 +1125,10 @@ pub struct StoryListItem {
     pub word_count: i64,
 }
 
+/// 角色模型。
+///
+/// V117 之后，持久化实体统一存储在 `kg_entities` 表中。`Character` 保留为
+/// `Entity` 的轻量包装，用于向后兼容仍需要旧字段布局的调用方。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Character {
     pub id: String,
@@ -1141,6 +1145,64 @@ pub struct Character {
     pub is_auto_generated: Option<bool>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
+}
+
+impl Character {
+    /// 从 `Entity` 反序列化为 `Character`。
+    ///
+    /// 仅当 `entity.entity_type == EntityType::Character` 时成功；其他类型返回
+    /// `None`，避免把地点/物品等错误地当成角色。
+    pub fn from_entity(entity: &Entity) -> Option<Self> {
+        if entity.entity_type != EntityType::Character {
+            return None;
+        }
+
+        let attrs = &entity.attributes;
+        let dynamic_traits: Vec<DynamicTrait> = attrs
+            .get("dynamic_traits")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        Some(Self {
+            id: entity.id.clone(),
+            story_id: entity.story_id.clone(),
+            name: entity.name.clone(),
+            background: attr_string(attrs, "background"),
+            personality: attr_string(attrs, "personality"),
+            goals: attr_string(attrs, "goals"),
+            appearance: attr_string(attrs, "appearance"),
+            gender: attr_string(attrs, "gender"),
+            age: attrs.get("age").and_then(|v| v.as_i64()).map(|v| v as i32),
+            dynamic_traits,
+            source: entity.source.clone(),
+            is_auto_generated: entity.is_auto_generated,
+            created_at: entity.first_seen,
+            updated_at: entity.last_updated,
+        })
+    }
+
+    /// 将角色字段序列化为 `kg_entities.attributes` 的 JSON 对象。
+    pub fn to_attributes(&self) -> serde_json::Value {
+        serde_json::json!({
+            "background": self.background,
+            "personality": self.personality,
+            "goals": self.goals,
+            "appearance": self.appearance,
+            "gender": self.gender,
+            "age": self.age,
+            "dynamic_traits": self.dynamic_traits,
+        })
+    }
+}
+
+fn attr_string(attrs: &serde_json::Value, key: &str) -> Option<String> {
+    attrs.get(key).and_then(|v| {
+        if v.is_null() {
+            None
+        } else {
+            v.as_str().map(|s| s.to_string())
+        }
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

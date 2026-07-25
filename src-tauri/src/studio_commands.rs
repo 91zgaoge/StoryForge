@@ -514,7 +514,7 @@ pub async fn update_entity(
 
     let story_id_for_sync = pool.inner().get().ok().and_then(|c| {
         c.query_row(
-            "SELECT story_id FROM entities WHERE id = ?",
+            "SELECT story_id FROM kg_entities WHERE id = ?",
             [&entity_id],
             |row| row.get::<_, String>(0),
         )
@@ -1061,11 +1061,14 @@ pub fn get_character_by_name(
 ) -> Result<Option<CharacterQuickView>, AppError> {
     let conn = pool.get().map_err(AppError::from)?;
 
-    // 1. Find character by name in story
+    // 1. Find character by name in story (kg_entities is now the canonical store)
     let character: Option<(String, String, Option<String>, Option<String>)> = conn
         .query_row(
-            "SELECT id, name, appearance, personality FROM characters WHERE story_id = ?1 AND \
-             name = ?2",
+            "SELECT id, name,
+                    json_extract(attributes, '$.appearance') AS appearance,
+                    json_extract(attributes, '$.personality') AS personality
+             FROM kg_entities
+             WHERE story_id = ?1 AND name = ?2 AND entity_type = 'Character' AND is_archived = 0",
             [&story_id, &name],
             |row| {
                 Ok((
