@@ -100,6 +100,10 @@ impl WriteTimeBundle {
             Ok(chars) => {
                 let states = char_repo
                     .get_character_states_by_story(story_id)
+                    .map_err(|e| {
+                        log::warn!("[WriteTimeBundle] 加载角色状态失败: {}", e);
+                        e
+                    })
                     .unwrap_or_default();
                 chars
                     .iter()

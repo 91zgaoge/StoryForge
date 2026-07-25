@@ -18,6 +18,33 @@ impl RustMigration for Migration {
     fn apply(&self, conn: &mut Connection) -> Result<(), rusqlite::Error> {
         let tx = conn.transaction()?;
 
+        // 0. Ensure `character_states` table exists (defensive: some upgrade paths may
+        //    reach V116 without V014 having run).
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS character_states (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                character_id TEXT NOT NULL,
+                current_location TEXT,
+                current_emotion TEXT,
+                active_goal TEXT,
+                secrets_known TEXT,
+                secrets_unknown TEXT,
+                arc_progress REAL,
+                last_updated TEXT,
+                FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_character_states_story ON character_states(story_id)",
+            [],
+        )?;
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_character_states_character ON character_states(character_id)",
+            [],
+        )?;
+
         // 1. Ensure `character_states` has columns that mirror the legacy `cs_*`
         //    fields.
         let cs_cols: Vec<String> = tx

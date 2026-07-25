@@ -247,7 +247,7 @@ impl CharacterRepository {
             ],
         )?;
 
-        if count == 0 {
+        let insert_count = if count == 0 {
             conn.execute(
                 "INSERT INTO character_states (
                     id, story_id, character_id, location, power_level, physical_state,
@@ -270,10 +270,12 @@ impl CharacterRepository {
                     state.cs_json,
                     now,
                 ],
-            )?;
-        }
+            )?
+        } else {
+            0
+        };
 
-        Ok(count.max(1))
+        Ok(count + insert_count)
     }
 
     pub fn get_character_state(

@@ -715,6 +715,10 @@ impl ContextOptimizer {
                 .map_err(|e| AppError::internal(format!("获取角色失败: {}", e)))?;
             let states = repo
                 .get_character_states_by_story(&story_id)
+                .map_err(|e| {
+                    log::warn!("[ContextOptimizer] 加载角色状态失败: {}", e);
+                    e
+                })
                 .unwrap_or_default();
 
             Ok(characters
@@ -1070,6 +1074,10 @@ impl ContextOptimizer {
         let repo = CharacterRepository::new(self.pool.clone());
         let states = repo
             .get_character_states_by_story(story_id)
+            .map_err(|e| {
+                log::warn!("[ContextOptimizer] 加载角色状态失败: {}", e);
+                e
+            })
             .unwrap_or_default();
         if let Ok(characters) = repo.get_by_story(story_id) {
             for char in &characters {

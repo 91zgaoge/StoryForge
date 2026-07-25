@@ -249,6 +249,10 @@ async fn run_character_cards(
 
     let states = char_repo
         .get_character_states_by_story(story_id)
+        .map_err(|e| {
+            log::warn!("[post_process] 加载角色状态失败: {}", e);
+            e
+        })
         .unwrap_or_default();
 
     let content_preview = if draft_content.len() > 6000 {
