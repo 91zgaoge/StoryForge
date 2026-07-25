@@ -79,7 +79,18 @@ impl WriteTimeBundle {
 
         // v0.22.5: 加载运行时合同（写前真源）
         let runtime_contract = match contract_provider {
-            Some(provider) => provider.get_runtime_contract(story_id, chapter_number).ok(),
+            Some(provider) => match provider.get_runtime_contract(story_id, chapter_number) {
+                Ok(rc) => Some(rc),
+                Err(e) => {
+                    log::debug!(
+                        "[WriteTimeBundle] 运行时合同未加载: story={} chapter={} err={}",
+                        story_id,
+                        chapter_number,
+                        e
+                    );
+                    None
+                }
+            },
             None => None,
         };
 
