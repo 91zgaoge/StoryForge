@@ -59,8 +59,7 @@ pub fn run_code_grader(content: &str, contract: Option<&RuntimeContract>) -> Cod
     // 合同禁则区（每个命中扣 0.25）
     let forbidden_hits = match contract {
         Some(c) => {
-            let result =
-                crate::story_system::fulfillment_checker::evaluate_contract_fulfillment(content, c);
+            let result = c.evaluate_fulfillment(content);
             let hits = result.forbidden_zones_hit;
             score -= 0.25 * hits.len() as f64;
             for h in &hits {
@@ -107,11 +106,7 @@ pub async fn run_rule_grader(
     // 追读力（纯规则特征：hook*0.4 + coolpoint*0.3 + micropayoff*0.3，无 debt 项）
     let reading_power_score = reading_power_score_of(content);
     let (contract_score, has_contract) = match &contract {
-        Some(c) => (
-            crate::story_system::fulfillment_checker::evaluate_contract_fulfillment(content, c)
-                .score,
-            true,
-        ),
+        Some(c) => (c.evaluate_fulfillment(content).score, true),
         None => (reading_power_score, false),
     };
     // 规则子代理复检（High+ 不扣分但全进 issues，拦截决策留给 Gate v2）

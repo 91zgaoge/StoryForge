@@ -156,7 +156,8 @@ impl StoryStructureAuditor {
             .iter()
             .filter(|f| matches!(f.status, TrackerStatus::Abandoned))
             .count();
-        let pending = total - paid_off - abandoned;
+        let resolved = foreshadowings.iter().filter(|f| f.is_resolved()).count();
+        let pending = total - resolved;
 
         let score = if total > 0 {
             ((paid_off as f32 / total as f32) * 80.0 + (abandoned as f32 / total as f32) * 10.0)

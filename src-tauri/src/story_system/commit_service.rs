@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::{
     db::{ChapterReadingPowerRepository, ChaseDebtRepository, DbPool, SceneCommitRepository},
     domain::contracts::*,
-    story_system::{fulfillment_checker, mini_review, projection_writers},
+    story_system::{mini_review, projection_writers},
     vector::lancedb_store::{LanceVectorStore, VectorRecord},
 };
 
@@ -96,8 +96,7 @@ impl SceneCommitService {
             });
 
         // 合同履行度检查
-        let fulfillment_result =
-            fulfillment_checker::evaluate_contract_fulfillment(content.unwrap_or(""), &contract);
+        let fulfillment_result = contract.evaluate_fulfillment(content.unwrap_or(""));
 
         // 知识图谱提取，用于生成 state/entity deltas 与 narrative events
         let (entities, relations, narrative_events) =

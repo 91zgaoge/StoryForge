@@ -14,7 +14,7 @@ use std::{
 use tokio::sync::RwLock;
 
 use crate::{
-    config::settings::{default_context_budget_ratio, default_max_context_length, AppConfig},
+    config::settings::AppConfig,
     db::{
         repositories::{
             CharacterRepository, KnowledgeGraphRepository, SceneRepository, StoryOutlineRepository,
@@ -32,6 +32,7 @@ use crate::{
             AgentContext, AgentMemoryContext, ChapterSummary, CharacterInfo, NarrativeContext,
             NarrativeStructureContext, StoryContext, StyleContext, WorldContext,
         },
+        context_budget::ContextBudget,
         memory_pack::{MemoryEntry, MemoryPack},
         style::StyleBlendConfig,
     },
@@ -198,57 +199,6 @@ pub struct SceneStructure {
     pub setting_location: Option<String>,
     pub setting_time: Option<String>,
     pub characters_present: Vec<String>,
-}
-
-/// 上下文预算策略
-///
-/// 控制上下文构建时的 token 预算分配。默认使用 8192 tokens / 80% 预算比例，
-/// 与 `default_max_context_length` 保持一致。
-#[derive(Debug, Clone)]
-pub struct ContextBudget {
-    /// 目标模型最大上下文长度（token）
-    pub max_context_length: usize,
-    /// 实际使用的预算比例（0.0 - 1.0）
-    pub budget_ratio: f32,
-    /// 用于 token 计数的模型 family
-    pub model_family: String,
-}
-
-impl Default for ContextBudget {
-    fn default() -> Self {
-        Self {
-            max_context_length: default_max_context_length() as usize,
-            budget_ratio: default_context_budget_ratio(),
-            model_family: "cl100k".to_string(),
-        }
-    }
-}
-
-impl ContextBudget {
-    /// 总可用预算（不含系统提示预留）
-    pub fn total_budget(&self) -> usize {
-        (self.max_context_length as f32 * self.budget_ratio.clamp(0.1, 0.95)) as usize
-    }
-
-    /// 为系统提示/指令保留的 token 数
-    pub fn system_budget(&self) -> usize {
-        (self.total_budget() as f32 * 0.15) as usize
-    }
-
-    /// 为世界/角色/风格等关键设定保留的预算
-    pub fn story_context_budget(&self) -> usize {
-        (self.total_budget() as f32 * 0.25) as usize
-    }
-
-    /// 为近期场景/当前内容保留的预算
-    pub fn scene_budget(&self) -> usize {
-        (self.total_budget() as f32 * 0.40) as usize
-    }
-
-    /// 为用户输入/选中内容保留的预算
-    pub fn user_input_budget(&self) -> usize {
-        (self.total_budget() as f32 * 0.20) as usize
-    }
 }
 
 /// Repository 端口集合
@@ -803,7 +753,7 @@ impl StoryContextBuilder {
 
         // 6. 最终兜底：若整体仍超过总预算，从 current_content 与 selected_text 再截断
         let final_total = count_tokens(&format_full_context(context), family);
-        if final_total > total {
+        if self.budget.allocate(final_total).is_none() {
             log::warn!(
                 "[StoryContextBuilder] final context {} tokens exceeds total budget {}, applying hard truncation",
                 final_total,

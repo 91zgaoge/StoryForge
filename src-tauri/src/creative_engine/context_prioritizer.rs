@@ -87,7 +87,7 @@ pub struct PrioritizedSystemPrompt {
 ///    同时生成一个后置的轻量提醒，确保关键约束在上下文末尾再次出现。
 /// 4. 计算每个优先级 token 占比和总 token 数。
 ///
-/// 注意：当前不主动截断，因为 `ContextBudget::apply_context_budget` 已在
+/// 注意：当前不主动截断，因为 `StoryContextBuilder::apply_context_budget` 已在
 /// AgentContext 字段层面完成截断。后续可在此函数中增加最终兜底截断。
 pub fn prioritize_system_prompt(
     base_prompt: String,
