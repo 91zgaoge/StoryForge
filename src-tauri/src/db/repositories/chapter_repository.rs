@@ -19,7 +19,11 @@ impl ChapterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
 
-        // 1. 插入 Chapter（Scene 为唯一内容真相源，chapters 表不再存 content）
+        // Scene 为唯一内容真相源，chapters 表不再存 content。
+        // 为了保持返回的 Chapter.word_count 与持久化值一致，先计算 content 长度。
+        let word_count = req.content.as_ref().map(|c| c.len() as i32);
+
+        // 1. 插入 Chapter
         tx.execute(
             "INSERT INTO chapters (id, story_id, chapter_number, title, outline, word_count, \
              model_used, cost, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
@@ -30,7 +34,7 @@ impl ChapterRepository {
                 req.chapter_number,
                 req.title,
                 req.outline,
-                0, // word_count 从 Scene 聚合计算
+                word_count.unwrap_or(0),
                 "",
                 0.0,
                 now.to_rfc3339(),
@@ -83,7 +87,6 @@ impl ChapterRepository {
 
         tx.commit()?;
 
-        let word_count = req.content.as_ref().map(|c| c.len() as i32);
         Ok(Chapter {
             id,
             story_id: req.story_id,
