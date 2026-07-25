@@ -513,6 +513,27 @@ impl PayoffLedger {
     }
 }
 
+impl crate::domain::creative_engine::PayoffLedgerPort for PayoffLedger {
+    fn detect_overdue_payoffs(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<String>, crate::error::AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+        let current_sequence: i32 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sequence_number), 0) FROM scenes WHERE story_id = ?1",
+                [story_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let items = self.detect_overdue(story_id, current_sequence)?;
+        Ok(items.into_iter().map(|item| item.summary).collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

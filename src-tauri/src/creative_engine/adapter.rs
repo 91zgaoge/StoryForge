@@ -119,21 +119,33 @@ impl CreativeEnginePort for CreativeEngineAdapter {
     }
 
     fn load_asset_snapshot(&self, story_id: &str, style_dna_id: Option<&str>) -> AssetSnapshot {
+        // 用同一个 CanonicalStateManager 同时实现 ForeshadowingPort / PayoffLedgerPort
+        // 并提供角色状态/活跃冲突快照。manager 内部不再依赖 creative_engine，
+        // 因此 creative_engine -> canonical_state 的单向依赖不再构成循环。
+        let manager = Arc::new(crate::canonical_state::CanonicalStateManager::new(
+            self.pool.clone(),
+        ));
+        let foreshadowing_port: Arc<dyn crate::domain::creative_engine::ForeshadowingPort> =
+            manager.clone();
+        let payoff_ledger_port: Arc<dyn crate::domain::creative_engine::PayoffLedgerPort> =
+            manager.clone();
+
         let internal = crate::creative_engine::asset_snapshot::CreativeAssetSnapshot::load_sync(
             &self.pool,
             story_id,
             style_dna_id,
+            foreshadowing_port,
+            payoff_ledger_port,
         );
-        let narrative_phase_guidance = internal
-            .canonical
-            .as_ref()
-            .map(|s| s.narrative_phase.to_string());
+
+        let canonical = manager.get_snapshot_sync(story_id).ok();
+
+        let narrative_phase_guidance = internal.narrative_phase_guidance();
         let pending_foreshadowings = internal.pending_foreshadowings(3);
         let overdue_foreshadowings = internal.overdue_foreshadowings(1);
-        let style_dna_summary = internal.style_dna_summary.clone();
+        let style_dna_summary = internal.style_dna_summary;
 
-        let (character_states, active_conflicts) = internal
-            .canonical
+        let (character_states, active_conflicts) = canonical
             .map(|c| {
                 let chars = c
                     .character_states

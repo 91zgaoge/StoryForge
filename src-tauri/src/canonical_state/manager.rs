@@ -350,34 +350,103 @@ impl CanonicalStateManager {
         story_id: &str,
         current_sequence: i32,
     ) -> Result<(Vec<PayoffRef>, Vec<PayoffRef>), AppError> {
-        // 复用 PayoffLedger 的逻辑，确保前后端逾期检测一致
-        let ledger = crate::creative_engine::payoff_ledger::PayoffLedger::new(self.pool.clone());
-        let items = ledger.get_ledger(story_id)?;
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, content, setup_scene_id, payoff_scene_id, status,
+                        importance, target_start_scene, target_end_scene
+                 FROM foreshadowing_tracker
+                 WHERE story_id = ?1",
+            )
+            .map_err(AppError::from)?;
+
+        let rows: Vec<_> = stmt
+            .query_map([story_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i32>(5)?,
+                    row.get::<_, Option<i32>>(6)?,
+                    row.get::<_, Option<i32>>(7)?,
+                ))
+            })
+            .map_err(AppError::from)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+
+        // 批量查询场景序号（避免 N+1）
+        let scene_ids: Vec<String> = rows
+            .iter()
+            .filter_map(|r| r.2.clone())
+            .chain(rows.iter().filter_map(|r| r.3.clone()))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let mut scene_sequence_map: std::collections::HashMap<String, i32> =
+            std::collections::HashMap::new();
+        if !scene_ids.is_empty() {
+            let placeholders = scene_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT id, sequence_number FROM scenes WHERE id IN ({})",
+                placeholders
+            );
+            let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
+            let params: Vec<&dyn rusqlite::ToSql> = scene_ids
+                .iter()
+                .map(|id| id as &dyn rusqlite::ToSql)
+                .collect();
+            let sequences = stmt
+                .query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
+                })
+                .map_err(AppError::from)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(AppError::from)?;
+            for (sid, seq) in sequences {
+                scene_sequence_map.insert(sid, seq);
+            }
+        }
 
         let mut pending = Vec::new();
         let mut overdue = Vec::new();
 
-        for item in items {
-            // 只考虑活跃状态（未回收/未失效）
-            let is_active = matches!(
-                item.current_status,
-                crate::creative_engine::payoff_ledger::PayoffStatus::Setup
-                    | crate::creative_engine::payoff_ledger::PayoffStatus::Hinted
-                    | crate::creative_engine::payoff_ledger::PayoffStatus::PendingPayoff
-            );
+        for (
+            id,
+            content,
+            setup_scene_id,
+            _payoff_scene_id,
+            status,
+            importance,
+            _target_start_scene,
+            target_end_scene,
+        ) in rows
+        {
+            let is_active = status != "payoff" && status != "abandoned";
             if !is_active {
                 continue;
             }
 
-            let is_overdue = if let Some(target_end) = item.target_end_scene {
+            let first_seen_scene = setup_scene_id
+                .as_ref()
+                .and_then(|sid| scene_sequence_map.get(sid).copied());
+
+            let is_overdue = if let Some(target_end) = target_end_scene {
                 // 如果设置了目标回收窗口，超过即为逾期
                 target_end < current_sequence
-            } else if let Some(first_seen) = item.first_seen_scene {
+            } else if let Some(first_seen) = first_seen_scene {
                 // 未设置窗口时，基于重要性的动态阈值
                 // 重要性 8-10: 5 场景后逾期
                 // 重要性 5-7: 10 场景后逾期
                 // 重要性 1-4: 15 场景后逾期
-                let threshold = match item.importance {
+                let threshold = match importance {
                     8..=10 => 5,
                     5..=7 => 10,
                     _ => 15,
@@ -389,10 +458,10 @@ impl CanonicalStateManager {
             };
 
             let payoff = PayoffRef {
-                foreshadowing_id: item.id,
-                content: item.summary,
-                importance: item.importance,
-                setup_scene_id: None,
+                foreshadowing_id: id,
+                content,
+                importance,
+                setup_scene_id,
             };
 
             if is_overdue {
@@ -446,5 +515,63 @@ impl CanonicalStateManager {
             71..=85 => NarrativePhase::Climax,
             _ => NarrativePhase::Resolution,
         }
+    }
+}
+
+impl crate::domain::creative_engine::ForeshadowingPort for CanonicalStateManager {
+    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT content, importance FROM foreshadowing_tracker
+                 WHERE story_id = ?1 AND status = 'setup'
+                 ORDER BY importance DESC, created_at ASC
+                 LIMIT ?2",
+            )
+            .map_err(AppError::from)?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![story_id, limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
+            })
+            .map_err(AppError::from)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(content, importance)| {
+                let marker = match importance {
+                    8..=10 => "【关键】",
+                    5..=7 => "【重要】",
+                    _ => "【次要】",
+                };
+                format!("{} 未回收伏笔: {}", marker, content)
+            })
+            .collect())
+    }
+}
+
+impl crate::domain::creative_engine::PayoffLedgerPort for CanonicalStateManager {
+    fn detect_overdue_payoffs(&self, story_id: &str) -> Result<Vec<String>, AppError> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let current_sequence: i32 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(sequence_number), 0) FROM scenes WHERE story_id = ?1",
+                [story_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        let (_, overdue) = self.fetch_payoffs(story_id, current_sequence)?;
+        Ok(overdue.into_iter().map(|p| p.content).collect())
     }
 }

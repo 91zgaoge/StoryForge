@@ -317,8 +317,23 @@ impl WriteTimeBundle {
 
         // P1-1: 精选资产子集——解决 TimeSliced "资产黑洞"
         // P3-3: 使用统一资产注入网关 CreativeAssetSnapshot，消除重复加载逻辑。
-        let snapshot =
-            CreativeAssetSnapshot::load_sync(pool, story_id, story.style_dna_id.as_deref());
+        // 通过中性 port 注入伏笔/账本能力，避免 creative_engine 直接依赖
+        // canonical_state。
+        let foreshadowing_port: Arc<dyn crate::domain::creative_engine::ForeshadowingPort> =
+            Arc::new(
+                crate::creative_engine::foreshadowing::ForeshadowingTracker::new(pool.clone()),
+            );
+        let payoff_ledger_port: Arc<dyn crate::domain::creative_engine::PayoffLedgerPort> =
+            Arc::new(crate::creative_engine::payoff_ledger::PayoffLedger::new(
+                pool.clone(),
+            ));
+        let snapshot = CreativeAssetSnapshot::load_sync(
+            pool,
+            story_id,
+            story.style_dna_id.as_deref(),
+            foreshadowing_port,
+            payoff_ledger_port,
+        );
 
         let narrative_phase_guidance = snapshot.narrative_phase_guidance();
         let pending_foreshadowings = snapshot.pending_foreshadowings(3);

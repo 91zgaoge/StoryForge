@@ -34,6 +34,18 @@ pub trait RuntimeContractProvider: Send + Sync {
     ) -> Result<RuntimeContract, AppError>;
 }
 
+/// Port for reading unresolved foreshadowing hints without depending on the
+/// concrete `creative_engine` implementation.
+pub trait ForeshadowingPort: Send + Sync {
+    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError>;
+}
+
+/// Port for detecting overdue payoffs without depending on the concrete
+/// `creative_engine` implementation.
+pub trait PayoffLedgerPort: Send + Sync {
+    fn detect_overdue_payoffs(&self, story_id: &str) -> Result<Vec<String>, AppError>;
+}
+
 #[async_trait]
 pub trait CreativeEnginePort: Send + Sync {
     // ---- WriteTimeBundle ----

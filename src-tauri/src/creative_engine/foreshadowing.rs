@@ -268,6 +268,17 @@ impl ForeshadowingProvider for ForeshadowingTracker {
     }
 }
 
+impl crate::domain::creative_engine::ForeshadowingPort for ForeshadowingTracker {
+    fn get_writing_hints(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, crate::error::AppError> {
+        self.get_writing_hints(story_id, limit)
+            .map_err(crate::error::AppError::from)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
