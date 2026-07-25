@@ -259,10 +259,6 @@ impl GenerationTrace {
         }
     }
 
-    fn trace_id(&self) -> Option<&String> {
-        self.trace_id.as_ref()
-    }
-
     fn log_phase(&self, phase: &str, elapsed_ms: u128, details: Option<&str>) {
         log::debug!(
             target: "generation_trace",
@@ -3016,25 +3012,6 @@ impl AgentOrchestrator {
         feedback
     }
 
-    /// 构建改写反馈指令（保留原有单轨版本作为兼容）
-    fn build_rewrite_feedback(inspect_result: &AgentResult) -> String {
-        let mut feedback = String::from("【质检反馈】\n");
-
-        if let Some(score) = inspect_result.score {
-            feedback.push_str(&format!("质检评分: {:.0}%\n", score * 100.0));
-        }
-
-        if !inspect_result.suggestions.is_empty() {
-            feedback.push_str("\n需要改进的方面：\n");
-            for (i, suggestion) in inspect_result.suggestions.iter().enumerate() {
-                feedback.push_str(&format!("{}. {}\n", i + 1, suggestion));
-            }
-        }
-
-        feedback.push_str("\n请根据以上反馈改写内容，重点解决指出的问题，同时保持原文的优点。");
-        feedback
-    }
-
     /// v0.7.8: 并行生成 N 个候选，用风格指纹打分选优
     /// v0.9.3: 默认候选数从 3 降到 2，平衡质量与本地模型响应时间
     /// v0.11.1: 候选阶段共享预准备上下文，使用专用短超时与失败降级。
@@ -4357,22 +4334,6 @@ mod tests {
         assert!(!cleaned.contains("```"));
         assert!(!cleaned.contains("这是代码块内容"));
         assert!(cleaned.contains("另一段正文。"));
-    }
-
-    #[test]
-    fn test_build_rewrite_feedback() {
-        let inspect_result = AgentResult {
-            content: "质检报告".to_string(),
-            score: Some(0.6),
-            suggestions: vec!["对话不够自然".to_string(), "角色动机不充分".to_string()],
-            request_id: None,
-        };
-
-        let feedback = AgentOrchestrator::build_rewrite_feedback(&inspect_result);
-        assert!(feedback.contains("质检评分"));
-        assert!(feedback.contains("对话不够自然"));
-        assert!(feedback.contains("角色动机不充分"));
-        assert!(feedback.contains("请根据以上反馈改写"));
     }
 
     #[test]

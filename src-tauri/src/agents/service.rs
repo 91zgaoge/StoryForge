@@ -281,18 +281,6 @@ impl AgentService {
         self.get_agent_model_id(agent_type, |m| m.chat_model_id.as_ref())
     }
 
-    /// 获取Agent对应的嵌入模型ID
-    #[allow(dead_code)]
-    fn get_agent_embedding_model_id(&self, agent_type: AgentType) -> Option<String> {
-        self.get_agent_model_id(agent_type, |m| m.embedding_model_id.as_ref())
-    }
-
-    /// 获取Agent对应的多模态模型ID
-    #[allow(dead_code)]
-    fn get_agent_multimodal_model_id(&self, agent_type: AgentType) -> Option<String> {
-        self.get_agent_model_id(agent_type, |m| m.multimodal_model_id.as_ref())
-    }
-
     /// 获取模型配置的友好显示名称；若找不到则回退到模型ID
     fn get_model_display_name(&self, model_id: &str) -> String {
         let app_dir = self
@@ -2783,39 +2771,6 @@ impl AgentService {
 
         let outline_tpl = self.resolve_prompt("outline_planner");
         TemplateEngine::render_with_conditions(&outline_tpl, &vars)
-    }
-
-    fn build_style_prompt(&self, task: &AgentTask) -> String {
-        format!(
-            r#"【参考文风样例】
-{}
-
-【需要改写的文本】
-{}
-
-请模仿参考文风的语言特点（词汇选择、句式结构、修辞手法等），改写上述文本，保持原意但改变表达方式。"#,
-            task.parameters
-                .get("style_sample")
-                .and_then(|v| v.as_str())
-                .unwrap_or("无样例"),
-            task.input
-        )
-    }
-
-    fn build_plot_prompt(&self, task: &AgentTask) -> String {
-        format!(
-            r#"【故事内容】
-{}
-
-【分析要求】
-1. 情节复杂度评估（简单/中等/复杂）
-2. 主要情节线索梳理
-3. 潜在的逻辑漏洞
-4. 伏笔和回收情况
-5. 高潮设置是否合理
-6. 改进建议"#,
-            task.input
-        )
     }
 
     // ==================== 辅助方法 ====================
