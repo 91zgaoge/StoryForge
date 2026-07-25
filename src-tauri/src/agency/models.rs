@@ -1,12 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-/// 三角色：主创 / 管理 / 编辑审计
+/// agency 角色：主创 / 管理 / 编辑审计 / 高频 agents 映射。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
     LeadWriter,
     Producer,
     EditorAuditor,
+    Writer,
+    Inspector,
+    OutlinePlanner,
+    StyleMimic,
 }
 
 impl AgentRole {
@@ -15,6 +19,10 @@ impl AgentRole {
             AgentRole::LeadWriter => "lead_writer",
             AgentRole::Producer => "producer",
             AgentRole::EditorAuditor => "editor_auditor",
+            AgentRole::Writer => "writer",
+            AgentRole::Inspector => "inspector",
+            AgentRole::OutlinePlanner => "outline_planner",
+            AgentRole::StyleMimic => "style_mimic",
         }
     }
 
@@ -23,15 +31,23 @@ impl AgentRole {
             "lead_writer" => Some(AgentRole::LeadWriter),
             "producer" => Some(AgentRole::Producer),
             "editor_auditor" => Some(AgentRole::EditorAuditor),
+            "writer" => Some(AgentRole::Writer),
+            "inspector" => Some(AgentRole::Inspector),
+            "outline_planner" => Some(AgentRole::OutlinePlanner),
+            "style_mimic" => Some(AgentRole::StyleMimic),
             _ => None,
         }
     }
 
-    pub fn all() -> [AgentRole; 3] {
+    pub fn all() -> [AgentRole; 7] {
         [
             AgentRole::LeadWriter,
             AgentRole::Producer,
             AgentRole::EditorAuditor,
+            AgentRole::Writer,
+            AgentRole::Inspector,
+            AgentRole::OutlinePlanner,
+            AgentRole::StyleMimic,
         ]
     }
 }

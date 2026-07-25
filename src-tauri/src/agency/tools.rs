@@ -158,6 +158,10 @@ impl ToolRegistry {
         registry.allow(AgentRole::LeadWriter, "board_write");
         registry.allow(AgentRole::Producer, "board_write");
         registry.allow(AgentRole::LeadWriter, "board_revise");
+        // 高频 agents 映射为 agency role 后的工具白名单
+        registry.allow(AgentRole::Writer, "board_write");
+        registry.allow(AgentRole::Writer, "board_revise");
+        registry.allow(AgentRole::OutlinePlanner, "board_write");
         registry
     }
 }
@@ -1018,6 +1022,63 @@ mod tests {
             .is_none());
         assert!(registry
             .get_for_role(AgentRole::EditorAuditor, "board_revise")
+            .is_none());
+    }
+
+    #[test]
+    fn test_new_role_tool_whitelists() {
+        let registry = ToolRegistry::agency_default();
+        // Writer: 读写 + creative_context
+        assert!(registry
+            .get_for_role(AgentRole::Writer, "board_write")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::Writer, "board_revise")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::Writer, "creative_context")
+            .is_some());
+        // Inspector: 只读
+        assert!(registry
+            .get_for_role(AgentRole::Inspector, "board_read")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::Inspector, "story_info")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::Inspector, "asset_query")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::Inspector, "creative_context")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::Inspector, "board_write")
+            .is_none());
+        // OutlinePlanner: 读写 + 查询
+        assert!(registry
+            .get_for_role(AgentRole::OutlinePlanner, "board_write")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::OutlinePlanner, "board_read")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::OutlinePlanner, "story_info")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::OutlinePlanner, "asset_query")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::OutlinePlanner, "creative_context")
+            .is_some());
+        // StyleMimic: 只读 + creative_context
+        assert!(registry
+            .get_for_role(AgentRole::StyleMimic, "board_read")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::StyleMimic, "creative_context")
+            .is_some());
+        assert!(registry
+            .get_for_role(AgentRole::StyleMimic, "board_write")
             .is_none());
     }
 

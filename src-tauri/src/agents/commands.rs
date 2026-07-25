@@ -211,7 +211,7 @@ pub async fn auto_write(
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
     // v0.8.0: 读取当前场景内容和序号，正确传递章节号用于记忆构建
-    let (current_content, current_scene) = match scene_repo
+    let (_current_content, current_scene) = match scene_repo
         .get_by_id(&request.chapter_id)
         .map_err(AppError::from)?
     {
@@ -231,419 +231,75 @@ pub async fn auto_write(
     let story_id = request.story_id.clone();
     let chapter_id = request.chapter_id.clone();
     let target_chars = request.target_chars;
-    let chars_per_loop = request.chars_per_loop;
-    let reference_text = request.reference_text.clone();
-    let style_weight = (request.style_weight as f32 / 100.0).clamp(0.0, 1.0);
+    // 旧参数字段（chars_per_loop / reference_text / style_weight）由 agency
+    // coordinator 内部决策， 此处仅保留签名兼容性，不再透传给 AgentService。
+    let _ = (
+        request.chars_per_loop,
+        request.reference_text.clone(),
+        request.style_weight,
+    );
 
-    // v0.7.8: 预计算风格指纹（从参考文本或当前内容）
-    let fingerprint_source = reference_text
-        .as_ref()
-        .filter(|t| !t.is_empty())
-        .cloned()
-        .unwrap_or_else(|| current_content.clone());
-    let fingerprint = if fingerprint_source.chars().count() > 50 {
-        Some(crate::domain::style::StyleFingerprint::from_text(
-            &fingerprint_source,
-        ))
-    } else {
-        None
-    };
-
-    // 在后台执行循环续写
+    // 在后台委托 agency coordinator 续写
     let handle = tokio::spawn(async move {
-        let mut total_written = 0i32;
-        let mut loop_count = 0i32;
-        let service = AgentService::new(app_handle_clone.clone());
-        let mut accumulated_content = current_content;
+        let pool = app_handle_clone.state::<DbPool>();
+        let coordinator = crate::agency::coordinator::AgencyCoordinator::new(
+            app_handle_clone.clone(),
+            pool.inner().clone(),
+        );
 
-        while total_written < target_chars {
-            // 检查是否被取消
-            if !TASK_HANDLES.lock().unwrap().contains_key(&task_id_clone) {
-                log::info!("[auto_write] Task {} cancelled", task_id_clone);
-                break;
-            }
-
-            let remaining = target_chars - total_written;
-            let this_loop_chars = chars_per_loop.min(remaining);
-
-            // v0.7.8: 构建增强续写 prompt（注入风格指纹）
-            let instruction = if let Some(ref fp) = fingerprint {
-                format!(
-                    "请继续续写以下内容，续写约 {} \
-                     字。\n\n【风格约束】\n{}\n\n请直接输出续写内容，不要重复前文。",
-                    this_loop_chars,
-                    fp.to_prompt_section()
-                )
-            } else {
-                format!(
-                    "请继续续写以下内容，续写约 {} \
-                     字，保持故事连贯性和风格一致性。请直接输出续写内容，不要重复前文。",
-                    this_loop_chars
-                )
-            };
-
-            let mut context = build_agent_context(
-                &app_handle_clone,
-                &ExecuteAgentRequest {
-                    agent_type: AgentType::Writer,
-                    story_id: story_id.clone(),
-                    chapter_number: Some(scene_sequence),
-                    input: instruction.clone(),
-                    parameters: None,
-                },
-            )
-            .await
-            .unwrap_or_else(|_| super::AgentContext::minimal(story_id.clone(), String::new()));
-
-            // 注入当前已积累的上下文内容
-            context.narrative.current_content = Some(accumulated_content.clone());
-            // 注入预计算的风格指纹
-            context.style.style_fingerprint = fingerprint.clone();
-
-            let task = AgentTask {
-                id: Uuid::new_v4().to_string(),
-                agent_type: AgentType::Writer,
-                context,
-                input: instruction,
-                parameters: {
-                    let mut p = std::collections::HashMap::new();
-                    p.insert("style_weight".to_string(), serde_json::json!(style_weight));
-                    p
-                },
-                tier: Some(get_user_tier_sync(&app_handle_clone)),
-            };
-
-            // v0.7.8: 跨段风格漂移检测 — 多维度（句长/四字格/虚词/标志性词汇）
-            let (_, loop_style_score, loop_drift_details) = if loop_count > 0 {
-                if let Some(ref fp) = fingerprint {
-                    let recent = accumulated_content
-                        .chars()
-                        .rev()
-                        .take(500)
-                        .collect::<String>();
-                    let recent_fp = crate::domain::style::StyleFingerprint::from_text(&recent);
-
-                    let mut drift_parts = Vec::new();
-                    let mut warnings = Vec::new();
-
-                    // 1. 句长偏离
-                    let len_diff = (recent_fp.syntax.avg_sentence_length
-                        - fp.syntax.avg_sentence_length)
-                        .abs();
-                    let len_deviation = if fp.syntax.avg_sentence_length > 0.0 {
-                        len_diff / fp.syntax.avg_sentence_length
-                    } else {
-                        0.0
-                    };
-                    if len_deviation > 0.30 {
-                        drift_parts.push(format!("句长偏离 {:.0}%", len_deviation * 100.0));
-                        warnings.push(format!(
-                            "平均句长约 {:.0} 字",
-                            fp.syntax.avg_sentence_length
-                        ));
-                    }
-
-                    // 2. 四字格密度偏离
-                    let four_char_diff = (recent_fp.vocabulary.four_char_density
-                        - fp.vocabulary.four_char_density)
-                        .abs();
-                    if four_char_diff > 3.0 {
-                        drift_parts.push(format!("四字格密度偏离 {:.1}%", four_char_diff));
-                        warnings.push(format!(
-                            "四字格密度 {:.0}%",
-                            fp.vocabulary.four_char_density
-                        ));
-                    }
-
-                    // 3. 虚词偏好偏离 — 前5虚词重叠率
-                    let ref_fw: std::collections::HashSet<&String> = fp
-                        .vocabulary
-                        .function_words
-                        .iter()
-                        .map(|(w, _)| w)
-                        .collect();
-                    let recent_fw: std::collections::HashSet<&String> = recent_fp
-                        .vocabulary
-                        .function_words
-                        .iter()
-                        .map(|(w, _)| w)
-                        .collect();
-                    if !ref_fw.is_empty() {
-                        let overlap =
-                            ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32;
-                        if overlap < 0.5 {
-                            drift_parts
-                                .push(format!("虚词偏好偏离（重叠率 {:.0}%）", overlap * 100.0));
-                            let preferred = fp
-                                .vocabulary
-                                .function_words
-                                .iter()
-                                .take(3)
-                                .map(|(w, _)| w.as_str())
-                                .collect::<Vec<_>>()
-                                .join("、");
-                            warnings.push(format!("多用虚词：{}", preferred));
-                        }
-                    }
-
-                    // 4. 标志性词汇偏离
-                    let ref_sw: std::collections::HashSet<&String> = fp
-                        .vocabulary
-                        .signature_words
-                        .iter()
-                        .map(|(w, _)| w)
-                        .collect();
-                    let recent_sw: std::collections::HashSet<&String> = recent_fp
-                        .vocabulary
-                        .signature_words
-                        .iter()
-                        .map(|(w, _)| w)
-                        .collect();
-                    if !ref_sw.is_empty() {
-                        let overlap =
-                            ref_sw.intersection(&recent_sw).count() as f32 / ref_sw.len() as f32;
-                        if overlap < 0.3 {
-                            drift_parts
-                                .push(format!("标志性词汇偏离（重叠率 {:.0}%）", overlap * 100.0));
-                        }
-                    }
-
-                    let warning_text = if drift_parts.len() >= 2 {
-                        Some(format!(
-                            "\n\n【警告】上一段风格 {}，本次续写请特别注意：{}。",
-                            drift_parts.join("、"),
-                            warnings.join("、")
-                        ))
-                    } else if len_deviation > 0.35 {
-                        Some(format!(
-                            "\n\n【警告】上一段句长偏离 {:.0}%，本次续写请特别注意保持平均句长约 \
-                             {:.0} 字、四字格密度 {:.0}%。",
-                            len_deviation * 100.0,
-                            fp.syntax.avg_sentence_length,
-                            fp.vocabulary.four_char_density
-                        ))
-                    } else {
-                        None
-                    };
-
-                    let score = (1.0 - len_deviation).clamp(0.0, 1.0) * 0.4
-                        + (1.0 - four_char_diff / 20.0).clamp(0.0, 1.0) * 0.35
-                        + if !ref_fw.is_empty() {
-                            (ref_fw.intersection(&recent_fw).count() as f32 / ref_fw.len() as f32)
-                                .clamp(0.0, 1.0)
-                        } else {
-                            0.5
-                        } * 0.25;
-
-                    (warning_text, score.clamp(0.0, 1.0), drift_parts)
-                } else {
-                    (None, 0.0, Vec::new())
-                }
-            } else {
-                (None, 0.0, Vec::new())
-            };
-
-            let app_dir = app_handle_clone.path().app_data_dir().unwrap_or_default();
-            let mut config = crate::config::AppConfig::load(&app_dir)
-                .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
-                .unwrap_or_default();
-            config.style_weight = style_weight;
-            config.narrative_weight = 1.0 - style_weight;
-
-            let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
-                service.clone(),
-                config,
-                app_handle_clone.clone(),
-            );
-            match orchestrator
-                .generate(
-                    task,
-                    crate::agents::orchestrator::GenerationMode::TimeSliced,
-                )
-                .await
-            {
-                Ok(workflow_result) => {
-                    let mut generated = workflow_result.final_content;
-
-                    // v0.7.8: 后处理风格对齐（虚词替换 + 四字格密度补偿）
-                    if let Some(ref fp) = fingerprint {
-                        generated = crate::utils::style_align::StyleAligner::align(
-                            &generated,
-                            &fp.vocabulary.temporal_quality,
-                        );
-
-                        // 四字格密度补偿：如果生成内容密度低于参考 30% 以上，注入四字词
-                        let generated_fp =
-                            crate::domain::style::StyleFingerprint::from_text(&generated);
-                        if generated_fp.vocabulary.four_char_density
-                            < fp.vocabulary.four_char_density * 0.7
-                        {
-                            generated = crate::utils::style_align::StyleAligner::inject_four_char(
-                                &generated,
-                                &fp.vocabulary.signature_words,
-                            );
-                        }
-                    }
-
-                    let generated_len = generated.chars().count() as i32;
-                    total_written += generated_len;
-                    loop_count += 1;
-
-                    // 将生成内容追加到积累上下文，供下一轮使用
-                    accumulated_content.push_str(&generated);
-
-                    // 推送内容追加事件到幕前
-                    let event = crate::window::FrontstageEvent::AppendContent {
-                        text: generated,
-                        chapter_id: chapter_id.clone(),
-                    };
-                    let _ =
-                        crate::window::WindowManager::send_to_frontstage(&app_handle_clone, event);
-
-                    // 推送进度事件（含风格分数）
-                    let percentage = ((total_written as f32 / target_chars as f32) * 100.0) as i32;
-                    let progress = AutoWriteProgressEvent {
-                        task_id: task_id_clone.clone(),
-                        current_chars: total_written,
-                        target_chars,
-                        percentage,
-                        current_loop: loop_count,
-                        status: "writing".to_string(),
-                        style_score: loop_style_score,
-                        drift_details: loop_drift_details.clone(),
-                    };
-                    let _ = app_handle_clone
-                        .emit(&format!("auto-write-progress-{}", task_id_clone), progress);
-
-                    // v0.8.0: 自动更新记忆（每轮续写后）
-                    let pool_mem = app_handle_clone.state::<DbPool>();
-                    let writer = crate::memory::writer::MemoryWriter::new(pool_mem.inner().clone());
-                    let sid = story_id.clone();
-                    let seq = scene_sequence as i32;
-                    let acc = accumulated_content.clone();
-                    tokio::spawn(async move {
-                        match writer.write(&sid, seq, &acc).await {
-                            Ok(_) => {
-                                log::info!("[auto_write] Memory updated for loop {}", loop_count)
-                            }
-                            Err(e) => log::warn!("[auto_write] Memory write failed: {}", e),
-                        }
-                    });
-                }
-                Err(e) => {
-                    log::error!("[auto_write] Loop {} failed: {}", loop_count, e);
-                    let _ =
-                        app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
-                    break;
-                }
-            }
-        }
-
-        // 推送完成事件
         let _ = app_handle_clone.emit(
-            &format!("auto-write-complete-{}", task_id_clone),
+            &format!("auto-write-progress-{}", task_id_clone),
             AutoWriteProgressEvent {
                 task_id: task_id_clone.clone(),
-                current_chars: total_written,
+                current_chars: 0,
                 target_chars,
-                percentage: 100,
-                current_loop: loop_count,
-                status: "completed".to_string(),
+                percentage: 0,
+                current_loop: 0,
+                status: "writing".to_string(),
                 style_score: 0.0,
                 drift_details: Vec::new(),
             },
         );
 
-        // 保存最终内容到数据库
-        let pool = app_handle_clone.state::<DbPool>();
-        let scene_repo = SceneRepository::new(pool.inner().clone());
-        let _ = scene_repo.update(
-            &chapter_id,
-            &SceneUpdate {
-                title: None,
-                content: Some(accumulated_content.clone()),
-                ..Default::default()
-            },
-        );
-        log::info!(
-            "[auto_write] Saved {} chars to scene {}",
-            accumulated_content.chars().count(),
-            chapter_id
-        );
+        match coordinator
+            .run_continue(&task_id_clone, &story_id, scene_sequence as i32)
+            .await
+        {
+            Ok(result) => {
+                let pool = app_handle_clone.state::<DbPool>();
+                let scene_repo = SceneRepository::new(pool.inner().clone());
+                let content_len = scene_repo
+                    .get_by_id(&result.scene_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.content)
+                    .map(|c| c.chars().count() as i32)
+                    .unwrap_or(0);
 
-        // 后台触发知识图谱 Ingest
-        let story_id_for_ingest = story_id.clone();
-        let chapter_id_for_ingest = chapter_id.clone();
-        let accumulated_for_ingest = accumulated_content.clone();
-        let app_for_ingest = app_handle_clone.clone();
-        let pool_for_ingest = app_handle_clone.state::<DbPool>().inner().clone();
-        tokio::spawn(async move {
-            let llm_service = crate::llm::LlmService::new(app_for_ingest.clone());
-            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
-                .with_pool(pool_for_ingest.clone())
-                .with_app_handle(app_for_ingest);
-            let ingest_content = crate::memory::ingest::IngestContent {
-                text: accumulated_for_ingest,
-                source: format!("auto_write:{}", chapter_id_for_ingest),
-                story_id: story_id_for_ingest.clone(),
-                scene_id: Some(chapter_id_for_ingest.clone()),
-            };
-
-            match pipeline.ingest(&ingest_content).await {
-                Ok(ingest_result) => {
-                    let kg_repo =
-                        crate::db::repositories::KnowledgeGraphRepository::new(pool_for_ingest);
-                    let mut saved_entities = 0usize;
-                    let mut saved_relations = 0usize;
-
-                    for entity in &ingest_result.entities {
-                        if let Ok(_) = kg_repo.create_entity(
-                            &story_id_for_ingest,
-                            &entity.name,
-                            &entity.entity_type.to_string(),
-                            &entity.attributes,
-                            entity.embedding.clone(),
-                        ) {
-                            saved_entities += 1;
-                        }
-                    }
-
-                    let entity_name_to_id: std::collections::HashMap<String, String> =
-                        ingest_result
-                            .entities
-                            .iter()
-                            .map(|e| (e.name.clone(), e.id.clone()))
-                            .collect();
-
-                    for relation in &ingest_result.relations {
-                        let source_id = entity_name_to_id
-                            .get(&relation.source_id)
-                            .unwrap_or(&relation.source_id);
-                        let target_id = entity_name_to_id
-                            .get(&relation.target_id)
-                            .unwrap_or(&relation.target_id);
-                        if let Ok(_) = kg_repo.create_relation(
-                            &story_id_for_ingest,
-                            source_id,
-                            target_id,
-                            &relation.relation_type.to_string(),
-                            relation.strength,
-                        ) {
-                            saved_relations += 1;
-                        }
-                    }
-
-                    log::info!(
-                        "[auto_write] Ingest complete: {} entities, {} relations saved",
-                        saved_entities,
-                        saved_relations
-                    );
-                }
-                Err(e) => {
-                    log::warn!("[auto_write] Ingest failed: {}", e);
-                }
+                let _ = app_handle_clone.emit(
+                    &format!("auto-write-complete-{}", task_id_clone),
+                    AutoWriteProgressEvent {
+                        task_id: task_id_clone.clone(),
+                        current_chars: content_len,
+                        target_chars,
+                        percentage: 100,
+                        current_loop: 1,
+                        status: "completed".to_string(),
+                        style_score: 0.0,
+                        drift_details: Vec::new(),
+                    },
+                );
+                log::info!(
+                    "[auto_write] agency run_continue completed run={} scene={}",
+                    result.run_id,
+                    result.scene_id
+                );
             }
-        });
+            Err(e) => {
+                log::error!("[auto_write] agency run_continue failed: {}", e);
+                let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
+            }
+        }
 
         // 清理句柄
         let _ = TASK_HANDLES.lock().unwrap().remove(&task_id_clone);
@@ -753,9 +409,8 @@ pub async fn auto_revise(
     let selected_text = request.selected_text.clone();
     let revision_type = request.revision_type.clone();
 
-    // 在后台执行修改
+    // 在后台委托 agency coordinator 审阅/修订
     let handle = tokio::spawn(async move {
-        // 阶段 1: 准备中
         let _ = app_handle_clone.emit(
             &format!("auto-revise-progress-{}", task_id_clone),
             AutoReviseProgressEvent {
@@ -767,14 +422,12 @@ pub async fn auto_revise(
             },
         );
 
-        // 检查是否被取消
         if !TASK_HANDLES.lock().unwrap().contains_key(&task_id_clone) {
             return;
         }
 
         let pool = app_handle_clone.state::<DbPool>();
         let scene_repo = SceneRepository::new(pool.inner().clone());
-
         let target_text = match scope.as_str() {
             "chapter" | "scene" => {
                 if let Some(ref sid) = chapter_id {
@@ -808,7 +461,6 @@ pub async fn auto_revise(
             return;
         }
 
-        // 阶段 2: 修改中
         let _ = app_handle_clone.emit(
             &format!("auto-revise-progress-{}", task_id_clone),
             AutoReviseProgressEvent {
@@ -821,70 +473,33 @@ pub async fn auto_revise(
         );
 
         let revision_instruction = get_revision_instruction(&revision_type);
-        let instruction = format!(
-            "你是一个专业的小说编辑。请根据以下要求对文本进行修改：\n\n【修改要求】{}\n\n【原文】\\
-             n{}\n\n请输出修改后的完整文本。保持原文结构和段落，只修改需要改进的地方。",
-            revision_instruction, target_text
+        let task_description = format!(
+            "审阅并修订故事 {} 第 {} 章（scope={}）。修改要求：{}。请输出修改后的完整文本。",
+            story_id,
+            chapter_id.as_deref().unwrap_or("未知"),
+            scope,
+            revision_instruction
         );
 
-        let context = match build_agent_context(
-            &app_handle_clone,
-            &ExecuteAgentRequest {
-                agent_type: AgentType::Writer,
-                story_id: story_id.clone(),
-                chapter_number: None,
-                input: instruction.clone(),
-                parameters: None,
-            },
-        )
-        .await
-        {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
-                return;
-            }
-        };
-
-        let task = AgentTask {
-            id: Uuid::new_v4().to_string(),
-            agent_type: AgentType::Writer,
-            context,
-            input: instruction,
-            parameters: std::collections::HashMap::new(),
-            tier: Some(get_user_tier_sync(&app_handle_clone)),
-        };
-
-        let service = AgentService::new(app_handle_clone.clone());
-        let app_dir = app_handle_clone.path().app_data_dir().unwrap_or_default();
-        let orchestrator_config = crate::config::AppConfig::load(&app_dir)
-            .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))
-            .unwrap_or_default();
-        let orchestrator = crate::agents::orchestrator::AgentOrchestrator::new(
-            service,
-            orchestrator_config,
+        let pool = app_handle_clone.state::<DbPool>();
+        let coordinator = crate::agency::coordinator::AgencyCoordinator::new(
             app_handle_clone.clone(),
+            pool.inner().clone(),
         );
 
-        match orchestrator
-            .generate(
-                task,
-                crate::agents::orchestrator::GenerationMode::TimeSliced,
+        match coordinator
+            .run_role_task(
+                &task_id_clone,
+                &story_id,
+                crate::agency::models::AgentRole::EditorAuditor,
+                &target_text,
+                &task_description,
             )
             .await
         {
-            Ok(workflow_result) => {
-                let result = crate::domain::agent_types::AgentResult {
-                    content: workflow_result.final_content,
-                    score: Some(workflow_result.final_score),
-                    suggestions: workflow_result
-                        .steps
-                        .iter()
-                        .flat_map(|s| s.suggestions.clone())
-                        .collect(),
-                    request_id: None,
-                };
-                // 阶段 3: 保存中
+            Ok(result) => {
+                let revised_text = result.output;
+
                 let _ = app_handle_clone.emit(
                     &format!("auto-revise-progress-{}", task_id_clone),
                     AutoReviseProgressEvent {
@@ -896,7 +511,6 @@ pub async fn auto_revise(
                     },
                 );
 
-                // 保存到数据库
                 if let Some(ref sid) = chapter_id {
                     if scope == "chapter" || scope == "scene" {
                         let pool = app_handle_clone.state::<DbPool>();
@@ -905,7 +519,7 @@ pub async fn auto_revise(
                             sid,
                             &SceneUpdate {
                                 title: None,
-                                content: Some(result.content.clone()),
+                                content: Some(revised_text.clone()),
                                 ..Default::default()
                             },
                         );
@@ -913,7 +527,6 @@ pub async fn auto_revise(
                     }
                 }
 
-                // 阶段 4: 完成
                 let _ = app_handle_clone.emit(
                     &format!("auto-revise-complete-{}", task_id_clone),
                     AutoReviseProgressEvent {
@@ -921,11 +534,12 @@ pub async fn auto_revise(
                         stage: "completed".to_string(),
                         progress: 1.0,
                         message: "修改完成".to_string(),
-                        revised_text: Some(result.content.clone()),
+                        revised_text: Some(revised_text),
                     },
                 );
             }
             Err(e) => {
+                log::error!("[auto_revise] agency run_role_task failed: {}", e);
                 let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
             }
         }

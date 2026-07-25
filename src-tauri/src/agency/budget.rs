@@ -73,9 +73,13 @@ impl AgencyBudget {
     pub async fn acquire(&self, role: AgentRole) -> Result<SemaphorePermit<'_>, AppError> {
         self.check()?;
         let sem = match role {
-            AgentRole::LeadWriter => &self.writer_sem,
+            AgentRole::LeadWriter | AgentRole::Writer | AgentRole::OutlinePlanner => {
+                &self.writer_sem
+            }
             AgentRole::Producer => &self.producer_sem,
-            AgentRole::EditorAuditor => &self.editor_sem,
+            AgentRole::EditorAuditor | AgentRole::Inspector | AgentRole::StyleMimic => {
+                &self.editor_sem
+            }
         };
         sem.acquire()
             .await

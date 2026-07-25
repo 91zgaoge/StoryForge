@@ -209,9 +209,9 @@ impl AgencyLlm {
             return label.clone();
         }
         let short = match self.role {
-            AgentRole::LeadWriter => "writer",
+            AgentRole::LeadWriter | AgentRole::Writer | AgentRole::OutlinePlanner => "writer",
             AgentRole::Producer => "producer",
-            AgentRole::EditorAuditor => "editor",
+            AgentRole::EditorAuditor | AgentRole::Inspector | AgentRole::StyleMimic => "editor",
         };
         format!("agency_{}", short)
     }
@@ -2316,6 +2316,79 @@ impl AgencyCoordinator {
                 });
             }
         }
+        result
+    }
+
+    /// 单角色任务运行：给定角色与任务描述，创建 run 并跑一个 ToolLoop。
+    /// 用于将旧 agents/ 高频能力（Writer / Inspector / OutlinePlanner /
+    /// StyleMimic） 接入 agency 运行时，同时保留对外命令签名。
+    pub async fn run_role_task(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        role: AgentRole,
+        premise: &str,
+        task: &str,
+    ) -> Result<crate::agency::tool_loop::LoopResult, AppError> {
+        let repo = AgencyRepository::new(self.pool.clone());
+        let cancel = register_agency_cancel(run_id);
+        let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+        self.setup_run_deadline();
+
+        let mut run = AgencyRun::new(run_id, premise);
+        run.story_id = Some(story_id.to_string());
+        let repo_c = repo.clone();
+        self.db(move || repo_c.create_run(&run).map_err(AppError::from))
+            .await
+            .map_err(map_active_run_conflict)?;
+        self.update_phase(&repo, run_id, role.as_str()).await?;
+        self.emit_progress(run_id, role.as_str(), "running", task);
+
+        let board = self.board();
+        let registry = Arc::new(ToolRegistry::agency_default());
+        let result = self
+            .run_role_with_llm_and_budget(
+                &budget, role, &board, &registry, run_id, story_id, premise, task,
+            )
+            .await;
+
+        unregister_agency_cancel(run_id);
+        let (status, result_json, error_message) = match &result {
+            Ok(r) => {
+                let json = serde_json::json!({
+                    "output": r.output,
+                    "aborted": r.aborted,
+                    "turn_count": r.turns.len(),
+                })
+                .to_string();
+                (
+                    if r.aborted { "cancelled" } else { "completed" },
+                    Some(json),
+                    None,
+                )
+            }
+            Err(e) => ("failed", None, Some(e.to_string())),
+        };
+        let repo_c = repo.clone();
+        let rid = run_id.to_string();
+        let _ = self
+            .db(move || {
+                repo_c
+                    .finish_run(
+                        &rid,
+                        status,
+                        result_json.as_deref(),
+                        error_message.as_deref(),
+                    )
+                    .map_err(AppError::from)
+            })
+            .await;
+        self.emit_progress(
+            run_id,
+            role.as_str(),
+            status,
+            &format!("{} 任务完成", role.as_str()),
+        );
         result
     }
 
