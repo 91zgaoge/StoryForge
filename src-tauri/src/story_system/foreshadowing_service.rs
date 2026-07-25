@@ -61,10 +61,10 @@ impl ForeshadowingServiceImpl {
             status,
             importance: row.get(6)?,
             created_at: row.get(7)?,
-            setup_event_id: None,
-            payoff_event_id: None,
-            risk_signals_score: None,
             resolved_at: row.get(8)?,
+            setup_event_id: row.get(9)?,
+            payoff_event_id: row.get(10)?,
+            risk_signals_score: row.get(11)?,
         })
     }
 
@@ -224,7 +224,8 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         let mut stmt = conn
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
-                 importance, created_at, resolved_at
+                 importance, created_at, resolved_at, setup_event_id, payoff_event_id,
+                 risk_signals_score
              FROM foreshadowing_tracker WHERE story_id = ?1
              ORDER BY importance DESC, created_at ASC",
             )
@@ -243,7 +244,8 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         let mut stmt = conn
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
-                 importance, created_at, resolved_at
+                 importance, created_at, resolved_at, setup_event_id, payoff_event_id,
+                 risk_signals_score
              FROM foreshadowing_tracker WHERE id = ?1",
             )
             .map_err(AppError::from)?;
@@ -261,7 +263,8 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         let mut stmt = conn
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
-                 importance, created_at, resolved_at
+                 importance, created_at, resolved_at, setup_event_id, payoff_event_id,
+                 risk_signals_score
              FROM foreshadowing_tracker WHERE story_id = ?1 AND status = 'setup'
              ORDER BY importance DESC, created_at ASC",
             )
@@ -605,6 +608,9 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
         risk_signals: Option<Vec<String>>,
         scope_type: Option<ScopeType>,
         ledger_key: Option<String>,
+        setup_event_id: Option<String>,
+        payoff_event_id: Option<String>,
+        risk_signals_score: Option<f32>,
     ) -> Result<(), AppError> {
         let conn = self.conn()?;
 
@@ -641,6 +647,27 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET ledger_key = ?1 WHERE id = ?2",
                 rusqlite::params![lk, foreshadowing_id],
+            )
+            .map_err(AppError::from)?;
+        }
+        if let Some(ref seid) = setup_event_id {
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET setup_event_id = ?1 WHERE id = ?2",
+                rusqlite::params![seid, foreshadowing_id],
+            )
+            .map_err(AppError::from)?;
+        }
+        if let Some(ref peid) = payoff_event_id {
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET payoff_event_id = ?1 WHERE id = ?2",
+                rusqlite::params![peid, foreshadowing_id],
+            )
+            .map_err(AppError::from)?;
+        }
+        if let Some(rss) = risk_signals_score {
+            conn.execute(
+                "UPDATE foreshadowing_tracker SET risk_signals_score = ?1 WHERE id = ?2",
+                rusqlite::params![rss, foreshadowing_id],
             )
             .map_err(AppError::from)?;
         }
@@ -812,7 +839,7 @@ mod tests {
         // With target_end_scene = s4 and current = s7 => overdue.
         let target = service.create("story-1", "窗口伏笔", None, 5).unwrap();
         service
-            .update_ledger_fields(&target, None, Some(4), None, None, None)
+            .update_ledger_fields(&target, None, Some(4), None, None, None, None, None, None)
             .unwrap();
 
         let overdue = service.get_overdue("story-1", 7).unwrap();
@@ -839,6 +866,9 @@ mod tests {
                 None,
                 Some(ScopeType::Story),
                 Some("key-1".to_string()),
+                None,
+                None,
+                None,
             )
             .unwrap();
 
@@ -865,5 +895,42 @@ mod tests {
         let id2 = service.create("story-1", "信件", None, 0).unwrap();
         let record2 = service.get_by_id(&id2).unwrap().unwrap();
         assert_eq!(record2.importance, 1);
+    }
+
+    #[test]
+    fn service_reads_and_persists_unified_columns() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        let id = service
+            .create("story-1", "神秘钥匙", Some("s1"), 8)
+            .unwrap();
+        service
+            .update_ledger_fields(
+                &id,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("evt-setup-1".to_string()),
+                Some("evt-payoff-1".to_string()),
+                Some(0.75),
+            )
+            .unwrap();
+
+        let record = service.get_by_id(&id).unwrap().unwrap();
+        assert_eq!(record.setup_event_id.as_deref(), Some("evt-setup-1"));
+        assert_eq!(record.payoff_event_id.as_deref(), Some("evt-payoff-1"));
+        assert_eq!(record.risk_signals_score, Some(0.75));
+
+        let listed = service.list_by_story("story-1").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].setup_event_id.as_deref(), Some("evt-setup-1"));
+
+        let unresolved = service.get_unresolved("story-1").unwrap();
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(unresolved[0].risk_signals_score, Some(0.75));
     }
 }

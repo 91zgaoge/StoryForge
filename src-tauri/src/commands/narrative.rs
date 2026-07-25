@@ -83,11 +83,25 @@ pub async fn get_narrative_threads(
     story_id: String,
     state: tauri::State<'_, DbPool>,
 ) -> Result<serde_json::Value, AppError> {
-    let service = ForeshadowingServiceImpl::new(state.inner().clone());
+    get_narrative_threads_inner(&story_id, state.inner())
+}
+
+/// 内部实现，便于单元测试（无需构造 tauri::State）。
+fn get_narrative_threads_inner(
+    story_id: &str,
+    pool: &DbPool,
+) -> Result<serde_json::Value, AppError> {
+    let service = ForeshadowingServiceImpl::new(pool.clone());
     let mut threads = Vec::new();
 
-    // 未回收的伏笔
-    let unresolved = service.get_unresolved(&story_id)?;
+    // 未回收的伏笔：读取失败时返回空数组，避免前端因命令错误而崩溃。
+    let unresolved = match service.get_unresolved(story_id) {
+        Ok(records) => records,
+        Err(e) => {
+            log::warn!("[get_narrative_threads] 读取叙事线索失败: {}", e);
+            return Ok(serde_json::json!({ "threads": [] }));
+        }
+    };
     for fs in unresolved {
         threads.push(serde_json::json!({
             "type": "foreshadow",
@@ -120,5 +134,81 @@ pub async fn get_narrative_chunks(
             "chunks": chunks,
         })),
         Err(e) => Err(AppError::internal(format!("获取叙事块失败: {}", e))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Local;
+
+    use super::*;
+
+    fn in_memory_pool() -> DbPool {
+        let manager = r2d2_sqlite::SqliteConnectionManager::memory();
+        r2d2::Pool::builder().max_size(1).build(manager).unwrap()
+    }
+
+    fn in_memory_pool_with_schema() -> DbPool {
+        let pool = in_memory_pool();
+        let conn = pool.get().unwrap();
+        let now = Local::now().to_rfc3339();
+        conn.execute_batch(
+            "CREATE TABLE stories (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT,
+                status TEXT,
+                word_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE foreshadowing_tracker (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                setup_scene_id TEXT,
+                payoff_scene_id TEXT,
+                status TEXT NOT NULL DEFAULT 'setup',
+                importance INTEGER,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                setup_event_id TEXT,
+                payoff_event_id TEXT,
+                risk_signals_score REAL DEFAULT 0.0
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at) VALUES (?1, 'Test', ?2, ?2)",
+            rusqlite::params!["story-1", now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO foreshadowing_tracker \
+             (id, story_id, content, status, created_at, setup_event_id, risk_signals_score, importance) \
+             VALUES (?1, ?2, ?3, 'setup', ?4, ?5, ?6, ?7)",
+            rusqlite::params!["fs-1", "story-1", "神秘钥匙", now, "evt-1", 0.5, 8],
+        )
+        .unwrap();
+        pool
+    }
+
+    #[test]
+    fn get_narrative_threads_returns_records() {
+        let pool = in_memory_pool_with_schema();
+        let result = get_narrative_threads_inner("story-1", &pool).unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["count"], 1);
+        let threads = result["threads"].as_array().unwrap();
+        assert_eq!(threads[0]["content"], "神秘钥匙");
+        assert_eq!(threads[0]["risk_score"], 0.5);
+    }
+
+    #[test]
+    fn get_narrative_threads_returns_empty_on_error() {
+        // 空数据库缺少 foreshadowing_tracker 表，服务读取会失败，命令应返回空数组。
+        let pool = in_memory_pool();
+        let result = get_narrative_threads_inner("story-1", &pool).unwrap();
+        assert_eq!(result["threads"].as_array().unwrap().len(), 0);
     }
 }

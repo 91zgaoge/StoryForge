@@ -1350,6 +1350,9 @@ pub async fn update_payoff_ledger_fields(
             risk_signals,
             scope,
             ledger_key,
+            None,
+            None,
+            None,
         )
         .map_err(AppError::from);
 

@@ -95,6 +95,9 @@ impl PayoffLedger {
         risk_signals: Option<Vec<String>>,
         scope_type: Option<ScopeType>,
         ledger_key: Option<String>,
+        setup_event_id: Option<String>,
+        payoff_event_id: Option<String>,
+        risk_signals_score: Option<f32>,
     ) -> Result<(), AppError> {
         self.service.update_ledger_fields(
             foreshadowing_id,
@@ -103,6 +106,9 @@ impl PayoffLedger {
             risk_signals,
             scope_type,
             ledger_key,
+            setup_event_id,
+            payoff_event_id,
+            risk_signals_score,
         )
     }
 }

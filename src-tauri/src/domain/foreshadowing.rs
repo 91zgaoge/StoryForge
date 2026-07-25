@@ -319,6 +319,9 @@ pub trait ForeshadowingService: ForeshadowingProvider + Send + Sync {
         risk_signals: Option<Vec<String>>,
         scope_type: Option<ScopeType>,
         ledger_key: Option<String>,
+        setup_event_id: Option<String>,
+        payoff_event_id: Option<String>,
+        risk_signals_score: Option<f32>,
     ) -> Result<(), AppError>;
 }
 

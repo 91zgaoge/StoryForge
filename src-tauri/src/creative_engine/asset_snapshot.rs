@@ -16,7 +16,11 @@ use std::sync::Arc;
 
 use crate::{
     db::{DbPool, SceneRepository, StyleDnaRepository},
-    domain::creative_engine::{ForeshadowingPort, PayoffLedgerPort},
+    domain::{
+        creative_engine::{ForeshadowingPort, PayoffLedgerPort},
+        foreshadowing::ForeshadowingProvider,
+    },
+    story_system::foreshadowing_service::ForeshadowingServiceImpl,
 };
 
 /// 两条创作路径共享的精选资产快照。
@@ -116,24 +120,16 @@ impl CreativeAssetSnapshot {
         let has_overdue = !overdue_payoffs.is_empty();
 
         // 获取未回收伏笔的重要性，用于判断"主要伏笔"
-        let pending_importances: Vec<i32> = (|| {
-            let conn = pool.get().map_err(|e| format!("获取连接失败: {}", e))?;
-            let mut stmt = conn
-                .prepare(
-                    "SELECT importance FROM foreshadowing_tracker
-                     WHERE story_id = ?1 AND status = 'setup'",
-                )
-                .map_err(|e| format!("准备查询失败: {}", e))?;
-            let rows = stmt
-                .query_map([story_id], |row| row.get::<_, i32>(0))
-                .map_err(|e| format!("查询失败: {}", e))?;
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(|e| format!("映射失败: {}", e))
-        })()
-        .unwrap_or_else(|e| {
-            log::warn!("[CreativeAssetSnapshot] 读取伏笔重要性失败: {}", e);
-            vec![]
-        });
+        // 通过 story_system::ForeshadowingService 单一真源读取，避免 creative_engine
+        // 直接访问 foreshadowing_tracker 表。
+        let service = ForeshadowingServiceImpl::new(pool.clone());
+        let pending_importances: Vec<i32> = match service.get_unresolved(story_id) {
+            Ok(records) => records.into_iter().map(|r| r.importance).collect(),
+            Err(e) => {
+                log::warn!("[CreativeAssetSnapshot] 读取伏笔重要性失败: {}", e);
+                vec![]
+            }
+        };
 
         Some(Self::calculate_narrative_phase_guidance(
             total_scenes,
@@ -226,5 +222,162 @@ impl CreativeAssetSnapshot {
             .take(top_n)
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Local;
+
+    use super::*;
+    use crate::{
+        domain::creative_engine::{ForeshadowingPort, PayoffLedgerPort},
+        error::AppError,
+    };
+
+    struct MockForeshadowingPort {
+        hints: Vec<String>,
+    }
+
+    impl ForeshadowingPort for MockForeshadowingPort {
+        fn get_writing_hints(
+            &self,
+            _story_id: &str,
+            _limit: usize,
+        ) -> Result<Vec<String>, AppError> {
+            Ok(self.hints.clone())
+        }
+    }
+
+    struct MockPayoffLedgerPort;
+
+    impl PayoffLedgerPort for MockPayoffLedgerPort {
+        fn detect_overdue_payoffs(&self, _story_id: &str) -> Result<Vec<String>, AppError> {
+            Ok(vec![])
+        }
+    }
+
+    fn in_memory_pool() -> DbPool {
+        let manager = r2d2_sqlite::SqliteConnectionManager::memory();
+        r2d2::Pool::builder().max_size(1).build(manager).unwrap()
+    }
+
+    fn seed_story_and_scenes(pool: &DbPool, story_id: &str) {
+        let conn = pool.get().unwrap();
+        let now = Local::now().to_rfc3339();
+        conn.execute_batch(
+            "CREATE TABLE stories (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT,
+                status TEXT,
+                word_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE scenes (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                sequence_number INTEGER NOT NULL,
+                title TEXT,
+                dramatic_goal TEXT,
+                external_pressure TEXT,
+                conflict_type TEXT,
+                characters_present TEXT DEFAULT '[]',
+                character_conflicts TEXT DEFAULT '[]',
+                content TEXT,
+                setting_location TEXT,
+                setting_time TEXT,
+                setting_atmosphere TEXT,
+                previous_scene_id TEXT,
+                next_scene_id TEXT,
+                model_used TEXT,
+                cost REAL,
+                source TEXT,
+                is_auto_generated INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                confidence_score REAL,
+                execution_stage TEXT,
+                outline_content TEXT,
+                draft_content TEXT,
+                style_blend_override TEXT,
+                foreshadowing_ids TEXT,
+                chapter_id TEXT,
+                narrative_intensity REAL,
+                narrative_sentiment REAL,
+                narrative_event_types TEXT,
+                narrative_preceding_scene_id TEXT,
+                narrative_following_scene_id TEXT,
+                act_number INTEGER,
+                position_in_act INTEGER
+            );
+            CREATE TABLE foreshadowing_tracker (
+                id TEXT PRIMARY KEY,
+                story_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                setup_scene_id TEXT,
+                payoff_scene_id TEXT,
+                status TEXT NOT NULL DEFAULT 'setup',
+                importance INTEGER,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                setup_event_id TEXT,
+                payoff_event_id TEXT,
+                risk_signals_score REAL DEFAULT 0.0
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at) VALUES (?1, 'Test', ?2, ?2)",
+            rusqlite::params![story_id, now],
+        )
+        .unwrap();
+        for (i, scene_id) in ["s1", "s2", "s3"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO scenes (id, story_id, title, sequence_number, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                rusqlite::params![
+                    scene_id,
+                    story_id,
+                    format!("Scene {}", i + 1),
+                    (i + 1) as i32,
+                    now
+                ],
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn asset_snapshot_uses_service_for_pending_importances() {
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let now = Local::now().to_rfc3339();
+        pool.get()
+            .unwrap()
+            .execute(
+                "INSERT INTO foreshadowing_tracker \
+                 (id, story_id, content, status, created_at, importance) \
+                 VALUES (?1, ?2, ?3, 'setup', ?4, ?5)",
+                rusqlite::params!["fs-1", "story-1", "关键伏笔", now, 9],
+            )
+            .unwrap();
+
+        let snapshot = CreativeAssetSnapshot::load_sync(
+            &pool,
+            "story-1",
+            None,
+            Arc::new(MockForeshadowingPort { hints: vec![] }),
+            Arc::new(MockPayoffLedgerPort),
+        );
+
+        // 场景数 3 对应铺垫期；重点是 narrative phase guidance 成功通过服务读取。
+        let guidance = snapshot.narrative_phase_guidance().unwrap();
+        assert!(
+            guidance.contains("叙事阶段"),
+            "expected guidance to contain 叙事阶段, got: {}",
+            guidance
+        );
     }
 }
