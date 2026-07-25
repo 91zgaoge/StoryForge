@@ -11,18 +11,17 @@ use std::{
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tauri::{command, AppHandle, Emitter, Manager, State};
+use tauri::{command, AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 use super::service::{AgentService, AgentTask, AgentType};
 use crate::{
     db::{
-        repositories::{SceneRepository, SceneUpdate, StoryRepository},
-        CreateStoryRequest, DbPool,
+        repositories::{SceneRepository, SceneUpdate},
+        DbPool,
     },
     domain::creative_engine::CreativeEnginePort,
     error::AppError,
-    state_sync::StateSync,
     subscription::{SubscriptionService, SubscriptionTier},
 };
 
@@ -81,51 +80,6 @@ pub struct ExecuteAgentRequest {
     pub chapter_number: Option<u32>,
     pub input: String,
     pub parameters: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Agent执行响应
-#[derive(Debug, Serialize)]
-pub struct ExecuteAgentResponse {
-    pub task_id: String,
-    pub result: Option<super::AgentResult>,
-    pub error: Option<String>,
-}
-
-/// 同步执行Agent（所有功能已免费，不限制配额）
-#[command]
-pub async fn agent_execute(
-    request: ExecuteAgentRequest,
-    app_handle: AppHandle,
-) -> Result<ExecuteAgentResponse, AppError> {
-    let task_id = Uuid::new_v4().to_string();
-
-    // 构建上下文
-    let context = build_agent_context(&app_handle, &request).await?;
-
-    let tier = get_user_tier_sync(&app_handle);
-    let task = AgentTask {
-        id: task_id.clone(),
-        agent_type: request.agent_type,
-        context,
-        input: request.input,
-        parameters: request.parameters.unwrap_or_default(),
-        tier: Some(tier),
-    };
-
-    let service = AgentService::new(app_handle.clone());
-
-    match service.execute_task(task).await {
-        Ok(result) => Ok(ExecuteAgentResponse {
-            task_id,
-            result: Some(result),
-            error: None,
-        }),
-        Err(e) => Ok(ExecuteAgentResponse {
-            task_id,
-            result: None,
-            error: Some(e.to_string()),
-        }),
-    }
 }
 
 /// 开始流式Agent执行（通过事件推送进度）
@@ -198,199 +152,6 @@ pub async fn agent_cancel_all_tasks() -> Result<(), AppError> {
     }
     log::info!("[Agent] Cancelled {} active task(s)", count);
     Ok(())
-}
-
-/// 获取Agent执行状态
-#[command]
-pub fn agent_get_status(task_id: String) -> String {
-    let handles = TASK_HANDLES.lock().unwrap();
-    if handles.contains_key(&task_id) {
-        "running".to_string()
-    } else {
-        "completed_or_not_found".to_string()
-    }
-}
-
-/// 正文助手(WriterAgent)专用请求
-#[derive(Debug, Deserialize)]
-pub struct WriterAgentRequest {
-    pub story_id: String,
-    pub chapter_number: Option<u32>,
-    pub current_content: String,
-    pub selected_text: Option<String>,
-    pub instruction: String,
-}
-
-/// 正文助手执行响应
-#[derive(Debug, Serialize)]
-pub struct WriterAgentResponse {
-    pub content: String,
-    pub story_id: Option<String>,
-    pub chapter_id: Option<String>,
-    pub task_id: String,
-}
-
-/// 执行正文助手任务（手工续写 — 已免费开放，不限制配额）
-#[command]
-pub async fn writer_agent_execute(
-    request: WriterAgentRequest,
-    app_handle: AppHandle,
-    automation_service: State<'_, crate::automation::service::AutomationService>,
-) -> Result<WriterAgentResponse, AppError> {
-    let mut story_id = request.story_id.clone();
-    let mut chapter_number = request.chapter_number.unwrap_or(1);
-    let mut created_chapter_id: Option<String> = None;
-
-    // 如果没有 story_id，自动创建新作品和第一场景
-    if story_id.is_empty() {
-        let pool = app_handle.state::<DbPool>();
-        let story_repo = StoryRepository::new(pool.inner().clone());
-        let scene_repo = SceneRepository::new(pool.inner().clone());
-
-        let story = story_repo
-            .create(CreateStoryRequest {
-                title: "未命名作品".to_string(),
-                description: Some(request.instruction.clone()),
-                genre: Some("小说".to_string()),
-                style_dna_id: None,
-                genre_profile_id: None,
-                methodology_id: None,
-                reference_book_id: None,
-            })
-            .map_err(AppError::from)?;
-
-        let scene = scene_repo
-            .create(&story.id, 1, Some("第一场景"))
-            .map_err(AppError::from)?;
-
-        story_id = story.id.clone();
-        chapter_number = 1;
-        created_chapter_id = Some(scene.id.clone());
-
-        // 发射 StateSync 事件
-        StateSync::emit_story_created(&app_handle, &story.id, &story.title);
-        StateSync::emit_scene_created(&app_handle, &story.id, &scene.id, Some("第一场景"));
-
-        // 通知幕前切换到新场景
-        let event = crate::window::FrontstageEvent::ChapterSwitch {
-            story_id: story_id.clone(),
-            chapter_id: scene.id.clone(),
-            scene_id: Some(scene.id.clone()),
-            title: "第一场景".to_string(),
-            content: scene.content.clone(),
-            auto_accept: true,
-        };
-        let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
-
-        // 通知幕后作品列表刷新
-        let _ = crate::window::WindowManager::send_to_backstage(
-            &app_handle,
-            crate::window::BackstageEvent::DataRefresh {
-                entity: "stories".to_string(),
-            },
-        );
-    }
-    if let Some(ref scene_id) = created_chapter_id {
-        let _ = automation_service
-            .trigger_event(
-                crate::automation::triggers::TriggerEvent::SceneGenerationRequested {
-                    story_id: story_id.clone(),
-                    scene_id: scene_id.clone(),
-                },
-            )
-            .await;
-    }
-
-    let mut context = build_agent_context(
-        &app_handle,
-        &ExecuteAgentRequest {
-            agent_type: AgentType::Writer,
-            story_id: story_id.clone(),
-            chapter_number: Some(chapter_number),
-            input: request.instruction.clone(),
-            parameters: None,
-        },
-    )
-    .await?;
-
-    context.narrative.current_content = Some(request.current_content);
-    context.narrative.selected_text = request.selected_text;
-
-    let tier = get_user_tier_sync(&app_handle);
-    let task = AgentTask {
-        id: Uuid::new_v4().to_string(),
-        agent_type: AgentType::Writer,
-        context,
-        input: request.instruction,
-        parameters: std::collections::HashMap::new(),
-        tier: Some(tier),
-    };
-
-    let task_id = task.id.clone();
-    let service = AgentService::new(app_handle.clone());
-
-    // 读取 AgentOrchestrator 配置
-    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
-    let orchestrator_config = crate::config::AppConfig::load(&app_dir)
-        .map(|c| super::orchestrator::WorkflowConfig::from_app_config(&c))
-        .unwrap_or_default();
-
-    // 使用 AgentOrchestrator 执行 Writer → Inspector → Writer 闭环优化
-    let orchestrator = super::orchestrator::AgentOrchestrator::new(
-        service,
-        orchestrator_config,
-        app_handle.clone(),
-    );
-
-    match orchestrator
-        .generate(task, super::orchestrator::GenerationMode::TimeSliced)
-        .await
-    {
-        Ok(workflow_result) => {
-            log::info!(
-                "[writer_agent_execute] Orchestrator completed: score={:.2}, rewritten={}",
-                workflow_result.final_score,
-                workflow_result.was_rewritten
-            );
-            if let Some(ref scene_id) = created_chapter_id {
-                let _ = automation_service
-                    .trigger_event(crate::automation::triggers::TriggerEvent::SceneGenerated {
-                        story_id: story_id.clone(),
-                        scene_id: scene_id.clone(),
-                    })
-                    .await;
-            }
-
-            // 如果创建了新场景，把生成的内容保存到数据库
-            if let Some(ref scene_id) = created_chapter_id {
-                let pool = app_handle.state::<DbPool>();
-                let scene_repo = SceneRepository::new(pool.inner().clone());
-                let _ = scene_repo.update(
-                    scene_id,
-                    &SceneUpdate {
-                        title: Some("第一场景".to_string()),
-                        content: Some(workflow_result.final_content.clone()),
-                        ..Default::default()
-                    },
-                );
-
-                // 同时推送内容更新事件到幕前
-                let event = crate::window::FrontstageEvent::ContentUpdate {
-                    text: workflow_result.final_content.clone(),
-                    chapter_id: scene_id.clone(),
-                };
-                let _ = crate::window::WindowManager::send_to_frontstage(&app_handle, event);
-            }
-
-            Ok(WriterAgentResponse {
-                content: workflow_result.final_content,
-                story_id: Some(story_id),
-                task_id,
-                chapter_id: created_chapter_id,
-            })
-        }
-        Err(e) => Err(e),
-    }
 }
 
 // ==================== 文思泉涌：自动续写 ====================
@@ -1456,7 +1217,7 @@ pub(crate) async fn build_agent_context(
     }
 
     // current_content 和 selected_text 由调用方在返回后填充
-    //（参见 writer_agent_execute、auto_write 等调用点）
+    //（参见 auto_write、auto_revise 等调用点）
 
     Ok(context)
 }

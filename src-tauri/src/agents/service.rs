@@ -3307,38 +3307,6 @@ impl Clone for AgentService {
     }
 }
 
-/// 获取所有可用的Agent类型
-#[tauri::command]
-pub fn get_available_agents() -> Vec<(AgentType, String, String)> {
-    vec![
-        (
-            AgentType::Writer,
-            AgentType::Writer.name().to_string(),
-            AgentType::Writer.description().to_string(),
-        ),
-        (
-            AgentType::Inspector,
-            AgentType::Inspector.name().to_string(),
-            AgentType::Inspector.description().to_string(),
-        ),
-        (
-            AgentType::OutlinePlanner,
-            AgentType::OutlinePlanner.name().to_string(),
-            AgentType::OutlinePlanner.description().to_string(),
-        ),
-        (
-            AgentType::StyleMimic,
-            AgentType::StyleMimic.name().to_string(),
-            AgentType::StyleMimic.description().to_string(),
-        ),
-        (
-            AgentType::PlotAnalyzer,
-            AgentType::PlotAnalyzer.name().to_string(),
-            AgentType::PlotAnalyzer.description().to_string(),
-        ),
-    ]
-}
-
 /// v0.23.65: 从 WriteTimeBundle 渲染 `writer_system` system_prompt。
 ///
 /// TimeSliced/TriShot 路径不经 `build_writer_prompt`（Full 路径），用此函数
