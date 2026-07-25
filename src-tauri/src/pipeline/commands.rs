@@ -65,12 +65,20 @@ async fn wait_for_pipeline_task<R: Runtime, T: serde::de::DeserializeOwned>(
     task_service: &TaskService<R>,
     task_id: &str,
 ) -> Result<T, AppError> {
+    let task_service = task_service.clone();
     let timeout = std::time::Duration::from_secs(PIPELINE_TASK_TIMEOUT_SECONDS);
     let poll_interval = std::time::Duration::from_millis(PIPELINE_POLL_INTERVAL_MS);
     let start = std::time::Instant::now();
 
     loop {
         if start.elapsed() >= timeout {
+            if let Err(e) = task_service.cancel_task(task_id) {
+                log::warn!(
+                    "Failed to cancel timed-out pipeline task {}: {}",
+                    task_id,
+                    e
+                );
+            }
             return Err(AppError::internal(format!(
                 "Pipeline task {} timed out after {} seconds",
                 task_id, PIPELINE_TASK_TIMEOUT_SECONDS
@@ -201,6 +209,7 @@ pub async fn run_finalize(
     draft_id: String,
     chapter_number: i32,
     chapter_title: Option<String>,
+    scene_id: Option<String>,
     _pool: State<'_, DbPool>,
     app_handle: AppHandle,
     task_service: State<'_, TaskService>,
@@ -214,7 +223,7 @@ pub async fn run_finalize(
         "draft_id": &draft_id,
         "chapter_number": chapter_number,
         "chapter_title": chapter_title,
-        "scene_id": serde_json::Value::Null,
+        "scene_id": scene_id,
     });
     let task_id =
         create_pipeline_review_task(&task_service, "finalize", &story_id, &draft_id, payload)?;
