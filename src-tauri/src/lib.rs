@@ -403,6 +403,16 @@ fn init_task_system_and_automation(
         vector_store.clone(),
     ));
     task_service.register_executor(pipeline_executor);
+    let audit_executor = std::sync::Arc::new(audit::executor::AuditExecutor {
+        pool: pool.clone(),
+        app_handle: app_handle.clone(),
+    });
+    task_service.register_executor(audit_executor);
+    let insight_executor = std::sync::Arc::new(reading_power::insight_executor::InsightExecutor {
+        pool: pool.clone(),
+        app_handle: app_handle.clone(),
+    });
+    task_service.register_executor(insight_executor);
     if let Err(e) = task_service.bootstrap() {
         log::error!("Failed to bootstrap task system: {}", e);
     } else {

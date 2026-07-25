@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub mod commands;
+pub mod executor;
 // v0.17.1: 开篇清晰度门骨架（不接入生产）
 pub mod opening_clarity;
 

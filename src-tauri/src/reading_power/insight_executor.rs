@@ -15,14 +15,14 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-use super::{
-    executor::{TaskExecutionContext, TaskExecutor},
-    models::{Task, TaskResult, TaskType},
-};
 use crate::{
     db::{ChaseDebtRepository, DbPool, StorySummaryRepository, TextAnnotationRepository},
     reading_power::ReadingPowerEvaluator,
     state_sync::events::SyncEvent,
+    task_system::{
+        executor::{TaskExecutionContext, TaskExecutor},
+        models::{Task, TaskResult, TaskType},
+    },
 };
 
 /// 深度洞察 payload
@@ -327,5 +327,57 @@ mod tests {
         assert_eq!(parsed.overall_health, 75.0);
         assert_eq!(parsed.reading_power_trend.len(), 1);
         assert_eq!(parsed.unresolved_annotations.ai_audit, 3);
+    }
+
+    // ==================== 时间线 3：should_trigger 条件逻辑（从 task_system e2e
+    // 迁移） ====================
+
+    #[test]
+    fn timeline3_should_trigger_when_never_run() {
+        use crate::db::connection::create_test_pool;
+
+        let pool = create_test_pool().expect("pool");
+        let conn = pool.get().expect("conn");
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at) VALUES ('s2', '测试', '2024-01-01', '2024-01-01')",
+            [],
+        )
+        .unwrap();
+
+        // 从未跑过 insight → 应触发
+        assert!(InsightExecutor::should_trigger(&pool, "s2", 5, 5));
+    }
+
+    #[test]
+    fn timeline3_should_not_trigger_when_within_interval() {
+        use crate::db::connection::create_test_pool;
+
+        let pool = create_test_pool().expect("pool");
+        let conn = pool.get().expect("conn");
+        conn.execute(
+            "INSERT INTO stories (id, title, created_at, updated_at) VALUES ('s3', '测试', '2024-01-01', '2024-01-01')",
+            [],
+        )
+        .unwrap();
+
+        // 模拟上次 insight 在第 3 章跑过
+        let report = serde_json::json!({
+            "story_id": "s3",
+            "evaluated_at": "2024-01-01T00:00:00Z",
+            "chapter_range": [1, 3],
+            "overall_health": 75.0,
+            "reading_power_trend": [],
+            "chase_debt": {"total_amount": 0.0, "active_count": 0, "overdue_count": 0},
+            "unresolved_annotations": {"total": 0, "high_severity": 0, "ai_audit": 0},
+        });
+        let repo = crate::db::StorySummaryRepository::new(pool.clone());
+        repo.create_summary("s3", "deep_insight", &report.to_string())
+            .unwrap();
+
+        // 当前第 5 章，距上次（第 3 章）只差 2 章 < 5 → 不应触发
+        assert!(!InsightExecutor::should_trigger(&pool, "s3", 5, 5));
+
+        // 当前第 8 章，距上次差 5 章 >= 5 → 应触发
+        assert!(InsightExecutor::should_trigger(&pool, "s3", 8, 5));
     }
 }

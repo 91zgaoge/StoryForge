@@ -3,12 +3,9 @@
 //! 任务调度系统：支持一次性/定时任务，心跳检测，自动重试。
 //! 参考 memoh-X internal/schedule + internal/heartbeat 设计。
 
-pub mod audit_executor;
-pub mod auto_rewrite_executor;
 pub mod commands;
 pub mod executor;
 pub mod heartbeat;
-pub mod insight_executor;
 pub mod models;
 pub mod repository;
 pub mod scheduler;
@@ -19,9 +16,6 @@ mod tests;
 
 #[cfg(test)]
 mod integration_tests;
-
-#[cfg(test)]
-mod e2e_tests;
 
 // Re-exports are available through individual module paths
 // e.g., task_system::models::Task, task_system::service::TaskService

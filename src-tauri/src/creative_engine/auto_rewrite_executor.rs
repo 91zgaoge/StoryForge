@@ -8,9 +8,9 @@
 //!
 //! 设计依据：docs/plans/2026-06-21-trishot-pipeline-design.md Phase 4 BGP-2
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
-use crate::{db::DbPool, state_sync::events::SyncEvent};
+use crate::db::DbPool;
 
 /// 审计批注的严重度（与 AuditExecutor 的 audit_level 对齐）
 #[derive(Debug, Clone, PartialEq)]
@@ -55,7 +55,7 @@ impl AutoRewriteExecutor {
         low_issues: &[AuditIssue],
         content: &str,
         story_id: &str,
-        chapter_number: Option<i32>,
+        _chapter_number: Option<i32>,
     ) {
         // ===== HIGH 严重度：自动改写 =====
         if !high_issues.is_empty() {
@@ -123,7 +123,7 @@ pub struct AuditIssue {
 /// 调用 Writer LLM 改写问题段落（静默标签 bg-auto-rewriter）。
 async fn rewrite_content(
     app_handle: &AppHandle,
-    pool: &DbPool,
+    _pool: &DbPool,
     content: &str,
     issues: &[String],
 ) -> Result<String, String> {

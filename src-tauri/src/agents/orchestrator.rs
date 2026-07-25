@@ -1167,12 +1167,12 @@ impl AgentOrchestrator {
         let audit_story_title = bundle.story_meta.title.clone();
         let audit_genre = bundle.story_meta.genre.clone();
         tokio::spawn(async move {
-            let executor = crate::task_system::audit_executor::AuditExecutor {
+            let executor = crate::audit::executor::AuditExecutor {
                 pool: audit_pool,
                 app_handle: audit_handle,
             };
             executor
-                .run_audit(crate::task_system::audit_executor::AuditPayload {
+                .run_audit(crate::audit::executor::AuditPayload {
                     story_id: audit_story_id,
                     scene_id: None, // TODO: 任务 2.3 后续接入 scene_id
                     chapter_id: None,
@@ -1191,7 +1191,7 @@ impl AgentOrchestrator {
         let insight_chapter = task.context.narrative.chapter_number as i32;
         let insight_handle = self.app_handle.clone();
         tokio::task::spawn_blocking(move || {
-            let should = crate::task_system::insight_executor::InsightExecutor::should_trigger(
+            let should = crate::reading_power::insight_executor::InsightExecutor::should_trigger(
                 &insight_pool,
                 &insight_story_id,
                 insight_chapter,
@@ -1210,12 +1210,12 @@ impl AgentOrchestrator {
         .map(|(should, ipool, istory, ichapter, ihandle)| {
             if should {
                 tokio::spawn(async move {
-                    let executor = crate::task_system::insight_executor::InsightExecutor {
+                    let executor = crate::reading_power::insight_executor::InsightExecutor {
                         pool: ipool,
                         app_handle: ihandle,
                     };
                     executor
-                        .run_insight(crate::task_system::insight_executor::InsightPayload {
+                        .run_insight(crate::reading_power::insight_executor::InsightPayload {
                             story_id: istory,
                             chapter_number: ichapter,
                             trend_window: 5,
@@ -2073,13 +2073,13 @@ impl AgentOrchestrator {
         let audit_genre = bundle.story_meta.genre.clone();
         tokio::spawn(async move {
             let _permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
-            let executor = crate::task_system::audit_executor::AuditExecutor {
+            let executor = crate::audit::executor::AuditExecutor {
                 pool: audit_pool,
                 app_handle: audit_handle,
             };
             // TODO: Phase 4 链式 spawn AutoRewriteExecutor（审计完成后按严重度分流）
             executor
-                .run_audit(crate::task_system::audit_executor::AuditPayload {
+                .run_audit(crate::audit::executor::AuditPayload {
                     story_id: audit_story_id,
                     scene_id: None,
                     chapter_id: None,
@@ -2140,7 +2140,7 @@ impl AgentOrchestrator {
             let ipool = insight_pool.clone();
             let istory = insight_story_id.clone();
             let should = tokio::task::spawn_blocking(move || {
-                crate::task_system::insight_executor::InsightExecutor::should_trigger(
+                crate::reading_power::insight_executor::InsightExecutor::should_trigger(
                     &ipool,
                     &istory,
                     insight_chapter,
@@ -2154,12 +2154,12 @@ impl AgentOrchestrator {
                 // 保护， 防止与 Genesis 后台流水线（世界观/大纲/角色 3
                 // 路）同时打向同一本地模型， 导致模型过载 → 前端页面崩溃。
                 let _bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
-                let executor = crate::task_system::insight_executor::InsightExecutor {
+                let executor = crate::reading_power::insight_executor::InsightExecutor {
                     pool: insight_pool,
                     app_handle: insight_handle,
                 };
                 executor
-                    .run_insight(crate::task_system::insight_executor::InsightPayload {
+                    .run_insight(crate::reading_power::insight_executor::InsightPayload {
                         story_id: insight_story_id,
                         chapter_number: insight_chapter,
                         trend_window: 5,

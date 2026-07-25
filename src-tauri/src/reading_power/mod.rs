@@ -17,6 +17,7 @@ use crate::db::{
 };
 
 pub mod evaluator;
+pub mod insight_executor;
 
 /// 章节追读力评估结果
 #[derive(Debug, Clone, Serialize, Deserialize)]

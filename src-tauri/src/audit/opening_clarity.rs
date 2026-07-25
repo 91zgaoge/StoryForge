@@ -9,8 +9,8 @@
 //! v0.17.1 阶段说明：
 //! - 这是骨架实现：所有 public API 已就绪，但仅做轻量启发式检测，
 //!   不接入主创作流程。
-//! - v0.17.2 将把它接入 [`crate::task_system::audit_executor`] 的 11 维评估，
-//!   并允许 GenreProfile 自定义钩子。
+//! - v0.17.2 将把它接入 [`crate::audit::executor::AuditExecutor`] 的 11
+//!   维评估， 并允许 GenreProfile 自定义钩子。
 //!
 //! 不接入生产：本模块当前不被任何业务路径调用。
 

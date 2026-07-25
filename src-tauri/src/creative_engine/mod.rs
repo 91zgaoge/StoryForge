@@ -7,6 +7,7 @@ pub mod adapter;
 pub mod adaptive;
 pub mod asset_capability_manifest;
 pub mod asset_snapshot;
+pub mod auto_rewrite_executor;
 pub mod beat_cards;
 pub mod cascade_rewriter;
 pub mod context_builder;
