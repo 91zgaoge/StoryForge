@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use rusqlite::Row;
+
 use super::*;
 
 pub struct CharacterRepository {
@@ -148,33 +150,7 @@ impl CharacterRepository {
              )",
         )?;
         let legacy_rows = stmt
-            .query_map([story_id], |row| {
-                let traits_json: String = row
-                    .get::<_, Option<String>>(9)?
-                    .unwrap_or_else(|| "[]".to_string());
-                let dynamic_traits: Vec<DynamicTrait> =
-                    serde_json::from_str(&traits_json).unwrap_or_default();
-                let created_str: String = row.get(12)?;
-                let updated_str: String = row.get(13)?;
-                let is_auto_generated: Option<i32> = row.get(11).ok();
-
-                Ok(Character {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    name: row.get(2)?,
-                    background: row.get(3)?,
-                    personality: row.get(4)?,
-                    goals: row.get(5)?,
-                    appearance: row.get(6)?,
-                    gender: row.get(7)?,
-                    age: row.get(8)?,
-                    dynamic_traits,
-                    source: row.get(10).ok(),
-                    is_auto_generated: is_auto_generated.map(|v| v != 0),
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })?
+            .query_map([story_id], Self::row_to_character)?
             .collect::<Result<Vec<_>, _>>()?;
         result.extend(legacy_rows);
 
@@ -197,36 +173,42 @@ impl CharacterRepository {
              dynamic_traits, source, is_auto_generated, created_at, updated_at
              FROM characters WHERE id = ?1",
         )?;
-        let character = stmt
-            .query_row([id], |row| {
-                let traits_json: String = row
-                    .get::<_, Option<String>>(9)?
-                    .unwrap_or_else(|| "[]".to_string());
-                let dynamic_traits: Vec<DynamicTrait> =
-                    serde_json::from_str(&traits_json).unwrap_or_default();
-                let created_str: String = row.get(12)?;
-                let updated_str: String = row.get(13)?;
-                let is_auto_generated: Option<i32> = row.get(11).ok();
-
-                Ok(Character {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    name: row.get(2)?,
-                    background: row.get(3)?,
-                    personality: row.get(4)?,
-                    goals: row.get(5)?,
-                    appearance: row.get(6)?,
-                    gender: row.get(7)?,
-                    age: row.get(8)?,
-                    dynamic_traits,
-                    source: row.get(10).ok(),
-                    is_auto_generated: is_auto_generated.map(|v| v != 0),
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })
-            .optional()?;
+        let character = stmt.query_row([id], Self::row_to_character).optional()?;
         Ok(character)
+    }
+
+    /// Parse a legacy `characters`-shaped row into a `Character`.
+    ///
+    /// Expected column order:
+    ///   0 id, 1 story_id, 2 name, 3 background, 4 personality, 5 goals,
+    ///   6 appearance, 7 gender, 8 age, 9 dynamic_traits, 10 source,
+    ///   11 is_auto_generated, 12 created_at, 13 updated_at
+    fn row_to_character(row: &Row) -> Result<Character, rusqlite::Error> {
+        let traits_json: String = row
+            .get::<_, Option<String>>(9)?
+            .unwrap_or_else(|| "[]".to_string());
+        let dynamic_traits: Vec<DynamicTrait> =
+            serde_json::from_str(&traits_json).unwrap_or_default();
+        let created_str: String = row.get(12)?;
+        let updated_str: String = row.get(13)?;
+        let is_auto_generated: Option<i32> = row.get(11).ok();
+
+        Ok(Character {
+            id: row.get(0)?,
+            story_id: row.get(1)?,
+            name: row.get(2)?,
+            background: row.get(3)?,
+            personality: row.get(4)?,
+            goals: row.get(5)?,
+            appearance: row.get(6)?,
+            gender: row.get(7)?,
+            age: row.get(8)?,
+            dynamic_traits,
+            source: row.get(10).ok(),
+            is_auto_generated: is_auto_generated.map(|v| v != 0),
+            created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+            updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+        })
     }
 
     pub fn update(
@@ -250,14 +232,47 @@ impl CharacterRepository {
             return Ok(0);
         }
 
-        // Keep the legacy `characters` table in sync first, using references so
-        // the Option<String> values remain available for the canonical update.
-        let conn = self
+        let mut attrs = entity.attributes.clone();
+        if let Some(map) = attrs.as_object_mut() {
+            if let Some(ref background) = background {
+                map.insert("background".to_string(), serde_json::json!(background));
+            }
+            if let Some(ref personality) = personality {
+                map.insert("personality".to_string(), serde_json::json!(personality));
+            }
+            if let Some(ref goals) = goals {
+                map.insert("goals".to_string(), serde_json::json!(goals));
+            }
+            if let Some(ref appearance) = appearance {
+                map.insert("appearance".to_string(), serde_json::json!(appearance));
+            }
+            if let Some(ref gender) = gender {
+                map.insert("gender".to_string(), serde_json::json!(gender));
+            }
+            if let Some(age) = age {
+                map.insert("age".to_string(), serde_json::json!(age));
+            }
+        }
+
+        let new_name = name.as_deref().unwrap_or(&entity.name);
+        let now = Local::now().to_rfc3339();
+
+        // Perform both writes inside a single transaction so the canonical
+        // `kg_entities` table and the legacy `characters` table stay consistent.
+        let mut conn = self
             .pool
             .get()
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
-        let now = Local::now().to_rfc3339();
-        conn.execute(
+        let tx = conn.transaction()?;
+
+        // Canonical update first; return the actual affected row count.
+        let count = tx.execute(
+            "UPDATE kg_entities SET name = ?2, attributes = ?3, last_updated = ?4 WHERE id = ?1",
+            params![id, new_name, attrs.to_string(), now],
+        )?;
+
+        // Keep the legacy `characters` table in sync inside the same transaction.
+        tx.execute(
             "UPDATE characters SET name = COALESCE(?2, name),
                  background = COALESCE(?3, background),
                  personality = COALESCE(?4, personality),
@@ -279,34 +294,9 @@ impl CharacterRepository {
                 now
             ],
         )?;
-        drop(conn);
 
-        let mut attrs = entity.attributes.clone();
-        if let Some(map) = attrs.as_object_mut() {
-            if let Some(background) = background {
-                map.insert("background".to_string(), serde_json::json!(background));
-            }
-            if let Some(personality) = personality {
-                map.insert("personality".to_string(), serde_json::json!(personality));
-            }
-            if let Some(goals) = goals {
-                map.insert("goals".to_string(), serde_json::json!(goals));
-            }
-            if let Some(appearance) = appearance {
-                map.insert("appearance".to_string(), serde_json::json!(appearance));
-            }
-            if let Some(gender) = gender {
-                map.insert("gender".to_string(), serde_json::json!(gender));
-            }
-            if let Some(age) = age {
-                map.insert("age".to_string(), serde_json::json!(age));
-            }
-        }
-
-        let new_name = name.as_deref().unwrap_or(&entity.name);
-        kg_repo.update_entity(id, Some(new_name), Some(&attrs), None)?;
-
-        Ok(1)
+        tx.commit()?;
+        Ok(count)
     }
 
     /// 将角色动态状态写入 `character_states` 表（而非 `characters` 的 `cs_*`
@@ -517,33 +507,7 @@ impl CharacterRepository {
         )?;
 
         let characters = stmt
-            .query_map([story_id], |row| {
-                let traits_json: String = row
-                    .get::<_, Option<String>>(9)?
-                    .unwrap_or_else(|| "[]".to_string());
-                let dynamic_traits: Vec<DynamicTrait> =
-                    serde_json::from_str(&traits_json).unwrap_or_default();
-                let created_str: String = row.get(12)?;
-                let updated_str: String = row.get(13)?;
-                let is_auto_generated: Option<i32> = row.get(11).ok();
-
-                Ok(Character {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    name: row.get(2)?,
-                    background: row.get(3)?,
-                    personality: row.get(4)?,
-                    goals: row.get(5)?,
-                    appearance: row.get(6)?,
-                    gender: row.get(7)?,
-                    age: row.get(8)?,
-                    dynamic_traits,
-                    source: row.get(10).ok(),
-                    is_auto_generated: is_auto_generated.map(|v| v != 0),
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })?
+            .query_map([story_id], Self::row_to_character)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(characters)

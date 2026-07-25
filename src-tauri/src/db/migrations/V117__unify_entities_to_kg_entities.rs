@@ -80,16 +80,6 @@ impl RustMigration for Migration {
         if char_table_exists {
             // Discover the actual columns on `characters` because the set of
             // columns has changed across earlier migrations.
-            let char_cols: Vec<String> = tx
-                .prepare("PRAGMA table_info(characters)")?
-                .query_map([], |row| {
-                    let name: String = row.get(1)?;
-                    Ok(name)
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let has = |col: &str| char_cols.iter().any(|c| c == col);
-
             let mut stmt = tx.prepare(
                 "SELECT
                     id,
@@ -117,13 +107,9 @@ impl RustMigration for Migration {
                     row.get(3).ok(),
                     row.get(4).ok(),
                     row.get(5).ok(),
-                    if has("appearance") {
-                        row.get(6).ok()
-                    } else {
-                        None
-                    },
-                    if has("gender") { row.get(7).ok() } else { None },
-                    if has("age") { row.get(8).ok() } else { None },
+                    row.get(6).ok(),
+                    row.get(7).ok(),
+                    row.get(8).ok(),
                     row.get(9).ok(),
                     row.get(10).ok(),
                     row.get(11)?,
