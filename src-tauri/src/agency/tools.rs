@@ -7,7 +7,12 @@ use rusqlite::OptionalExtension;
 
 use crate::{
     agency::{board::BlackboardService, models::*},
+    creative_engine::adapter::CreativeEngineAdapter,
     db::DbPool,
+    domain::{
+        asset_snapshot::{ActiveConflict, CharacterStateSnapshot},
+        creative_engine::CreativeEnginePort,
+    },
     error::AppError,
 };
 
@@ -43,6 +48,43 @@ impl ToolContext {
     pub fn max_context_chars(&self) -> usize {
         crate::agency::roles::spec_for(self.role).context_budget_chars
     }
+}
+
+fn format_character_states(states: &[CharacterStateSnapshot]) -> String {
+    if states.is_empty() {
+        return "无".to_string();
+    }
+    states
+        .iter()
+        .map(|s| {
+            format!(
+                "- {} | 位置: {} | 情绪: {} | 目标: {}",
+                s.name,
+                s.current_location.as_deref().unwrap_or("无"),
+                s.current_emotion.as_deref().unwrap_or("无"),
+                s.active_goal.as_deref().unwrap_or("无")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_active_conflicts(conflicts: &[ActiveConflict]) -> String {
+    if conflicts.is_empty() {
+        return "无".to_string();
+    }
+    conflicts
+        .iter()
+        .map(|c| {
+            format!(
+                "- 类型: {} | 参与方: {} | 赌注: {}",
+                c.conflict_type,
+                c.parties.join(", "),
+                c.stakes
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// 工具注册表 + 角色白名单（ECC agents frontmatter tools 隔离模式）。
@@ -105,10 +147,12 @@ impl ToolRegistry {
         registry.register(Arc::new(BoardReviseTool));
         registry.register(Arc::new(StoryInfoTool));
         registry.register(Arc::new(AssetQueryTool));
+        registry.register(Arc::new(CreativeContextTool));
         for role in AgentRole::all() {
             registry.allow(role, "board_read");
             registry.allow(role, "story_info");
             registry.allow(role, "asset_query");
+            registry.allow(role, "creative_context");
         }
         // 编辑审计只读（审查结论经 ToolLoop final 由协调器落审查区）
         registry.allow(AgentRole::LeadWriter, "board_write");
@@ -395,7 +439,35 @@ impl AgentTool for StoryInfoTool {
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
             ).optional().map_err(AppError::from)?;
             match info {
-                Some((title, genre, desc)) => Ok(format!("标题: {}\n类型: {}\n简介: {}", title, genre, desc)),
+                Some((title, genre, desc)) => {
+                    let engine = CreativeEngineAdapter::new(pool);
+                    let snapshot = engine.load_asset_snapshot(&story_id, None);
+                    let hints = engine.get_foreshadowing_hints(&story_id, 10)?;
+
+                    let mut out = format!("标题: {}\n类型: {}\n简介: {}", title, genre, desc);
+                    out.push_str("\n\n创作上下文：");
+                    out.push_str(&format!(
+                        "\n叙事阶段: {}",
+                        snapshot.narrative_phase_guidance.as_deref().unwrap_or("无")
+                    ));
+                    out.push_str(&format!(
+                        "\n风格 DNA: {}",
+                        snapshot.style_dna_summary.as_deref().unwrap_or("无")
+                    ));
+                    if hints.is_empty() {
+                        out.push_str("\n伏笔提示: 无");
+                    } else {
+                        out.push_str("\n伏笔提示:\n");
+                        out.push_str(
+                            &hints
+                                .iter()
+                                .map(|h| format!("- {}", h))
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        );
+                    }
+                    Ok(out)
+                }
                 None => Ok("（故事尚未创建）".to_string()),
             }
         }).await.map_err(|e| AppError::from(format!("story_info join error: {}", e)))?
@@ -429,24 +501,41 @@ impl AgentTool for AssetQueryTool {
         let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
         tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+            let engine = CreativeEngineAdapter::new(pool.clone());
             let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
             let out = match kind.as_str() {
                 "characters" => {
-                    let mut stmt = conn.prepare(
-                        "SELECT name, COALESCE(personality,''), COALESCE(goals,''), COALESCE(background,'')
-                         FROM characters WHERE story_id = ?1 ORDER BY created_at LIMIT 20")?;
-                    let rows = stmt.query_map(rusqlite::params![story_id], |r| {
-                        Ok(format!("- {}｜性格:{}｜目标:{}｜背景:{}", r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
-                    })?;
-                    let list: Vec<String> = rows.collect::<Result<_, _>>()?;
-                    if list.is_empty() { "（资产库无角色）".to_string() } else { list.join("\n") }
+                    let snapshot = engine.load_asset_snapshot(&story_id, None);
+                    let formatted = format_character_states(&snapshot.character_states);
+                    if formatted == "无" {
+                        "（资产库无角色）".to_string()
+                    } else {
+                        formatted
+                    }
                 }
                 "world" => {
-                    conn.query_row(
-                        "SELECT concept, COALESCE(history,'') FROM world_buildings WHERE story_id = ?1",
-                        rusqlite::params![story_id],
-                        |r| Ok(format!("概念: {}\n历史: {}", r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-                    ).optional()?.unwrap_or_else(|| "（资产库无世界观）".to_string())
+                    let snapshot = engine.load_asset_snapshot(&story_id, None);
+                    let has_context = snapshot.narrative_phase_guidance.is_some()
+                        || !snapshot.active_conflicts.is_empty();
+                    if has_context {
+                        let mut parts = Vec::new();
+                        if let Some(ref guidance) = snapshot.narrative_phase_guidance {
+                            parts.push(format!("叙事阶段指引: {}", guidance));
+                        }
+                        if !snapshot.active_conflicts.is_empty() {
+                            parts.push(format!(
+                                "活跃冲突:\n{}",
+                                format_active_conflicts(&snapshot.active_conflicts)
+                            ));
+                        }
+                        parts.join("\n\n")
+                    } else {
+                        conn.query_row(
+                            "SELECT concept, COALESCE(history,'') FROM world_buildings WHERE story_id = ?1",
+                            rusqlite::params![story_id],
+                            |r| Ok(format!("概念: {}\n历史: {}", r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                        ).optional()?.unwrap_or_else(|| "（资产库无世界观）".to_string())
+                    }
                 }
                 "outline" => {
                     conn.query_row(
@@ -469,6 +558,107 @@ impl AgentTool for AssetQueryTool {
             };
             Ok(out)
         }).await.map_err(|e| AppError::from(format!("asset_query join error: {}", e)))?
+    }
+}
+
+pub struct CreativeContextTool;
+
+#[async_trait::async_trait]
+impl AgentTool for CreativeContextTool {
+    fn name(&self) -> &'static str {
+        "creative_context"
+    }
+    fn description(&self) -> &'static str {
+        "加载当前故事的创作上下文（资产快照、伏笔提示、续写约束）"
+    }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({"chapter_number": "可选，默认 1"})
+    }
+
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let chapter_number = args
+            .get("chapter_number")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+        let pool = ctx.pool.clone();
+        let story_id = ctx.story_id.clone();
+        tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+            let engine = CreativeEngineAdapter::new(pool);
+            let snapshot = engine.load_asset_snapshot(&story_id, None);
+            let foreshadowing_hints = engine.get_foreshadowing_hints(&story_id, 10)?;
+            let bundle = engine.load_write_time_bundle(&story_id, chapter_number, None, None)?;
+            let bundle_prompt = bundle.to_prompt();
+            let preview_chars: String = bundle_prompt.chars().take(2000).collect();
+            let preview = if bundle_prompt.chars().count() > 2000 {
+                format!("{}...(已截断)", preview_chars)
+            } else {
+                preview_chars
+            };
+
+            let mut sections = Vec::new();
+            sections.push(format!(
+                "叙事阶段指引: {}",
+                snapshot.narrative_phase_guidance.as_deref().unwrap_or("无")
+            ));
+            sections.push(format!(
+                "风格 DNA: {}",
+                snapshot.style_dna_summary.as_deref().unwrap_or("无")
+            ));
+            sections.push(format!(
+                "待回收伏笔:\n{}",
+                if snapshot.pending_foreshadowings.is_empty() {
+                    "无".to_string()
+                } else {
+                    snapshot
+                        .pending_foreshadowings
+                        .iter()
+                        .map(|s| format!("- {}", s))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            ));
+            sections.push(format!(
+                "逾期伏笔:\n{}",
+                if snapshot.overdue_foreshadowings.is_empty() {
+                    "无".to_string()
+                } else {
+                    snapshot
+                        .overdue_foreshadowings
+                        .iter()
+                        .map(|s| format!("- {}", s))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            ));
+            sections.push(format!(
+                "角色状态:\n{}",
+                format_character_states(&snapshot.character_states)
+            ));
+            sections.push(format!(
+                "活跃冲突:\n{}",
+                format_active_conflicts(&snapshot.active_conflicts)
+            ));
+            sections.push(format!(
+                "伏笔提示:\n{}",
+                if foreshadowing_hints.is_empty() {
+                    "无".to_string()
+                } else {
+                    foreshadowing_hints
+                        .iter()
+                        .map(|s| format!("- {}", s))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            ));
+            sections.push(format!("写作时间束提示:\n{}", preview));
+            Ok(sections.join("\n\n"))
+        })
+        .await
+        .map_err(|e| AppError::from(format!("creative_context join error: {}", e)))?
     }
 }
 
@@ -812,5 +1002,55 @@ mod tests {
             .await
             .unwrap();
         assert!(bad.contains("非法 kind"));
+    }
+
+    #[tokio::test]
+    async fn test_creative_context_tool_registered_and_whitelisted() {
+        let registry = ToolRegistry::agency_default();
+        assert!(
+            registry.tools.contains_key("creative_context"),
+            "creative_context 应已注册"
+        );
+        for role in AgentRole::all() {
+            assert!(
+                registry.get_for_role(role, "creative_context").is_some(),
+                "{:?} 应可调用 creative_context",
+                role
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_creative_context_tool_returns_sections() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "创作上下文测试".into(),
+                description: Some("测试故事".into()),
+                genre: Some("科幻".into()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let registry = ToolRegistry::agency_default();
+        let mut context = ctx(pool, AgentRole::Producer);
+        context.story_id = story.id.clone();
+        let tool = registry
+            .get_for_role(AgentRole::Producer, "creative_context")
+            .unwrap();
+        let out = tool
+            .execute(&context, serde_json::json!({"chapter_number": 1}))
+            .await
+            .unwrap();
+        assert!(out.contains("叙事阶段指引:"), "应包含叙事阶段指引: {}", out);
+        assert!(out.contains("风格 DNA:"), "应包含风格 DNA: {}", out);
+        assert!(out.contains("角色状态:"), "应包含角色状态: {}", out);
+        assert!(
+            out.contains("写作时间束提示:"),
+            "应包含写作时间束提示: {}",
+            out
+        );
     }
 }
