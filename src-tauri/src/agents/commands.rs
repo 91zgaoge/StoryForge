@@ -210,21 +210,12 @@ pub async fn auto_write(
     let pool = app_handle.state::<DbPool>();
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
-    // v0.8.0: 读取当前场景内容和序号，正确传递章节号用于记忆构建
-    let (current_content, current_scene) = match scene_repo
+    // v0.8.0: 在调用 coordinator 前捕获当前场景内容，避免生成期间用户编辑导致竞态
+    let current_content = scene_repo
         .get_by_id(&request.chapter_id)
         .map_err(AppError::from)?
-    {
-        Some(scene) => {
-            let content = scene.content.clone().unwrap_or_default();
-            (content, Some(scene))
-        }
-        None => (String::new(), None),
-    };
-    let _scene_sequence = current_scene
-        .as_ref()
-        .map(|s| s.sequence_number as u32)
-        .unwrap_or(1);
+        .map(|scene| scene.content.unwrap_or_default())
+        .unwrap_or_default();
 
     let task_id_clone = task_id.clone();
     let app_handle_clone = app_handle.clone();
@@ -286,30 +277,10 @@ pub async fn auto_write(
             .await
         {
             Ok(result) => {
+                let new_content = current_content_for_task + &result.output;
+
                 let pool = app_handle_clone.state::<DbPool>();
                 let scene_repo = SceneRepository::new(pool.inner().clone());
-
-                let new_content = match scene_repo.get_by_id(&chapter_id).map_err(AppError::from) {
-                    Ok(Some(scene)) => {
-                        let mut content = scene.content.unwrap_or_default();
-                        content.push_str(&result.output);
-                        content
-                    }
-                    Ok(None) => {
-                        log::warn!(
-                            "[auto_write] Scene {} not found, using generated content only",
-                            chapter_id
-                        );
-                        result.output
-                    }
-                    Err(e) => {
-                        log::error!("[auto_write] Failed to fetch scene {}: {}", chapter_id, e);
-                        let _ = app_handle_clone
-                            .emit(&format!("auto-write-error-{}", task_id_clone), e);
-                        return;
-                    }
-                };
-
                 if let Err(e) = scene_repo.update(
                     &chapter_id,
                     &SceneUpdate {
@@ -347,8 +318,12 @@ pub async fn auto_write(
                 );
             }
             Err(e) => {
-                log::error!("[auto_write] agency run_role_task failed: {}", e);
-                let _ = app_handle_clone.emit(&format!("auto-write-error-{}", task_id_clone), e);
+                let msg = format!("[auto_write] agency run_role_task failed: {}", e);
+                log::error!("{}", msg);
+                let _ = app_handle_clone.emit(
+                    &format!("auto-write-error-{}", task_id_clone),
+                    AppError::internal(msg),
+                );
             }
         }
 
@@ -407,6 +382,34 @@ fn get_revision_instruction(revision_type: &str) -> &'static str {
         "dialogue" => "让人物对话更生动立体，加入动作神态描写，避免干巴巴的对话。",
         "description" => "增加感官细节，让画面更具体可感，调动读者的五感。",
         _ => "综合以上所有方面进行全面修改，提升整体质量。",
+    }
+}
+
+/// 构建自动修改任务描述
+fn build_revise_task_description(
+    scope: &str,
+    target_text: &str,
+    story_id: &str,
+    chapter_id: Option<&str>,
+    revision_type: &str,
+) -> String {
+    let revision_instruction = get_revision_instruction(revision_type);
+    if scope == "selection" {
+        format!(
+            "请修订以下选中文本：\n{}\n该文本来自故事 {} 第 {} 章。修改要求：{}。请输出修改后的完整文本。",
+            target_text,
+            story_id,
+            chapter_id.unwrap_or("未知"),
+            revision_instruction
+        )
+    } else {
+        format!(
+            "请修订故事 {} 第 {} 章（scope={}）。修改要求：{}。请输出修改后的完整文本。",
+            story_id,
+            chapter_id.unwrap_or("未知"),
+            scope,
+            revision_instruction
+        )
     }
 }
 
@@ -507,7 +510,7 @@ pub async fn auto_revise(
         if target_text.is_empty() {
             let _ = app_handle_clone.emit(
                 &format!("auto-revise-error-{}", task_id_clone),
-                "目标文本为空".to_string(),
+                AppError::internal("目标文本为空".to_string()),
             );
             return;
         }
@@ -523,13 +526,12 @@ pub async fn auto_revise(
             },
         );
 
-        let revision_instruction = get_revision_instruction(&revision_type);
-        let task_description = format!(
-            "审阅并修订故事 {} 第 {} 章（scope={}）。修改要求：{}。请输出修改后的完整文本。",
-            story_id,
-            chapter_id.as_deref().unwrap_or("未知"),
-            scope,
-            revision_instruction
+        let task_description = build_revise_task_description(
+            &scope,
+            &target_text,
+            &story_id,
+            chapter_id.as_deref(),
+            &revision_type,
         );
 
         let pool = app_handle_clone.state::<DbPool>();
@@ -590,8 +592,12 @@ pub async fn auto_revise(
                 );
             }
             Err(e) => {
-                log::error!("[auto_revise] agency run_role_task failed: {}", e);
-                let _ = app_handle_clone.emit(&format!("auto-revise-error-{}", task_id_clone), e);
+                let msg = format!("[auto_revise] agency run_role_task failed: {}", e);
+                log::error!("{}", msg);
+                let _ = app_handle_clone.emit(
+                    &format!("auto-revise-error-{}", task_id_clone),
+                    AppError::internal(msg),
+                );
             }
         }
 
@@ -885,4 +891,115 @@ pub(crate) async fn build_agent_context(
     //（参见 auto_write、auto_revise 等调用点）
 
     Ok(context)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn auto_write_request_deserialization() {
+        let value = json!({
+            "story_id": "story-1",
+            "chapter_id": "chapter-1",
+            "target_chars": 1000,
+            "chars_per_loop": 200,
+            "reference_text": "参考",
+            "style_weight": 80
+        });
+        let req: AutoWriteRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(req.story_id, "story-1");
+        assert_eq!(req.chapter_id, "chapter-1");
+        assert_eq!(req.target_chars, 1000);
+        assert_eq!(req.chars_per_loop, 200);
+        assert_eq!(req.reference_text, Some("参考".to_string()));
+        assert_eq!(req.style_weight, 80);
+    }
+
+    #[test]
+    fn auto_write_request_uses_default_style_weight() {
+        let value = json!({
+            "story_id": "story-1",
+            "chapter_id": "chapter-1",
+            "target_chars": 1000,
+            "chars_per_loop": 200
+        });
+        let req: AutoWriteRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(req.style_weight, 50);
+    }
+
+    #[test]
+    fn auto_revise_request_deserialization() {
+        let value = json!({
+            "story_id": "story-1",
+            "chapter_id": "chapter-1",
+            "scope": "selection",
+            "selected_text": "选中段落",
+            "revision_type": "style"
+        });
+        let req: AutoReviseRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(req.story_id, "story-1");
+        assert_eq!(req.chapter_id, Some("chapter-1".to_string()));
+        assert_eq!(req.scope, "selection");
+        assert_eq!(req.selected_text, Some("选中段落".to_string()));
+        assert_eq!(req.revision_type, "style");
+    }
+
+    #[test]
+    fn auto_write_response_serializes() {
+        let resp = AutoWriteResponse {
+            task_id: "task-1".to_string(),
+            actual_chars: 500,
+            loops: 2,
+            status: "completed".to_string(),
+        };
+        let value = serde_json::to_value(&resp).unwrap();
+        assert_eq!(value["task_id"], "task-1");
+        assert_eq!(value["actual_chars"], 500);
+        assert_eq!(value["loops"], 2);
+        assert_eq!(value["status"], "completed");
+    }
+
+    #[test]
+    fn auto_revise_response_serializes() {
+        let resp = AutoReviseResponse {
+            task_id: "task-1".to_string(),
+            revised_text: "修订后文本".to_string(),
+            status: "completed".to_string(),
+        };
+        let value = serde_json::to_value(&resp).unwrap();
+        assert_eq!(value["task_id"], "task-1");
+        assert_eq!(value["revised_text"], "修订后文本");
+        assert_eq!(value["status"], "completed");
+    }
+
+    #[test]
+    fn revise_task_description_selection_includes_selected_text() {
+        let desc = build_revise_task_description(
+            "selection",
+            "选中段落",
+            "story-1",
+            Some("chapter-1"),
+            "style",
+        );
+        assert!(desc.contains("请修订以下选中文本"));
+        assert!(desc.contains("选中段落"));
+        assert!(desc.contains("story-1"));
+        assert!(desc.contains("chapter-1"));
+    }
+
+    #[test]
+    fn revise_task_description_chapter_uses_chapter_scope() {
+        let desc = build_revise_task_description(
+            "chapter",
+            "章节全文",
+            "story-1",
+            Some("chapter-1"),
+            "plot",
+        );
+        assert!(desc.contains("请修订故事 story-1 第 chapter-1 章"));
+        assert!(desc.contains("scope=chapter"));
+    }
 }
