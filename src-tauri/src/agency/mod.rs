@@ -20,3 +20,6 @@ pub mod tool_loop;
 pub mod tools;
 
 pub use models::*;
+
+#[cfg(test)]
+mod tests;
