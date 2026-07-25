@@ -10,7 +10,7 @@ use crate::{
     creative_engine::adapter::CreativeEngineAdapter,
     db::DbPool,
     domain::{
-        asset_snapshot::{ActiveConflict, CharacterStateSnapshot},
+        asset_snapshot::{ActiveConflict, AssetSnapshot, CharacterStateSnapshot},
         creative_engine::CreativeEnginePort,
     },
     error::AppError,
@@ -431,46 +431,56 @@ impl AgentTool for StoryInfoTool {
     ) -> Result<String, AppError> {
         let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
-        tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+        let info = tokio::task::spawn_blocking(move || -> Result<Option<(String, String, String)>, AppError> {
             let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
             let info = conn.query_row(
                 "SELECT title, COALESCE(genre, ''), COALESCE(description, '') FROM stories WHERE id = ?1",
                 rusqlite::params![story_id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
             ).optional().map_err(AppError::from)?;
-            match info {
-                Some((title, genre, desc)) => {
-                    let engine = CreativeEngineAdapter::new(pool);
-                    let snapshot = engine.load_asset_snapshot(&story_id, None);
-                    let hints = engine.get_foreshadowing_hints(&story_id, 10)?;
+            Ok(info)
+        }).await
+            .map_err(|e| AppError::from(format!("story_info join error: {}", e)))??;
 
-                    let mut out = format!("标题: {}\n类型: {}\n简介: {}", title, genre, desc);
-                    out.push_str("\n\n创作上下文：");
-                    out.push_str(&format!(
-                        "\n叙事阶段: {}",
-                        snapshot.narrative_phase_guidance.as_deref().unwrap_or("无")
-                    ));
-                    out.push_str(&format!(
-                        "\n风格 DNA: {}",
-                        snapshot.style_dna_summary.as_deref().unwrap_or("无")
-                    ));
-                    if hints.is_empty() {
-                        out.push_str("\n伏笔提示: 无");
-                    } else {
-                        out.push_str("\n伏笔提示:\n");
-                        out.push_str(
-                            &hints
-                                .iter()
-                                .map(|h| format!("- {}", h))
-                                .collect::<Vec<_>>()
-                                .join("\n"),
-                        );
-                    }
-                    Ok(out)
+        match info {
+            Some((title, genre, desc)) => {
+                let context = CreativeContextTool.load_context(ctx, 1).await?;
+
+                let mut out = format!("标题: {}\n类型: {}\n简介: {}", title, genre, desc);
+                out.push_str("\n\n创作上下文：");
+                out.push_str(&format!(
+                    "\n叙事阶段: {}",
+                    context
+                        .asset_snapshot
+                        .narrative_phase_guidance
+                        .as_deref()
+                        .unwrap_or("无")
+                ));
+                out.push_str(&format!(
+                    "\n风格 DNA: {}",
+                    context
+                        .asset_snapshot
+                        .style_dna_summary
+                        .as_deref()
+                        .unwrap_or("无")
+                ));
+                if context.foreshadowing_hints.is_empty() {
+                    out.push_str("\n伏笔提示: 无");
+                } else {
+                    out.push_str("\n伏笔提示:\n");
+                    out.push_str(
+                        &context
+                            .foreshadowing_hints
+                            .iter()
+                            .map(|h| format!("- {}", h))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    );
                 }
-                None => Ok("（故事尚未创建）".to_string()),
+                Ok(out)
             }
-        }).await.map_err(|e| AppError::from(format!("story_info join error: {}", e)))?
+            None => Ok("（故事尚未创建）".to_string()),
+        }
     }
 }
 
@@ -498,53 +508,73 @@ impl AgentTool for AssetQueryTool {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
-        tokio::task::spawn_blocking(move || -> Result<String, AppError> {
-            let engine = CreativeEngineAdapter::new(pool.clone());
-            let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
-            let out = match kind.as_str() {
-                "characters" => {
-                    let snapshot = engine.load_asset_snapshot(&story_id, None);
-                    let formatted = format_character_states(&snapshot.character_states);
-                    if formatted == "无" {
-                        "（资产库无角色）".to_string()
-                    } else {
-                        formatted
+
+        match kind.as_str() {
+            "characters" => {
+                let context = CreativeContextTool.load_context(ctx, 1).await?;
+                let formatted = format_character_states(&context.asset_snapshot.character_states);
+                Ok(if formatted == "无" {
+                    "（资产库无角色）".to_string()
+                } else {
+                    formatted
+                })
+            }
+            "world" => {
+                let context = CreativeContextTool.load_context(ctx, 1).await?;
+                let has_context = context.asset_snapshot.narrative_phase_guidance.is_some()
+                    || !context.asset_snapshot.active_conflicts.is_empty();
+                if has_context {
+                    let mut parts = Vec::new();
+                    if let Some(ref guidance) = context.asset_snapshot.narrative_phase_guidance {
+                        parts.push(format!("叙事阶段指引: {}", guidance));
                     }
+                    if !context.asset_snapshot.active_conflicts.is_empty() {
+                        parts.push(format!(
+                            "活跃冲突:\n{}",
+                            format_active_conflicts(&context.asset_snapshot.active_conflicts)
+                        ));
+                    }
+                    Ok(parts.join("\n\n"))
+                } else {
+                    let pool = ctx.pool.clone();
+                    tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+                        let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                        Ok(conn
+                            .query_row(
+                                "SELECT concept, COALESCE(history,'') FROM world_buildings WHERE story_id = ?1",
+                                rusqlite::params![story_id],
+                                |r| Ok(format!("概念: {}\n历史: {}", r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                            )
+                            .optional()?
+                            .unwrap_or_else(|| "（资产库无世界观）".to_string()))
+                    })
+                    .await
+                    .map_err(|e| AppError::from(format!("asset_query join error: {}", e)))?
                 }
-                "world" => {
-                    let snapshot = engine.load_asset_snapshot(&story_id, None);
-                    let has_context = snapshot.narrative_phase_guidance.is_some()
-                        || !snapshot.active_conflicts.is_empty();
-                    if has_context {
-                        let mut parts = Vec::new();
-                        if let Some(ref guidance) = snapshot.narrative_phase_guidance {
-                            parts.push(format!("叙事阶段指引: {}", guidance));
-                        }
-                        if !snapshot.active_conflicts.is_empty() {
-                            parts.push(format!(
-                                "活跃冲突:\n{}",
-                                format_active_conflicts(&snapshot.active_conflicts)
-                            ));
-                        }
-                        parts.join("\n\n")
-                    } else {
-                        conn.query_row(
-                            "SELECT concept, COALESCE(history,'') FROM world_buildings WHERE story_id = ?1",
+            }
+            "outline" => {
+                let pool = ctx.pool.clone();
+                tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+                    let conn = pool
+                        .get()
+                        .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                    Ok(conn
+                        .query_row(
+                            "SELECT content FROM story_outlines WHERE story_id = ?1",
                             rusqlite::params![story_id],
-                            |r| Ok(format!("概念: {}\n历史: {}", r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-                        ).optional()?.unwrap_or_else(|| "（资产库无世界观）".to_string())
-                    }
-                }
-                "outline" => {
-                    conn.query_row(
-                        "SELECT content FROM story_outlines WHERE story_id = ?1",
-                        rusqlite::params![story_id],
-                        |r| r.get::<_, String>(0),
-                    ).optional()?.unwrap_or_else(|| "（资产库无大纲）".to_string())
-                }
-                "scenes" => {
+                            |r| r.get::<_, String>(0),
+                        )
+                        .optional()?
+                        .unwrap_or_else(|| "（资产库无大纲）".to_string()))
+                })
+                .await
+                .map_err(|e| AppError::from(format!("asset_query join error: {}", e)))?
+            }
+            "scenes" => {
+                let pool = ctx.pool.clone();
+                tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+                    let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
                     let mut stmt = conn.prepare(
                         "SELECT sequence_number, COALESCE(title,''), substr(COALESCE(content,''),1,200)
                          FROM scenes WHERE story_id = ?1 ORDER BY sequence_number DESC LIMIT 5")?;
@@ -552,16 +582,54 @@ impl AgentTool for AssetQueryTool {
                         Ok(format!("- 第{}场 {}: {}…", r.get::<_, i32>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
                     })?.collect::<Result<_, _>>()?;
                     rows.reverse(); // 恢复时间序
-                    if rows.is_empty() { "（尚无场景）".to_string() } else { rows.join("\n") }
-                }
-                other => return Ok(format!("非法 kind: {}，可选 characters|world|outline|scenes", other)),
-            };
-            Ok(out)
-        }).await.map_err(|e| AppError::from(format!("asset_query join error: {}", e)))?
+                    Ok(if rows.is_empty() { "（尚无场景）".to_string() } else { rows.join("\n") })
+                })
+                .await
+                .map_err(|e| AppError::from(format!("asset_query join error: {}", e)))?
+            }
+            other => Ok(format!(
+                "非法 kind: {}，可选 characters|world|outline|scenes",
+                other
+            )),
+        }
     }
 }
 
+/// 从 `CreativeContextTool` 提取的结构化创作上下文。
+/// `StoryInfoTool` / `AssetQueryTool` 通过它复用同一套引擎加载逻辑。
+pub struct CreativeContext {
+    pub asset_snapshot: AssetSnapshot,
+    pub foreshadowing_hints: Vec<String>,
+    pub bundle_prompt: String,
+}
+
 pub struct CreativeContextTool;
+
+impl CreativeContextTool {
+    /// 加载当前故事的创作上下文，供本工具及其他工具复用。
+    pub async fn load_context(
+        &self,
+        ctx: &ToolContext,
+        chapter_number: i32,
+    ) -> Result<CreativeContext, AppError> {
+        let pool = ctx.pool.clone();
+        let story_id = ctx.story_id.clone();
+        tokio::task::spawn_blocking(move || -> Result<CreativeContext, AppError> {
+            let engine = CreativeEngineAdapter::new(pool);
+            let asset_snapshot = engine.load_asset_snapshot(&story_id, None);
+            let foreshadowing_hints = engine.get_foreshadowing_hints(&story_id, 10)?;
+            let bundle = engine.load_write_time_bundle(&story_id, chapter_number, None, None)?;
+            let bundle_prompt = bundle.to_prompt();
+            Ok(CreativeContext {
+                asset_snapshot,
+                foreshadowing_hints,
+                bundle_prompt,
+            })
+        })
+        .await
+        .map_err(|e| AppError::from(format!("load_context join error: {}", e)))?
+    }
+}
 
 #[async_trait::async_trait]
 impl AgentTool for CreativeContextTool {
@@ -584,81 +652,83 @@ impl AgentTool for CreativeContextTool {
             .get("chapter_number")
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32;
-        let pool = ctx.pool.clone();
-        let story_id = ctx.story_id.clone();
-        tokio::task::spawn_blocking(move || -> Result<String, AppError> {
-            let engine = CreativeEngineAdapter::new(pool);
-            let snapshot = engine.load_asset_snapshot(&story_id, None);
-            let foreshadowing_hints = engine.get_foreshadowing_hints(&story_id, 10)?;
-            let bundle = engine.load_write_time_bundle(&story_id, chapter_number, None, None)?;
-            let bundle_prompt = bundle.to_prompt();
-            let preview_chars: String = bundle_prompt.chars().take(2000).collect();
-            let preview = if bundle_prompt.chars().count() > 2000 {
-                format!("{}...(已截断)", preview_chars)
-            } else {
-                preview_chars
-            };
+        let context = self.load_context(ctx, chapter_number).await?;
 
-            let mut sections = Vec::new();
-            sections.push(format!(
-                "叙事阶段指引: {}",
-                snapshot.narrative_phase_guidance.as_deref().unwrap_or("无")
-            ));
-            sections.push(format!(
-                "风格 DNA: {}",
-                snapshot.style_dna_summary.as_deref().unwrap_or("无")
-            ));
-            sections.push(format!(
-                "待回收伏笔:\n{}",
-                if snapshot.pending_foreshadowings.is_empty() {
-                    "无".to_string()
-                } else {
-                    snapshot
-                        .pending_foreshadowings
-                        .iter()
-                        .map(|s| format!("- {}", s))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                }
-            ));
-            sections.push(format!(
-                "逾期伏笔:\n{}",
-                if snapshot.overdue_foreshadowings.is_empty() {
-                    "无".to_string()
-                } else {
-                    snapshot
-                        .overdue_foreshadowings
-                        .iter()
-                        .map(|s| format!("- {}", s))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                }
-            ));
-            sections.push(format!(
-                "角色状态:\n{}",
-                format_character_states(&snapshot.character_states)
-            ));
-            sections.push(format!(
-                "活跃冲突:\n{}",
-                format_active_conflicts(&snapshot.active_conflicts)
-            ));
-            sections.push(format!(
-                "伏笔提示:\n{}",
-                if foreshadowing_hints.is_empty() {
-                    "无".to_string()
-                } else {
-                    foreshadowing_hints
-                        .iter()
-                        .map(|s| format!("- {}", s))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                }
-            ));
-            sections.push(format!("写作时间束提示:\n{}", preview));
-            Ok(sections.join("\n\n"))
-        })
-        .await
-        .map_err(|e| AppError::from(format!("creative_context join error: {}", e)))?
+        let preview_chars: String = context.bundle_prompt.chars().take(2000).collect();
+        let preview = if context.bundle_prompt.chars().count() > 2000 {
+            format!("{}...(已截断)", preview_chars)
+        } else {
+            preview_chars
+        };
+
+        let mut sections = Vec::new();
+        sections.push(format!(
+            "叙事阶段指引: {}",
+            context
+                .asset_snapshot
+                .narrative_phase_guidance
+                .as_deref()
+                .unwrap_or("无")
+        ));
+        sections.push(format!(
+            "风格 DNA: {}",
+            context
+                .asset_snapshot
+                .style_dna_summary
+                .as_deref()
+                .unwrap_or("无")
+        ));
+        sections.push(format!(
+            "待回收伏笔:\n{}",
+            if context.asset_snapshot.pending_foreshadowings.is_empty() {
+                "无".to_string()
+            } else {
+                context
+                    .asset_snapshot
+                    .pending_foreshadowings
+                    .iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        ));
+        sections.push(format!(
+            "逾期伏笔:\n{}",
+            if context.asset_snapshot.overdue_foreshadowings.is_empty() {
+                "无".to_string()
+            } else {
+                context
+                    .asset_snapshot
+                    .overdue_foreshadowings
+                    .iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        ));
+        sections.push(format!(
+            "角色状态:\n{}",
+            format_character_states(&context.asset_snapshot.character_states)
+        ));
+        sections.push(format!(
+            "活跃冲突:\n{}",
+            format_active_conflicts(&context.asset_snapshot.active_conflicts)
+        ));
+        sections.push(format!(
+            "伏笔提示:\n{}",
+            if context.foreshadowing_hints.is_empty() {
+                "无".to_string()
+            } else {
+                context
+                    .foreshadowing_hints
+                    .iter()
+                    .map(|s| format!("- {}", s))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        ));
+        sections.push(format!("写作时间束提示:\n{}", preview));
+        Ok(sections.join("\n\n"))
     }
 }
 
@@ -1002,6 +1072,80 @@ mod tests {
             .await
             .unwrap();
         assert!(bad.contains("非法 kind"));
+    }
+
+    #[tokio::test]
+    async fn test_story_info_includes_creative_context() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "创作上下文信息".into(),
+                description: Some("测试".into()),
+                genre: Some("科幻".into()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let registry = ToolRegistry::agency_default();
+        let mut context = ctx(pool, AgentRole::LeadWriter);
+        context.story_id = story.id.clone();
+        let tool = registry
+            .get_for_role(AgentRole::LeadWriter, "story_info")
+            .unwrap();
+        let out = tool.execute(&context, serde_json::json!({})).await.unwrap();
+        assert!(
+            out.contains("创作上下文："),
+            "应包含创作上下文标题: {}",
+            out
+        );
+        assert!(out.contains("叙事阶段:"), "应包含叙事阶段: {}", out);
+        assert!(out.contains("伏笔提示"), "应包含伏笔提示: {}", out);
+    }
+
+    #[tokio::test]
+    async fn test_asset_query_characters_snapshot_format() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "资产书2".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+                 VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO character_states (id, story_id, character_id, current_location, current_emotion, active_goal, secrets_known, secrets_unknown, arc_progress, last_updated)
+                 VALUES ('cs1', ?1, 'c1', '星环废墟', '疲惫', '找到水源', '[]', '[]', 0.1, '2026-01-01')",
+                rusqlite::params![story.id],
+            ).unwrap();
+        }
+        let registry = ToolRegistry::agency_default();
+        let mut context = ctx(pool, AgentRole::LeadWriter);
+        context.story_id = story.id.clone();
+        let tool = registry
+            .get_for_role(AgentRole::LeadWriter, "asset_query")
+            .unwrap();
+        let out = tool
+            .execute(&context, serde_json::json!({"kind": "characters"}))
+            .await
+            .unwrap();
+        assert!(
+            out.contains("阿苔 | 位置: 星环废墟 | 情绪: 疲惫 | 目标: 找到水源"),
+            "应返回快照格式角色状态: {}",
+            out
+        );
     }
 
     #[tokio::test]
