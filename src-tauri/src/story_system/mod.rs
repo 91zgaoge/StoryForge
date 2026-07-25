@@ -17,6 +17,7 @@ pub mod chapter_splitter;
 pub mod commit_service;
 pub mod contract_builder;
 pub mod contract_service;
+pub mod foreshadowing_service;
 pub mod fulfillment_checker;
 pub mod mini_review;
 pub mod preflight;

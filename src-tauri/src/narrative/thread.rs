@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 // Re-export from existing db models
 use crate::db::ConflictType;
+use crate::domain::foreshadowing::ForeshadowingStatus;
 
 /// 伏笔状态 — 与 db models 中的 ForeshadowingStatus 对齐（避免重复定义）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +27,31 @@ pub enum ForeshadowStatus {
 impl Default for ForeshadowStatus {
     fn default() -> Self {
         ForeshadowStatus::Setup
+    }
+}
+
+impl From<ForeshadowingStatus> for ForeshadowStatus {
+    fn from(status: ForeshadowingStatus) -> Self {
+        match status {
+            ForeshadowingStatus::Setup => ForeshadowStatus::Setup,
+            ForeshadowingStatus::Payoff => ForeshadowStatus::Payoff,
+            ForeshadowingStatus::Abandoned => ForeshadowStatus::Abandoned,
+        }
+    }
+}
+
+impl From<ForeshadowStatus> for ForeshadowingStatus {
+    fn from(status: ForeshadowStatus) -> Self {
+        match status {
+            ForeshadowStatus::Setup
+            | ForeshadowStatus::Pending
+            | ForeshadowStatus::Hinted
+            | ForeshadowStatus::Overdue => ForeshadowingStatus::Setup,
+            ForeshadowStatus::Payoff | ForeshadowStatus::PaidOff => ForeshadowingStatus::Payoff,
+            ForeshadowStatus::Abandoned | ForeshadowStatus::Failed => {
+                ForeshadowingStatus::Abandoned
+            }
+        }
     }
 }
 

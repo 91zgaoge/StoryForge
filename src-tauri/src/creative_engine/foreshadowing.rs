@@ -1,26 +1,30 @@
 #![allow(dead_code)]
 //! Foreshadowing Tracker - 伏笔追踪系统
 //!
-//! 追踪故事中的伏笔（setup）和回收（payoff），
-//! 在写作时提醒作者回收未解伏笔。
-
-use chrono::Local;
-use rusqlite::params;
-use uuid::Uuid;
+//! 追踪故事中的伏笔（setup）和回收（payoff），在写作时提醒作者回收未解伏笔。
+//!
+//! v0.31.x 重构：本模块现在是一个薄包装，所有实际读写逻辑委托给
+//! `story_system::ForeshadowingService`，后者是伏笔 / 线索 /
+//! 回报模型的单一真源。
 
 use crate::{
     db::DbPool,
-    domain::foreshadowing::{ForeshadowingProvider, ForeshadowingRecord, ForeshadowingStatus},
+    domain::foreshadowing::{ForeshadowingProvider, ForeshadowingRecord, ForeshadowingService},
+    story_system::foreshadowing_service::ForeshadowingServiceImpl,
 };
 
 /// 伏笔追踪器
+///
+/// 保持原有公开 API，内部委托给 `story_system::ForeshadowingService`。
 pub struct ForeshadowingTracker {
-    pool: DbPool,
+    service: ForeshadowingServiceImpl,
 }
 
 impl ForeshadowingTracker {
     pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+        Self {
+            service: ForeshadowingServiceImpl::new(pool),
+        }
     }
 
     /// 添加新伏笔
@@ -31,30 +35,9 @@ impl ForeshadowingTracker {
         setup_scene_id: Option<&str>,
         importance: i32,
     ) -> Result<String, String> {
-        let id = Uuid::new_v4().to_string();
-        let now = Local::now().to_rfc3339();
-
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        conn.execute(
-            "INSERT INTO foreshadowing_tracker (id, story_id, content, setup_scene_id, status, \
-             importance, created_at)
-             VALUES (?1, ?2, ?3, ?4, 'setup', ?5, ?6)",
-            params![
-                &id,
-                story_id,
-                content,
-                setup_scene_id,
-                importance.clamp(1, 10),
-                now
-            ],
-        )
-        .map_err(|e| format!("插入伏笔失败: {}", e))?;
-
-        Ok(id)
+        self.service
+            .create(story_id, content, setup_scene_id, importance)
+            .map_err(|e| e.to_string())
     }
 
     /// 标记伏笔为已回收
@@ -63,39 +46,16 @@ impl ForeshadowingTracker {
         foreshadowing_id: &str,
         payoff_scene_id: Option<&str>,
     ) -> Result<(), String> {
-        let now = Local::now().to_rfc3339();
-
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        conn.execute(
-            "UPDATE foreshadowing_tracker SET status = 'payoff', payoff_scene_id = ?2, \
-             resolved_at = ?3 WHERE id = ?1",
-            params![foreshadowing_id, payoff_scene_id, now],
-        )
-        .map_err(|e| format!("更新伏笔状态失败: {}", e))?;
-
-        Ok(())
+        self.service
+            .mark_payoff(foreshadowing_id, payoff_scene_id)
+            .map_err(|e| e.to_string())
     }
 
     /// 放弃伏笔
     pub fn abandon(&self, foreshadowing_id: &str) -> Result<(), String> {
-        let now = Local::now().to_rfc3339();
-
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        conn.execute(
-            "UPDATE foreshadowing_tracker SET status = 'abandoned', resolved_at = ?2 WHERE id = ?1",
-            params![foreshadowing_id, now],
-        )
-        .map_err(|e| format!("放弃伏笔失败: {}", e))?;
-
-        Ok(())
+        self.service
+            .abandon(foreshadowing_id)
+            .map_err(|e| e.to_string())
     }
 
     /// v0.30.16: 编辑伏笔内容/重要性/设置场景（保留 status/payoff/resolved_at
@@ -107,164 +67,97 @@ impl ForeshadowingTracker {
         importance: i32,
         setup_scene_id: Option<&str>,
     ) -> Result<(), String> {
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        conn.execute(
-            "UPDATE foreshadowing_tracker SET content = ?2, importance = ?3, setup_scene_id = ?4 \
-             WHERE id = ?1",
-            params![
-                foreshadowing_id,
-                content,
-                importance.clamp(1, 10),
-                setup_scene_id
-            ],
-        )
-        .map_err(|e| format!("更新伏笔失败: {}", e))?;
-
-        Ok(())
+        self.service
+            .update(foreshadowing_id, content, importance, setup_scene_id)
+            .map_err(|e| e.to_string())
     }
 
     /// v0.30.16: 删除伏笔
     pub fn delete_foreshadowing(&self, foreshadowing_id: &str) -> Result<(), String> {
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        conn.execute(
-            "DELETE FROM foreshadowing_tracker WHERE id = ?1",
-            params![foreshadowing_id],
-        )
-        .map_err(|e| format!("删除伏笔失败: {}", e))?;
-
-        Ok(())
+        self.service
+            .delete(foreshadowing_id)
+            .map_err(|e| e.to_string())
     }
 
     /// 获取故事中未回收的伏笔
     pub fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, String> {
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status, \
-                 importance, created_at, resolved_at
-             FROM foreshadowing_tracker WHERE story_id = ?1 AND status = 'setup'
-             ORDER BY importance DESC, created_at ASC",
-            )
-            .map_err(|e| format!("准备查询失败: {}", e))?;
-
-        let records = stmt
-            .query_map([story_id], |row| {
-                let status_str: String = row.get(5)?;
-                let status = match status_str.as_str() {
-                    "setup" => ForeshadowingStatus::Setup,
-                    "payoff" => ForeshadowingStatus::Payoff,
-                    "abandoned" => ForeshadowingStatus::Abandoned,
-                    _ => ForeshadowingStatus::Setup,
-                };
-
-                Ok(ForeshadowingRecord {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    content: row.get(2)?,
-                    setup_scene_id: row.get(3)?,
-                    payoff_scene_id: row.get(4)?,
-                    status,
-                    importance: row.get(6)?,
-                    created_at: row.get(7)?,
-                    setup_event_id: None,
-                    payoff_event_id: None,
-                    risk_signals_score: None,
-                    resolved_at: row.get(8)?,
-                })
-            })
-            .map_err(|e| format!("查询失败: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("映射失败: {}", e))?;
-
-        Ok(records)
+        self.service
+            .get_unresolved(story_id)
+            .map_err(|e| e.to_string())
     }
 
     /// 获取所有伏笔（用于幕后看板）
     pub fn get_all(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, String> {
-        let conn = self
-            .pool
-            .get()
-            .map_err(|e| format!("获取连接失败: {}", e))?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status, \
-                 importance, created_at, resolved_at
-             FROM foreshadowing_tracker WHERE story_id = ?1
-             ORDER BY importance DESC, created_at ASC",
-            )
-            .map_err(|e| format!("准备查询失败: {}", e))?;
-
-        let records = stmt
-            .query_map([story_id], |row| {
-                let status_str: String = row.get(5)?;
-                let status = match status_str.as_str() {
-                    "setup" => ForeshadowingStatus::Setup,
-                    "payoff" => ForeshadowingStatus::Payoff,
-                    "abandoned" => ForeshadowingStatus::Abandoned,
-                    _ => ForeshadowingStatus::Setup,
-                };
-
-                Ok(ForeshadowingRecord {
-                    id: row.get(0)?,
-                    story_id: row.get(1)?,
-                    content: row.get(2)?,
-                    setup_scene_id: row.get(3)?,
-                    payoff_scene_id: row.get(4)?,
-                    status,
-                    importance: row.get(6)?,
-                    created_at: row.get(7)?,
-                    setup_event_id: None,
-                    payoff_event_id: None,
-                    risk_signals_score: None,
-                    resolved_at: row.get(8)?,
-                })
-            })
-            .map_err(|e| format!("查询失败: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("映射失败: {}", e))?;
-
-        Ok(records)
+        self.service
+            .list_by_story(story_id)
+            .map_err(|e| e.to_string())
     }
 
     /// 获取写作时的轻量提示文本
     pub fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, String> {
-        let unresolved = self.get_unresolved(story_id)?;
-        let hints: Vec<String> = unresolved
-            .into_iter()
-            .take(limit)
-            .map(|r| {
-                let importance_marker = match r.importance {
-                    8..=10 => "【关键】",
-                    5..=7 => "【重要】",
-                    _ => "【次要】",
-                };
-                format!("{} 未回收伏笔: {}", importance_marker, r.content)
-            })
-            .collect();
-        Ok(hints)
+        self.service
+            .get_writing_hints(story_id, limit)
+            .map_err(|e| e.to_string())
     }
 }
 
 impl ForeshadowingProvider for ForeshadowingTracker {
-    fn get_all(
+    fn list_by_story(
         &self,
         story_id: &str,
-    ) -> Result<Vec<ForeshadowingRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        self.get_all(story_id)
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as _)
+    ) -> Result<Vec<ForeshadowingRecord>, crate::error::AppError> {
+        self.service.list_by_story(story_id)
+    }
+
+    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, crate::error::AppError> {
+        self.service.get_by_id(id)
+    }
+
+    fn get_unresolved(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<ForeshadowingRecord>, crate::error::AppError> {
+        self.service.get_unresolved(story_id)
+    }
+
+    fn get_overdue(
+        &self,
+        story_id: &str,
+        current_scene_number: i32,
+    ) -> Result<Vec<ForeshadowingRecord>, crate::error::AppError> {
+        self.service.get_overdue(story_id, current_scene_number)
+    }
+
+    fn get_writing_hints(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, crate::error::AppError> {
+        self.service.get_writing_hints(story_id, limit)
+    }
+
+    fn detect_payoffs(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<crate::domain::foreshadowing::Payoff>, crate::error::AppError> {
+        self.service.detect_payoffs(story_id)
+    }
+
+    fn recommend_payoffs(
+        &self,
+        story_id: &str,
+        current_scene_number: i32,
+    ) -> Result<Vec<crate::domain::foreshadowing::PayoffRecommendation>, crate::error::AppError>
+    {
+        self.service
+            .recommend_payoffs(story_id, current_scene_number)
+    }
+
+    fn get_ledger(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<crate::domain::foreshadowing::PayoffLedgerItem>, crate::error::AppError> {
+        self.service.get_ledger(story_id)
     }
 }
 
@@ -274,14 +167,13 @@ impl crate::domain::creative_engine::ForeshadowingPort for ForeshadowingTracker 
         story_id: &str,
         limit: usize,
     ) -> Result<Vec<String>, crate::error::AppError> {
-        self.get_writing_hints(story_id, limit)
-            .map_err(crate::error::AppError::from)
+        self.service.get_writing_hints(story_id, limit)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::domain::foreshadowing::ForeshadowingStatus;
 
     #[test]
     fn test_foreshadowing_status_display() {

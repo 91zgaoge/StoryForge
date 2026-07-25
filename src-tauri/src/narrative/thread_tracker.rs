@@ -4,11 +4,12 @@
 //! 基于叙事事件自动推断三种叙事线索：
 //! 1. 人物弧光线（CharacterArcThread）— 从 character_arc 事件推断
 //! 2. 伏笔线（ForeshadowThread）— 从 foreshadow_setup/payoff 事件推断，与
-//!    PayoffLedger 联动
+//!    ForeshadowingService / PayoffLedger 联动
 //! 3. 冲突升级线（ConflictEscalationThread）— 从 conflict_eruption 事件推断
 
 use crate::{
     db::ConflictType,
+    domain::foreshadowing::{ForeshadowingProvider, ForeshadowingStatus},
     narrative::{
         event::{EventType, NarrativeEvent},
         thread::{
@@ -22,15 +23,24 @@ use crate::{
 pub struct ThreadTracker;
 
 impl ThreadTracker {
-    /// 从叙事事件集合推断所有叙事线索
+    /// 从叙事事件集合推断所有叙事线索（无真源服务时按事件语义推断）。
     pub fn infer_threads(events: &[NarrativeEvent]) -> Vec<NarrativeThread> {
+        Self::infer_threads_with_provider(events, None)
+    }
+
+    /// 从叙事事件集合推断所有叙事线索，并可选用 `ForeshadowingProvider`
+    ///  hydration 使伏笔线与单一真源对齐。
+    pub fn infer_threads_with_provider(
+        events: &[NarrativeEvent],
+        provider: Option<&dyn ForeshadowingProvider>,
+    ) -> Vec<NarrativeThread> {
         let mut threads = Vec::new();
 
         // 1. 推断人物弧光线
         threads.extend(Self::infer_character_arc_threads(events));
 
-        // 2. 推断伏笔线
-        threads.extend(Self::infer_foreshadow_threads(events));
+        // 2. 推断伏笔线（可注入真源状态）
+        threads.extend(Self::infer_foreshadow_threads(events, provider));
 
         // 3. 推断冲突升级线
         threads.extend(Self::infer_conflict_escalation_threads(events));
@@ -127,7 +137,10 @@ impl ThreadTracker {
 
     // ==================== 伏笔线推断 ====================
 
-    fn infer_foreshadow_threads(events: &[NarrativeEvent]) -> Vec<NarrativeThread> {
+    fn infer_foreshadow_threads(
+        events: &[NarrativeEvent],
+        provider: Option<&dyn ForeshadowingProvider>,
+    ) -> Vec<NarrativeThread> {
         let mut threads = Vec::new();
 
         // 收集所有 foreshadow_setup 和 foreshadow_payoff 事件
@@ -140,6 +153,24 @@ impl ThreadTracker {
             .filter(|e| e.event_type == EventType::ForeshadowPayoff)
             .collect();
 
+        // 若提供了真源服务，按 story_id 预读伏笔记录，用于 hydration。
+        let mut canonical_by_event: std::collections::HashMap<
+            String,
+            Vec<crate::domain::foreshadowing::ForeshadowingRecord>,
+        > = std::collections::HashMap::new();
+        if let Some(provider) = provider {
+            let story_ids: std::collections::HashSet<String> = events
+                .iter()
+                .filter(|e| e.event_type == EventType::ForeshadowSetup)
+                .map(|e| e.story_id.clone())
+                .collect();
+            for story_id in story_ids {
+                if let Ok(records) = provider.list_by_story(&story_id) {
+                    canonical_by_event.insert(story_id, records);
+                }
+            }
+        }
+
         // 为每个 setup 尝试匹配 payoff
         for setup in &setup_events {
             // 查找匹配的 payoff（描述相似或发生在同一章节附近）
@@ -149,7 +180,7 @@ impl ThreadTracker {
                     && Self::description_similarity(&setup.description, &payoff.description) > 0.3
             });
 
-            let status = if let Some(_payoff) = matched_payoff {
+            let mut status = if let Some(_payoff) = matched_payoff {
                 ForeshadowStatus::PaidOff
             } else {
                 // 检查是否逾期（超过10章未回收）
@@ -161,6 +192,27 @@ impl ThreadTracker {
                 }
             };
 
+            let mut canonical_id = format!("fw_{}", setup.id);
+            let mut content = setup.description.clone();
+
+            // 用真源记录修正 ID、内容与状态
+            if let Some(records) = canonical_by_event.get(&setup.story_id) {
+                if let Some(record) = records.iter().find(|r| {
+                    r.setup_event_id.as_deref() == Some(setup.id.as_str())
+                        || r.content == setup.description
+                }) {
+                    canonical_id = record.id.clone();
+                    content = record.content.clone();
+                    match record.status {
+                        ForeshadowingStatus::Payoff => status = ForeshadowStatus::PaidOff,
+                        ForeshadowingStatus::Abandoned => status = ForeshadowStatus::Failed,
+                        ForeshadowingStatus::Setup => {
+                            // 保持推断状态（Setup / Overdue）
+                        }
+                    }
+                }
+            }
+
             let risk_signals = if status == ForeshadowStatus::Overdue {
                 0.8
             } else if matched_payoff.is_none() {
@@ -170,11 +222,11 @@ impl ThreadTracker {
             };
 
             let thread = ForeshadowThread {
-                id: format!("fw_{}", setup.id),
+                id: canonical_id,
                 story_id: setup.story_id.clone(),
                 setup_event_id: Some(setup.id.clone()),
                 payoff_event_id: matched_payoff.map(|p| p.id.clone()),
-                content: setup.description.clone(),
+                content,
                 status,
                 setup_chapter: setup.chapter_number,
                 target_chapter: matched_payoff.map(|p| p.chapter_number),
@@ -284,5 +336,136 @@ impl ThreadTracker {
         }
 
         threads
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        domain::foreshadowing::{ForeshadowingProvider, ForeshadowingRecord, ForeshadowingStatus},
+        error::AppError,
+    };
+
+    struct StubProvider {
+        records: Vec<ForeshadowingRecord>,
+    }
+
+    impl ForeshadowingProvider for StubProvider {
+        fn list_by_story(&self, _story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+            Ok(self.records.clone())
+        }
+
+        fn get_by_id(&self, _id: &str) -> Result<Option<ForeshadowingRecord>, AppError> {
+            Ok(None)
+        }
+
+        fn get_unresolved(&self, _story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+            Ok(self
+                .records
+                .iter()
+                .filter(|r| !r.is_resolved())
+                .cloned()
+                .collect())
+        }
+
+        fn get_overdue(
+            &self,
+            _story_id: &str,
+            _current_scene_number: i32,
+        ) -> Result<Vec<ForeshadowingRecord>, AppError> {
+            Ok(vec![])
+        }
+
+        fn get_writing_hints(
+            &self,
+            _story_id: &str,
+            _limit: usize,
+        ) -> Result<Vec<String>, AppError> {
+            Ok(vec![])
+        }
+
+        fn detect_payoffs(
+            &self,
+            _story_id: &str,
+        ) -> Result<Vec<crate::domain::foreshadowing::Payoff>, AppError> {
+            Ok(vec![])
+        }
+
+        fn recommend_payoffs(
+            &self,
+            _story_id: &str,
+            _current_scene_number: i32,
+        ) -> Result<Vec<crate::domain::foreshadowing::PayoffRecommendation>, AppError> {
+            Ok(vec![])
+        }
+
+        fn get_ledger(
+            &self,
+            _story_id: &str,
+        ) -> Result<Vec<crate::domain::foreshadowing::PayoffLedgerItem>, AppError> {
+            Ok(vec![])
+        }
+    }
+
+    fn setup_event(id: &str, story_id: &str, chapter: i32, desc: &str) -> NarrativeEvent {
+        NarrativeEvent {
+            id: id.to_string(),
+            story_id: story_id.to_string(),
+            chapter_number: chapter,
+            scene_id: None,
+            event_type: EventType::ForeshadowSetup,
+            intensity: 0.5,
+            sentiment: 0.0,
+            description: desc.to_string(),
+            involved_character_ids: vec![],
+            conflict_types: vec![],
+            preceding_event_id: None,
+            following_event_id: None,
+            act_number: 1,
+            position_in_act: 1,
+            created_at: chrono::Local::now(),
+        }
+    }
+
+    #[test]
+    fn infer_threads_without_provider_keeps_event_inference() {
+        let events = vec![setup_event("e1", "s1", 2, "一把钥匙")];
+        let threads = ThreadTracker::infer_threads(&events);
+        assert_eq!(threads.len(), 1);
+        if let NarrativeThread::Foreshadow(t) = &threads[0] {
+            assert_eq!(t.id, "fw_e1");
+            assert_eq!(t.status, ForeshadowStatus::Setup);
+        } else {
+            panic!("expected foreshadow thread");
+        }
+    }
+
+    #[test]
+    fn infer_threads_with_provider_hydrates_status() {
+        let events = vec![setup_event("e1", "s1", 2, "一把钥匙")];
+        let provider = StubProvider {
+            records: vec![ForeshadowingRecord {
+                id: "fs-canonical".to_string(),
+                story_id: "s1".to_string(),
+                content: "一把钥匙".to_string(),
+                setup_scene_id: None,
+                payoff_scene_id: None,
+                setup_event_id: Some("e1".to_string()),
+                payoff_event_id: None,
+                risk_signals_score: None,
+                status: ForeshadowingStatus::Payoff,
+                importance: 8,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                resolved_at: None,
+            }],
+        };
+        let threads = ThreadTracker::infer_threads_with_provider(&events, Some(&provider));
+        if let NarrativeThread::Foreshadow(t) = &threads[0] {
+            assert_eq!(t.id, "fs-canonical");
+            assert_eq!(t.status, ForeshadowStatus::PaidOff);
+        } else {
+            panic!("expected foreshadow thread");
+        }
     }
 }

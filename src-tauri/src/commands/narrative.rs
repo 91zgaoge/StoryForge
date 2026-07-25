@@ -3,10 +3,13 @@
 //! 查询增强后的现有表：
 //! - analyze_narrative_structure → story_outlines.analyzed_structure_json
 //! - get_narrative_events → scenes.narrative_* 字段
-//! - get_narrative_threads → foreshadowing_tracker + character_states
+//! - get_narrative_threads → story_system::ForeshadowingService（单一真源）
 //! - get_narrative_chunks → narrative_chunks（物化缓存）
 
-use crate::{db::DbPool, error::AppError};
+use crate::{
+    db::DbPool, domain::foreshadowing::ForeshadowingProvider, error::AppError,
+    story_system::foreshadowing_service::ForeshadowingServiceImpl,
+};
 
 /// 获取故事的叙事结构分析（从 story_outlines.analyzed_structure_json）
 #[tauri::command]
@@ -74,27 +77,24 @@ pub async fn get_narrative_events(
     }
 }
 
-/// 获取故事的叙事线索（从 foreshadowing_tracker + character_states）
+/// 获取故事的叙事线索（从 story_system::ForeshadowingService 单一真源读取）
 #[tauri::command]
 pub async fn get_narrative_threads(
     story_id: String,
     state: tauri::State<'_, DbPool>,
 ) -> Result<serde_json::Value, AppError> {
-    use crate::creative_engine::foreshadowing::ForeshadowingTracker;
-
-    let tracker = ForeshadowingTracker::new(state.inner().clone());
+    let service = ForeshadowingServiceImpl::new(state.inner().clone());
     let mut threads = Vec::new();
 
     // 未回收的伏笔
-    if let Ok(unresolved) = tracker.get_unresolved(&story_id) {
-        for fs in unresolved {
-            threads.push(serde_json::json!({
-                "type": "foreshadow",
-                "content": fs.content,
-                "status": format!("{}", fs.status),
-                "risk_score": fs.risk_signals_score,
-            }));
-        }
+    let unresolved = service.get_unresolved(&story_id)?;
+    for fs in unresolved {
+        threads.push(serde_json::json!({
+            "type": "foreshadow",
+            "content": fs.content,
+            "status": format!("{}", fs.status),
+            "risk_score": fs.risk_signals_score,
+        }));
     }
 
     Ok(serde_json::json!({
