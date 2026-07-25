@@ -36,6 +36,17 @@ pub use crate::domain::contracts::{
     ChapterContract, ChapterDirective, ContractType, MasterSettingContract, RuntimeContract,
 };
 
+impl crate::domain::creative_engine::RuntimeContractProvider for StorySystemEngine {
+    fn get_runtime_contract(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<RuntimeContract, crate::error::AppError> {
+        self.get_runtime_contract(story_id, chapter_number)
+            .map_err(crate::error::AppError::from)
+    }
+}
+
 // ==================== 测试 ====================
 
 #[cfg(test)]

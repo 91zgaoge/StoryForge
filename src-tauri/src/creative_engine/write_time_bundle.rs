@@ -17,6 +17,8 @@
 //
 // 数据类型已迁移到 `crate::domain::write_time_bundle` 以保持中性；
 // 本模块仅保留 I/O 加载与 prompt 渲染行为实现。
+use std::sync::Arc;
+
 pub use crate::domain::write_time_bundle::*;
 use crate::{
     creative_engine::asset_snapshot::CreativeAssetSnapshot,
@@ -26,7 +28,6 @@ use crate::{
         StyleDnaRepository,
     },
     domain::narrative_elements::SceneElement,
-    story_system::StorySystemEngine,
 };
 
 // ==================== 加载 ====================
@@ -42,6 +43,7 @@ impl WriteTimeBundle {
         chapter_number: i32,
         style_slice_override: Option<String>,
         secondary_genre_profile_ids: Option<Vec<String>>,
+        contract_provider: Option<Arc<dyn crate::domain::creative_engine::RuntimeContractProvider>>,
     ) -> Result<Self, String> {
         // 1. 故事元信息
         let story_repo = crate::db::StoryRepository::new(pool.clone());
@@ -76,19 +78,9 @@ impl WriteTimeBundle {
         };
 
         // v0.22.5: 加载运行时合同（写前真源）
-        let runtime_contract = match StorySystemEngine::new(pool.clone())
-            .get_runtime_contract(story_id, chapter_number)
-        {
-            Ok(rc) => Some(rc),
-            Err(e) => {
-                log::debug!(
-                    "[WriteTimeBundle] 运行时合同未加载: story={} chapter={} err={}",
-                    story_id,
-                    chapter_number,
-                    e
-                );
-                None
-            }
+        let runtime_contract = match contract_provider {
+            Some(provider) => provider.get_runtime_contract(story_id, chapter_number).ok(),
+            None => None,
         };
 
         // 3. 角色核心

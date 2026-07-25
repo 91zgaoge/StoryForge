@@ -3,6 +3,8 @@
 //! This keeps all concrete creative-engine behavior in `creative_engine` while
 //! allowing `agents` to depend only on `domain` types/traits.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use tauri::AppHandle;
 
@@ -43,12 +45,18 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         style_slice_override: Option<String>,
         secondary_genre_profile_ids: Option<Vec<String>>,
     ) -> Result<WriteTimeBundle, AppError> {
+        let contract_provider: Option<
+            Arc<dyn crate::domain::creative_engine::RuntimeContractProvider>,
+        > = Some(Arc::new(crate::story_system::StorySystemEngine::new(
+            self.pool.clone(),
+        )));
         WriteTimeBundle::load_sync(
             &self.pool,
             story_id,
             chapter_number,
             style_slice_override,
             secondary_genre_profile_ids,
+            contract_provider,
         )
         .map_err(AppError::from)
     }

@@ -13,6 +13,7 @@ use crate::{
         agent_context::NarrativeStructureContext,
         asset_snapshot::AssetSnapshot,
         continuity::ConsistencyCheck,
+        contracts::RuntimeContract,
         methodology::MethodologyConfig,
         prompt_synthesis::{AssetManifest, SynthesisResult},
         style::{CraftSliderHint, SanitizeOutcome, StyleBlendConfig, StyleCheckResult, StyleDNA},
@@ -20,6 +21,18 @@ use crate::{
     },
     error::AppError,
 };
+
+/// Port for loading the runtime contract used by the creative engine.
+///
+/// Implementations live outside of `creative_engine` (e.g. in `story_system`),
+/// breaking the `creative_engine -> story_system` dependency cycle.
+pub trait RuntimeContractProvider: Send + Sync {
+    fn get_runtime_contract(
+        &self,
+        story_id: &str,
+        chapter_number: i32,
+    ) -> Result<RuntimeContract, AppError>;
+}
 
 #[async_trait]
 pub trait CreativeEnginePort: Send + Sync {
