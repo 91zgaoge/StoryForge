@@ -5,7 +5,8 @@
 //!
 //! 本类型只包含纯计算逻辑，不涉及任何 I/O 或状态变更。
 
-use crate::config::settings::{default_context_budget_ratio, default_max_context_length};
+const DEFAULT_MAX_CONTEXT_LENGTH: usize = 8192;
+const DEFAULT_CONTEXT_BUDGET_RATIO: f32 = 0.8;
 
 /// 上下文预算策略
 ///
@@ -24,8 +25,8 @@ pub struct ContextBudget {
 impl Default for ContextBudget {
     fn default() -> Self {
         Self {
-            max_context_length: default_max_context_length() as usize,
-            budget_ratio: default_context_budget_ratio(),
+            max_context_length: DEFAULT_MAX_CONTEXT_LENGTH,
+            budget_ratio: DEFAULT_CONTEXT_BUDGET_RATIO,
             model_family: "cl100k".to_string(),
         }
     }
@@ -80,7 +81,7 @@ mod tests {
         let budget = ContextBudget::default();
         assert_eq!(
             budget.total_budget(),
-            (default_max_context_length() as f32 * default_context_budget_ratio()) as usize
+            (DEFAULT_MAX_CONTEXT_LENGTH as f32 * DEFAULT_CONTEXT_BUDGET_RATIO) as usize
         );
     }
 
@@ -92,7 +93,7 @@ mod tests {
         };
         assert_eq!(
             low.total_budget(),
-            (default_max_context_length() as f32 * 0.1) as usize
+            (DEFAULT_MAX_CONTEXT_LENGTH as f32 * 0.1) as usize
         );
 
         let high = ContextBudget {
@@ -101,7 +102,7 @@ mod tests {
         };
         assert_eq!(
             high.total_budget(),
-            (default_max_context_length() as f32 * 0.95) as usize
+            (DEFAULT_MAX_CONTEXT_LENGTH as f32 * 0.95) as usize
         );
     }
 
@@ -135,5 +136,12 @@ mod tests {
     fn allocate_zero_succeeds() {
         let budget = ContextBudget::default();
         assert_eq!(budget.allocate(0), Some(0));
+    }
+
+    #[test]
+    fn allocate_exact_total_succeeds() {
+        let budget = ContextBudget::default();
+        let total = budget.total_budget();
+        assert_eq!(budget.allocate(total), Some(total));
     }
 }
