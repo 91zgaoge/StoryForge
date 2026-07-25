@@ -83,3 +83,4 @@ src-core-archived/
 # Git worktrees
 .worktrees/
 
+.worktrees/
