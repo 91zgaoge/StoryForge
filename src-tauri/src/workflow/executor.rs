@@ -3,10 +3,11 @@
 //! 将 workflow 节点执行接入 task_system，使 scheduler 不再直接依赖
 //! agents / llm / ingest 等具体实现。
 
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
+use super::NodeType;
 use crate::{
     agents::{
         orchestrator::{AgentOrchestrator, GenerationMode, WorkflowConfig},
@@ -22,28 +23,19 @@ use crate::{
     },
 };
 
-pub struct WorkflowNodeExecutor {
+pub struct WorkflowNodeExecutor<R: Runtime = tauri::Wry> {
     pool: DbPool,
-    app_handle: AppHandle,
+    app_handle: AppHandle<R>,
 }
 
-impl WorkflowNodeExecutor {
-    pub fn new(app_handle: AppHandle) -> Self {
+impl<R: Runtime> WorkflowNodeExecutor<R> {
+    pub fn new(app_handle: AppHandle<R>) -> Self {
         let pool = app_handle.state::<DbPool>().inner().clone();
         Self { pool, app_handle }
     }
 
-    fn build_orchestrator(&self) -> AgentOrchestrator {
-        let agent_service = AgentService::new(self.app_handle.clone());
-        let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
-        let config = crate::config::AppConfig::load(&app_dir)
-            .map(|c| WorkflowConfig::from_app_config(&c))
-            .unwrap_or_default();
-        AgentOrchestrator::new(agent_service, config, self.app_handle.clone())
-    }
-
-    fn minimal_context(&self, story_id: &str) -> AgentContext {
-        AgentContext::minimal(story_id.to_string(), String::new())
+    pub fn can_handle(&self, task_type: &TaskType) -> bool {
+        *task_type == TaskType::WorkflowNode
     }
 }
 
@@ -68,24 +60,9 @@ impl TaskExecutor for WorkflowNodeExecutor {
         let ctx =
             TaskExecutionContext::new(task.id.clone(), self.pool.clone(), self.app_handle.clone());
 
-        let payload: WorkflowNodePayload = match task.payload.as_deref() {
-            Some(p) => match serde_json::from_str(p) {
-                Ok(p) => p,
-                Err(e) => {
-                    return Ok(TaskResult {
-                        success: false,
-                        result_json: None,
-                        error_message: Some(format!("Invalid workflow node payload: {}", e)),
-                    });
-                }
-            },
-            None => {
-                return Ok(TaskResult {
-                    success: false,
-                    result_json: None,
-                    error_message: Some("Missing workflow node payload".to_string()),
-                });
-            }
+        let payload = match Self::parse_payload(task) {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
         };
 
         if payload.story_id.is_empty() {
@@ -99,12 +76,23 @@ impl TaskExecutor for WorkflowNodeExecutor {
         ctx.update_progress("prepare", 5, "准备工作流节点执行...");
         ctx.heartbeat();
 
-        match payload.node_type.as_str() {
-            "WriteChapter" => self.execute_write_chapter(&ctx, &payload).await,
-            "Inspect" => self.execute_inspect(&ctx, &payload).await,
-            "Revise" => self.execute_revise(&ctx, &payload).await,
-            "AnalyzePlot" => self.execute_analyze_plot(&ctx, &payload).await,
-            "VectorIndex" => self.execute_vector_index(&ctx, &payload).await,
+        let node_type = match NodeType::from_str(&payload.node_type) {
+            Ok(t) => t,
+            Err(e) => {
+                return Ok(TaskResult {
+                    success: false,
+                    result_json: None,
+                    error_message: Some(format!("Unsupported workflow node type: {}", e)),
+                });
+            }
+        };
+
+        match node_type {
+            NodeType::WriteChapter => self.execute_write_chapter(&ctx, &payload).await,
+            NodeType::Inspect => self.execute_inspect(&ctx, &payload).await,
+            NodeType::Revise => self.execute_revise(&ctx, &payload).await,
+            NodeType::AnalyzePlot => self.execute_analyze_plot(&ctx, &payload).await,
+            NodeType::VectorIndex => self.execute_vector_index(&ctx, &payload).await,
             other => Ok(TaskResult {
                 success: false,
                 result_json: None,
@@ -115,6 +103,37 @@ impl TaskExecutor for WorkflowNodeExecutor {
 }
 
 impl WorkflowNodeExecutor {
+    fn parse_payload(task: &Task) -> Result<WorkflowNodePayload, TaskResult> {
+        match task.payload.as_deref() {
+            Some(p) => match serde_json::from_str(p) {
+                Ok(payload) => Ok(payload),
+                Err(e) => Err(TaskResult {
+                    success: false,
+                    result_json: None,
+                    error_message: Some(format!("Invalid workflow node payload: {}", e)),
+                }),
+            },
+            None => Err(TaskResult {
+                success: false,
+                result_json: None,
+                error_message: Some("Missing workflow node payload".to_string()),
+            }),
+        }
+    }
+
+    fn build_orchestrator(&self) -> AgentOrchestrator {
+        let agent_service = AgentService::new(self.app_handle.clone());
+        let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
+        let config = crate::config::AppConfig::load(&app_dir)
+            .map(|c| WorkflowConfig::from_app_config(&c))
+            .unwrap_or_default();
+        AgentOrchestrator::new(agent_service, config, self.app_handle.clone())
+    }
+
+    fn minimal_context(&self, story_id: &str) -> AgentContext {
+        AgentContext::minimal(story_id.to_string(), String::new())
+    }
+
     async fn execute_write_chapter(
         &self,
         ctx: &TaskExecutionContext,
@@ -384,5 +403,105 @@ impl WorkflowNodeExecutor {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_task_with_payload(payload: Option<String>) -> Task {
+        Task {
+            id: "task-1".to_string(),
+            name: "Test Task".to_string(),
+            description: None,
+            task_type: TaskType::WorkflowNode,
+            schedule_type: ScheduleType::Once,
+            cron_pattern: None,
+            payload,
+            status: TaskStatus::Pending,
+            progress: 0,
+            result: None,
+            error_message: None,
+            max_retries: 0,
+            retry_count: 0,
+            enabled: true,
+            last_run_at: None,
+            next_run_at: None,
+            last_heartbeat_at: None,
+            heartbeat_timeout_seconds: 300,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_can_handle_workflow_node() {
+        let app = tauri::test::mock_app();
+        let handle = app.handle().clone();
+        let pool = crate::db::create_test_pool().expect("test pool");
+        app.manage(pool);
+
+        let executor = WorkflowNodeExecutor::new(handle);
+        assert!(executor.can_handle(&TaskType::WorkflowNode));
+        assert!(!executor.can_handle(&TaskType::AiGeneration));
+        assert!(!executor.can_handle(&TaskType::Ingest));
+    }
+
+    #[test]
+    fn test_parse_valid_payload() {
+        let payload_json = serde_json::json!({
+            "instance_id": "inst-1",
+            "node_id": "node-1",
+            "story_id": "story-1",
+            "node_type": "WriteChapter",
+            "input": "Write the opening.",
+            "parameters": { "key": "value" }
+        })
+        .to_string();
+
+        let task = dummy_task_with_payload(Some(payload_json));
+        let payload = WorkflowNodeExecutor::parse_payload(&task).expect("payload should parse");
+
+        assert_eq!(payload.instance_id, "inst-1");
+        assert_eq!(payload.node_id, "node-1");
+        assert_eq!(payload.story_id, "story-1");
+        assert_eq!(payload.node_type, "WriteChapter");
+        assert_eq!(payload.input, "Write the opening.");
+        assert_eq!(payload.parameters.get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_parse_missing_payload() {
+        let task = dummy_task_with_payload(None);
+        let result = WorkflowNodeExecutor::parse_payload(&task);
+
+        let err = result.expect_err("missing payload should error");
+        assert!(!err.success);
+        assert!(
+            err.error_message
+                .as_ref()
+                .unwrap()
+                .contains("Missing workflow node payload"),
+            "unexpected error: {:?}",
+            err.error_message
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_payload() {
+        let task = dummy_task_with_payload(Some("not valid json".to_string()));
+        let result = WorkflowNodeExecutor::parse_payload(&task);
+
+        let err = result.expect_err("invalid payload should error");
+        assert!(!err.success);
+        assert!(
+            err.error_message
+                .as_ref()
+                .unwrap()
+                .contains("Invalid workflow node payload"),
+            "unexpected error: {:?}",
+            err.error_message
+        );
     }
 }

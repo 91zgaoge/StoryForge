@@ -34,7 +34,7 @@ pub struct WorkflowNode {
     pub position: Option<NodePosition>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NodeType {
     Start,
     WriteChapter,
@@ -45,6 +45,48 @@ pub enum NodeType {
     Parallel,
     Condition,
     End,
+}
+
+impl NodeType {
+    /// Stable string representation used for serialization/task dispatch.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NodeType::Start => "Start",
+            NodeType::WriteChapter => "WriteChapter",
+            NodeType::Inspect => "Inspect",
+            NodeType::Revise => "Revise",
+            NodeType::VectorIndex => "VectorIndex",
+            NodeType::AnalyzePlot => "AnalyzePlot",
+            NodeType::Parallel => "Parallel",
+            NodeType::Condition => "Condition",
+            NodeType::End => "End",
+        }
+    }
+}
+
+impl std::fmt::Display for NodeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for NodeType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Start" => Ok(NodeType::Start),
+            "WriteChapter" => Ok(NodeType::WriteChapter),
+            "Inspect" => Ok(NodeType::Inspect),
+            "Revise" => Ok(NodeType::Revise),
+            "VectorIndex" => Ok(NodeType::VectorIndex),
+            "AnalyzePlot" => Ok(NodeType::AnalyzePlot),
+            "Parallel" => Ok(NodeType::Parallel),
+            "Condition" => Ok(NodeType::Condition),
+            "End" => Ok(NodeType::End),
+            other => Err(format!("Unknown NodeType: {}", other)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -548,5 +590,60 @@ pub mod templates {
             ],
             created_at: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod node_type_tests {
+    use std::str::FromStr;
+
+    use super::NodeType;
+
+    #[test]
+    fn test_node_type_display_and_as_str_are_stable() {
+        let cases = vec![
+            (NodeType::Start, "Start"),
+            (NodeType::WriteChapter, "WriteChapter"),
+            (NodeType::Inspect, "Inspect"),
+            (NodeType::Revise, "Revise"),
+            (NodeType::VectorIndex, "VectorIndex"),
+            (NodeType::AnalyzePlot, "AnalyzePlot"),
+            (NodeType::Parallel, "Parallel"),
+            (NodeType::Condition, "Condition"),
+            (NodeType::End, "End"),
+        ];
+
+        for (variant, expected) in cases {
+            assert_eq!(variant.as_str(), expected);
+            assert_eq!(variant.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn test_node_type_from_str_round_trips() {
+        let variants = vec![
+            NodeType::Start,
+            NodeType::WriteChapter,
+            NodeType::Inspect,
+            NodeType::Revise,
+            NodeType::VectorIndex,
+            NodeType::AnalyzePlot,
+            NodeType::Parallel,
+            NodeType::Condition,
+            NodeType::End,
+        ];
+
+        for variant in variants {
+            let s = variant.as_str();
+            let parsed = NodeType::from_str(s).expect("round-trip parse should succeed");
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_node_type_from_str_rejects_unknown() {
+        assert!(NodeType::from_str("Write-Chapter").is_err());
+        assert!(NodeType::from_str("writechapter").is_err());
+        assert!(NodeType::from_str("").is_err());
     }
 }

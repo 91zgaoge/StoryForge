@@ -244,7 +244,7 @@ impl WorkflowScheduler {
                         "instance_id": instance_id,
                         "node_id": node_id,
                         "node_name": node.name,
-                        "node_type": format!("{:?}", node.node_type),
+                        "node_type": node.node_type.to_string(),
                     }),
                 );
 
@@ -481,13 +481,13 @@ impl WorkflowScheduler {
             "instance_id": instance.id,
             "node_id": node.id,
             "story_id": instance.story_id,
-            "node_type": format!("{:?}", node.node_type),
+            "node_type": node.node_type.to_string(),
             "input": input,
             "parameters": parameters,
         });
 
         let req = CreateTaskRequest {
-            name: format!("Workflow Node {} ({:?})", node.id, node.node_type),
+            name: format!("Workflow Node {} ({})", node.id, node.node_type),
             description: Some(format!(
                 "instance: {}, story: {}",
                 instance.id, instance.story_id
