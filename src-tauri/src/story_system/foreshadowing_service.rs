@@ -13,11 +13,16 @@ use uuid::Uuid;
 use crate::{
     db::DbPool,
     domain::foreshadowing::{
-        ForeshadowingProvider, ForeshadowingRecord, ForeshadowingService, ForeshadowingStatus,
-        Payoff, PayoffLedgerItem, PayoffRecommendation, PayoffStatus, ScopeType, UrgencyLevel,
+        ForeshadowingError, ForeshadowingProvider, ForeshadowingRecord, ForeshadowingService,
+        ForeshadowingStatus, Payoff, PayoffLedgerItem, PayoffRecommendation, PayoffStatus,
+        ScopeType, UrgencyLevel,
     },
-    error::AppError,
 };
+
+/// 把基础设施错误统一包成领域内部错误，避免 `domain::ForeshadowingError` 依赖 `rusqlite`/`r2d2`。
+fn into_internal<E: std::fmt::Display>(err: E) -> ForeshadowingError {
+    ForeshadowingError::Internal(err.to_string())
+}
 
 /// 伏笔服务实现
 pub struct ForeshadowingServiceImpl {
@@ -31,12 +36,12 @@ impl ForeshadowingServiceImpl {
 
     fn conn(
         &self,
-    ) -> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, AppError> {
-        self.pool.get().map_err(AppError::from)
+    ) -> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, ForeshadowingError> {
+        self.pool.get().map_err(into_internal)
     }
 
     /// 获取故事当前最大场景序号。
-    pub fn current_scene_number(&self, story_id: &str) -> Result<i32, AppError> {
+    pub fn current_scene_number(&self, story_id: &str) -> Result<i32, ForeshadowingError> {
         let conn = self.conn()?;
         let seq: i32 = conn
             .query_row(
@@ -72,7 +77,7 @@ impl ForeshadowingServiceImpl {
         &self,
         conn: &rusqlite::Connection,
         scene_ids: &[String],
-    ) -> Result<HashMap<String, i32>, AppError> {
+    ) -> Result<HashMap<String, i32>, ForeshadowingError> {
         let mut map = HashMap::new();
         if scene_ids.is_empty() {
             return Ok(map);
@@ -83,7 +88,7 @@ impl ForeshadowingServiceImpl {
             "SELECT id, sequence_number FROM scenes WHERE id IN ({})",
             placeholders
         );
-        let mut stmt = conn.prepare(&sql).map_err(AppError::from)?;
+        let mut stmt = conn.prepare(&sql).map_err(into_internal)?;
         let params: Vec<&dyn rusqlite::ToSql> = scene_ids
             .iter()
             .map(|id| id as &dyn rusqlite::ToSql)
@@ -92,9 +97,9 @@ impl ForeshadowingServiceImpl {
             .query_map(rusqlite::params_from_iter(params.iter()), |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
             })
-            .map_err(AppError::from)?
+            .map_err(into_internal)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         for (sid, seq) in sequences {
             map.insert(sid, seq);
         }
@@ -105,7 +110,7 @@ impl ForeshadowingServiceImpl {
         &self,
         conn: &rusqlite::Connection,
         story_id: &str,
-    ) -> Result<Vec<PayoffLedgerItem>, AppError> {
+    ) -> Result<Vec<PayoffLedgerItem>, ForeshadowingError> {
         let mut stmt = conn
             .prepare(
                 "SELECT id, story_id, content, setup_scene_id, payoff_scene_id, status,
@@ -115,7 +120,7 @@ impl ForeshadowingServiceImpl {
                  WHERE story_id = ?1
                  ORDER BY importance DESC, created_at ASC",
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
 
         let rows = stmt
             .query_map([story_id], |row| {
@@ -135,9 +140,9 @@ impl ForeshadowingServiceImpl {
                     row.get::<_, Option<String>>(13)?,
                 ))
             })
-            .map_err(AppError::from)?
+            .map_err(into_internal)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
 
         let scene_ids: Vec<String> = rows
             .iter()
@@ -219,7 +224,7 @@ impl ForeshadowingServiceImpl {
 }
 
 impl ForeshadowingProvider for ForeshadowingServiceImpl {
-    fn list_by_story(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+    fn list_by_story(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
@@ -229,17 +234,17 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
              FROM foreshadowing_tracker WHERE story_id = ?1
              ORDER BY importance DESC, created_at ASC",
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
 
         let records = stmt
             .query_map([story_id], |row| self.map_row(row))
-            .map_err(AppError::from)?
+            .map_err(into_internal)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         Ok(records)
     }
 
-    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, AppError> {
+    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, ForeshadowingError> {
         let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
@@ -248,17 +253,17 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                  risk_signals_score
              FROM foreshadowing_tracker WHERE id = ?1",
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
 
         let mut records: Vec<ForeshadowingRecord> = stmt
             .query_map([id], |row| self.map_row(row))
-            .map_err(AppError::from)?
+            .map_err(into_internal)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         Ok(records.pop())
     }
 
-    fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+    fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
@@ -268,13 +273,13 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
              FROM foreshadowing_tracker WHERE story_id = ?1 AND status = 'setup'
              ORDER BY importance DESC, created_at ASC",
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
 
         let records = stmt
             .query_map([story_id], |row| self.map_row(row))
-            .map_err(AppError::from)?
+            .map_err(into_internal)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         Ok(records)
     }
 
@@ -282,7 +287,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<ForeshadowingRecord>, AppError> {
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         let overdue_ids = {
             let conn = self.conn()?;
             let mut stmt = conn
@@ -291,7 +296,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                      FROM foreshadowing_tracker
                      WHERE story_id = ?1 AND status = 'setup'",
                 )
-                .map_err(AppError::from)?;
+                .map_err(into_internal)?;
 
             let rows: Vec<_> = stmt
                 .query_map([story_id], |row| {
@@ -302,9 +307,9 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
                         row.get::<_, Option<i32>>(3)?,
                     ))
                 })
-                .map_err(AppError::from)?
+                .map_err(into_internal)?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(AppError::from)?;
+                .map_err(into_internal)?;
 
             let scene_ids: Vec<String> = rows
                 .iter()
@@ -350,7 +355,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         Ok(overdue)
     }
 
-    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError> {
+    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, ForeshadowingError> {
         let unresolved = self.get_unresolved(story_id)?;
         let hints: Vec<String> = unresolved
             .into_iter()
@@ -367,7 +372,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         Ok(hints)
     }
 
-    fn detect_payoffs(&self, story_id: &str) -> Result<Vec<Payoff>, AppError> {
+    fn detect_payoffs(&self, story_id: &str) -> Result<Vec<Payoff>, ForeshadowingError> {
         let records = self.list_by_story(story_id)?;
         Ok(records
             .into_iter()
@@ -386,7 +391,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<PayoffRecommendation>, AppError> {
+    ) -> Result<Vec<PayoffRecommendation>, ForeshadowingError> {
         let conn = self.conn()?;
         let ledger = self.build_ledger_items(&conn, story_id)?;
 
@@ -497,7 +502,7 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         Ok(recommendations)
     }
 
-    fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, AppError> {
+    fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, ForeshadowingError> {
         let conn = self.conn()?;
         self.build_ledger_items(&conn, story_id)
     }
@@ -510,7 +515,7 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
         content: &str,
         setup_scene_id: Option<&str>,
         importance: i32,
-    ) -> Result<String, AppError> {
+    ) -> Result<String, ForeshadowingError> {
         let id = Uuid::new_v4().to_string();
         let now = Local::now().to_rfc3339();
         let conn = self.conn()?;
@@ -528,7 +533,7 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
                 now
             ],
         )
-        .map_err(AppError::from)?;
+        .map_err(into_internal)?;
 
         Ok(id)
     }
@@ -537,7 +542,7 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
         &self,
         foreshadowing_id: &str,
         payoff_scene_id: Option<&str>,
-    ) -> Result<(), AppError> {
+    ) -> Result<(), ForeshadowingError> {
         let now = Local::now().to_rfc3339();
         let conn = self.conn()?;
 
@@ -546,12 +551,12 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
              resolved_at = ?3 WHERE id = ?1",
             params![foreshadowing_id, payoff_scene_id, now],
         )
-        .map_err(AppError::from)?;
+        .map_err(into_internal)?;
 
         Ok(())
     }
 
-    fn abandon(&self, foreshadowing_id: &str) -> Result<(), AppError> {
+    fn abandon(&self, foreshadowing_id: &str) -> Result<(), ForeshadowingError> {
         let now = Local::now().to_rfc3339();
         let conn = self.conn()?;
 
@@ -559,7 +564,7 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
             "UPDATE foreshadowing_tracker SET status = 'abandoned', resolved_at = ?2 WHERE id = ?1",
             params![foreshadowing_id, now],
         )
-        .map_err(AppError::from)?;
+        .map_err(into_internal)?;
 
         Ok(())
     }
@@ -570,7 +575,7 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
         content: &str,
         importance: i32,
         setup_scene_id: Option<&str>,
-    ) -> Result<(), AppError> {
+    ) -> Result<(), ForeshadowingError> {
         let conn = self.conn()?;
 
         conn.execute(
@@ -583,19 +588,19 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
                 setup_scene_id
             ],
         )
-        .map_err(AppError::from)?;
+        .map_err(into_internal)?;
 
         Ok(())
     }
 
-    fn delete(&self, foreshadowing_id: &str) -> Result<(), AppError> {
+    fn delete(&self, foreshadowing_id: &str) -> Result<(), ForeshadowingError> {
         let conn = self.conn()?;
 
         conn.execute(
             "DELETE FROM foreshadowing_tracker WHERE id = ?1",
             params![foreshadowing_id],
         )
-        .map_err(AppError::from)?;
+        .map_err(into_internal)?;
 
         Ok(())
     }
@@ -611,7 +616,7 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
         setup_event_id: Option<String>,
         payoff_event_id: Option<String>,
         risk_signals_score: Option<f32>,
-    ) -> Result<(), AppError> {
+    ) -> Result<(), ForeshadowingError> {
         let conn = self.conn()?;
 
         if let Some(ts) = target_start_scene {
@@ -619,57 +624,57 @@ impl ForeshadowingService for ForeshadowingServiceImpl {
                 "UPDATE foreshadowing_tracker SET target_start_scene = ?1 WHERE id = ?2",
                 rusqlite::params![ts, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(te) = target_end_scene {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET target_end_scene = ?1 WHERE id = ?2",
                 rusqlite::params![te, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(ref rs) = risk_signals {
-            let json = serde_json::to_string(rs).map_err(AppError::from)?;
+            let json = serde_json::to_string(rs).map_err(into_internal)?;
             conn.execute(
                 "UPDATE foreshadowing_tracker SET risk_signals = ?1 WHERE id = ?2",
                 rusqlite::params![json, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(ref st) = scope_type {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET scope_type = ?1 WHERE id = ?2",
                 rusqlite::params![st.to_string(), foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(ref lk) = ledger_key {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET ledger_key = ?1 WHERE id = ?2",
                 rusqlite::params![lk, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(ref seid) = setup_event_id {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET setup_event_id = ?1 WHERE id = ?2",
                 rusqlite::params![seid, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(ref peid) = payoff_event_id {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET payoff_event_id = ?1 WHERE id = ?2",
                 rusqlite::params![peid, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
         if let Some(rss) = risk_signals_score {
             conn.execute(
                 "UPDATE foreshadowing_tracker SET risk_signals_score = ?1 WHERE id = ?2",
                 rusqlite::params![rss, foreshadowing_id],
             )
-            .map_err(AppError::from)?;
+            .map_err(into_internal)?;
         }
 
         Ok(())

@@ -432,3 +432,18 @@ impl Serialize for AppError {
         map.end()
     }
 }
+
+impl From<crate::domain::foreshadowing::ForeshadowingError> for AppError {
+    fn from(err: crate::domain::foreshadowing::ForeshadowingError) -> Self {
+        use crate::domain::foreshadowing::ForeshadowingError;
+        match err {
+            ForeshadowingError::NotFound { id } => AppError::NotFound {
+                resource: "foreshadowing".to_string(),
+                id,
+            },
+            other => AppError::Internal {
+                message: other.to_string(),
+            },
+        }
+    }
+}

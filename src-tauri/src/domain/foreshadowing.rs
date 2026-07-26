@@ -8,7 +8,32 @@
 use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppError;
+/// 伏笔 / 线索 / 回报领域错误。
+///
+///  deliberately kept inside `domain` so the foreshadowing model does not
+///  depend on the application-level `error` module.
+#[derive(Debug, Clone)]
+pub enum ForeshadowingError {
+    InvalidStatus(String),
+    InvalidScope(String),
+    InvalidImportance(String),
+    NotFound { id: String },
+    Internal(String),
+}
+
+impl std::fmt::Display for ForeshadowingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForeshadowingError::InvalidStatus(s) => write!(f, "未知伏笔状态: {}", s),
+            ForeshadowingError::InvalidScope(s) => write!(f, "未知作用域类型: {}", s),
+            ForeshadowingError::InvalidImportance(s) => write!(f, "无效重要性: {}", s),
+            ForeshadowingError::NotFound { id } => write!(f, "伏笔未找到: {}", id),
+            ForeshadowingError::Internal(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl std::error::Error for ForeshadowingError {}
 
 /// 伏笔状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,14 +58,14 @@ impl std::fmt::Display for ForeshadowingStatus {
 }
 
 impl std::str::FromStr for ForeshadowingStatus {
-    type Err = AppError;
+    type Err = ForeshadowingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "setup" => Ok(ForeshadowingStatus::Setup),
             "payoff" => Ok(ForeshadowingStatus::Payoff),
             "abandoned" => Ok(ForeshadowingStatus::Abandoned),
-            _ => Err(AppError::internal(format!("未知伏笔状态: {}", s))),
+            _ => Err(ForeshadowingError::InvalidStatus(s.to_string())),
         }
     }
 }
@@ -124,14 +149,14 @@ impl std::fmt::Display for ScopeType {
 }
 
 impl std::str::FromStr for ScopeType {
-    type Err = AppError;
+    type Err = ForeshadowingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "story" => Ok(ScopeType::Story),
             "arc" => Ok(ScopeType::Arc),
             "scene" => Ok(ScopeType::Scene),
-            _ => Err(AppError::internal(format!("未知作用域类型: {}", s))),
+            _ => Err(ForeshadowingError::InvalidScope(s.to_string())),
         }
     }
 }
@@ -265,25 +290,25 @@ pub enum ThreadType {
 
 /// 伏笔查询端口，供 narrative 等模块在不依赖 creative_engine 的情况下读取伏笔。
 pub trait ForeshadowingProvider: Send + Sync {
-    fn list_by_story(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError>;
-    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, AppError>;
-    fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError>;
+    fn list_by_story(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
+    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, ForeshadowingError>;
+    fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
     fn get_overdue(
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<ForeshadowingRecord>, AppError>;
-    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError>;
-    fn detect_payoffs(&self, story_id: &str) -> Result<Vec<Payoff>, AppError>;
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
+    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, ForeshadowingError>;
+    fn detect_payoffs(&self, story_id: &str) -> Result<Vec<Payoff>, ForeshadowingError>;
     fn recommend_payoffs(
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<PayoffRecommendation>, AppError>;
-    fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, AppError>;
+    ) -> Result<Vec<PayoffRecommendation>, ForeshadowingError>;
+    fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, ForeshadowingError>;
 
     /// 兼容旧称，等价于 `list_by_story`。
-    fn get_all(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+    fn get_all(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         self.list_by_story(story_id)
     }
 }
@@ -296,21 +321,21 @@ pub trait ForeshadowingService: ForeshadowingProvider + Send + Sync {
         content: &str,
         setup_scene_id: Option<&str>,
         importance: i32,
-    ) -> Result<String, AppError>;
+    ) -> Result<String, ForeshadowingError>;
     fn mark_payoff(
         &self,
         foreshadowing_id: &str,
         payoff_scene_id: Option<&str>,
-    ) -> Result<(), AppError>;
-    fn abandon(&self, foreshadowing_id: &str) -> Result<(), AppError>;
+    ) -> Result<(), ForeshadowingError>;
+    fn abandon(&self, foreshadowing_id: &str) -> Result<(), ForeshadowingError>;
     fn update(
         &self,
         foreshadowing_id: &str,
         content: &str,
         importance: i32,
         setup_scene_id: Option<&str>,
-    ) -> Result<(), AppError>;
-    fn delete(&self, foreshadowing_id: &str) -> Result<(), AppError>;
+    ) -> Result<(), ForeshadowingError>;
+    fn delete(&self, foreshadowing_id: &str) -> Result<(), ForeshadowingError>;
     fn update_ledger_fields(
         &self,
         foreshadowing_id: &str,
@@ -322,7 +347,7 @@ pub trait ForeshadowingService: ForeshadowingProvider + Send + Sync {
         setup_event_id: Option<String>,
         payoff_event_id: Option<String>,
         risk_signals_score: Option<f32>,
-    ) -> Result<(), AppError>;
+    ) -> Result<(), ForeshadowingError>;
 }
 
 #[cfg(test)]

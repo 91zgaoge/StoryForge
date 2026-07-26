@@ -37,7 +37,7 @@ impl PayoffLedger {
 
     /// 获取故事的完整伏笔账本
     pub fn get_ledger(&self, story_id: &str) -> Result<Vec<PayoffLedgerItem>, AppError> {
-        self.service.get_ledger(story_id)
+        Ok(self.service.get_ledger(story_id)?)
     }
 
     /// 检测逾期伏笔
@@ -82,8 +82,8 @@ impl PayoffLedger {
         story_id: &str,
         current_scene_number: i32,
     ) -> Result<Vec<PayoffRecommendation>, AppError> {
-        self.service
-            .recommend_payoffs(story_id, current_scene_number)
+        Ok(self.service
+            .recommend_payoffs(story_id, current_scene_number)?)
     }
 
     /// 更新伏笔的账本字段（供未来 UI 调用）
@@ -99,7 +99,7 @@ impl PayoffLedger {
         payoff_event_id: Option<String>,
         risk_signals_score: Option<f32>,
     ) -> Result<(), AppError> {
-        self.service.update_ledger_fields(
+        Ok(self.service.update_ledger_fields(
             foreshadowing_id,
             target_start_scene,
             target_end_scene,
@@ -109,7 +109,7 @@ impl PayoffLedger {
             setup_event_id,
             payoff_event_id,
             risk_signals_score,
-        )
+        )?)
     }
 }
 

@@ -342,9 +342,8 @@ impl ThreadTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        domain::foreshadowing::{ForeshadowingProvider, ForeshadowingRecord, ForeshadowingStatus},
-        error::AppError,
+    use crate::domain::foreshadowing::{
+        ForeshadowingError, ForeshadowingProvider, ForeshadowingRecord, ForeshadowingStatus,
     };
 
     struct StubProvider {
@@ -352,15 +351,21 @@ mod tests {
     }
 
     impl ForeshadowingProvider for StubProvider {
-        fn list_by_story(&self, _story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+        fn list_by_story(
+            &self,
+            _story_id: &str,
+        ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
             Ok(self.records.clone())
         }
 
-        fn get_by_id(&self, _id: &str) -> Result<Option<ForeshadowingRecord>, AppError> {
+        fn get_by_id(&self, _id: &str) -> Result<Option<ForeshadowingRecord>, ForeshadowingError> {
             Ok(None)
         }
 
-        fn get_unresolved(&self, _story_id: &str) -> Result<Vec<ForeshadowingRecord>, AppError> {
+        fn get_unresolved(
+            &self,
+            _story_id: &str,
+        ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
             Ok(self
                 .records
                 .iter()
@@ -373,7 +378,7 @@ mod tests {
             &self,
             _story_id: &str,
             _current_scene_number: i32,
-        ) -> Result<Vec<ForeshadowingRecord>, AppError> {
+        ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
             Ok(vec![])
         }
 
@@ -381,14 +386,14 @@ mod tests {
             &self,
             _story_id: &str,
             _limit: usize,
-        ) -> Result<Vec<String>, AppError> {
+        ) -> Result<Vec<String>, ForeshadowingError> {
             Ok(vec![])
         }
 
         fn detect_payoffs(
             &self,
             _story_id: &str,
-        ) -> Result<Vec<crate::domain::foreshadowing::Payoff>, AppError> {
+        ) -> Result<Vec<crate::domain::foreshadowing::Payoff>, ForeshadowingError> {
             Ok(vec![])
         }
 
@@ -396,14 +401,16 @@ mod tests {
             &self,
             _story_id: &str,
             _current_scene_number: i32,
-        ) -> Result<Vec<crate::domain::foreshadowing::PayoffRecommendation>, AppError> {
+        ) -> Result<Vec<crate::domain::foreshadowing::PayoffRecommendation>, ForeshadowingError>
+        {
             Ok(vec![])
         }
 
         fn get_ledger(
             &self,
             _story_id: &str,
-        ) -> Result<Vec<crate::domain::foreshadowing::PayoffLedgerItem>, AppError> {
+        ) -> Result<Vec<crate::domain::foreshadowing::PayoffLedgerItem>, ForeshadowingError>
+        {
             Ok(vec![])
         }
     }

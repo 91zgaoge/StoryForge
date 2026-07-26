@@ -9,7 +9,10 @@
 
 use crate::{
     db::DbPool,
-    domain::foreshadowing::{ForeshadowingProvider, ForeshadowingRecord, ForeshadowingService},
+    domain::foreshadowing::{
+        ForeshadowingError, ForeshadowingProvider, ForeshadowingRecord, ForeshadowingService,
+    },
+    error::AppError,
     story_system::foreshadowing_service::ForeshadowingServiceImpl,
 };
 
@@ -105,18 +108,18 @@ impl ForeshadowingProvider for ForeshadowingTracker {
     fn list_by_story(
         &self,
         story_id: &str,
-    ) -> Result<Vec<ForeshadowingRecord>, crate::error::AppError> {
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         self.service.list_by_story(story_id)
     }
 
-    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, crate::error::AppError> {
+    fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, ForeshadowingError> {
         self.service.get_by_id(id)
     }
 
     fn get_unresolved(
         &self,
         story_id: &str,
-    ) -> Result<Vec<ForeshadowingRecord>, crate::error::AppError> {
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         self.service.get_unresolved(story_id)
     }
 
@@ -124,7 +127,7 @@ impl ForeshadowingProvider for ForeshadowingTracker {
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<ForeshadowingRecord>, crate::error::AppError> {
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         self.service.get_overdue(story_id, current_scene_number)
     }
 
@@ -132,14 +135,14 @@ impl ForeshadowingProvider for ForeshadowingTracker {
         &self,
         story_id: &str,
         limit: usize,
-    ) -> Result<Vec<String>, crate::error::AppError> {
+    ) -> Result<Vec<String>, ForeshadowingError> {
         self.service.get_writing_hints(story_id, limit)
     }
 
     fn detect_payoffs(
         &self,
         story_id: &str,
-    ) -> Result<Vec<crate::domain::foreshadowing::Payoff>, crate::error::AppError> {
+    ) -> Result<Vec<crate::domain::foreshadowing::Payoff>, ForeshadowingError> {
         self.service.detect_payoffs(story_id)
     }
 
@@ -147,8 +150,7 @@ impl ForeshadowingProvider for ForeshadowingTracker {
         &self,
         story_id: &str,
         current_scene_number: i32,
-    ) -> Result<Vec<crate::domain::foreshadowing::PayoffRecommendation>, crate::error::AppError>
-    {
+    ) -> Result<Vec<crate::domain::foreshadowing::PayoffRecommendation>, ForeshadowingError> {
         self.service
             .recommend_payoffs(story_id, current_scene_number)
     }
@@ -156,7 +158,7 @@ impl ForeshadowingProvider for ForeshadowingTracker {
     fn get_ledger(
         &self,
         story_id: &str,
-    ) -> Result<Vec<crate::domain::foreshadowing::PayoffLedgerItem>, crate::error::AppError> {
+    ) -> Result<Vec<crate::domain::foreshadowing::PayoffLedgerItem>, ForeshadowingError> {
         self.service.get_ledger(story_id)
     }
 }
@@ -166,8 +168,8 @@ impl crate::domain::creative_engine::ForeshadowingPort for ForeshadowingTracker 
         &self,
         story_id: &str,
         limit: usize,
-    ) -> Result<Vec<String>, crate::error::AppError> {
-        self.service.get_writing_hints(story_id, limit)
+    ) -> Result<Vec<String>, AppError> {
+        Ok(self.service.get_writing_hints(story_id, limit)?)
     }
 }
 
