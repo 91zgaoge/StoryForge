@@ -14,34 +14,55 @@ use crate::{
         agent_context::NarrativeStructureContext,
         asset_snapshot::{ActiveConflict, AssetSnapshot, CharacterStateSnapshot},
         continuity::ConsistencyCheck,
-        creative_engine::CreativeEnginePort,
+        creative_engine::{CreativeEnginePort, RuntimeContractProvider},
         methodology::MethodologyConfig,
         prompt_synthesis::{AssetManifest, SynthesisResult},
         style::{CraftSliderHint, SanitizeOutcome, StyleBlendConfig, StyleCheckResult, StyleDNA},
         write_time_bundle::WriteTimeBundle,
     },
     error::AppError,
-    ports::LlmPort,
+    ports::{LlmPort, VectorStore},
 };
 
-/// Adapter that owns a `DbPool` and an injected `LlmPort`, delegating to the
+/// Adapter that owns a `DbPool` and injected ports, delegating to the
 /// concrete creative-engine implementations.
 pub struct CreativeEngineAdapter {
     pool: DbPool,
     llm_port: Arc<dyn LlmPort>,
+    runtime_contract_provider: Option<Arc<dyn RuntimeContractProvider>>,
+    #[allow(dead_code)]
+    vector_store: Option<Arc<dyn VectorStore>>,
 }
 
 impl CreativeEngineAdapter {
     pub fn new(pool: DbPool, llm_port: Arc<dyn LlmPort>) -> Self {
-        Self { pool, llm_port }
+        Self {
+            pool,
+            llm_port,
+            runtime_contract_provider: None,
+            vector_store: None,
+        }
     }
 
-    fn runtime_contract_provider(
-        &self,
-    ) -> Arc<dyn crate::domain::creative_engine::RuntimeContractProvider> {
-        Arc::new(crate::story_system::StorySystemEngine::new(
-            self.pool.clone(),
-        ))
+    pub fn with_runtime_contract_provider(
+        mut self,
+        provider: Arc<dyn RuntimeContractProvider>,
+    ) -> Self {
+        self.runtime_contract_provider = Some(provider);
+        self
+    }
+
+    pub fn with_vector_store(mut self, vector_store: Arc<dyn VectorStore>) -> Self {
+        self.vector_store = Some(vector_store);
+        self
+    }
+
+    fn runtime_contract_provider(&self) -> Arc<dyn RuntimeContractProvider> {
+        self.runtime_contract_provider.clone().unwrap_or_else(|| {
+            Arc::new(crate::story_system::StorySystemEngine::new(
+                self.pool.clone(),
+            ))
+        })
     }
 }
 

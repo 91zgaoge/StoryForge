@@ -7,6 +7,13 @@ pub mod db;
 pub mod llm;
 pub mod vector;
 
+#[cfg(test)]
+pub mod testing;
+
 pub use db::*;
 pub use llm::*;
+#[cfg(test)]
+pub use testing::{
+    fake_runtime_contract, FakeLlmPort, FakeRuntimeContractProvider, FakeVectorStore,
+};
 pub use vector::*;

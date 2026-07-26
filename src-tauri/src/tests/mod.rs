@@ -6,3 +6,5 @@ pub mod asset_snapshot_contract_test;
 pub mod cascade_delete_tests;
 #[cfg(test)]
 pub mod concurrency_test;
+#[cfg(test)]
+pub mod creative_engine_port_test;
