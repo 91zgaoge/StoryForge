@@ -82,7 +82,8 @@ impl PayoffLedger {
         story_id: &str,
         current_scene_number: i32,
     ) -> Result<Vec<PayoffRecommendation>, AppError> {
-        Ok(self.service
+        Ok(self
+            .service
             .recommend_payoffs(story_id, current_scene_number)?)
     }
 

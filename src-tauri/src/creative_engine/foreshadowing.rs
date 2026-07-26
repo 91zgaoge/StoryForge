@@ -164,11 +164,7 @@ impl ForeshadowingProvider for ForeshadowingTracker {
 }
 
 impl crate::domain::creative_engine::ForeshadowingPort for ForeshadowingTracker {
-    fn get_writing_hints(
-        &self,
-        story_id: &str,
-        limit: usize,
-    ) -> Result<Vec<String>, AppError> {
+    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, AppError> {
         Ok(self.service.get_writing_hints(story_id, limit)?)
     }
 }

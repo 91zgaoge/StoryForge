@@ -19,7 +19,8 @@ use crate::{
     },
 };
 
-/// 把基础设施错误统一包成领域内部错误，避免 `domain::ForeshadowingError` 依赖 `rusqlite`/`r2d2`。
+/// 把基础设施错误统一包成领域内部错误，避免 `domain::ForeshadowingError` 依赖
+/// `rusqlite`/`r2d2`。
 fn into_internal<E: std::fmt::Display>(err: E) -> ForeshadowingError {
     ForeshadowingError::Internal(err.to_string())
 }
@@ -36,7 +37,8 @@ impl ForeshadowingServiceImpl {
 
     fn conn(
         &self,
-    ) -> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, ForeshadowingError> {
+    ) -> Result<r2d2::PooledConnection<r2d2_sqlite::SqliteConnectionManager>, ForeshadowingError>
+    {
         self.pool.get().map_err(into_internal)
     }
 
@@ -224,7 +226,10 @@ impl ForeshadowingServiceImpl {
 }
 
 impl ForeshadowingProvider for ForeshadowingServiceImpl {
-    fn list_by_story(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
+    fn list_by_story(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
@@ -263,7 +268,10 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         Ok(records.pop())
     }
 
-    fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
+    fn get_unresolved(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError> {
         let conn = self.conn()?;
         let mut stmt = conn
             .prepare(
@@ -355,7 +363,11 @@ impl ForeshadowingProvider for ForeshadowingServiceImpl {
         Ok(overdue)
     }
 
-    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, ForeshadowingError> {
+    fn get_writing_hints(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, ForeshadowingError> {
         let unresolved = self.get_unresolved(story_id)?;
         let hints: Vec<String> = unresolved
             .into_iter()

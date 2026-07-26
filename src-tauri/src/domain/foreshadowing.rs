@@ -290,15 +290,23 @@ pub enum ThreadType {
 
 /// 伏笔查询端口，供 narrative 等模块在不依赖 creative_engine 的情况下读取伏笔。
 pub trait ForeshadowingProvider: Send + Sync {
-    fn list_by_story(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
+    fn list_by_story(&self, story_id: &str)
+        -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
     fn get_by_id(&self, id: &str) -> Result<Option<ForeshadowingRecord>, ForeshadowingError>;
-    fn get_unresolved(&self, story_id: &str) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
+    fn get_unresolved(
+        &self,
+        story_id: &str,
+    ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
     fn get_overdue(
         &self,
         story_id: &str,
         current_scene_number: i32,
     ) -> Result<Vec<ForeshadowingRecord>, ForeshadowingError>;
-    fn get_writing_hints(&self, story_id: &str, limit: usize) -> Result<Vec<String>, ForeshadowingError>;
+    fn get_writing_hints(
+        &self,
+        story_id: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, ForeshadowingError>;
     fn detect_payoffs(&self, story_id: &str) -> Result<Vec<Payoff>, ForeshadowingError>;
     fn recommend_payoffs(
         &self,
