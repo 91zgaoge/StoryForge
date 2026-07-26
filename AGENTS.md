@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.25
+- **版本**: v0.30.26
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -80,9 +80,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test --lib` ✅ 987 passed
+- `cargo test -p storymoss` ✅ 1060 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 311 passed / 3 skipped
+- `npx vitest run` ✅ 310 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 549（零新增）
@@ -90,6 +90,15 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.26 - 统一 Logline 增强提示为内联幽灵文本；修复分时预检缺少角色
+
+- **根因**：v0.30.24 的 logline 增强提示以独立 div 显示在输入栏下方，与统一的幽灵提示系统不一致；用户按 `->` 后直接用完整 logline 替换原输入，导致意图分类可能将增强后的长文本误判为续写，进而进入 TimeSliced 路径触发“缺少角色”预检失败。
+- **Fix 1（UI 统一·FrontstageBottomBar.tsx + frontstage.css）**：移除 `.frontstage-logline-hint` 独立建议条；改为在 `frontstage-input-ghost-wrapper` 内渲染内联幽灵文本——前缀用 `visibility: hidden` 占位以与输入框文本对齐，后缀以灰色透明样式显示在已输入内容之后。loading 状态仍以内联形式提示“正在生成增强版指令…”。
+- **Fix 2（交互·FrontstageApp.tsx）**：按 `->` 时执行 `setInputValue(inputValue + loglineHint)` 并清空 `loglineHint`，随后按 Enter 提交“原输入 + 增强后缀”组合文本。移除 `originalInputForLoglineRef` 与 `intentClassificationInput` 透传，`handleSmartGeneration` 恢复只接收 `userInput`，意图分类统一基于当前输入框文本。
+- **Fix 3（Prompt 资产·orchestrator.rs）**：新增 `resources/prompts/agency/agency_logline_suffix.md`，要求 LLM 只输出应追加到原输入后的后缀；`generate_logline_hint` 改用该 prompt，返回后缀字符串。
+- **Fix 4（分时预检缺少角色·intent.rs + preflight.rs + FrontstageApp.tsx）**：后端意图分类兜底路径增加按输入文本判断创世意图；`QuickPreflightChecker` 在角色表为空时自动创建占位主角（仅一次 DB 写入，不触发 LLM auto_contract），避免空角色表阻塞生成；前端接受 logline 提示后用原输入做意图分类。
+- **验证**：`cargo test -p storymoss` 1060 passed；`npx vitest run` 310 passed / 3 skipped；fmt / clippy（baseline 549 零新增）/ tsc / prettier / architecture_guard 全绿。
 
 ### v0.30.25 - 修复续写 600s 超时（auto_contract 阻塞 + reasoning_content 丢失 + 无超时）
 
@@ -579,12 +588,12 @@ type:
 
 ---
 
-_最后更新: 2026-07-24 - v0.30.25_
+_最后更新: 2026-07-27 - v0.30.26_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **StoryMoss** (19433 symbols, 39706 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **StoryMoss** (22262 symbols, 46734 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.25 项目完成状态
+# StoryMoss (草苔) v0.30.26 项目完成状态
 
-> 最后更新: 2026-07-24（v0.30.25 修复续写 600s 超时：auto_contract 后台化 + reasoning_content fallback + 每步 30s 超时）
+> 最后更新: 2026-07-27（v0.30.26 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.26 - 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色（2026-07-27）
+
+- 将 v0.30.24 的独立 `.frontstage-logline-hint` 建议条改为输入框内跟在已输入内容后的幽灵后缀
+- 新增 `agency_logline_suffix` prompt，后端只返回应追加的后缀
+- 按 `→` 追加后缀，Enter 提交“原输入 + 增强后缀”组合文本
+- 简化 `FrontstageApp`：移除 `originalInputForLoglineRef` 与 `intentClassificationInput` 透传
+- 修复分时预检缺少角色：意图分类兜底按输入文本判断创世意图；`QuickPreflightChecker` 自动创建占位主角；前端接受 logline 提示后用原输入做意图分类
+- 验证：`cargo test -p storymoss` 1060 passed；`npx vitest run` 310 passed / 3 skipped
 
 ### v0.30.23 - 意图分类 Bug 修复（LLM 分类去偏 + 失败兜底上下文化）（2026-07-23）
 

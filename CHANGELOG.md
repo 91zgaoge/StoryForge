@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.26（2026-07-27）
+
+### 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色
+
+- **UI 统一**：将 v0.30.24 的独立 `.frontstage-logline-hint` 建议条改为输入框内跟在已输入内容后的内联幽灵文本。`FrontstageBottomBar.tsx` 在 `frontstage-input-ghost-wrapper` 中渲染 `inputValue + loglineHint` 的叠加层，前缀用 `visibility: hidden` 占位，后缀以灰色透明样式显示；用户按 `→` 后 `FrontstageApp.tsx` 将后缀追加到当前输入（`inputValue + loglineHint`），再按 Enter 即提交“原输入 + 增强后缀”组合文本。
+- **Prompt 资产**：新增 `resources/prompts/agency/agency_logline_suffix.md`，要求 LLM 只输出应追加到原输入后的后缀（而非完整 logline），后端 `commands/orchestrator.rs::generate_logline_hint` 改用该 prompt。
+- **简化前端状态**：移除 `originalInputForLoglineRef` 与 `intentClassificationInput` 透传；`handleSmartGeneration` 恢复只接收 `userInput`，意图分类统一基于当前输入框文本。
+- **修复分时预检缺少角色**：
+  - 后端 `intent.rs` 兜底路径增加按输入文本判断创世意图，避免简单创世指令被误分类为续写而进入 TimeSliced 路径触发空角色预检失败。
+  - `story_system/preflight.rs` 的 `QuickPreflightChecker` 在角色表为空时自动创建占位主角（仅一次 DB 写入，不触发 LLM），避免空角色表阻塞生成。
+  - 前端接受 logline 提示后用原输入做意图分类，确保最终提交文本仍以“写一部…”开头，被正确判为创世。
+- **验证**：`cargo test -p storymoss` 1060 passed；`npx tsc --noEmit` 通过；`npx vitest run` 310 passed / 3 skipped；`cargo +nightly fmt` / `npm run format:check` 全绿。
+
 ## v0.30.25（2026-07-24）
 
 ### 修复续写 600s 超时（auto_contract 阻塞 + reasoning_content 丢失 + 无超时）

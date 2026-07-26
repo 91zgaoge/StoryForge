@@ -1,8 +1,18 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.25)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.26)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.26 变更说明
+
+- 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色：
+  - 前端 `FrontstageBottomBar.tsx` 改为内联幽灵后缀渲染，移除旧的 `.frontstage-logline-hint` 建议条；`FrontstageApp.tsx` 按 `→` 追加后缀逻辑简化，移除 `originalInputForLoglineRef` / `intentClassificationInput` 透传。
+  - 后端 `commands/orchestrator.rs` 的 `generate_logline_hint` 改用新增 `agency_logline_suffix` prompt，返回追加后缀。
+  - 后端 `intent.rs` 兜底路径增加按输入文本判断创世意图；`story_system/preflight.rs` 的 `QuickPreflightChecker` 在角色表为空时自动创建占位主角。
+- 新增 prompt 资产：`resources/prompts/agency/agency_logline_suffix.md`。
+- 更新 vitest 测试：`FrontstageBottomBar.test.tsx` 的 logline 相关断言改为验证内联幽灵文本。
+- 全量基线：`cargo test -p storymoss` 1060 passed；`npx vitest run` 310 passed / 3 skipped；`npx tsc --noEmit` ✅；fmt / clippy / prettier / architecture_guard 全绿。
 
 ### v0.30.25 变更说明
 

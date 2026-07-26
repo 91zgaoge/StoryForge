@@ -1,8 +1,17 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-24（v0.30.25 修复续写 600s 超时）
+> 最后更新: 2026-07-27（v0.30.26 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.26 - 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色 ✅ (2026-07-27)
+
+- [x] 将独立 `.frontstage-logline-hint` 建议条改为输入框内跟在已输入内容后的幽灵后缀
+- [x] 新增 `resources/prompts/agency/agency_logline_suffix.md` prompt 资产
+- [x] 按 `→` 追加后缀，Enter 提交“原输入 + 增强后缀”组合文本
+- [x] 简化 `FrontstageApp`：移除 `originalInputForLoglineRef` 与 `intentClassificationInput` 透传
+- [x] 修复分时预检缺少角色：意图分类兜底按输入文本判断创世意图；`QuickPreflightChecker` 自动创建占位主角；前端用原输入做意图分类
+- [x] 验证：`cargo test -p storymoss` 1060 passed；`npx vitest run` 310 passed / 3 skipped
 
 ### ✨ v0.30.23 - 意图分类 Bug 修复 ✅ (2026-07-23)
 
