@@ -2,7 +2,9 @@
 //!
 //! 检查合同完整性、大纲结构化、blocking issues
 
-use crate::db::{CharacterRepository, DbPool, SceneRepository, StoryContractRepository};
+use crate::db::{
+    CharacterRepository, CreateCharacterRequest, DbPool, SceneRepository, StoryContractRepository,
+};
 
 /// 校验结果
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -163,21 +165,43 @@ impl QuickPreflightChecker {
     }
 
     /// 仅检查角色非空。DB 查询用 spawn_blocking 包裹，避免阻塞 tokio worker。
+    ///
+    /// v0.30.25: 防御性兜底——若角色表为空，自动创建占位主角后再检查一次。
+    /// 这避免了因前端/分类器偶发 misroute 到续写路径（TimeSliced）时，空角色
+    /// 表直接阻塞生成。占位角色会在后续后台 enrich 或用户编辑时被替换/完善。
+    /// 注意：此处仅写一次 DB，不触发 LLM auto_contract，仍保持 TimeSliced
+    /// 快速。
     pub async fn check(pool: &DbPool, story_id: &str) -> PreflightResult {
         let pool = pool.clone();
         let story_id = story_id.to_string();
         tokio::task::spawn_blocking(move || -> PreflightResult {
-            let char_repo = CharacterRepository::new(pool);
+            let char_repo = CharacterRepository::new(pool.clone());
             match char_repo.get_by_story(&story_id) {
                 Ok(characters) => {
                     if characters.is_empty() {
-                        PreflightResult {
-                            ready: false,
-                            missing_contracts: vec![],
-                            warnings: vec![],
-                            blocking_issues: vec![
-                                "故事中没有角色，请先创建至少一个角色后再生成".to_string()
-                            ],
+                        if let Err(e) = Self::create_placeholder_character(&pool, &story_id) {
+                            log::warn!(
+                                "[QuickPreflight] 故事 {} 角色为空且自动创建占位主角失败: {}",
+                                story_id,
+                                e
+                            );
+                        }
+                        // 无论创建成功与否，重新查询以确认状态
+                        match char_repo.get_by_story(&story_id) {
+                            Ok(chars) if !chars.is_empty() => PreflightResult {
+                                ready: true,
+                                missing_contracts: vec![],
+                                warnings: vec!["已自动创建占位主角以继续生成".to_string()],
+                                blocking_issues: vec![],
+                            },
+                            _ => PreflightResult {
+                                ready: false,
+                                missing_contracts: vec![],
+                                warnings: vec![],
+                                blocking_issues: vec![
+                                    "故事中没有角色，请先创建至少一个角色后再生成".to_string(),
+                                ],
+                            },
                         }
                     } else {
                         PreflightResult {
@@ -203,6 +227,26 @@ impl QuickPreflightChecker {
             warnings: vec![format!("预检任务执行失败: {}", e)],
             blocking_issues: vec!["预检无法完成".to_string()],
         })
+    }
+
+    fn create_placeholder_character(
+        pool: &DbPool,
+        story_id: &str,
+    ) -> Result<(), crate::error::AppError> {
+        let char_repo = CharacterRepository::new(pool.clone());
+        char_repo.create(CreateCharacterRequest {
+            story_id: story_id.to_string(),
+            name: "主角".to_string(),
+            background: Some("待完善".to_string()),
+            personality: Some("待完善".to_string()),
+            goals: Some("待完善".to_string()),
+            appearance: None,
+            gender: None,
+            age: None,
+            source: Some("auto_placeholder".to_string()),
+            is_auto_generated: Some(true),
+        })?;
+        Ok(())
     }
 }
 
@@ -239,17 +283,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn quick_check_no_characters_fails() {
+    async fn quick_check_no_characters_creates_placeholder() {
         let pool = create_test_pool().expect("Failed to create test pool");
         insert_story(&pool, "story-empty");
-        // 不插入任何角色
+        // 不插入任何角色，QuickPreflight 应自动创建占位主角
         let result = QuickPreflightChecker::check(&pool, "story-empty").await;
-        assert!(!result.ready, "空角色应当 ready=false");
+        assert!(result.ready, "空角色时应自动创建占位主角并通过预检");
         assert!(
-            result.blocking_issues.iter().any(|i| i.contains("角色")),
-            "blocking_issues 应提及角色，实际: {:?}",
-            result.blocking_issues
+            result.warnings.iter().any(|i| i.contains("占位主角")),
+            "warnings 应提示自动创建占位主角，实际: {:?}",
+            result.warnings
         );
+        assert!(result.blocking_issues.is_empty());
+
+        // 二次检查：角色已存在，直接通过
+        let result2 = QuickPreflightChecker::check(&pool, "story-empty").await;
+        assert!(result2.ready);
+        assert!(result2.warnings.is_empty());
     }
 
     #[tokio::test]

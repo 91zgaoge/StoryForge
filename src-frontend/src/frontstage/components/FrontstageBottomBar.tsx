@@ -3,7 +3,6 @@ import {
   Send,
   X,
   Activity,
-  Loader2,
   RefreshCw,
   ClipboardList,
   Settings,
@@ -328,6 +327,23 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                   </span>
                 </span>
               )}
+              {/* v0.30.26: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后，
+                  前缀占位隐藏，确保后缀位置与输入文本对齐；按 → 后原输入+后缀一并提交 */}
+              {inputValue && (loglineHint || loglineHintLoading) && (
+                <span className="frontstage-input-ghost frontstage-input-ghost-inline">
+                  <span className="frontstage-input-ghost-inline-prefix" aria-hidden="true">
+                    {inputValue}
+                  </span>
+                  {loglineHintLoading ? (
+                    <span className="frontstage-input-ghost-hint">正在生成增强版指令…</span>
+                  ) : (
+                    <>
+                      <span className="frontstage-input-ghost-inline-suffix">{loglineHint}</span>
+                      <span className="frontstage-input-ghost-hint"> · →确认</span>
+                    </>
+                  )}
+                </span>
+              )}
               <textarea
                 className="frontstage-input-textarea"
                 placeholder={ghostHint ? '' : '输入任意指令…'}
@@ -339,26 +355,6 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 rows={1}
               />
             </div>
-            {/* v0.30.24: Logline 幽灵提示--输入非空时显示增强版指令建议 */}
-            {(loglineHint || loglineHintLoading) && inputValue && (
-              <div
-                className="frontstage-logline-hint"
-                onClick={() => loglineHint && onInputChange(loglineHint)}
-              >
-                {loglineHintLoading ? (
-                  <span className="frontstage-logline-loading">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    正在生成增强版指令…
-                  </span>
-                ) : (
-                  <>
-                    <Lightbulb className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    <span className="frontstage-logline-text">{loglineHint}</span>
-                    <span className="frontstage-logline-action">{'按 -> 使用'}</span>
-                  </>
-                )}
-              </div>
-            )}
           </div>
 
           {isGenerating ? (

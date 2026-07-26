@@ -3736,7 +3736,7 @@ const FrontstageApp: React.FC = () => {
         try {
           classification = await classifyIntent(
             userInput,
-            !!currentStory?.id,
+            stories.length > 0,
             !!currentChapter?.content
           );
           // 仅缓存有效结果（classifyIntent 可能 resolve 为 null，见下方兜底）
@@ -4330,7 +4330,7 @@ const FrontstageApp: React.FC = () => {
         }
       }
     },
-    [isGenerating, settings, clearAccepted, selectChapter, setGeneratedText]
+    [isGenerating, settings, clearAccepted, selectChapter, setGeneratedText, stories]
   );
 
   // 底部输入栏提交
@@ -4439,10 +4439,10 @@ const FrontstageApp: React.FC = () => {
         setLoglineHint('');
         return;
       }
-      // v0.30.24: -> 键接受 logline 幽灵提示（输入非空时，区别于 ghost hint 的空输入场景）
+      // v0.30.26: -> 键将 logline 增强后缀追加到当前输入，随后 Enter 提交组合文本
       if (e.key === 'ArrowRight' && loglineHint && inputValue) {
         e.preventDefault();
-        setInputValue(loglineHint);
+        setInputValue(inputValue + loglineHint);
         setLoglineHint('');
         return;
       }

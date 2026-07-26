@@ -189,6 +189,67 @@ impl WritingIntentClassification {
             Self::conservative_fallback()
         }
     }
+
+    /// v0.30.25: 输入感知兜底。LLM 失败/超时时，先根据用户输入本身的
+    /// 表达判断是否为创世意图；无法判断时再回退到上下文兜底。
+    ///
+    /// 这解决了"已有故事时，LLM 失败导致'写一部X小说'被错误降级为续写"
+    /// 的问题：当输入明显是创作新小说时，即使 DB 里已有故事，也应走创世
+    /// 路径（用户完全可以在已有故事的情况下再开新书）。
+    pub fn conservative_fallback_with_input(user_input: &str, has_existing_story: bool) -> Self {
+        if looks_like_creation_intent(user_input) {
+            Self {
+                is_new_novel: true,
+                is_continuation: false,
+                task_type: AssetTaskType::Genesis,
+                is_prose_request: true,
+                input_clarity: InputClarity::Vague,
+                detected_genre: None,
+                confidence: 0.0,
+            }
+        } else {
+            Self::conservative_fallback_with_context(has_existing_story)
+        }
+    }
+}
+
+/// 判断用户输入是否表达"创作一部新小说"的意图。
+///
+/// 用于 LLM 分类失败/超时的兜底；与已废弃的 `is_novel_creation_intent` 不同，
+/// 这里只识别明确的创世表达（"写一部/创作一部/新开一部"等），避免把普通
+/// 闲聊中的"story""book"误分类为创世。
+fn looks_like_creation_intent(user_input: &str) -> bool {
+    let input = user_input.trim().to_lowercase();
+    if input.is_empty() {
+        return false;
+    }
+    let creation_signals = [
+        "写一部",
+        "写一本",
+        "写一篇",
+        "写个",
+        "创作一部",
+        "创作一本",
+        "创作一篇",
+        "创作个",
+        "生成一部",
+        "生成一本",
+        "生成一篇",
+        "新开一部",
+        "新开一本",
+        "新开一篇",
+        "新建",
+        "创建",
+        "新开",
+    ];
+    let has_creation_signal = creation_signals.iter().any(|&kw| input.contains(kw));
+    if !has_creation_signal {
+        return false;
+    }
+    // 同时包含续写信号时，优先判为续写（如"继续写一部小说"）
+    let continuation_signals = ["续写", "接着写", "往下写", "继续"];
+    let has_continuation_signal = continuation_signals.iter().any(|&kw| input.contains(kw));
+    !has_continuation_signal
 }
 
 /// 会话级分类缓存：按 user_input 哈希（v0.30.23: 提示词不再注入上下文，
@@ -394,7 +455,8 @@ JSON Schema:
                             &content[..content.len().min(200)]
                         );
                             (
-                                WritingIntentClassification::conservative_fallback_with_context(
+                                WritingIntentClassification::conservative_fallback_with_input(
+                                    user_input,
                                     has_existing_story,
                                 ),
                                 true,
@@ -408,7 +470,8 @@ JSON Schema:
                         e
                     );
                     (
-                        WritingIntentClassification::conservative_fallback_with_context(
+                        WritingIntentClassification::conservative_fallback_with_input(
+                            user_input,
                             has_existing_story,
                         ),
                         true,
@@ -417,7 +480,8 @@ JSON Schema:
                 Err(_) => {
                     log::warn!("[IntentParser] classify_writing_intent 8s 超时，兜底");
                     (
-                        WritingIntentClassification::conservative_fallback_with_context(
+                        WritingIntentClassification::conservative_fallback_with_input(
+                            user_input,
                             has_existing_story,
                         ),
                         true,
@@ -457,6 +521,7 @@ JSON Schema:
 
 示例：
 - "写一部科幻小说" -> is_new_novel=true, task_type=genesis, is_prose=true
+- "当一个退役间谍在布拉格被昔日组织追杀，必须在 48 小时内找出潜伏在情报局高层的内鬼，否则他的家人将遭遇灭顶之灾。" -> is_new_novel=true, task_type=genesis, is_prose=true, detected_genre="间谍"
 - "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation
 - "把这段改得更生动" -> is_new_novel=false, task_type=rewrite, is_prose=false
 
@@ -1021,6 +1086,31 @@ mod tests {
     }
 
     #[test]
+    fn test_conservative_fallback_with_input_creation_overrides_existing_story() {
+        // v0.30.25: 即使 DB 里已有故事，输入明确是创世命令时也应走创世。
+        // 修复场景：用户在幕前输入"写一部现代间谍的长篇小说"，LLM 失败或超时后
+        // 被错误降级为续写已有空故事，导致 TimeSliced 预检"缺少角色"。
+        let c = WritingIntentClassification::conservative_fallback_with_input(
+            "写一部现代间谍的长篇小说",
+            true,
+        );
+        assert!(c.is_new_novel, "明确创世表达应覆盖已有故事状态");
+        assert!(!c.is_continuation);
+        assert_eq!(c.task_type, AssetTaskType::Genesis);
+        assert!(c.is_prose_request);
+    }
+
+    #[test]
+    fn test_conservative_fallback_with_input_continuation_still_safe() {
+        // 非创世表达仍应安全降级为续写。
+        let c =
+            WritingIntentClassification::conservative_fallback_with_input("继续写后面的情节", true);
+        assert!(!c.is_new_novel, "非创世表达仍应偏续写");
+        assert!(c.is_continuation);
+        assert_eq!(c.task_type, AssetTaskType::Continuation);
+    }
+
+    #[test]
     fn test_classification_prompt_no_context_bias() {
         // v0.30.23: 提示词不应注入"已有故事="上下文行（偏差来源）
         let prompt = IntentParser::build_classification_prompt("写一部科幻小说", true, true);
@@ -1049,6 +1139,20 @@ mod tests {
         assert!(
             prompt.contains("与是否已有故事无关"),
             "提示词应明确判断与已有故事无关"
+        );
+    }
+
+    #[test]
+    fn test_classification_prompt_has_logline_example() {
+        // v0.30.25: 提示词应含 logline 正例，避免用户接受增强指令后被误分类
+        let prompt = IntentParser::build_classification_prompt("测试", false, false);
+        assert!(
+            prompt.contains("退役间谍在布拉格"),
+            "提示词应含 logline 作为创世的正例"
+        );
+        assert!(
+            prompt.contains("detected_genre=\"间谍\""),
+            "logline 正例应标注题材"
         );
     }
 

@@ -953,12 +953,12 @@ fn is_valid_logline(logline: &str) -> bool {
     !trimmed.is_empty() && trimmed.chars().count() >= 10
 }
 
-/// v0.30.24: Logline 幽灵提示--用户输入简单创世指令时，后台用 v0.30.22 的
-/// PROBLEM logline 生成功能产出一句强力 logline，前端以幽灵提示显示，
-/// 用户按 -> 即可用 logline 替换原始简单指令。
+/// v0.30.25: Logline 幽灵提示--用户输入简单创世指令时，后台生成一段可直接
+/// 追加到原输入后的增强后缀，前端以输入框内幽灵文本显示；用户按 -> 后，
+/// 后缀被追加到原输入，形成完整增强指令再提交给 LLM。
 ///
-/// - 输入为空或 ≥ 100 字符 -> 返回 None（与 v0.30.22 `< 100 字符` 触发对齐）
-/// - 复用 `agency_problem_logline` prompt 资产（用户编辑后自动生效）
+/// - 输入为空或 ≥ 100 字符 -> 返回 None
+/// - 使用 `agency_logline_suffix` prompt 资产（用户编辑后自动生效）
 /// - 15s 超时，失败/超时静默返回 None（不报错，不阻塞 UI）
 #[tauri::command(rename_all = "snake_case")]
 pub async fn generate_logline_hint(
@@ -970,21 +970,20 @@ pub async fn generate_logline_hint(
     }
     let trimmed = user_input.trim();
 
-    // 从 registry 加载 PROBLEM logline 提示词（与 coordinator.rs generate_logline
-    // 一致）
+    // 从 registry 加载 logline 后缀增强提示词（与 coordinator.rs 的完整 logline
+    // 生成解耦，避免影响创世主流程）
     let system = crate::prompts::registry::resolve_prompt_default_with_vars(
-        "agency_problem_logline",
+        "agency_logline_suffix",
         &std::collections::HashMap::new(),
     )
     .unwrap_or_else(|| {
-        "你是故事概念设计师，精通 PROBLEM 七元素框架\
-         （Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful）。\
-         只输出一句 logline（不超过 100 字），格式：\
-         当一个[主角]在[催化事件]后，必须[核心不可能的任务]，否则[灾难性后果]。"
+        "你是故事概念设计师。用户输入了一句简单的创世指令（如'写一部现代间谍小说'）。\
+         请只输出一段应直接追加到该指令后的增强后缀，使其成为包含主角、催化事件、\
+         核心任务与失败后果的强力 logline。不要重复原输入，只输出后缀。"
             .to_string()
     });
     let user_prompt = format!(
-        "用户输入：{}\n\n请基于以上用户输入，用 PROBLEM 七元素框架生成一个强力的 logline。",
+        "用户输入：{}\n\n请生成可直接追加到该输入后的增强后缀。",
         trimmed
     );
 
