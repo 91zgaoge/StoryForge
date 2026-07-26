@@ -106,16 +106,17 @@ test.describe('Backstage 页面加载测试', () => {
 
     await expect(page.locator('h1')).toContainText('工作室配置');
 
-    // 断言标签页按钮存在
-    await expect(page.locator('text=模型管理').first()).toBeVisible();
-    await expect(page.locator('text=Agent配置').first()).toBeVisible();
-    await expect(page.locator('text=创作方法论').first()).toBeVisible();
-    await expect(page.locator('text=工作流').first()).toBeVisible();
-    await expect(page.locator('text=通用设置').first()).toBeVisible();
-    await expect(page.locator('text=数据统计').first()).toBeVisible();
-    await expect(page.locator('text=账号与登录').first()).toBeVisible();
+    // 断言标签页按钮存在（v0.26.40 八 Tab：模型 | Agent | 写作 | 提示词 | 扩展 | 外观 | 关于 | 账号）
+    await expect(page.locator('text=模型').first()).toBeVisible();
+    await expect(page.locator('text=Agent').first()).toBeVisible();
+    await expect(page.locator('text=写作').first()).toBeVisible();
+    await expect(page.locator('text=提示词').first()).toBeVisible();
+    await expect(page.locator('text=扩展').first()).toBeVisible();
+    await expect(page.locator('text=外观').first()).toBeVisible();
+    await expect(page.locator('text=关于').first()).toBeVisible();
+    await expect(page.locator('text=账号').first()).toBeVisible();
 
-    // 默认选中模型管理标签
+    // 默认选中模型标签
     await expect(page.locator('main')).toContainText('模型管理');
 
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
@@ -129,15 +130,15 @@ test.describe('Backstage 页面加载测试', () => {
     await page.locator('nav').locator('text=设置').first().click();
     await page.waitForTimeout(1000);
 
-    // 切换到通用设置
-    await page.locator('text=通用设置').first().click();
+    // 切换到外观（包含编辑器通用设置）
+    await page.locator('text=外观').first().click();
     await page.waitForTimeout(500);
-    await expect(page.locator('main')).toContainText('通用设置');
+    await expect(page.locator('main')).toContainText('外观');
 
-    // 切换到账号与登录
-    await page.locator('text=账号与登录').first().click();
+    // 切换到账号
+    await page.locator('text=账号').first().click();
     await page.waitForTimeout(500);
-    await expect(page.locator('main')).toContainText('账号与登录');
+    await expect(page.locator('main')).toContainText('账号');
   });
 
   test('世界构建页面加载无报错', async ({ page }) => {

@@ -93,7 +93,8 @@ export function getMockTauriInitScript() {
             return null;
           case 'update_scene': {
             // v0.24.0: 幕前自动保存走 update_scene，mock 需要同时更新 chapter 内容以支持 E2E 重载断言
-            const sceneContent = args?.content || '';
+            // 当前 IPC 结构：{ scene_id, updates: { title?, content? } }
+            const sceneContent = args?.updates?.content ?? args?.content ?? '';
             mockContent = sceneContent;
             mockChapter.content = mockContent;
             if (enablePersistence) {

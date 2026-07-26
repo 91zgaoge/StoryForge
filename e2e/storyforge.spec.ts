@@ -93,10 +93,10 @@ test.describe('StoryMoss 应用测试', () => {
       // 断言页面标题
       await expect(page.locator('h1')).toContainText('工作室配置');
 
-      // 断言设置标签页存在（使用 first 避免 strict mode 冲突，页面标题和标签可能同名）
-      await expect(page.locator('text=模型管理').first()).toBeVisible();
-      await expect(page.locator('text=Agent配置').first()).toBeVisible();
-      await expect(page.locator('text=通用设置').first()).toBeVisible();
+      // 断言设置标签页存在（v0.26.40 八 Tab，使用 first 避免 strict mode 冲突）
+      await expect(page.locator('text=模型').first()).toBeVisible();
+      await expect(page.locator('text=Agent').first()).toBeVisible();
+      await expect(page.locator('text=账号').first()).toBeVisible();
     });
   });
 
