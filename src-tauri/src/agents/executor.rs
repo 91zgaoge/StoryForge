@@ -111,7 +111,7 @@ impl TaskExecutor for AiGenerationExecutor {
         ctx.update_progress("generate", 30, "执行 AI 生成...");
         ctx.heartbeat();
 
-        let service = AgentService::new(self.app_handle.clone());
+        let service = AgentService::from_app_handle(self.app_handle.clone());
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
         let config = crate::config::AppConfig::load(&app_dir)
             .map(|c| WorkflowConfig::from_app_config(&c))

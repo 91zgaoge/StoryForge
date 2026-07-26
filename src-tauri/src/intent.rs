@@ -623,7 +623,7 @@ pub struct IntentExecutor {
 impl IntentExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
         Self {
-            agent_service: AgentService::new(app_handle),
+            agent_service: AgentService::from_app_handle(app_handle),
         }
     }
 

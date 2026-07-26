@@ -1473,7 +1473,7 @@ impl AgentOrchestrator {
         let elapsed_secs = total_start.elapsed().as_secs();
         let remaining_budget = total_budget.saturating_sub(elapsed_secs);
         let skip_call1 = remaining_budget < call1_max_estimate + writer_min_estimate;
-        let mut synthesis = if skip_call1 {
+        let synthesis = if skip_call1 {
             log::info!(
                 "[TriShot] 预算守卫直接跳过 Call 1（remaining={}s, budget={}s），回退本地拼接",
                 remaining_budget,
@@ -1500,10 +1500,8 @@ impl AgentOrchestrator {
                 })),
             );
 
-            let app_handle = self.app_handle.clone();
             let syn_result = engine
                 .synthesize_prompt(
-                    app_handle,
                     &user_instruction,
                     current_content_preview,
                     &manifest,
@@ -1581,7 +1579,6 @@ impl AgentOrchestrator {
                     .service
                     .creative_engine()
                     .refine_prompt(
-                        self.app_handle.clone(),
                         &synthesis.synthesized_prompt,
                         synthesis.refinement_focus.as_deref(),
                         &bundle.story_meta.title,

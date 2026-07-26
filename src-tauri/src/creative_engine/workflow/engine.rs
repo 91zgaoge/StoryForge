@@ -275,13 +275,19 @@ fn standard_phase_workflow(phase: CreationPhase, ctx: &AgentContext) -> PhaseWor
 pub struct CreationWorkflowEngine {
     agent_service: Arc<dyn AgentServicePort>,
     pool: DbPool,
+    app_handle: tauri::AppHandle,
 }
 
 impl CreationWorkflowEngine {
-    pub fn new(agent_service: Arc<dyn AgentServicePort>, pool: DbPool) -> Self {
+    pub fn new(
+        agent_service: Arc<dyn AgentServicePort>,
+        pool: DbPool,
+        app_handle: tauri::AppHandle,
+    ) -> Self {
         Self {
             agent_service,
             pool,
+            app_handle,
         }
     }
 
@@ -670,7 +676,7 @@ impl CreationWorkflowEngine {
 
         // 生成质量报告：优先 LLM 评估，回退规则评估（P2-2）
         let quality_report = if let Some(ref content) = final_output {
-            let llm_service = LlmService::new(self.agent_service.app_handle().clone());
+            let llm_service = LlmService::new(self.app_handle.clone());
             let checker = QualityChecker::new();
             match checker.check_with_llm(content, &llm_service).await {
                 Ok(report) => Some(report),
@@ -889,7 +895,7 @@ impl CreationWorkflowEngine {
         message: &str,
         progress: f32,
     ) {
-        let _ = self.agent_service.app_handle().emit(
+        let _ = self.app_handle.emit(
             "workflow-progress",
             WorkflowProgressEvent {
                 workflow_id: state.workflow_id.clone(),
@@ -958,7 +964,7 @@ impl CreationWorkflowEngine {
         log::info!("[enrich] Starting enrichment for story_id={}", story_id);
 
         // 使用 LLM 一次性生成所有要素
-        let llm_service = LlmService::new(self.agent_service.app_handle().clone());
+        let llm_service = LlmService::new(self.app_handle.clone());
         let prompt = format!(
             r#"请基于以下场景正文，提取故事的核心要素。只提取正文中明确出现或强烈暗示的信息，不要编造正文没有的内容。
 

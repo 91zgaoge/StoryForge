@@ -914,8 +914,9 @@ pub async fn run_creation_workflow(
     };
 
     let agent_service: std::sync::Arc<dyn crate::domain::agent_service::AgentServicePort> =
-        std::sync::Arc::new(AgentService::new(app_handle.clone()));
-    let engine = CreationWorkflowEngine::new(agent_service, pool.inner().clone());
+        std::sync::Arc::new(AgentService::from_app_handle(app_handle.clone()));
+    let engine =
+        CreationWorkflowEngine::new(agent_service, pool.inner().clone(), app_handle.clone());
     let config = CreationWorkflowEngine::create_standard_workflow(&story_id, mode, &app_handle);
 
     match engine.execute_full_workflow(&config, &initial_input).await {
@@ -945,8 +946,11 @@ pub async fn run_creation_workflow(
                     );
                     let agent_service: std::sync::Arc<
                         dyn crate::domain::agent_service::AgentServicePort,
-                    > = std::sync::Arc::new(AgentService::new(app_handle_clone));
-                    let engine = CreationWorkflowEngine::new(agent_service, pool_clone);
+                    > = std::sync::Arc::new(AgentService::from_app_handle(
+                        app_handle_clone.clone(),
+                    ));
+                    let engine =
+                        CreationWorkflowEngine::new(agent_service, pool_clone, app_handle_clone);
                     if let Err(e) = engine.enrich_story_elements(&story_id_clone).await {
                         log::warn!("[story_commands] Background enrich failed: {}", e);
                     }
@@ -1479,7 +1483,7 @@ pub async fn generate_scene_outline(
         tier: None,
     };
 
-    let service = AgentService::new(app_handle);
+    let service = AgentService::from_app_handle(app_handle);
     let result = service.execute_task(task).await.map_err(|e| {
         log::error!(
             "[story_commands] {} LLM task failed: {}",
@@ -1588,7 +1592,7 @@ pub async fn generate_scene_draft(
         tier: None,
     };
 
-    let service = AgentService::new(app_handle.clone());
+    let service = AgentService::from_app_handle(app_handle.clone());
     let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
     let orchestrator_config = crate::config::AppConfig::load(&app_dir)
         .map(|c| crate::agents::orchestrator::WorkflowConfig::from_app_config(&c))

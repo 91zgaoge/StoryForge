@@ -619,7 +619,8 @@ impl CreativeContextTool {
         let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
         tokio::task::spawn_blocking(move || -> Result<CreativeContext, AppError> {
-            let engine = CreativeEngineAdapter::new(pool);
+            let engine =
+                CreativeEngineAdapter::new(pool, std::sync::Arc::new(crate::ports::NoOpLlmPort));
             let asset_snapshot = engine.load_asset_snapshot(&story_id, None);
             let foreshadowing_hints = engine.get_foreshadowing_hints(&story_id, 10)?;
             let bundle = engine.load_write_time_bundle(&story_id, chapter_number, None, None)?;

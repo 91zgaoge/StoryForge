@@ -1157,7 +1157,8 @@ impl PlanExecutor {
             .map(|s| s.to_string())
             .or_else(|| plan_context.current_content_preview.clone());
 
-        let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let service =
+            crate::agents::service::AgentService::from_app_handle(self.app_handle.clone());
         let sw = (plan_context.style_weight as f32 / 100.0).clamp(0.0, 1.0);
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
         log::info!("[PlanExecutor::execute_writer] Loading AppConfig...");
@@ -1460,7 +1461,8 @@ impl PlanExecutor {
             .map(|s| s.to_string())
             .or_else(|| plan_context.current_content_preview.clone());
 
-        let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let service =
+            crate::agents::service::AgentService::from_app_handle(self.app_handle.clone());
         let context = self
             .build_agent_context(&story_id, current_content, None)
             .await?;
@@ -1497,7 +1499,8 @@ impl PlanExecutor {
             .unwrap_or("")
             .to_string();
 
-        let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let service =
+            crate::agents::service::AgentService::from_app_handle(self.app_handle.clone());
         let context = self.build_agent_context(&story_id, None, None).await?;
         let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),
@@ -1531,7 +1534,8 @@ impl PlanExecutor {
             .unwrap_or("")
             .to_string();
 
-        let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let service =
+            crate::agents::service::AgentService::from_app_handle(self.app_handle.clone());
         let mut task_params = params.clone();
         task_params.insert(
             "style_sample".to_string(),
@@ -1571,7 +1575,8 @@ impl PlanExecutor {
             .unwrap_or("")
             .to_string();
 
-        let service = crate::agents::service::AgentService::new(self.app_handle.clone());
+        let service =
+            crate::agents::service::AgentService::from_app_handle(self.app_handle.clone());
         let context = self.build_agent_context(&story_id, None, None).await?;
         let task = crate::domain::agent_types::AgentTask {
             id: Uuid::new_v4().to_string(),

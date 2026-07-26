@@ -122,7 +122,7 @@ impl WorkflowNodeExecutor {
     }
 
     fn build_orchestrator(&self) -> AgentOrchestrator {
-        let agent_service = AgentService::new(self.app_handle.clone());
+        let agent_service = AgentService::from_app_handle(self.app_handle.clone());
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
         let config = crate::config::AppConfig::load(&app_dir)
             .map(|c| WorkflowConfig::from_app_config(&c))
@@ -202,7 +202,7 @@ impl WorkflowNodeExecutor {
         ctx.update_progress("inspect", 30, "执行审校节点...");
         ctx.heartbeat();
 
-        let agent_service = AgentService::new(self.app_handle.clone());
+        let agent_service = AgentService::from_app_handle(self.app_handle.clone());
         let task = AgentTask {
             id: uuid::Uuid::new_v4().to_string(),
             agent_type: AgentType::Inspector,
@@ -314,7 +314,7 @@ impl WorkflowNodeExecutor {
         ctx.update_progress("analyze", 30, "执行情节分析节点...");
         ctx.heartbeat();
 
-        let agent_service = AgentService::new(self.app_handle.clone());
+        let agent_service = AgentService::from_app_handle(self.app_handle.clone());
         let task = AgentTask {
             id: uuid::Uuid::new_v4().to_string(),
             agent_type: AgentType::PlotAnalyzer,

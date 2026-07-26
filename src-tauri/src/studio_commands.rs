@@ -699,7 +699,7 @@ pub async fn compress_content(
         tier: None,
     };
 
-    let service = AgentService::new(app_handle);
+    let service = AgentService::from_app_handle(app_handle);
     service.execute_task(task).await.map_err(|e| {
         log::error!("[story_commands] {} failed: {}", "compress_content", e);
         e
@@ -767,7 +767,7 @@ pub async fn compress_scene(
         tier: None,
     };
 
-    let service = AgentService::new(app_handle);
+    let service = AgentService::from_app_handle(app_handle);
     service.execute_task(task).await.map_err(|e| {
         log::error!("[story_commands] {} failed: {}", "compress_scene", e);
         e
@@ -852,7 +852,7 @@ pub async fn distill_story_knowledge(
         tier: None,
     };
 
-    let service = AgentService::new(app_handle);
+    let service = AgentService::from_app_handle(app_handle);
     let result = service.execute_task(task).await.map_err(|e| {
         log::error!(
             "[story_commands] {} LLM task failed: {}",

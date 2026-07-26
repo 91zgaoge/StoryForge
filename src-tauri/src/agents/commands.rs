@@ -104,7 +104,7 @@ pub async fn agent_execute_stream(
     };
 
     // 在后台执行
-    let service = AgentService::new(app_handle.clone());
+    let service = AgentService::from_app_handle(app_handle.clone());
     let task_id_clone = task_id.clone();
 
     let handle = tokio::spawn(async move {

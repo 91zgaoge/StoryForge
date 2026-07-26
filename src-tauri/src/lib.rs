@@ -912,8 +912,23 @@ pub fn run() {
                 );
                 // v0.30.2: 将 GatewayExecutor 作为 LlmPort 注入 LlmService，
                 // 使 llm 模块不再直接依赖 model_gateway 具体类型。
-                llm_service.set_llm_port(std::sync::Arc::new(gateway_executor.clone()));
+                let llm_port: std::sync::Arc<dyn crate::ports::LlmPort> =
+                    std::sync::Arc::new(gateway_executor.clone());
+                llm_service.set_llm_port(llm_port.clone());
                 app.manage(gateway_executor.clone());
+
+                // Initialize the neutral creative-engine port used by agents.
+                let creative_engine: std::sync::Arc<
+                    dyn crate::domain::creative_engine::CreativeEnginePort,
+                > = std::sync::Arc::new(
+                    crate::creative_engine::adapter::CreativeEngineAdapter::new(
+                        db_pool.clone(),
+                        llm_port,
+                    ),
+                );
+                app.manage(creative_engine);
+                log::info!("[Setup] CreativeEnginePort 已注册为 Tauri managed state");
+
                 crate::model_gateway::scheduler::spawn_health_probe_scheduler(
                     app.handle().clone(),
                     gateway_executor,
@@ -970,16 +985,6 @@ pub fn run() {
                 ));
             } else {
                 log::warn!("[Setup] No DB pool available, skipping vector store init");
-            }
-
-            // Initialize the neutral creative-engine port used by agents.
-            if let Some(ref pool) = pool {
-                let creative_engine: std::sync::Arc<dyn crate::domain::creative_engine::CreativeEnginePort> =
-                    std::sync::Arc::new(crate::creative_engine::adapter::CreativeEngineAdapter::new(
-                        pool.clone(),
-                    ));
-                app.manage(creative_engine);
-                log::info!("[Setup] CreativeEnginePort 已注册为 Tauri managed state");
             }
 
             // NOTE: WebSocket server for collaborative editing is reserved for future use

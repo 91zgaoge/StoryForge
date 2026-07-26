@@ -17,6 +17,7 @@ use crate::{
     creative_engine::context_prioritizer::{
         prioritize_system_prompt, ContextChunk, ContextPriority,
     },
+    db::DbPool,
     diagnostics::DiagnosticStore,
     domain::{
         agent_context::AgentContext, asset_snapshot::AssetSnapshot, continuity::Severity,
@@ -120,27 +121,43 @@ pub struct WriterPreparedContext {
 
 /// Agent服务
 pub struct AgentService {
-    app_handle: AppHandle,
-    llm_service: LlmService,
+    pool: DbPool,
     creative_engine: Arc<dyn CreativeEnginePort>,
+    llm_service: LlmService,
+    app_handle: AppHandle,
 }
 
 impl AgentService {
-    pub fn new(app_handle: AppHandle) -> Self {
-        let creative_engine = app_handle
-            .state::<Arc<dyn CreativeEnginePort>>()
-            .inner()
-            .clone();
-        let llm_service = LlmService::new(app_handle.clone());
-
+    pub fn new(
+        pool: DbPool,
+        creative_engine: Arc<dyn CreativeEnginePort>,
+        llm_service: LlmService,
+        app_handle: AppHandle,
+    ) -> Self {
         Self {
-            app_handle,
-            llm_service,
+            pool,
             creative_engine,
+            llm_service,
+            app_handle,
         }
     }
 
-    /// 获取 AppHandle 引用（用于上下文构建等场景）
+    /// 从 Tauri 应用句柄构造服务：从 State 中读取已注入的 `DbPool`、
+    /// `CreativeEnginePort` 与 `LlmService`。
+    pub fn from_app_handle(app_handle: AppHandle) -> Self {
+        let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
+        let creative_engine = app_handle
+            .state::<std::sync::Arc<dyn CreativeEnginePort>>()
+            .inner()
+            .clone();
+        let llm_service = app_handle
+            .state::<crate::llm::service::LlmService>()
+            .inner()
+            .clone();
+        Self::new(pool, creative_engine, llm_service, app_handle)
+    }
+
+    /// 获取底层 Tauri 应用句柄（仅用于仍需直接与 Tauri 运行时交互的场景）。
     pub fn app_handle(&self) -> &AppHandle {
         &self.app_handle
     }
@@ -158,10 +175,8 @@ impl AgentService {
     /// v0.17.1: 解析 prompt id（先查 DB override，否则回退到内置默认）。
     /// 该函数在没有 DbPool 的早期启动场景下也能工作。
     fn resolve_prompt(&self, prompt_id: &str) -> String {
-        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
-            if let Ok(content) = crate::prompts::registry::resolve_prompt(pool.inner(), prompt_id) {
-                return content;
-            }
+        if let Ok(content) = crate::prompts::registry::resolve_prompt(&self.pool, prompt_id) {
+            return content;
         }
         crate::prompts::registry::resolve_prompt_default(prompt_id).unwrap_or_default()
     }
@@ -399,21 +414,17 @@ impl AgentService {
             return SubscriptionTier::Free;
         }
 
-        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
-            let service = SubscriptionService::new(pool.inner().clone());
-            match service.get_or_create_subscription(&user_id) {
-                Ok(status) => match status.tier.parse() {
-                    Ok(tier) => return tier,
-                    Err(e) => log::warn!(
-                        "[AgentService] Failed to parse tier '{}': {}, defaulting to Free",
-                        status.tier,
-                        e
-                    ),
-                },
-                Err(e) => log::warn!("[AgentService] DB query failed: {}, defaulting to Free", e),
-            }
-        } else {
-            log::warn!("[AgentService] DbPool not available, defaulting to Free");
+        let service = SubscriptionService::new(self.pool.clone());
+        match service.get_or_create_subscription(&user_id) {
+            Ok(status) => match status.tier.parse() {
+                Ok(tier) => return tier,
+                Err(e) => log::warn!(
+                    "[AgentService] Failed to parse tier '{}': {}, defaulting to Free",
+                    status.tier,
+                    e
+                ),
+            },
+            Err(e) => log::warn!("[AgentService] DB query failed: {}, defaulting to Free", e),
         }
         SubscriptionTier::Free
     }
@@ -853,8 +864,8 @@ impl AgentService {
         );
 
         // 记录 AI 使用日志
-        if let Some(pool) = self.app_handle.try_state::<crate::db::DbPool>() {
-            let service = SubscriptionService::new(pool.inner().clone());
+        {
+            let service = SubscriptionService::new(self.pool.clone());
             let user_id = self.get_user_id();
             let tier_str = match tier {
                 SubscriptionTier::Free => "free",
@@ -930,11 +941,10 @@ impl AgentService {
             task.context.narrative.chapter_number,
             task.id
         );
-        let pool = self.app_handle.state::<crate::db::DbPool>();
         let checker = crate::story_system::preflight::PreflightChecker::new();
         let preflight = checker
             .check(
-                pool.inner(),
+                &self.pool,
                 &task.context.story.story_id,
                 task.context.narrative.chapter_number as i32,
             )
@@ -960,13 +970,13 @@ impl AgentService {
             );
 
             let builder = crate::story_system::auto_contract::AutoContractBuilder::new(
-                pool.inner().clone(),
+                self.pool.clone(),
                 self.app_handle.clone(),
             );
 
             // v0.9.7: 将同步场景查询移入 spawn_blocking，避免阻塞 tokio worker
             let target_scene_id = {
-                let pool = pool.inner().clone();
+                let pool = self.pool.clone();
                 let story_id = task.context.story.story_id.clone();
                 let chapter_number = task.context.narrative.chapter_number as i32;
                 tokio::task::spawn_blocking(move || {
@@ -1015,7 +1025,7 @@ impl AgentService {
 
                         let preflight_after = checker
                             .check(
-                                pool.inner(),
+                                &self.pool,
                                 &task.context.story.story_id,
                                 task.context.narrative.chapter_number as i32,
                             )
@@ -1072,7 +1082,7 @@ impl AgentService {
         // bundle 后续同时供 build_writer_prompt 注入参考场景段落。
         let story_id_for_bundle = task.context.story.story_id.clone();
         let chapter_number_for_bundle = task.context.narrative.chapter_number as i32;
-        let _pool_for_bundle = pool.inner().clone();
+        let _pool_for_bundle = self.pool.clone();
         let secondary_genre_profile_ids: Option<Vec<String>> = task
             .parameters
             .get("secondary_genre_profile_ids")
@@ -1332,12 +1342,11 @@ impl AgentService {
         // v0.9.7: 将同步场景查询与连续性检查整体移入 spawn_blocking
         let continuity_suggestions: Vec<String> = {
             let engine = self.creative_engine.clone();
-            let app_handle = self.app_handle.clone();
+            let pool = self.pool.clone();
             let story_id = task.context.story.story_id.clone();
             let chapter_number = task.context.narrative.chapter_number as i32;
             let content = content.clone();
             tokio::task::spawn_blocking(move || {
-                let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
                 let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
                 let mut issues = Vec::new();
                 if let Ok(scenes) = scene_repo.get_by_story(&story_id) {
@@ -2310,7 +2319,7 @@ impl AgentService {
             use crate::{canonical_state::CanonicalStateManager, db::DbPool};
 
             // v0.9.7: CanonicalStateManager 内部为同步聚合，将其整体移入 spawn_blocking
-            let pool = self.app_handle.state::<DbPool>().inner().clone();
+            let pool = self.pool.clone();
             let story_id = ctx.story.story_id.clone();
             tokio::task::spawn_blocking(move || {
                 let cs_manager = CanonicalStateManager::new(pool);
@@ -3255,9 +3264,10 @@ fn parse_constraint(s: &str) -> Option<RoutingConstraint> {
 impl Clone for AgentService {
     fn clone(&self) -> Self {
         Self {
-            app_handle: self.app_handle.clone(),
-            llm_service: LlmService::new(self.app_handle.clone()),
+            pool: self.pool.clone(),
             creative_engine: self.creative_engine.clone(),
+            llm_service: self.llm_service.clone(),
+            app_handle: self.app_handle.clone(),
         }
     }
 }
@@ -3773,8 +3783,15 @@ impl crate::domain::agent_service::AgentServicePort for AgentService {
     async fn execute_task(&self, task: AgentTask) -> Result<AgentResult, AppError> {
         AgentService::execute_task(self, task).await
     }
+}
 
-    fn app_handle(&self) -> &AppHandle {
-        &self.app_handle
+#[cfg(test)]
+mod port_assertions {
+    use crate::domain::agent_service::AgentServicePort;
+
+    #[test]
+    fn _agent_service_implements_port() {
+        fn assert_port<T: AgentServicePort>() {}
+        assert_port::<super::AgentService>();
     }
 }

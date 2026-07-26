@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tauri::AppHandle;
 
 use crate::{
     db::DbPool,
@@ -22,17 +21,19 @@ use crate::{
         write_time_bundle::WriteTimeBundle,
     },
     error::AppError,
+    ports::LlmPort,
 };
 
-/// Adapter that owns a `DbPool` and delegates to the concrete creative-engine
-/// implementations.
+/// Adapter that owns a `DbPool` and an injected `LlmPort`, delegating to the
+/// concrete creative-engine implementations.
 pub struct CreativeEngineAdapter {
     pool: DbPool,
+    llm_port: Arc<dyn LlmPort>,
 }
 
 impl CreativeEngineAdapter {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new(pool: DbPool, llm_port: Arc<dyn LlmPort>) -> Self {
+        Self { pool, llm_port }
     }
 
     fn runtime_contract_provider(
@@ -205,7 +206,6 @@ impl CreativeEnginePort for CreativeEngineAdapter {
 
     async fn synthesize_prompt(
         &self,
-        app_handle: AppHandle,
         instruction: &str,
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
@@ -213,7 +213,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         asset_capability_summary: Option<&str>,
     ) -> SynthesisResult {
         crate::creative_engine::prompt_synthesis::synthesizer::PromptSynthesizer::synthesize(
-            app_handle,
+            self.llm_port.clone(),
             instruction,
             current_content_preview,
             manifest,
@@ -226,7 +226,6 @@ impl CreativeEnginePort for CreativeEngineAdapter {
 
     async fn refine_prompt(
         &self,
-        app_handle: AppHandle,
         synthesized_prompt: &str,
         refinement_focus: Option<&str>,
         story_title: &str,
@@ -234,7 +233,7 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         story_tone: Option<&str>,
     ) -> String {
         crate::creative_engine::prompt_synthesis::refiner::PromptRefiner::refine(
-            app_handle,
+            self.llm_port.clone(),
             synthesized_prompt,
             refinement_focus,
             story_title,
@@ -284,5 +283,17 @@ impl CreativeEnginePort for CreativeEngineAdapter {
         crate::creative_engine::foreshadowing::ForeshadowingTracker::new(self.pool.clone())
             .get_writing_hints(story_id, limit)
             .map_err(AppError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::creative_engine::CreativeEnginePort;
+
+    #[test]
+    fn _creative_engine_adapter_implements_port() {
+        fn assert_port<T: CreativeEnginePort>() {}
+        assert_port::<CreativeEngineAdapter>();
     }
 }

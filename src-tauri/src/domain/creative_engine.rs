@@ -5,7 +5,6 @@
 //! breaks the agents <-> creative_engine cycle.
 
 use async_trait::async_trait;
-use tauri::AppHandle;
 
 use crate::{
     domain::{
@@ -105,7 +104,6 @@ pub trait CreativeEnginePort: Send + Sync {
 
     async fn synthesize_prompt(
         &self,
-        app_handle: AppHandle,
         instruction: &str,
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
@@ -115,7 +113,6 @@ pub trait CreativeEnginePort: Send + Sync {
 
     async fn refine_prompt(
         &self,
-        app_handle: AppHandle,
         synthesized_prompt: &str,
         refinement_focus: Option<&str>,
         story_title: &str,

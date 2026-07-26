@@ -7,12 +7,18 @@
 //! 指令从资产清单中选择相关项，合成为一个连贯、无冲突的综合提示词。失败时
 //! 回退到 bundle.to_prompt()（等价当前 TimeSliced 行为，零回归）。
 
-use tauri::AppHandle;
+use std::sync::Arc;
 
 use super::manifest::AssetManifest;
-use crate::db::DbPool;
 // 数据类型已迁移到 `crate::domain::prompt_synthesis`。
 pub use crate::domain::prompt_synthesis::SynthesisResult;
+use crate::{
+    db::DbPool,
+    error::AppError,
+    llm::adapter::GenerateResponse,
+    ports::{LlmPort, LlmPortRequest},
+    router::{Complexity, Priority, TaskType},
+};
 
 /// 路由合成器：用最快模型选资产 + 合成提示词。
 pub struct PromptSynthesizer;
@@ -20,7 +26,7 @@ pub struct PromptSynthesizer;
 impl PromptSynthesizer {
     /// 执行 Call 1 合成。
     ///
-    /// - `app_handle`：Tauri 应用句柄（用于获取 LlmService）
+    /// - `llm_port`：中性 LLM 端口（用于路由合成）
     /// - `instruction`：用户原始指令
     /// - `current_content_preview`：当前正文尾部预览（用于改写场景判断）
     /// - `manifest`：资产清单
@@ -29,7 +35,7 @@ impl PromptSynthesizer {
     /// 返回 SynthesisResult。失败/超时/解析失败均返回回退结果（不返回 Err），
     /// 保证调用方总能拿到可用提示词。
     pub async fn synthesize(
-        app_handle: AppHandle,
+        llm_port: Arc<dyn LlmPort>,
         instruction: &str,
         current_content_preview: Option<&str>,
         manifest: &AssetManifest,
@@ -37,8 +43,6 @@ impl PromptSynthesizer {
         asset_capability_summary: Option<&str>,
         pool: Option<&DbPool>,
     ) -> SynthesisResult {
-        let llm = crate::llm::LlmService::new(app_handle);
-
         // 构建合成 prompt
         let prompt = Self::build_synthesis_prompt(
             instruction,
@@ -49,9 +53,14 @@ impl PromptSynthesizer {
         );
 
         // 调最快模型（静默标签 tri-shot-router）
-        let response = llm
-            .generate_with_fastest(prompt, Some(1024), Some(0.3), Some("tri-shot-router"))
-            .await;
+        let response = generate_with_fastest(
+            &*llm_port,
+            prompt,
+            Some(1024),
+            Some(0.3),
+            Some("tri-shot-router"),
+        )
+        .await;
 
         let response = match response {
             Ok(r) => r,
@@ -205,6 +214,129 @@ impl PromptSynthesizer {
     }
 }
 
+/// 使用「最快可用模型」生成文本，失败时回退到网关候选链。
+///
+/// 与 `LlmService::generate_with_fastest` 行为对齐：先选最快 profile，
+/// 5 秒预探测通过后直接调用；否则标记 Unhealthy 并回退。
+async fn generate_with_fastest(
+    llm_port: &dyn LlmPort,
+    prompt: String,
+    max_tokens: Option<i32>,
+    temperature: Option<f32>,
+    context_label: Option<&str>,
+) -> Result<GenerateResponse, AppError> {
+    let profile = llm_port
+        .select_fastest_profile()
+        .ok_or_else(|| AppError::internal("无可用模型（generate_with_fastest）".to_string()))?;
+
+    // v0.23.59: 5s 预探测——验证最快模型确实可用，避免死模型挂起。
+    // v0.23.60: 若后台 keepalive 已保持健康数据新鲜（<15s），跳过探测。
+    let health_fresh = llm_port.is_health_fresh(&profile.id);
+    let probe_ok = if health_fresh {
+        log::debug!(
+            "[LlmPort] generate_with_fastest: {} 健康数据新鲜，跳过预探测",
+            profile.id
+        );
+        true
+    } else {
+        let probe_request_id = format!("pre-call-probe-fastest-{}", profile.id);
+        let probe_request = LlmPortRequest {
+            prompt: "Respond with exactly the word OK.".to_string(),
+            agent_id: "llm_port_probe".to_string(),
+            task: TaskType::Analysis,
+            complexity: Complexity::Low,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::High,
+            estimated_input_tokens: 0,
+            max_tokens: Some(4),
+            temperature: Some(0.0),
+            request_id: probe_request_id,
+            context_label: Some("pre-call-probe".to_string()),
+            timeout_seconds_override: Some(5),
+            max_retries_override: Some(0),
+            intent_verb: None,
+            intent_object: None,
+            asset_tags: vec![],
+            discovered_asset_ids: vec![],
+            response_format: None,
+            system_prompt: None,
+            model_role: None,
+            trace_id: None,
+        };
+        matches!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                llm_port.generate(probe_request)
+            )
+            .await,
+            Ok(Ok(_))
+        )
+    };
+
+    if probe_ok {
+        llm_port.record_success(&profile.id, &profile.name);
+        let request = LlmPortRequest {
+            prompt,
+            agent_id: context_label.unwrap_or("llm_service").to_string(),
+            task: TaskType::Analysis,
+            complexity: Complexity::Low,
+            budget_priority: Priority::Low,
+            speed_priority: Priority::High,
+            estimated_input_tokens: 0,
+            max_tokens,
+            temperature,
+            request_id: uuid::Uuid::new_v4().to_string(),
+            context_label: context_label.map(|s| s.to_string()),
+            timeout_seconds_override: None,
+            max_retries_override: None,
+            intent_verb: None,
+            intent_object: None,
+            asset_tags: vec![],
+            discovered_asset_ids: vec![],
+            response_format: None,
+            system_prompt: None,
+            model_role: None,
+            trace_id: None,
+        };
+        return llm_port.generate(request).await;
+    }
+
+    log::warn!(
+        "[LlmPort] generate_with_fastest: 最快模型 {} 预探测失败，回退到网关候选链",
+        profile.id
+    );
+    llm_port.mark_unhealthy(
+        &profile.id,
+        &profile.name,
+        Some("generate_with_fastest pre-call probe failed".to_string()),
+    );
+
+    let fallback_request = LlmPortRequest {
+        prompt,
+        agent_id: context_label.unwrap_or("llm_service").to_string(),
+        task: TaskType::Analysis,
+        complexity: Complexity::Low,
+        budget_priority: Priority::Low,
+        speed_priority: Priority::High,
+        estimated_input_tokens: 0,
+        max_tokens,
+        temperature,
+        request_id: uuid::Uuid::new_v4().to_string(),
+        context_label: context_label.map(|s| s.to_string()),
+        timeout_seconds_override: None,
+        max_retries_override: None,
+        intent_verb: None,
+        intent_object: None,
+        asset_tags: vec![],
+        discovered_asset_ids: vec![],
+        response_format: None,
+        system_prompt: None,
+        model_role: None,
+        trace_id: None,
+    };
+    llm_port.generate(fallback_request).await
+}
+
 /// 剥离 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）。
 fn strip_code_fence(raw: &str) -> &str {
     let trimmed = raw.trim();
@@ -331,5 +463,29 @@ mod tests {
         let result = truncate_preview(&long, 600);
         assert!(result.starts_with('…'));
         assert_eq!(result.chars().count(), 601); // … + 600字
+    }
+
+    #[tokio::test]
+    async fn test_synthesize_uses_llm_port_and_falls_back_on_error() {
+        let manifest = AssetManifest {
+            items: vec![],
+            story_title: "Test".to_string(),
+            story_genre: None,
+            story_tone: None,
+            story_pacing: None,
+            story_description: None,
+        };
+        let result = PromptSynthesizer::synthesize(
+            std::sync::Arc::new(crate::ports::NoOpLlmPort),
+            "续写",
+            None,
+            &manifest,
+            "fallback_prompt",
+            None,
+            None,
+        )
+        .await;
+        assert!(result.is_fallback, "LlmPort 失败时应回退到 bundle_prompt");
+        assert_eq!(result.synthesized_prompt, "fallback_prompt");
     }
 }
