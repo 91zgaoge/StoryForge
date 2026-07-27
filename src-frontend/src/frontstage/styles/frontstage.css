@@ -1225,7 +1225,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 30px 40px;
+  padding: 30px 40px 128px;
   overflow: auto;
   position: relative;
   z-index: 1;
@@ -1699,7 +1699,7 @@ body {
   }
 
   .frontstage-main {
-    padding: 20px;
+    padding: 20px 20px 128px;
   }
 
   .reader-writer-editor {
