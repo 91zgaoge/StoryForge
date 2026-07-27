@@ -378,18 +378,7 @@ body {
 }
 
 /* ===== Header (v4.0 精简版) ===== */
-.frontstage-header {
-  height: 44px;
-  background-color: var(--parchment-dark);
-  border-bottom: 1px solid var(--warm-sand);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  flex-shrink: 0;
-  position: relative;
-  z-index: 10;
-}
+/* Base styling is handled by Tailwind; keep only the Zen mode behavior rule below. */
 
 .frontstage-header-left {
   display: flex;

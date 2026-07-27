@@ -169,6 +169,7 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   return (
     <header
       className={[
+        'frontstage-header',
         'fixed top-0 left-0 right-0 z-40',
         'flex items-center justify-between px-6 py-3',
         'bg-paper-100/90 backdrop-blur-sm border-b border-paper-300',

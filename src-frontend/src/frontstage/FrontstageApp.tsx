@@ -4704,7 +4704,7 @@ const FrontstageApp: React.FC = () => {
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
           {/* Editor + Bottom Input */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <main className="frontstage-main" style={{ flex: 1, minHeight: 0 }}>
+            <main className="frontstage-main pt-11" style={{ flex: 1, minHeight: 0 }}>
               {currentChapter && (
                 <div className="chapter-header">
                   <EditableChapterTitle
