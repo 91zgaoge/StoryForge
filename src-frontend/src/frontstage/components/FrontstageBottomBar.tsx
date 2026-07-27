@@ -249,7 +249,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             <div className="flex items-end gap-[2px] h-4 cursor-default">
               {gatewayModels.length === 0 ? (
                 <div
-                  className={`model-signal-bar w-[3px] min-h-1 rounded-[1px] ${statusClass('connecting')}`}
+                  className="model-signal-bar w-[3px] min-h-1 rounded-[1px] bg-yellow-400 animate-pulse"
                   style={{ height: '4px' }}
                 />
               ) : (
