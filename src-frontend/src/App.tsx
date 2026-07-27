@@ -348,7 +348,9 @@ function App() {
           isOpen={isLoginOpen}
           onClose={() => useAppStore.getState().setLoginModalOpen(false)}
         />
-        <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+        {currentView !== 'dashboard' && currentView !== 'settings' && (
+          <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+        )}
         <main ref={mainRef} className="flex-1 overflow-auto">
           {renderView()}
         </main>

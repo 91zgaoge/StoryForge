@@ -144,7 +144,7 @@ export function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-cinema-950 text-cinema-gold/90 font-body flex">
+    <div className="h-full min-h-full bg-cinema-950 text-cinema-gold/90 font-body flex">
       {/* 左侧导航轨 */}
       <StudioNavRail activeView="settings" />
 

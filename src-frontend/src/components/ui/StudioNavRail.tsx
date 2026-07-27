@@ -40,6 +40,8 @@ export function StudioNavRail({ activeView = 'dashboard' }: StudioNavRailProps) 
             <button
               key={item.view}
               type="button"
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
               title={item.label}
               onClick={() => setCurrentView(item.view)}
               className={cn(
