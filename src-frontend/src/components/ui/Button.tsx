@@ -26,11 +26,11 @@ const variantMap: Record<ButtonVariant, string> = {
   primary:
     'bg-cinema-gold text-cinema-950 hover:bg-cinema-gold-light focus-visible:ring-cinema-gold/40',
   secondary:
-    'bg-cinema-800 border border-cinema-700 text-gray-200 hover:border-cinema-gold/50 hover:bg-cinema-700 focus-visible:ring-cinema-gold/30',
+    'bg-cinema-800 border border-cinema-700 text-cinema-100 hover:border-cinema-gold/50 hover:bg-cinema-700 focus-visible:ring-cinema-gold/30',
   ghost:
-    'bg-transparent text-gray-400 hover:text-white hover:bg-cinema-800/50 focus-visible:ring-cinema-gold/30',
+    'bg-transparent text-cinema-300 hover:text-cinema-50 hover:bg-cinema-800/50 focus-visible:ring-cinema-gold/30',
   danger:
-    'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 focus-visible:ring-red-500/30',
+    'bg-status-danger/10 border border-status-danger/30 text-status-danger hover:bg-status-danger/20 focus-visible:ring-status-danger/30',
 };
 
 const sizeMap: Record<ButtonSize, string> = {

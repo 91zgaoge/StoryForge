@@ -79,21 +79,21 @@ export function Dashboard() {
       label: '角色',
       value: totalCharacters,
       icon: Users,
-      color: 'text-purple-400',
+      color: 'text-cinema-velvet',
       view: 'characters' as const,
     },
     {
       label: '场景',
       value: totalScenes,
       icon: FileText,
-      color: 'text-blue-400',
+      color: 'text-cinema-gold',
       view: 'scenes' as const,
     },
     {
       label: '字数',
       value: totalWordCount,
       icon: Type,
-      color: 'text-green-400',
+      color: 'text-status-success',
       view: 'scenes' as const,
     },
   ];
@@ -186,7 +186,7 @@ export function Dashboard() {
 
       {/* 主区 */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] bg-cinema-900/80 backdrop-blur-sm">
+        <header className="h-14 flex items-center justify-between px-6 border-b border-borderSubtle bg-cinema-900/80 backdrop-blur-sm">
           <h1 className="text-sm font-bold uppercase tracking-widest text-cinema-gold">工作室</h1>
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-cinema-gold/60">MODEL: ONLINE</span>
@@ -203,14 +203,14 @@ export function Dashboard() {
               <Panel title="作品概览">
                 <div className="space-y-6">
                   {/* Hero */}
-                  <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cinema-800 to-cinema-900 border border-white/[0.06] p-6">
+                  <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cinema-800 to-cinema-900 border border-borderSubtle p-6">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-cinema-gold/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
                     <div className="relative z-10">
-                      <h2 className="font-display text-2xl font-bold text-white mb-2">
+                      <h2 className="font-display text-2xl font-bold text-cinema-50 mb-2">
                         欢迎回到创作工作室
                       </h2>
-                      <p className="text-gray-400 text-base font-body italic max-w-2xl">
+                      <p className="text-cinema-300 text-base font-body italic max-w-2xl">
                         "每一个伟大的故事，都始于一个勇敢的开始。"
                       </p>
                       <div className="mt-4 flex flex-wrap gap-3">
@@ -236,24 +236,29 @@ export function Dashboard() {
                     {stats.map(stat => {
                       const Icon = stat.icon;
                       return (
-                        <Card
+                        <button
                           key={stat.label}
-                          hover
-                          className="cursor-pointer"
+                          type="button"
                           onClick={() => setCurrentView(stat.view)}
+                          className={cn(
+                            'rounded-2xl border transition-all duration-300 text-left cursor-pointer',
+                            'bg-cinema-850/50 backdrop-blur-xl border-cinema-700/50',
+                            'hover:border-cinema-gold/30 hover:shadow-lg hover:shadow-cinema-gold/5',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50'
+                          )}
                         >
-                          <CardContent className="flex items-center gap-3 p-4">
+                          <div className="flex items-center gap-3 p-4">
                             <div className={cn('p-2.5 rounded-xl bg-cinema-800', stat.color)}>
                               <Icon className="w-5 h-5" />
                             </div>
                             <div>
-                              <p className="text-2xl font-display font-bold text-white">
+                              <p className="text-2xl font-display font-bold text-cinema-50">
                                 {formatNumber(stat.value)}
                               </p>
-                              <p className="text-xs text-gray-400">{stat.label}</p>
+                              <p className="text-xs text-cinema-300">{stat.label}</p>
                             </div>
-                          </CardContent>
-                        </Card>
+                          </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -262,7 +267,7 @@ export function Dashboard() {
                   {!isStoriesLoading && recentStories.length > 0 && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <h3 className="font-display text-sm font-semibold text-white flex items-center gap-2">
+                        <h3 className="font-display text-sm font-semibold text-cinema-50 flex items-center gap-2">
                           <Clock className="w-4 h-4 text-cinema-gold" />
                           最近编辑
                         </h3>
@@ -274,32 +279,37 @@ export function Dashboard() {
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {recentStories.map(story => (
-                          <Card
+                          <button
                             key={story.id}
-                            hover
-                            className="cursor-pointer group"
+                            type="button"
                             onClick={() => handleContinueStory(story)}
+                            className={cn(
+                              'rounded-2xl border transition-all duration-300 text-left cursor-pointer group',
+                              'bg-cinema-850/50 backdrop-blur-xl border-cinema-700/50',
+                              'hover:border-cinema-gold/30 hover:shadow-lg hover:shadow-cinema-gold/5',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50'
+                            )}
                           >
-                            <CardContent className="p-4">
+                            <div className="p-4">
                               <div className="flex items-start gap-3">
                                 <div className="w-10 h-10 rounded-lg bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
                                   <BookOpen className="w-5 h-5 text-cinema-gold" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <h4 className="font-display font-semibold text-white truncate group-hover:text-cinema-gold transition-colors">
+                                  <h4 className="font-display font-semibold text-cinema-50 truncate group-hover:text-cinema-gold transition-colors">
                                     {story.title}
                                   </h4>
-                                  <p className="text-xs text-gray-500 mt-1">
+                                  <p className="text-xs text-cinema-400 mt-1">
                                     {story.genre || '未分类'} · {story.chapter_count || 0} 章
                                     {story.word_count ? ` · ${story.word_count} 字` : ''}
                                   </p>
-                                  <p className="text-[10px] text-gray-600 mt-2">
+                                  <p className="text-[10px] text-cinema-500 mt-2">
                                     更新于 {formatDate(story.updated_at)}
                                   </p>
                                 </div>
                               </div>
-                            </CardContent>
-                          </Card>
+                            </div>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -310,10 +320,10 @@ export function Dashboard() {
                     <Card className="py-10">
                       <CardContent className="text-center">
                         <BookOpen className="w-14 h-14 text-cinema-700 mx-auto mb-4" />
-                        <h3 className="font-display text-lg font-semibold text-white mb-2">
+                        <h3 className="font-display text-lg font-semibold text-cinema-50 mb-2">
                           开始你的创作之旅
                         </h3>
-                        <p className="text-gray-500 max-w-md mx-auto mb-6 text-sm">
+                        <p className="text-cinema-400 max-w-md mx-auto mb-6 text-sm">
                           使用 AI
                           向导创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供
                           AI 辅助写作。
@@ -372,24 +382,24 @@ export function Dashboard() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
           <Card className="w-full max-w-md mx-4 animate-slide-up">
             <CardContent className="p-6">
-              <h2 className="font-display text-xl font-bold text-white mb-4">新建故事</h2>
+              <h2 className="font-display text-xl font-bold text-cinema-50 mb-4">新建故事</h2>
 
               <form onSubmit={handleCreate} className="space-y-4">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">标题 *</label>
+                  <label className="block text-sm text-cinema-300 mb-1">标题 *</label>
                   <input
                     name="title"
                     required
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-cinema-50 focus:border-cinema-gold focus:outline-none"
                     placeholder="给你的故事起个名字"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">类型</label>
+                  <label className="block text-sm text-cinema-300 mb-1">类型</label>
                   <select
                     name="genre"
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-cinema-50 focus:border-cinema-gold focus:outline-none"
                   >
                     <option value="">选择类型</option>
                     <option value="科幻">科幻</option>
@@ -404,11 +414,11 @@ export function Dashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">描述</label>
+                  <label className="block text-sm text-cinema-300 mb-1">描述</label>
                   <textarea
                     name="description"
                     rows={3}
-                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
+                    className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-cinema-50 focus:border-cinema-gold focus:outline-none resize-none"
                     placeholder="简要描述一下你的故事..."
                   />
                 </div>
@@ -444,8 +454,8 @@ export function Dashboard() {
                     <div className="absolute inset-0 border-4 border-cinema-gold rounded-full border-t-transparent animate-spin" />
                     <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-cinema-gold" />
                   </div>
-                  <h3 className="text-xl font-semibold text-white mb-2">正在创建故事...</h3>
-                  <p className="text-gray-400">保存世界观、角色、文风并自动摄取知识</p>
+                  <h3 className="text-xl font-semibold text-cinema-50 mb-2">正在创建故事...</h3>
+                  <p className="text-cinema-300">保存世界观、角色、文风并自动摄取知识</p>
                 </div>
               ) : (
                 <NovelCreationWizard

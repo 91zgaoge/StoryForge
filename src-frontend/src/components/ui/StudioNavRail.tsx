@@ -27,7 +27,7 @@ export function StudioNavRail({ activeView = 'dashboard' }: StudioNavRailProps) 
   const setCurrentView = useAppStore(s => s.setCurrentView);
 
   return (
-    <nav className="w-16 flex-shrink-0 bg-cinema-900 border-r border-white/[0.06] flex flex-col items-center py-4 gap-4">
+    <nav className="w-16 flex-shrink-0 bg-cinema-900 border-r border-borderSubtle flex flex-col items-center py-4 gap-4">
       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cinema-gold to-cinema-gold-dark flex items-center justify-center shadow-panel">
         <Sparkles className="w-5 h-5 text-cinema-900" />
       </div>

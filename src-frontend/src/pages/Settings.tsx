@@ -150,7 +150,7 @@ export function Settings() {
 
       {/* 主区 */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] bg-cinema-900/80 backdrop-blur-sm">
+        <header className="h-14 flex items-center justify-between px-6 border-b border-borderSubtle bg-cinema-900/80 backdrop-blur-sm">
           <h1 className="text-sm font-bold uppercase tracking-widest text-cinema-gold">
             工作室配置
           </h1>
@@ -178,7 +178,7 @@ export function Settings() {
         <div className="flex-1 p-6 overflow-auto">
           {/* Tab 水平轨 */}
           <div
-            className="flex items-center gap-2 border-b border-white/[0.06] pb-4 overflow-x-auto"
+            className="flex items-center gap-2 border-b border-borderSubtle pb-4 overflow-x-auto"
             data-testid="settings-tabs"
           >
             {SETTINGS_TABS.map(tab => {
@@ -215,6 +215,7 @@ export function Settings() {
                           <button
                             key={sub.id}
                             type="button"
+                            aria-current={modelSubTab === sub.id ? 'true' : undefined}
                             onClick={() => setModelSubTab(sub.id)}
                             className={cn(
                               'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
@@ -308,6 +309,8 @@ function TabButton({
 }) {
   return (
     <button
+      type="button"
+      aria-current={active ? 'true' : undefined}
       onClick={onClick}
       className={cn(
         'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',

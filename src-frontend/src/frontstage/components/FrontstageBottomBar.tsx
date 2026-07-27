@@ -141,13 +141,13 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const statusClass = (status: ModelHealthSnapshot['status']) => {
     switch (status) {
       case 'healthy':
-        return 'bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.4)]';
+        return 'bg-status-success shadow-[0_0_4px_var(--status-success-dim)]';
       case 'degraded':
-        return 'bg-yellow-400 animate-pulse';
+        return 'bg-status-warning animate-pulse';
       case 'unhealthy':
-        return 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.4)]';
+        return 'bg-status-danger shadow-[0_0_4px_var(--status-danger-dim)]';
       default:
-        return 'bg-yellow-400 animate-pulse';
+        return 'bg-status-warning animate-pulse';
     }
   };
 
@@ -411,14 +411,15 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             <button
               className={[
                 'w-8 h-8 rounded-full flex items-center justify-center p-0 flex-shrink-0',
-                'bg-red-600 text-white',
-                'hover:bg-red-700',
+                'bg-status-danger text-cinema-50',
+                'hover:bg-status-danger/80',
                 'active:scale-[0.92]',
                 'transition-colors duration-150',
                 'animate-pulse',
               ].join(' ')}
               onClick={onCancelGeneration}
               title="取消生成"
+              aria-label="取消生成"
             >
               <X className="w-4 h-4" />
             </button>
@@ -426,7 +427,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             <button
               className={[
                 'w-8 h-8 rounded-full flex items-center justify-center p-0 flex-shrink-0',
-                'bg-terracotta text-white',
+                'bg-terracotta text-cinema-50',
                 'hover:bg-terracotta-dark',
                 'active:scale-[0.92]',
                 'transition-colors duration-150',
@@ -435,6 +436,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               onClick={onInputSubmit}
               disabled={!inputValue.trim()}
               title="发送"
+              aria-label="发送"
             >
               <Send className="w-4 h-4" />
             </button>

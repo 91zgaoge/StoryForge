@@ -10,7 +10,7 @@ interface PanelProps {
 
 const headerClassName = [
   'flex items-center justify-between px-4 py-3',
-  'border-b border-white/[0.06]',
+  'border-b border-borderSubtle',
 ].join(' ');
 
 export const Panel: React.FC<PanelProps> = ({
@@ -38,7 +38,7 @@ export const Panel: React.FC<PanelProps> = ({
   );
 
   return (
-    <div className="bg-cinema-850 border border-white/[0.06] rounded-panel shadow-panel overflow-hidden">
+    <div className="bg-cinema-850 border border-borderSubtle rounded-panel shadow-panel overflow-hidden">
       {collapsible ? (
         <button
           type="button"

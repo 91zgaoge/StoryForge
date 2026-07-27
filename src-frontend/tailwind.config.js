@@ -1,9 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   darkMode: 'class',
   theme: {
     extend: {
@@ -31,11 +28,20 @@ export default {
           800: 'var(--cinema-800)',
           700: 'var(--cinema-700)',
           600: 'var(--cinema-600)',
+          500: 'var(--cinema-500)',
           gold: 'var(--cinema-gold)',
           'gold-light': 'var(--cinema-gold-light)',
           'gold-dark': 'var(--cinema-gold-dark)',
           velvet: 'var(--cinema-velvet)',
         },
+        status: {
+          success: 'var(--status-success)',
+          'success-dim': 'var(--status-success-dim)',
+          warning: 'var(--status-warning)',
+          danger: 'var(--status-danger)',
+          'danger-dim': 'var(--status-danger-dim)',
+        },
+        borderSubtle: 'var(--border-subtle)',
       },
       borderRadius: {
         paper: 'var(--radius-sm)',
@@ -50,7 +56,14 @@ export default {
       },
       fontFamily: {
         display: ['Cinzel', 'serif'],
-        body: ["'LXGW WenKai'", "'Noto Serif SC'", "'PingFang SC'", "'Microsoft YaHei'", 'Georgia', 'serif'],
+        body: [
+          "'LXGW WenKai'",
+          "'Noto Serif SC'",
+          "'PingFang SC'",
+          "'Microsoft YaHei'",
+          'Georgia',
+          'serif',
+        ],
         mono: ['JetBrains Mono', 'monospace'],
       },
       animation: {
@@ -79,7 +92,5 @@ export default {
       },
     },
   },
-  plugins: [
-    require('@tailwindcss/typography'),
-  ],
-}
+  plugins: [require('@tailwindcss/typography')],
+};
