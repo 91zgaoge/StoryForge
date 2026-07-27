@@ -351,8 +351,13 @@ function App() {
         {currentView !== 'dashboard' && currentView !== 'settings' && (
           <Sidebar currentView={currentView} onNavigate={setCurrentView} />
         )}
-        <main ref={mainRef} className="flex-1 overflow-auto">
-          {renderView()}
+        <main
+          ref={mainRef}
+          className="flex-1 overflow-auto transition-colors duration-500 ease-out"
+        >
+          <div key={currentView} className="animate-fade-in">
+            {renderView()}
+          </div>
         </main>
       </div>
     </ErrorBoundary>
