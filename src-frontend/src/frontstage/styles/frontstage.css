@@ -1198,6 +1198,63 @@ body {
   cursor: not-allowed;
 }
 
+/* ===== Frontstage Input Ghost Hint（幕前输入栏幽灵提示层）=====
+   Task 5（UI 重塑）清理 frontstage.css 旧样式时误删此处规则，导致
+   logline 后缀失去灰色 + 小字号样式并发生层叠错位。此处恢复：显式
+   var(--stone-gray)（不依赖 Tailwind 不透明度修饰符，避免与 TSX 上的
+   text-ink-500/50 等类相互覆盖造成的不确定级联），后缀按「更灰暗、
+   字体更小」预期微调（opacity 0.65、13px）。TSX 侧已剥离冲突的
+   Tailwind 工具类，由本段 CSS 作为唯一样式来源。 */
+.frontstage-input-ghost {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--stone-gray);
+  opacity: 0.5;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  z-index: 1;
+}
+
+.frontstage-input-ghost-hint {
+  color: var(--terracotta);
+  opacity: 0.7;
+  font-size: 12px;
+  margin-left: 4px;
+  font-family: var(--font-sans);
+}
+
+/* v0.30.27: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后。
+   opacity:1 重置父级 .frontstage-input-ghost 的 0.5，使后缀/提示各自
+   独立控制不透明度（后缀 0.65 即有效值，不再被父级 0.5 叠加压淡，
+   从而呈现「更灰暗」的预期效果）。 */
+.frontstage-input-ghost-inline {
+  opacity: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: clip;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.frontstage-input-ghost-inline-prefix {
+  visibility: hidden;
+}
+
+/* 后缀：灰色、字号略小于输入框（14px -> 13px），「更灰暗字体更小」 */
+.frontstage-input-ghost-inline-suffix {
+  color: var(--stone-gray);
+  opacity: 0.65;
+  font-size: 13px;
+}
+
 /* 提示文字 */
 .chat-hint {
   display: flex;

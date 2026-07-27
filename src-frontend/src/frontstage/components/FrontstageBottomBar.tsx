@@ -40,8 +40,6 @@ interface FrontstageBottomBarProps {
   // v0.30.24: Logline 幽灵提示
   loglineHint?: string;
   loglineHintLoading?: boolean;
-  // Task 3 ghost chrome: 底部栏与 ghost chrome 联动
-  ghost?: boolean;
 }
 
 function abbreviateApiBase(url: string): string {
@@ -105,7 +103,6 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   onInputKeyDown,
   loglineHint = '',
   loglineHintLoading = false,
-  ghost = false,
 }) => {
   const [showModelTooltip, setShowModelTooltip] = useState(false);
 
@@ -225,8 +222,6 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
         'fixed bottom-0 left-0 right-0 z-40',
         'flex flex-col items-center px-4 py-3',
         'bg-paper-100/90 backdrop-blur-sm border-t border-paper-300',
-        'transition-opacity duration-300 ease-out',
-        ghost ? 'opacity-[0.08]' : 'opacity-100',
       ].join(' ')}
     >
       <div className="w-full max-w-2xl flex flex-col gap-2">
@@ -360,9 +355,9 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
           {/* 输入框 + Ghost Hint */}
           <div className="flex-1 min-w-0 relative">
             {ghostHint && !inputValue && (
-              <span className="frontstage-input-ghost absolute left-0 top-[3px] text-ink-500/50 pointer-events-none select-none truncate max-w-full z-0 text-sm leading-normal font-body">
+              <span className="frontstage-input-ghost select-none">
                 {ghostHint}
-                <span className="frontstage-input-ghost-hint text-terracotta/70 text-xs ml-1 font-sans">
+                <span className="frontstage-input-ghost-hint">
                   {hintSource === 'llm' ? ' · →确认' : ' · ↑↓切换 · →确认'}
                 </span>
               </span>
@@ -370,21 +365,16 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             {/* v0.30.26: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后，
                 前缀占位隐藏，确保后缀位置与输入文本对齐；按 → 后原输入+后缀一并提交 */}
             {inputValue && (loglineHint || loglineHintLoading) && (
-              <span className="frontstage-input-ghost frontstage-input-ghost-inline absolute left-0 top-[3px] text-ink-500/50 pointer-events-none select-none whitespace-pre-wrap break-words overflow-hidden max-w-full z-0 text-sm leading-normal font-body">
-                <span className="frontstage-input-ghost-inline-prefix invisible" aria-hidden="true">
+              <span className="frontstage-input-ghost frontstage-input-ghost-inline select-none">
+                <span className="frontstage-input-ghost-inline-prefix" aria-hidden="true">
                   {inputValue}
                 </span>
                 {loglineHintLoading ? (
-                  <span className="frontstage-input-ghost-hint text-terracotta/70 text-xs ml-1 font-sans">
-                    正在生成增强版指令…
-                  </span>
+                  <span className="frontstage-input-ghost-hint">正在生成增强版指令…</span>
                 ) : (
                   <>
                     <span className="frontstage-input-ghost-inline-suffix">{loglineHint}</span>
-                    <span className="frontstage-input-ghost-hint text-terracotta/70 text-xs ml-1 font-sans">
-                      {' '}
-                      · →确认
-                    </span>
+                    <span className="frontstage-input-ghost-hint"> · →确认</span>
                   </>
                 )}
               </span>
@@ -410,10 +400,9 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
           {isGenerating ? (
             <button
               className={[
-                'w-8 h-8 rounded-full flex items-center justify-center p-0 flex-shrink-0',
-                'bg-status-danger text-cinema-50',
-                'hover:bg-status-danger/80',
-                'active:scale-[0.92]',
+                'w-8 h-8 rounded-md flex items-center justify-center p-0 flex-shrink-0',
+                'bg-status-danger/15 text-status-danger',
+                'hover:bg-status-danger/25',
                 'transition-colors duration-150',
                 'animate-pulse',
               ].join(' ')}
@@ -426,12 +415,11 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
           ) : (
             <button
               className={[
-                'w-8 h-8 rounded-full flex items-center justify-center p-0 flex-shrink-0',
-                'bg-terracotta text-cinema-50',
-                'hover:bg-terracotta-dark',
-                'active:scale-[0.92]',
+                'w-8 h-8 rounded-md flex items-center justify-center p-0 flex-shrink-0',
+                'bg-terracotta/10 text-terracotta',
+                'hover:bg-terracotta/20',
                 'transition-colors duration-150',
-                'disabled:bg-paper-300 disabled:text-ink-500 disabled:cursor-not-allowed',
+                'disabled:bg-paper-200 disabled:text-ink-500/50 disabled:cursor-not-allowed',
               ].join(' ')}
               onClick={onInputSubmit}
               disabled={!inputValue.trim()}
