@@ -1,0 +1,47 @@
+/* src-frontend/src/styles/tokens.css */
+:root {
+  /* 幕前「墨纸」 */
+  --paper-50: #fdfbf7;
+  --paper-100: #faf6f1;
+  --paper-200: #f2ebe2;
+  --paper-300: #e6ddd1;
+  --ink-900: #2a2622;
+  --ink-700: #4a453f;
+  --ink-500: #7a756d;
+  --terracotta: #c76b4f;
+  --terracotta-light: #d9896e;
+  --terracotta-dark: #a85539;
+
+  /* 幕后「机械」 */
+  --cinema-950: #050508;
+  --cinema-900: #0a0a0f;
+  --cinema-850: #0f0f16;
+  --cinema-800: #151520;
+  --cinema-700: #1e1e2e;
+  --cinema-600: #2a2a3c;
+  --cinema-gold: #d4af37;
+  --cinema-gold-light: #e8c547;
+  --cinema-gold-dark: #b8941f;
+  --cinema-velvet: #7c3aed;
+
+  /* 共享 */
+  --radius-none: 0px;
+  --radius-sm: 2px;
+  --radius-md: 8px;
+  --radius-full: 9999px;
+
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease-out;
+  --transition-spring: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --shadow-panel: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0.01s linear;
+    --transition-normal: 0.01s linear;
+    --transition-spring: 0.01s linear;
+  }
+}
