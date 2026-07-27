@@ -8,26 +8,45 @@ export default {
   theme: {
     extend: {
       colors: {
+        paper: {
+          50: 'var(--paper-50)',
+          100: 'var(--paper-100)',
+          200: 'var(--paper-200)',
+          300: 'var(--paper-300)',
+        },
+        ink: {
+          500: 'var(--ink-500)',
+          700: 'var(--ink-700)',
+          900: 'var(--ink-900)',
+        },
         terracotta: {
-          DEFAULT: '#c76b4f',
-          light: '#d9896e',
-          dark: '#a85539',
+          DEFAULT: 'var(--terracotta)',
+          light: 'var(--terracotta-light)',
+          dark: 'var(--terracotta-dark)',
         },
         cinema: {
-          950: '#050508',
-          900: '#0a0a0f',
-          850: '#0f0f16',
-          800: '#151520',
-          700: '#1e1e2e',
-          600: '#2a2a3c',
-          500: '#3a3a50',
-          gold: '#d4af37',
-          'gold-light': '#e8c547',
-          'gold-dark': '#b8941f',
-          velvet: '#4c1d95',
-          amber: '#f59e0b',
-          rust: '#c2410c',
+          950: 'var(--cinema-950)',
+          900: 'var(--cinema-900)',
+          850: 'var(--cinema-850)',
+          800: 'var(--cinema-800)',
+          700: 'var(--cinema-700)',
+          600: 'var(--cinema-600)',
+          gold: 'var(--cinema-gold)',
+          'gold-light': 'var(--cinema-gold-light)',
+          'gold-dark': 'var(--cinema-gold-dark)',
+          velvet: 'var(--cinema-velvet)',
         },
+      },
+      borderRadius: {
+        paper: 'var(--radius-sm)',
+        panel: 'var(--radius-md)',
+      },
+      boxShadow: {
+        panel: 'var(--shadow-panel)',
+        float: 'var(--shadow-float)',
+      },
+      transitionTimingFunction: {
+        spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
       },
       fontFamily: {
         display: ['Cinzel', 'serif'],
