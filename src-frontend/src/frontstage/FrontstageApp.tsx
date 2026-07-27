@@ -46,6 +46,7 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { usePipelineProgress, usePipelineComplete } from '@/hooks/usePipelineProgress';
 import { useBackendActivityListener } from '@/hooks/useBackendActivityListener';
 import { useDbPoolStatus } from '@/hooks/useDbPoolStatus';
+import { useGhostChrome } from './hooks/useGhostChrome';
 // import { useIntent } from '@/hooks/useIntent'; // Removed — model-driven orchestration eliminates frontend intent parsing
 import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig';
 import { UpgradePanel } from './components/UpgradePanel';
@@ -226,6 +227,8 @@ const saveInputHistory = (storyId: string, history: string[]): void => {
 };
 
 const FrontstageApp: React.FC = () => {
+  const { ghost } = useGhostChrome(true);
+
   const [stories, setStories] = useState<Story[]>([]);
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -4688,6 +4691,7 @@ const FrontstageApp: React.FC = () => {
           orchestratorStatus={orchestratorStatus}
           bootstrapProgress={bootstrapProgress}
           dbPoolStatus={dbPoolStatus ?? null}
+          ghost={ghost}
           onOpenBackstage={openBackstage}
           onOpenFontSettings={openFontSettings}
           onCycleWensiMode={cycleWensiMode}

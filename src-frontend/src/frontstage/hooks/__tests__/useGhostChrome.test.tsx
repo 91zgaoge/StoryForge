@@ -64,6 +64,19 @@ describe('useGhostChrome', () => {
     expect(result.current.ghost).toBe(false);
   });
 
+  it('hideChrome immediately enters ghost mode and clears pending timer', () => {
+    const { result } = renderHook(() => useGhostChrome(true));
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current.ghost).toBe(false);
+
+    act(() => result.current.hideChrome());
+    expect(result.current.ghost).toBe(true);
+
+    act(() => vi.advanceTimersByTime(3000));
+    expect(result.current.ghost).toBe(true);
+  });
+
   it('showChrome manually resets the ghost timer', () => {
     const { result } = renderHook(() => useGhostChrome(true));
 

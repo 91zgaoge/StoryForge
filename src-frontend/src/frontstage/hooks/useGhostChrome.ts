@@ -15,6 +15,12 @@ export function useGhostChrome(enabled = true) {
     }, GHOST_DELAY_MS);
   }, [enabled]);
 
+  const hideChrome = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    setGhost(true);
+  }, []);
+
   useEffect(() => {
     if (!enabled) {
       setGhost(false);
@@ -33,5 +39,5 @@ export function useGhostChrome(enabled = true) {
     };
   }, [enabled, showChrome]);
 
-  return { ghost, showChrome };
+  return { ghost, showChrome, hideChrome };
 }
