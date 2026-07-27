@@ -13,7 +13,7 @@ import {
   Clock,
   FileText,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Panel } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { useUpdater } from '@/hooks/useUpdater';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
@@ -224,8 +224,8 @@ export function GeneralSettings({
     <div className="space-y-6">
       {/* 版本信息 */}
       {show('about') && (
-        <Card>
-          <CardContent className="p-6 space-y-4">
+        <Panel title="版本信息">
+          <div className="p-2 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-terracotta to-terracotta/60 flex items-center justify-center">
@@ -298,14 +298,14 @@ export function GeneralSettings({
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       )}
 
       {/* 拆书分析并发设置 */}
       {show('book') && (
-        <Card>
-          <CardContent className="p-6">
+        <Panel title="拆书分析设置">
+          <div className="p-2">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                 <BookOpen className="w-5 h-5 text-cinema-gold" />
@@ -360,14 +360,14 @@ export function GeneralSettings({
                 </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       )}
 
       {/* Agent 配置 */}
       {show('agent') && (
-        <Card>
-          <CardContent className="p-6">
+        <Panel title="Agent 质检配置">
+          <div className="p-2">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                 <Bot className="w-5 h-5 text-cinema-gold" />
@@ -469,15 +469,15 @@ export function GeneralSettings({
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       )}
 
       {/* 写作策略 */}
       {show('writing') && (
         <>
-          <Card>
-            <CardContent className="p-6">
+          <Panel title="写作策略">
+            <div className="p-2">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                   <PenTool className="w-5 h-5 text-cinema-gold" />
@@ -712,12 +712,12 @@ export function GeneralSettings({
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
 
           {/* v0.16.0 创作参数微调 */}
-          <Card>
-            <CardContent className="p-6">
+          <Panel title="创作参数">
+            <div className="p-2">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                   <SlidersHorizontal className="w-5 h-5 text-cinema-gold" />
@@ -839,12 +839,12 @@ export function GeneralSettings({
                   </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
 
           {/* v0.16.0 超时设置 */}
-          <Card>
-            <CardContent className="p-6">
+          <Panel title="超时设置">
+            <div className="p-2">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                   <Clock className="w-5 h-5 text-cinema-gold" />
@@ -974,15 +974,15 @@ export function GeneralSettings({
                   </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
         </>
       )}
 
       {/* v0.19.0 提示词注册表入口 */}
       {show('prompts') && (
-        <Card>
-          <CardContent className="p-6">
+        <Panel title="提示词注册表">
+          <div className="p-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
@@ -1010,15 +1010,15 @@ export function GeneralSettings({
                 打开注册表
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       )}
 
       {/* 编辑器设置 */}
       {show('appearance') && (
         <>
-          <Card id="editor-settings-card" tabIndex={-1}>
-            <CardContent className="p-6">
+          <Panel title="编辑器设置">
+            <div id="editor-settings-card" tabIndex={-1} className="p-2">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                   <Settings2 className="w-5 h-5 text-cinema-gold" />
@@ -1029,12 +1029,12 @@ export function GeneralSettings({
                 </div>
               </div>
               <EditorSettings />
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
 
           {/* 颜色主题 */}
-          <Card>
-            <CardContent className="p-6">
+          <Panel title="颜色主题">
+            <div className="p-2">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-10 h-10 rounded-xl bg-cinema-gold/20 flex items-center justify-center">
                   <Settings2 className="w-5 h-5 text-cinema-gold" />
@@ -1045,8 +1045,8 @@ export function GeneralSettings({
                 </div>
               </div>
               <ColorThemeSelector />
-            </CardContent>
-          </Card>
+            </div>
+          </Panel>
         </>
       )}
     </div>

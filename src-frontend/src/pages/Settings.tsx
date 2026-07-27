@@ -1,5 +1,5 @@
 /**
- * Settings Page - 工作室配置（v0.26.40 八 Tab）
+ * Settings Page - 工作室配置（机械backstage风格）
  *
  * 模型 | Agent | 写作 | 提示词 | 扩展 | 外观 | 关于 | 账号
  */
@@ -20,6 +20,8 @@ import {
   Plug,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
+import { StudioNavRail } from '@/components/ui/StudioNavRail';
 import { useExportSettings, useImportSettings } from '@/hooks/useSettings';
 import { useSettingsContext } from '@/hooks/useSettingsContext';
 import { cn } from '@/utils/cn';
@@ -142,116 +144,153 @@ export function Settings() {
   };
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-white">工作室配置</h1>
-          <p className="text-gray-400">模型、写作、提示词与账号</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            onClick={() => exportSettings.mutate()}
-            isLoading={exportSettings.isPending}
+    <div className="min-h-screen bg-cinema-950 text-cinema-gold/90 font-body flex">
+      {/* 左侧导航轨 */}
+      <StudioNavRail activeView="settings" />
+
+      {/* 主区 */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] bg-cinema-900/80 backdrop-blur-sm">
+          <h1 className="text-sm font-bold uppercase tracking-widest text-cinema-gold">
+            工作室配置
+          </h1>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => exportSettings.mutate()}
+              isLoading={exportSettings.isPending}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              导出设置
+            </Button>
+            <label className="cursor-pointer inline-flex items-center justify-center font-medium transition-all active:scale-95 px-4 py-2 text-sm rounded-panel bg-transparent border border-cinema-600 text-cinema-gold hover:bg-cinema-800 focus-within:outline-none focus-within:ring-2 focus-within:ring-cinema-gold/30 disabled:opacity-50 disabled:cursor-not-allowed">
+              <input type="file" accept=".json" className="hidden" onChange={handleImport} />
+              {importSettings.isPending ? (
+                <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+              ) : (
+                <Upload className="w-4 h-4 mr-2" />
+              )}
+              导入设置
+            </label>
+          </div>
+        </header>
+
+        <div className="flex-1 p-6 overflow-auto">
+          {/* Tab 水平轨 */}
+          <div
+            className="flex items-center gap-2 border-b border-white/[0.06] pb-4 overflow-x-auto"
+            data-testid="settings-tabs"
           >
-            <Download className="w-4 h-4 mr-2" />
-            导出设置
-          </Button>
-          <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 text-gray-400 hover:text-white hover:bg-cinema-800/50 rounded-xl transition-all">
-            <input type="file" accept=".json" className="hidden" onChange={handleImport} />
-            {importSettings.isPending ? (
-              <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            {SETTINGS_TABS.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <TabButton
+                  key={tab.id}
+                  active={activeTab === tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  icon={<Icon className="w-4 h-4" />}
+                  label={tab.label}
+                />
+              );
+            })}
+          </div>
+
+          <div className="mt-6">
+            {isLoading ? (
+              <div className="text-center py-12 text-cinema-gold/50">加载中...</div>
             ) : (
-              <Upload className="w-4 h-4" />
-            )}
-            导入设置
-          </label>
-        </div>
-      </div>
-
-      <div
-        className="flex items-center gap-2 border-b border-cinema-800 pb-4 overflow-x-auto"
-        data-testid="settings-tabs"
-      >
-        {SETTINGS_TABS.map(tab => {
-          const Icon = tab.icon;
-          return (
-            <TabButton
-              key={tab.id}
-              active={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              icon={<Icon className="w-4 h-4" />}
-              label={tab.label}
-            />
-          );
-        })}
-      </div>
-
-      {isLoading ? (
-        <div className="text-center py-12 text-gray-500">加载中...</div>
-      ) : (
-        <>
-          {activeTab === 'models' && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                {(
-                  [
-                    { id: 'manage' as const, label: '管理', icon: Cpu },
-                    { id: 'routing' as const, label: '路由模拟', icon: Route },
-                    { id: 'health' as const, label: '健康', icon: HeartPulse },
-                  ] as const
-                ).map(sub => {
-                  const Icon = sub.icon;
-                  return (
-                    <button
-                      key={sub.id}
-                      type="button"
-                      onClick={() => setModelSubTab(sub.id)}
-                      className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors',
-                        modelSubTab === sub.id
-                          ? 'bg-cinema-800 text-cinema-gold border border-cinema-gold/30'
-                          : 'text-gray-400 hover:text-white hover:bg-cinema-800/50'
-                      )}
+              <>
+                {activeTab === 'models' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      {(
+                        [
+                          { id: 'manage' as const, label: '管理', icon: Cpu },
+                          { id: 'routing' as const, label: '路由模拟', icon: Route },
+                          { id: 'health' as const, label: '健康', icon: HeartPulse },
+                        ] as const
+                      ).map(sub => {
+                        const Icon = sub.icon;
+                        return (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={() => setModelSubTab(sub.id)}
+                            className={cn(
+                              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+                              modelSubTab === sub.id
+                                ? 'bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/30'
+                                : 'text-cinema-gold/60 hover:text-cinema-gold hover:bg-cinema-800/50'
+                            )}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            {sub.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {modelSubTab === 'manage' && (
+                      <Panel title="模型管理">
+                        <UnifiedModelManager />
+                      </Panel>
+                    )}
+                    {modelSubTab === 'routing' && (
+                      <Panel title="路由模拟">
+                        <RouteSimulator />
+                      </Panel>
+                    )}
+                    {modelSubTab === 'health' && (
+                      <Panel title="模型健康">
+                        <ModelHealthPanel />
+                      </Panel>
+                    )}
+                  </div>
+                )}
+                {activeTab === 'agents' && (
+                  <div className="space-y-4">
+                    <Panel title="Agent 配置">
+                      <AgentConfig />
+                    </Panel>
+                    <GeneralSettings sections={['agent']} />
+                  </div>
+                )}
+                {activeTab === 'writing' && (
+                  <div className="space-y-4">
+                    <Panel title="方法论">
+                      <MethodologySettings />
+                    </Panel>
+                    <Panel title="工作流">
+                      <WorkflowSettings />
+                    </Panel>
+                    <GeneralSettings sections={['writing']} />
+                  </div>
+                )}
+                {activeTab === 'prompts' && (
+                  <Panel title="提示词注册表">
+                    <PromptsPanel />
+                  </Panel>
+                )}
+                {activeTab === 'extensions' && (
+                  <div className="space-y-3">
+                    <p
+                      className="text-xs text-cinema-gold/50 leading-relaxed"
+                      data-testid="extensions-note"
                     >
-                      <Icon className="w-3.5 h-3.5" />
-                      {sub.label}
-                    </button>
-                  );
-                })}
-              </div>
-              {modelSubTab === 'manage' && <UnifiedModelManager />}
-              {modelSubTab === 'routing' && <RouteSimulator />}
-              {modelSubTab === 'health' && <ModelHealthPanel />}
-            </div>
-          )}
-          {activeTab === 'agents' && (
-            <div className="space-y-6">
-              <AgentConfig />
-              <GeneralSettings sections={['agent']} />
-            </div>
-          )}
-          {activeTab === 'writing' && (
-            <div className="space-y-6">
-              <MethodologySettings />
-              <WorkflowSettings />
-              <GeneralSettings sections={['writing']} />
-            </div>
-          )}
-          {activeTab === 'prompts' && <PromptsPanel />}
-          {activeTab === 'extensions' && (
-            <div className="space-y-3">
-              <p className="text-xs text-gray-500 leading-relaxed" data-testid="extensions-note">
-                MCP 扩展连接不进入默认续写热路径；仅供高级工具调用与外部服务器联调。
-              </p>
-              <Mcp />
-            </div>
-          )}
-          {activeTab === 'appearance' && <GeneralSettings sections={['appearance']} />}
-          {activeTab === 'about' && <GeneralSettings sections={['about']} />}
-          {activeTab === 'account' && <AccountSettings />}
-        </>
-      )}
+                      MCP 扩展连接不进入默认续写热路径；仅供高级工具调用与外部服务器联调。
+                    </p>
+                    <Panel title="MCP 扩展">
+                      <Mcp />
+                    </Panel>
+                  </div>
+                )}
+                {activeTab === 'appearance' && <GeneralSettings sections={['appearance']} />}
+                {activeTab === 'about' && <GeneralSettings sections={['about']} />}
+                {activeTab === 'account' && <AccountSettings />}
+              </>
+            )}
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
@@ -271,8 +310,10 @@ function TabButton({
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap',
-        active ? 'bg-cinema-gold text-black' : 'text-gray-400 hover:text-white hover:bg-cinema-800'
+        'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+        active
+          ? 'bg-cinema-gold text-cinema-950'
+          : 'text-cinema-gold/60 hover:text-cinema-gold hover:bg-cinema-800/50'
       )}
     >
       {icon}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Shield, Link2 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Panel } from '@/components/ui/Panel';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useAppStore } from '@/stores/appStore';
 import { createLogger } from '@/utils/logger';
@@ -44,8 +44,8 @@ export function AccountSettings() {
   return (
     <div className="space-y-6">
       {/* 登录状态卡片 */}
-      <Card>
-        <CardContent className="p-6">
+      <Panel title="账号状态">
+        <div className="p-2">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-full bg-cinema-800 flex items-center justify-center">
               {user?.avatar_url ? (
@@ -90,16 +90,12 @@ export function AccountSettings() {
               </button>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
       {/* OAuth 配置状态 */}
-      <Card>
-        <CardContent className="p-6">
-          <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-            <Link2 className="w-5 h-5 text-cinema-gold" />
-            OAuth 登录选项
-          </h3>
+      <Panel title="OAuth 登录选项">
+        <div className="p-2">
           <div className="space-y-3">
             <ProviderStatus
               name="Google"
@@ -126,8 +122,8 @@ export function AccountSettings() {
             在配置文件中设置 OAuth 客户端 ID 后，对应登录选项将自动启用。 微信/QQ
             登录需要在中国内地开放平台注册应用。
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
     </div>
   );
 }
