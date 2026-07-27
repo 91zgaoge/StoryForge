@@ -4769,6 +4769,7 @@ const FrontstageApp: React.FC = () => {
               onInputKeyDown={handleInputKeyDown}
               loglineHint={loglineHint}
               loglineHintLoading={loglineHintLoading}
+              ghost={ghost}
             />
           </div>
         </div>

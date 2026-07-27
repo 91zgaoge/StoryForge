@@ -40,6 +40,8 @@ interface FrontstageBottomBarProps {
   // v0.30.24: Logline 幽灵提示
   loglineHint?: string;
   loglineHintLoading?: boolean;
+  // Task 3 ghost chrome: 底部栏与 ghost chrome 联动
+  ghost?: boolean;
 }
 
 function abbreviateApiBase(url: string): string {
@@ -103,6 +105,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   onInputKeyDown,
   loglineHint = '',
   loglineHintLoading = false,
+  ghost = false,
 }) => {
   const [showModelTooltip, setShowModelTooltip] = useState(false);
 
@@ -138,13 +141,13 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const statusClass = (status: ModelHealthSnapshot['status']) => {
     switch (status) {
       case 'healthy':
-        return 'status-connected';
+        return 'bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.4)]';
       case 'degraded':
-        return 'status-connecting';
+        return 'bg-yellow-400 animate-pulse';
       case 'unhealthy':
-        return 'status-disconnected';
+        return 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.4)]';
       default:
-        return 'status-connecting';
+        return 'bg-yellow-400 animate-pulse';
     }
   };
 
@@ -217,19 +220,38 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const isLocalGenerating = isGenerating && !primaryActivity;
 
   return (
-    <div className="frontstage-bottom-bar">
-      <div className="frontstage-bottom-bar-inner">
+    <div
+      className={[
+        'fixed bottom-0 left-0 right-0 z-40',
+        'flex flex-col items-center px-4 py-3',
+        'bg-paper-100/90 backdrop-blur-sm border-t border-paper-300',
+        'transition-opacity duration-300 ease-out',
+        ghost ? 'opacity-[0.08]' : 'opacity-100',
+      ].join(' ')}
+    >
+      <div className="w-full max-w-2xl flex flex-col gap-2">
         {/* 输入框 */}
-        <div className="frontstage-input-pill">
+        <div
+          className={[
+            'flex items-center gap-2',
+            'bg-paper-50 border border-paper-300 rounded-paper',
+            'px-3 py-2',
+            'transition-colors',
+            'focus-within:border-terracotta focus-within:ring-1 focus-within:ring-terracotta/30',
+          ].join(' ')}
+        >
           {/* v0.14.0: 多模型状态指示器 */}
           <div
-            className="model-status-wrapper"
+            className="relative cursor-pointer flex items-end justify-center h-5"
             onMouseEnter={() => setShowModelTooltip(true)}
             onMouseLeave={() => setShowModelTooltip(false)}
           >
-            <div className="model-signal-bars">
+            <div className="flex items-end gap-[2px] h-4 cursor-default">
               {gatewayModels.length === 0 ? (
-                <div className="model-signal-bar status-connecting" style={{ height: '4px' }} />
+                <div
+                  className={`model-signal-bar w-[3px] min-h-1 rounded-[1px] ${statusClass('connecting')}`}
+                  style={{ height: '4px' }}
+                />
               ) : (
                 [...gatewayModels]
                   .sort((a, b) => computeModelScore(a) - computeModelScore(b))
@@ -239,7 +261,9 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                     return (
                       <div
                         key={m.model_id}
-                        className={`model-signal-bar ${statusClass(m.status)}`}
+                        className={`model-signal-bar w-[3px] min-h-1 rounded-[1px] transition-all duration-300 ${statusClass(
+                          m.status
+                        )}`}
                         style={{ height: `${scoreToHeight(score)}px` }}
                         title={`${m.model_name}: ${statusText(m.status)}（得分 ${(score * 100).toFixed(0)}%）`}
                       />
@@ -247,7 +271,9 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                   })
               )}
               {gatewayModels.length > 8 && (
-                <span className="model-status-more">+{gatewayModels.length - 8}</span>
+                <span className="text-[9px] text-ink-500 font-sans leading-none">
+                  +{gatewayModels.length - 8}
+                </span>
               )}
             </div>
             {showModelTooltip && (
@@ -278,7 +304,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                       return (
                         <div key={m.model_id} className="model-tooltip-row model-tooltip-model">
                           <div className="model-tooltip-model-left">
-                            <div className={`model-status-dot ${statusClass(m.status)}`} />
+                            <div className={`w-2 h-2 rounded-full ${statusClass(m.status)}`} />
                             <span className="model-tooltip-value">{m.model_name}</span>
                             {m.is_primary && (
                               <span className="model-tooltip-badge model-tooltip-badge-primary">
@@ -332,50 +358,65 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
           </div>
 
           {/* 输入框 + Ghost Hint */}
-          <div className="frontstage-input-middle">
-            <div className="frontstage-input-ghost-wrapper">
-              {ghostHint && !inputValue && (
-                <span className="frontstage-input-ghost">
-                  {ghostHint}
-                  <span className="frontstage-input-ghost-hint">
-                    {hintSource === 'llm' ? ' · →确认' : ' · ↑↓切换 · →确认'}
-                  </span>
+          <div className="flex-1 min-w-0 relative">
+            {ghostHint && !inputValue && (
+              <span className="frontstage-input-ghost absolute left-0 top-[3px] text-ink-500/50 pointer-events-none select-none truncate max-w-full z-0 text-sm leading-normal font-body">
+                {ghostHint}
+                <span className="frontstage-input-ghost-hint text-terracotta/70 text-xs ml-1 font-sans">
+                  {hintSource === 'llm' ? ' · →确认' : ' · ↑↓切换 · →确认'}
                 </span>
-              )}
-              {/* v0.30.26: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后，
-                  前缀占位隐藏，确保后缀位置与输入文本对齐；按 → 后原输入+后缀一并提交 */}
-              {inputValue && (loglineHint || loglineHintLoading) && (
-                <span className="frontstage-input-ghost frontstage-input-ghost-inline">
-                  <span className="frontstage-input-ghost-inline-prefix" aria-hidden="true">
-                    {inputValue}
-                  </span>
-                  {loglineHintLoading ? (
-                    <span className="frontstage-input-ghost-hint">正在生成增强版指令…</span>
-                  ) : (
-                    <>
-                      <span className="frontstage-input-ghost-inline-suffix">{loglineHint}</span>
-                      <span className="frontstage-input-ghost-hint"> · →确认</span>
-                    </>
-                  )}
+              </span>
+            )}
+            {/* v0.30.26: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后，
+                前缀占位隐藏，确保后缀位置与输入文本对齐；按 → 后原输入+后缀一并提交 */}
+            {inputValue && (loglineHint || loglineHintLoading) && (
+              <span className="frontstage-input-ghost frontstage-input-ghost-inline absolute left-0 top-[3px] text-ink-500/50 pointer-events-none select-none whitespace-pre-wrap break-words overflow-hidden max-w-full z-0 text-sm leading-normal font-body">
+                <span className="frontstage-input-ghost-inline-prefix invisible" aria-hidden="true">
+                  {inputValue}
                 </span>
-              )}
-              <textarea
-                ref={textareaRef}
-                className="frontstage-input-textarea"
-                placeholder={ghostHint ? '' : '输入任意指令…'}
-                value={inputValue}
-                onChange={e => onInputChange(e.target.value)}
-                onKeyDown={onInputKeyDown}
-                onFocus={onInputFocus}
-                disabled={isGenerating}
-                rows={1}
-              />
-            </div>
+                {loglineHintLoading ? (
+                  <span className="frontstage-input-ghost-hint text-terracotta/70 text-xs ml-1 font-sans">
+                    正在生成增强版指令…
+                  </span>
+                ) : (
+                  <>
+                    <span className="frontstage-input-ghost-inline-suffix">{loglineHint}</span>
+                    <span className="frontstage-input-ghost-hint text-terracotta/70 text-xs ml-1 font-sans">
+                      {' '}
+                      · →确认
+                    </span>
+                  </>
+                )}
+              </span>
+            )}
+            <textarea
+              ref={textareaRef}
+              className={[
+                'relative z-10 w-full bg-transparent border-0 outline-none resize-none',
+                'text-ink-900 placeholder-ink-500 font-body text-sm leading-normal',
+                'min-h-[24px] max-h-[200px] overflow-y-hidden',
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+              ].join(' ')}
+              placeholder={ghostHint ? '' : '输入任意指令…'}
+              value={inputValue}
+              onChange={e => onInputChange(e.target.value)}
+              onKeyDown={onInputKeyDown}
+              onFocus={onInputFocus}
+              disabled={isGenerating}
+              rows={1}
+            />
           </div>
 
           {isGenerating ? (
             <button
-              className="frontstage-input-cancel"
+              className={[
+                'w-8 h-8 rounded-full flex items-center justify-center p-0 flex-shrink-0',
+                'bg-red-600 text-white',
+                'hover:bg-red-700',
+                'active:scale-[0.92]',
+                'transition-colors duration-150',
+                'animate-pulse',
+              ].join(' ')}
               onClick={onCancelGeneration}
               title="取消生成"
             >
@@ -383,7 +424,14 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             </button>
           ) : (
             <button
-              className="frontstage-input-send"
+              className={[
+                'w-8 h-8 rounded-full flex items-center justify-center p-0 flex-shrink-0',
+                'bg-terracotta text-white',
+                'hover:bg-terracotta-dark',
+                'active:scale-[0.92]',
+                'transition-colors duration-150',
+                'disabled:bg-paper-300 disabled:text-ink-500 disabled:cursor-not-allowed',
+              ].join(' ')}
               onClick={onInputSubmit}
               disabled={!inputValue.trim()}
               title="发送"
@@ -395,12 +443,20 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
 
         {/* v0.10.1: 统一后台活动 / 本地生成状态栏 — 与整体 parchment 风格一致 */}
         {hasAnyActivity && displayMessage && (
-          <div className="generation-status-row" title={displayMessage}>
-            <div className="generation-status-content">
+          <div
+            className={[
+              'mt-1 text-[13px] text-ink-700 whitespace-nowrap overflow-hidden text-ellipsis',
+              'max-w-full animate-fade-in select-none',
+              'px-3 py-1 flex items-center gap-2 h-8 leading-5',
+              'bg-paper-200 border border-paper-300 rounded-[10px] shadow-sm',
+            ].join(' ')}
+            title={displayMessage}
+          >
+            <div className="flex items-center gap-2.5 w-full min-w-0">
               {/* 状态图标：本地生成用心跳，后台活动用类别图标 */}
-              <div className="generation-status-pulse">
+              <div className="relative flex items-center justify-center w-5 h-5 flex-shrink-0">
                 {primaryActivity ? (
-                  <span className="generation-status-category-icon">
+                  <span className="generation-status-category-icon text-sm leading-none">
                     {categoryIcons[primaryActivity.category]}
                   </span>
                 ) : (
@@ -415,37 +471,44 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               </div>
 
               {/* 主要活动文案：StatusIcon 将 emoji 映射为 Lucide SVG，避免 WebView 缺字显示 □□ */}
-              <span className="generation-status-message">
-                <span className="generation-status-base">
+              <span className="generation-status-message text-ink-900 font-medium flex-1 min-w-0 overflow-hidden text-ellipsis flex items-center gap-1.5">
+                <span className="generation-status-base text-ink-900">
                   <StatusIcon text={statusBase} />
                 </span>
-                {statusSuffix && <span className="generation-status-suffix">{statusSuffix}</span>}
+                {statusSuffix && (
+                  <span className="text-ink-500 font-normal text-xs">{statusSuffix}</span>
+                )}
                 {statusElapsed && (
-                  <span className="generation-status-elapsed">({statusElapsed}s)</span>
+                  <span className="text-terracotta font-semibold text-xs tabular-nums">
+                    ({statusElapsed}s)
+                  </span>
                 )}
               </span>
 
               {/* 进度条：有具体进度则显示；运行中但无具体进度时显示不确定动画 */}
               {displayProgress != null && displayProgress > 0 ? (
                 <div
-                  className="generation-status-progress"
+                  className="w-20 h-[5px] bg-paper-300 rounded-full overflow-hidden flex-shrink-0"
                   title={`${Math.round(displayProgress * 100)}%`}
                 >
                   <div
-                    className="generation-status-progress-bar"
+                    className="h-full bg-terracotta rounded-full transition-[width] duration-500 ease-out shadow-[0_0_6px_rgba(199,107,79,0.35)]"
                     style={{ width: `${Math.round(displayProgress * 100)}%` }}
                   />
                 </div>
               ) : isLocalGenerating || primaryActivity?.status === 'running' ? (
-                <div className="generation-status-progress indeterminate" title="生成中">
-                  <div className="generation-status-progress-bar" />
+                <div
+                  className="w-20 h-[5px] bg-paper-300 rounded-full overflow-hidden flex-shrink-0"
+                  title="生成中"
+                >
+                  <div className="h-full bg-terracotta rounded-full w-2/5 animate-[generation-progress-indeterminate_1.2s_ease-in-out_infinite]" />
                 </div>
               ) : null}
 
               {/* 多任务计数 */}
               {activeCount > 1 && (
                 <span
-                  className="generation-status-badge"
+                  className="text-[11px] font-semibold text-paper-50 bg-terracotta px-2 py-0.5 rounded-full flex-shrink-0 shadow-sm"
                   title={`还有 ${activeCount - 1} 个后台任务`}
                 >
                   +{activeCount - 1}
@@ -454,10 +517,11 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
 
               {/* 类别标签 */}
               {primaryActivity && (
-                <span className="generation-status-category" title="任务类型">
-                  <span className="generation-status-category-label">
-                    {categoryLabels[primaryActivity.category]}
-                  </span>
+                <span
+                  className="inline-flex items-center gap-[5px] text-xs text-ink-500 flex-shrink-0 px-2 py-0.5 bg-paper-50 border border-paper-300 rounded-full"
+                  title="任务类型"
+                >
+                  <span className="inline">{categoryLabels[primaryActivity.category]}</span>
                 </span>
               )}
             </div>
