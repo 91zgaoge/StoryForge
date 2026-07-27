@@ -129,6 +129,13 @@ body {
 /* Clean background — no decorative textures per Waza */
 
 /* ===== TipTap ProseMirror Editor Styles ===== */
+.frontstage-editor-stage {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 10vh 1.5rem;
+}
+
 .ProseMirror {
   outline: none;
   font-family: var(--fs-font-family, var(--font-serif));
@@ -151,10 +158,11 @@ body {
 }
 
 .ProseMirror p {
-  margin-block-start: calc(var(--fs-line-height, 1.75) * 0.5em);
-  margin-block-end: calc(var(--fs-line-height, 1.75) * 1em);
+  margin-block-start: 0.75em;
+  margin-block-end: 0.75em;
   text-align: justify;
   text-indent: 2em;
+  line-height: 1.8;
 }
 
 .ProseMirror p:lang(en),

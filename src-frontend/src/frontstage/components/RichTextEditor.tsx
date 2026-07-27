@@ -1308,10 +1308,12 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         }}
       >
         {/* 编辑器内容区 */}
-        <div className="flex-1 overflow-auto relative min-h-0">
-          <EditorContentBoundary editorProps={{ logToBackend }}>
-            <EditorContent editor={editor} />
-          </EditorContentBoundary>
+        <div className="flex-1 overflow-y-auto relative min-h-0 flex justify-center">
+          <div className="frontstage-editor-stage w-full max-w-[720px] px-6 py-[10vh]">
+            <EditorContentBoundary editorProps={{ logToBackend }}>
+              <EditorContent editor={editor} />
+            </EditorContentBoundary>
+          </div>
 
           {/* 编辑器内 Slash 指令输入框 */}
           {showSlashInput && (
