@@ -84,3 +84,7 @@ src-core-archived/
 .worktrees/
 
 .worktrees/
+
+# Worktree dependency symlinks
+src-frontend/node_modules
+target
