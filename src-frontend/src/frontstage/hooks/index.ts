@@ -1,3 +1,4 @@
+export { useGhostChrome } from './useGhostChrome';
 export { default as useFrontstageEditor } from './useFrontstageEditor';
 export { default as useFrontstageGeneration } from './useFrontstageGeneration';
 export { default as useFrontstageWensi } from './useFrontstageWensi';
