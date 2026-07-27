@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Send,
   X,
@@ -112,6 +112,21 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
 
   // A4-1.9: 移除 1s setInterval 心跳；进度条/脉冲动画改用 CSS @keyframes 驱动，
   // 避免每秒强制 React 重渲染。
+
+  // v0.30.27: textarea 自适应高度，根据输入值 + 幽灵提示动态调整。
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const MAX_TEXTAREA_HEIGHT = 200;
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    el.style.height = 'auto';
+    const scrollHeight = el.scrollHeight;
+    const newHeight = Math.min(scrollHeight, MAX_TEXTAREA_HEIGHT);
+    el.style.height = `${newHeight}px`;
+    el.style.overflowY = scrollHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden';
+  }, [inputValue, ghostHint, loglineHint]);
 
   if (isZenMode) return null;
 
@@ -345,6 +360,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 </span>
               )}
               <textarea
+                ref={textareaRef}
                 className="frontstage-input-textarea"
                 placeholder={ghostHint ? '' : '输入任意指令…'}
                 value={inputValue}

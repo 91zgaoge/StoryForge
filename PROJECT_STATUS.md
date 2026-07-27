@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.26 项目完成状态
+# StoryMoss (草苔) v0.30.27 项目完成状态
 
-> 最后更新: 2026-07-27（v0.30.26 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色）
+> 最后更新: 2026-07-27（v0.30.27 上下文感知 Logline 后缀 + 输入框自适应高度）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---

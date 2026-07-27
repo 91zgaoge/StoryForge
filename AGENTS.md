@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.26
+- **版本**: v0.30.27
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -90,6 +90,11 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.27 - 上下文感知 Logline 后缀；输入框自适应高度
+
+- `generate_logline_hint` 在提供 `story_id` 时拉取故事大纲、当前章节大纲、角色列表与最近正文，渲染新 prompt 资产 `agency_logline_suffix_contextual`，生成贴合上下文的后缀；无上下文时回退原 `agency_logline_suffix`。
+- `FrontstageBottomBar.tsx` 通过 `textareaRef` + `useEffect` 根据 `inputValue`/`ghostHint`/`loglineHint` 动态调整 textarea 高度（上限 200px），幽灵层不再固定 `max-height: 60px`。
 
 ### v0.30.26 - 统一 Logline 增强提示为内联幽灵文本；修复分时预检缺少角色
 
@@ -588,7 +593,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-27 - v0.30.26_
+_最后更新: 2026-07-27 - v0.30.27_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

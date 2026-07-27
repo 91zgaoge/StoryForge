@@ -978,7 +978,11 @@ const FrontstageApp: React.FC = () => {
     const reqId = ++loglineHintReqIdRef.current;
     loglineHintTimerRef.current = setTimeout(async () => {
       try {
-        const result = await generateLoglineHint(trimmed);
+        const result = await generateLoglineHint(
+          trimmed,
+          currentStoryRef.current?.id,
+          currentChapterRef.current?.chapter_number ?? null
+        );
         // 只接受最新一次请求的结果（防止竞态）
         if (reqId === loglineHintReqIdRef.current) {
           if (result) {

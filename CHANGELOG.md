@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.27（2026-07-27）
+
+### 上下文感知 Logline 后缀 + 输入框自适应高度
+
+- **上下文感知后缀**：当作品已有故事大纲、场景大纲、角色与正文等后台资产时，`generate_logline_hint` 不再使用通用扩写，而是拉取这些上下文渲染新 prompt 资产 `agency_logline_suffix_contextual`，生成贴合当前剧情的 logline 后缀。无上下文或读取失败时静默回退到原 `agency_logline_suffix`。
+  - 后端：`commands/orchestrator.rs::generate_logline_hint` 新增可选参数 `story_id` / `chapter_number`；新增 `build_contextual_logline_system` / `build_logline_context_sync` helper，通过 `StoryOutlineRepository`、`ChapterRepository`、`CharacterRepository` 读取资产，正文截取前 1200 字符。
+  - 前端：`services/api/stream.ts::generateLoglineHint` 扩展签名；`FrontstageApp.tsx` 的 logline effect 传入 `currentStoryRef.current?.id` 与 `currentChapterRef.current?.chapter_number`。
+- **输入框自适应高度**：`FrontstageBottomBar.tsx` 新增 `textareaRef` + `useEffect`，根据 `inputValue` / `ghostHint` / `loglineHint` 的 `scrollHeight` 动态设置高度（上限 200px，超出显示滚动条）。`frontstage.css` 中 `.frontstage-input-textarea` 的 `max-height` 从 60px 改为 200px，`.frontstage-input-ghost-inline` 移除固定 `max-height`，避免长后缀/长输入溢出截断。
+- **验证**：`cargo test -p storymoss` 1060 passed；`npx tsc --noEmit` 通过；`npx vitest run` 全绿；`cargo fmt --all` 通过。
+
 ## v0.30.26（2026-07-27）
 
 ### 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色

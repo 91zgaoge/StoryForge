@@ -3630,7 +3630,9 @@ body.force-hide-ghost .ghost-paragraph {
   font-size: 14px;
   line-height: 1.5;
   color: var(--charcoal);
-  max-height: 60px;
+  min-height: 24px;
+  max-height: 200px;
+  overflow-y: hidden;
   padding: 3px 0;
 }
 
@@ -3644,14 +3646,14 @@ body.force-hide-ghost .ghost-paragraph {
   cursor: not-allowed;
 }
 
-/* v0.30.26: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后 */
+/* v0.30.27: Logline 增强后缀以内联幽灵文本形式跟在已输入内容之后；
+   高度随 wrapper 增长，由 JS 同步 textarea 高度，避免截断。 */
 .frontstage-input-ghost-inline {
   white-space: pre-wrap;
   word-break: break-word;
   overflow: hidden;
   text-overflow: clip;
   max-width: 100%;
-  max-height: 60px;
   pointer-events: none;
 }
 

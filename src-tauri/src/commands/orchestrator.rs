@@ -4,7 +4,10 @@ use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use crate::{
-    db::{Chapter, ChapterRepository, DbPool, Story, StoryRepository},
+    db::{
+        Chapter, ChapterRepository, CharacterRepository, DbPool, Story, StoryOutlineRepository,
+        StoryRepository,
+    },
     error::AppError,
     error_recovery::retry_with_backoff,
     record_ai_operation,
@@ -953,16 +956,23 @@ fn is_valid_logline(logline: &str) -> bool {
     !trimmed.is_empty() && trimmed.chars().count() >= 10
 }
 
-/// v0.30.25: Logline 幽灵提示--用户输入简单创世指令时，后台生成一段可直接
+/// v0.30.27: Logline 幽灵提示--用户输入简单创世指令时，后台生成一段可直接
 /// 追加到原输入后的增强后缀，前端以输入框内幽灵文本显示；用户按 -> 后，
 /// 后缀被追加到原输入，形成完整增强指令再提交给 LLM。
 ///
+/// 当提供 story_id 时，会拉取故事大纲、当前章节大纲、角色列表与最近正文，
+/// 渲染 `agency_logline_suffix_contextual` prompt，生成贴合上下文的后缀。
+///
 /// - 输入为空或 ≥ 100 字符 -> 返回 None
-/// - 使用 `agency_logline_suffix` prompt 资产（用户编辑后自动生效）
+/// - 使用 `agency_logline_suffix` / `agency_logline_suffix_contextual` prompt
+///   资产
 /// - 15s 超时，失败/超时静默返回 None（不报错，不阻塞 UI）
 #[tauri::command(rename_all = "snake_case")]
 pub async fn generate_logline_hint(
     user_input: String,
+    story_id: Option<String>,
+    chapter_number: Option<i32>,
+    pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<Option<String>, AppError> {
     if should_skip_logline_generation(&user_input) {
@@ -970,18 +980,22 @@ pub async fn generate_logline_hint(
     }
     let trimmed = user_input.trim();
 
-    // 从 registry 加载 logline 后缀增强提示词（与 coordinator.rs 的完整 logline
-    // 生成解耦，避免影响创世主流程）
-    let system = crate::prompts::registry::resolve_prompt_default_with_vars(
-        "agency_logline_suffix",
-        &std::collections::HashMap::new(),
-    )
-    .unwrap_or_else(|| {
-        "你是故事概念设计师。用户输入了一句简单的创世指令（如'写一部现代间谍小说'）。\
-         请只输出一段应直接追加到该指令后的增强后缀，使其成为包含主角、催化事件、\
-         核心任务与失败后果的强力 logline。不要重复原输入，只输出后缀。"
-            .to_string()
-    });
+    // 尝试构建上下文感知 prompt；失败或无上下文时回退到通用 prompt。
+    let system =
+        build_contextual_logline_system(story_id.as_deref(), chapter_number, &pool, trimmed)
+            .await
+            .unwrap_or_else(|| {
+                crate::prompts::registry::resolve_prompt_default_with_vars(
+                    "agency_logline_suffix",
+                    &std::collections::HashMap::new(),
+                )
+                .unwrap_or_else(|| {
+                    "你是故事概念设计师。用户输入了一句简单的创世指令（如'写一部现代间谍小说'）。\
+                 请只输出一段应直接追加到该指令后的增强后缀，使其成为包含主角、催化事件、\
+                 核心任务与失败后果的强力 logline。不要重复原输入，只输出后缀。"
+                        .to_string()
+                })
+            });
     let user_prompt = format!(
         "用户输入：{}\n\n请生成可直接追加到该输入后的增强后缀。",
         trimmed
@@ -1020,6 +1034,124 @@ pub async fn generate_logline_hint(
             log::warn!("[generate_logline_hint] 15s 超时，静默降级");
             Ok(None)
         }
+    }
+}
+
+/// v0.30.27: 根据已有后台资产构建上下文感知的 logline system prompt。
+/// 无 story_id、读取失败或 prompt 资产不存在时返回 None，由调用方回退通用
+/// prompt。
+async fn build_contextual_logline_system(
+    story_id: Option<&str>,
+    chapter_number: Option<i32>,
+    pool: &State<'_, DbPool>,
+    user_input: &str,
+) -> Option<String> {
+    let story_id = story_id?;
+
+    let pool_inner = pool.inner().clone();
+    let story_id_owned = story_id.to_string();
+
+    let ctx = match tokio::task::spawn_blocking(move || {
+        build_logline_context_sync(&story_id_owned, chapter_number, &pool_inner)
+    })
+    .await
+    {
+        Ok(Ok(ctx)) => ctx,
+        Ok(Err(e)) => {
+            log::warn!(
+                "[generate_logline_hint] 拉取上下文失败，回退通用 prompt: {}",
+                e
+            );
+            return None;
+        }
+        Err(e) => {
+            log::warn!("[generate_logline_hint] 上下文任务 join 失败: {}", e);
+            return None;
+        }
+    };
+
+    let mut vars: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    vars.insert("user_input".to_string(), user_input.to_string());
+    vars.insert("story_outline".to_string(), ctx.story_outline);
+    vars.insert("scene_outline".to_string(), ctx.scene_outline);
+    vars.insert("characters".to_string(), ctx.characters);
+    vars.insert("current_content".to_string(), ctx.current_content);
+
+    crate::prompts::registry::resolve_prompt_default_with_vars(
+        "agency_logline_suffix_contextual",
+        &vars,
+    )
+}
+
+#[derive(Debug, Default)]
+struct LoglineContext {
+    story_outline: String,
+    scene_outline: String,
+    characters: String,
+    current_content: String,
+}
+
+fn build_logline_context_sync(
+    story_id: &str,
+    chapter_number: Option<i32>,
+    pool: &DbPool,
+) -> Result<LoglineContext, AppError> {
+    let story_outline_repo = StoryOutlineRepository::new(pool.clone());
+    let chapter_repo = ChapterRepository::new(pool.clone());
+    let character_repo = CharacterRepository::new(pool.clone());
+
+    let story_outline = story_outline_repo
+        .get_by_story(story_id)
+        .ok()
+        .flatten()
+        .map(|o| o.content)
+        .unwrap_or_default();
+
+    let chapters = chapter_repo.get_by_story(story_id).unwrap_or_default();
+    let target_chapter =
+        chapter_number.and_then(|cn| chapters.iter().find(|c| c.chapter_number == cn));
+
+    let scene_outline = target_chapter
+        .as_ref()
+        .map(|c| c.outline.clone().unwrap_or_default())
+        .unwrap_or_default();
+
+    let current_content = target_chapter
+        .as_ref()
+        .and_then(|c| chapter_repo.get_content(&c.id).ok())
+        .map(|s| truncate_chars(&s, 1200))
+        .unwrap_or_default();
+
+    let characters = character_repo
+        .get_by_story(story_id)
+        .unwrap_or_default()
+        .iter()
+        .map(|c| {
+            format!(
+                "{}：背景{}；目标{}；性格{}",
+                c.name,
+                c.background.as_deref().unwrap_or("无"),
+                c.goals.as_deref().unwrap_or("无"),
+                c.personality.as_deref().unwrap_or("无")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(LoglineContext {
+        story_outline,
+        scene_outline,
+        characters,
+        current_content,
+    })
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_string()
+    } else {
+        s.chars().take(max_chars).collect::<String>() + "…"
     }
 }
 
