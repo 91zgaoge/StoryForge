@@ -24,7 +24,9 @@
 
 @layer components {
   .glass-cinema {
-    @apply bg-cinema-850/50 backdrop-blur-xl border border-cinema-700/50;
+    @apply backdrop-blur-xl border;
+    background-color: color-mix(in oklch, var(--cinema-850) 50%, transparent);
+    border-color: color-mix(in oklch, var(--cinema-700) 50%, transparent);
   }
 
   .gradient-border {
@@ -116,7 +118,8 @@
 
 /* ===== StreamOutput Component Styles ===== */
 .stream-output-container {
-  @apply bg-cinema-800/50 border border-cinema-700 rounded-xl overflow-hidden flex flex-col;
+  @apply border border-cinema-700 rounded-xl overflow-hidden flex flex-col;
+  background-color: color-mix(in oklch, var(--cinema-800) 50%, transparent);
   min-height: 120px;
 }
 
@@ -129,7 +132,8 @@
 }
 
 .stream-toolbar {
-  @apply flex items-center justify-between px-3 py-2 bg-cinema-800/80 border-b border-cinema-700 flex-shrink-0 gap-2;
+  @apply flex items-center justify-between px-3 py-2 border-b border-cinema-700 flex-shrink-0 gap-2;
+  background-color: color-mix(in oklch, var(--cinema-800) 80%, transparent);
 }
 
 .stream-toolbar-left {
@@ -149,7 +153,8 @@
 }
 
 .stream-word-count {
-  @apply flex items-center gap-1 text-xs text-gray-400 bg-cinema-900/50 px-2 py-1 rounded-md;
+  @apply flex items-center gap-1 text-xs text-gray-400 px-2 py-1 rounded-md;
+  background-color: color-mix(in oklch, var(--cinema-900) 50%, transparent);
 }
 
 .stream-progress-text {
@@ -157,11 +162,16 @@
 }
 
 .stream-btn {
-  @apply flex items-center gap-1 px-2 py-1 rounded-md text-xs text-gray-300 bg-cinema-700/50 hover:bg-cinema-700 transition-colors border-none cursor-pointer;
+  @apply flex items-center gap-1 px-2 py-1 rounded-md text-xs text-gray-300 hover:bg-cinema-700 transition-colors border-none cursor-pointer;
+  background-color: color-mix(in oklch, var(--cinema-700) 50%, transparent);
 }
 
 .stream-btn-stop {
-  @apply text-red-400 hover:bg-red-500/20;
+  @apply text-red-400;
+}
+
+.stream-btn-stop:hover {
+  background-color: color-mix(in oklch, var(--status-danger) 20%, transparent);
 }
 
 .stream-btn-copy {
@@ -217,7 +227,9 @@
 }
 
 .stream-markdown .stream-blockquote {
-  @apply border-l-2 border-cinema-gold/50 pl-3 py-1 my-3 text-gray-400 italic bg-cinema-800/30 rounded-r-md;
+  @apply border-l-2 pl-3 py-1 my-3 text-gray-400 italic rounded-r-md;
+  border-color: color-mix(in oklch, var(--cinema-gold) 50%, transparent);
+  background-color: color-mix(in oklch, var(--cinema-800) 30%, transparent);
 }
 
 .stream-markdown .stream-li {
