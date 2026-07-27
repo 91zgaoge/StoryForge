@@ -7,11 +7,15 @@ import {
   ArrowRight,
   Clock,
   FolderOpen,
-  Activity,
   Type,
+  LayoutDashboard,
+  Clapperboard,
+  Network,
+  Settings,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
 import { useAppStore } from '@/stores/appStore';
 import { useStories, useCreateStory } from '@/hooks/useStories';
 import { createStoryWithWizard, loggedInvoke } from '@/services/tauri';
@@ -23,6 +27,15 @@ import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
 
 const dashboardLogger = createLogger('ui:Dashboard');
+
+const NAV_ITEMS = [
+  { view: 'dashboard' as const, icon: LayoutDashboard, label: '仪表盘' },
+  { view: 'stories' as const, icon: BookOpen, label: '故事' },
+  { view: 'characters' as const, icon: Users, label: '角色' },
+  { view: 'scenes' as const, icon: Clapperboard, label: '场景' },
+  { view: 'knowledge-graph' as const, icon: Network, label: '知识图谱' },
+  { view: 'settings' as const, icon: Settings, label: '设置' },
+];
 
 export function Dashboard() {
   const stories = useAppStore(s => s.stories);
@@ -179,160 +192,220 @@ export function Dashboard() {
     .slice(0, 3);
 
   return (
-    <div className="p-8 space-y-8 animate-fade-in">
-      {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-cinema-800 to-cinema-900 border border-cinema-700 p-8">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cinema-gold/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-
-        <div className="relative z-10">
-          <h1 className="font-display text-4xl font-bold text-white mb-2">欢迎回到创作工作室</h1>
-          <p className="text-gray-400 text-lg font-body italic max-w-2xl">
-            "每一个伟大的故事，都始于一个勇敢的开始。"
-          </p>
-          <div className="mt-6 flex gap-4">
-            <Button variant="primary" className="gap-2" onClick={handleOpenFrontstage}>
-              <Sparkles className="w-4 h-4" />
-              AI 创建故事
-            </Button>
-            <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
-              手动创建
-            </Button>
-            {recentStories.length > 0 && (
-              <Button variant="ghost" onClick={() => setCurrentView('stories')}>
-                <FolderOpen className="w-4 h-4 mr-2" />
-                打开故事库
-              </Button>
-            )}
-          </div>
+    <div className="min-h-screen bg-cinema-950 text-cinema-gold/90 font-body flex">
+      {/* 左侧导航轨 */}
+      <nav className="w-16 flex-shrink-0 bg-cinema-900 border-r border-white/[0.06] flex flex-col items-center py-4 gap-4">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cinema-gold to-cinema-gold-dark flex items-center justify-center shadow-panel">
+          <Sparkles className="w-5 h-5 text-cinema-900" />
         </div>
-      </div>
 
-      {/* Creation Path Guide */}
-      <CreationPathGuide
-        onFrontstage={handleOpenFrontstage}
-        onWizard={() => setIsWizardOpen(true)}
-        onQuick={() => {
-          useAppStore.getState().setPendingQuickCreate(true);
-          setCurrentView('stories');
-        }}
-      />
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map(stat => {
-          const Icon = stat.icon;
-          return (
-            <Card
-              key={stat.label}
-              hover
-              className="cursor-pointer"
-              onClick={() => setCurrentView(stat.view)}
-            >
-              <CardContent className="flex items-center gap-4">
-                <div className={cn('p-3 rounded-xl bg-cinema-800', stat.color)}>
-                  <Icon className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-3xl font-display font-bold text-white">
-                    {formatNumber(stat.value)}
-                  </p>
-                  <p className="text-sm text-gray-400">{stat.label}</p>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Genesis Runs */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-xl font-semibold text-white flex items-center gap-2">
-            <Activity className="w-5 h-5 text-cinema-gold" />
-            Genesis 运行记录
-          </h2>
-        </div>
-        <div className="h-80">
-          <GenesisPanel embedded />
-        </div>
-      </div>
-
-      {/* Recent Stories */}
-      {!isStoriesLoading && recentStories.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-xl font-semibold text-white flex items-center gap-2">
-              <Clock className="w-5 h-5 text-cinema-gold" />
-              最近编辑
-            </h2>
-            <Button variant="ghost" size="sm" onClick={() => setCurrentView('stories')}>
-              查看全部
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {recentStories.map(story => (
-              <Card
-                key={story.id}
-                hover
-                className="cursor-pointer group"
-                onClick={() => handleContinueStory(story)}
+        <div className="flex-1 flex flex-col items-center gap-2 w-full px-2">
+          {NAV_ITEMS.map(item => {
+            const Icon = item.icon;
+            const isActive = item.view === 'dashboard';
+            return (
+              <button
+                key={item.view}
+                type="button"
+                title={item.label}
+                onClick={() => setCurrentView(item.view)}
+                className={cn(
+                  'w-full aspect-square rounded-panel flex items-center justify-center transition-colors',
+                  'hover:bg-cinema-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinema-gold/50',
+                  isActive
+                    ? 'bg-cinema-gold/10 text-cinema-gold'
+                    : 'text-cinema-gold/60 hover:text-cinema-gold'
+                )}
               >
-                <CardContent className="p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
-                      <BookOpen className="w-5 h-5 text-cinema-gold" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-display font-semibold text-white truncate group-hover:text-cinema-gold transition-colors">
-                        {story.title}
-                      </h3>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {story.genre || '未分类'} · {story.chapter_count || 0} 章
-                        {story.word_count ? ` · ${story.word_count} 字` : ''}
+                <Icon className="w-5 h-5" />
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* 主区 */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] bg-cinema-900/80 backdrop-blur-sm">
+          <h1 className="text-sm font-bold uppercase tracking-widest text-cinema-gold">工作室</h1>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-cinema-gold/60">MODEL: ONLINE</span>
+            <Button variant="cinema" size="sm" onClick={() => setIsModalOpen(true)}>
+              新建
+            </Button>
+          </div>
+        </header>
+
+        <div className="flex-1 p-6 overflow-auto">
+          <div className="grid grid-cols-12 gap-4">
+            {/* 作品概览 */}
+            <div className="col-span-12 lg:col-span-8 space-y-4">
+              <Panel title="作品概览">
+                <div className="space-y-6">
+                  {/* Hero */}
+                  <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cinema-800 to-cinema-900 border border-white/[0.06] p-6">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-cinema-gold/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+
+                    <div className="relative z-10">
+                      <h2 className="font-display text-2xl font-bold text-white mb-2">
+                        欢迎回到创作工作室
+                      </h2>
+                      <p className="text-gray-400 text-base font-body italic max-w-2xl">
+                        "每一个伟大的故事，都始于一个勇敢的开始。"
                       </p>
-                      <p className="text-xs text-gray-600 mt-2">
-                        更新于 {formatDate(story.updated_at)}
-                      </p>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <Button variant="primary" className="gap-2" onClick={handleOpenFrontstage}>
+                          <Sparkles className="w-4 h-4" />
+                          AI 创建故事
+                        </Button>
+                        <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
+                          手动创建
+                        </Button>
+                        {recentStories.length > 0 && (
+                          <Button variant="ghost" onClick={() => setCurrentView('stories')}>
+                            <FolderOpen className="w-4 h-4 mr-2" />
+                            打开故事库
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {stats.map(stat => {
+                      const Icon = stat.icon;
+                      return (
+                        <Card
+                          key={stat.label}
+                          hover
+                          className="cursor-pointer"
+                          onClick={() => setCurrentView(stat.view)}
+                        >
+                          <CardContent className="flex items-center gap-3 p-4">
+                            <div className={cn('p-2.5 rounded-xl bg-cinema-800', stat.color)}>
+                              <Icon className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="text-2xl font-display font-bold text-white">
+                                {formatNumber(stat.value)}
+                              </p>
+                              <p className="text-xs text-gray-400">{stat.label}</p>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+
+                  {/* Recent Stories */}
+                  {!isStoriesLoading && recentStories.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-display text-sm font-semibold text-white flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-cinema-gold" />
+                          最近编辑
+                        </h3>
+                        <Button variant="ghost" size="sm" onClick={() => setCurrentView('stories')}>
+                          查看全部
+                          <ArrowRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {recentStories.map(story => (
+                          <Card
+                            key={story.id}
+                            hover
+                            className="cursor-pointer group"
+                            onClick={() => handleContinueStory(story)}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
+                                  <BookOpen className="w-5 h-5 text-cinema-gold" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-display font-semibold text-white truncate group-hover:text-cinema-gold transition-colors">
+                                    {story.title}
+                                  </h4>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    {story.genre || '未分类'} · {story.chapter_count || 0} 章
+                                    {story.word_count ? ` · ${story.word_count} 字` : ''}
+                                  </p>
+                                  <p className="text-[10px] text-gray-600 mt-2">
+                                    更新于 {formatDate(story.updated_at)}
+                                  </p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Empty State */}
+                  {!isStoriesLoading && stories.length === 0 && (
+                    <Card className="py-10">
+                      <CardContent className="text-center">
+                        <BookOpen className="w-14 h-14 text-cinema-700 mx-auto mb-4" />
+                        <h3 className="font-display text-lg font-semibold text-white mb-2">
+                          开始你的创作之旅
+                        </h3>
+                        <p className="text-gray-500 max-w-md mx-auto mb-6 text-sm">
+                          使用 AI
+                          向导创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供
+                          AI 辅助写作。
+                        </p>
+                        <div className="flex justify-center gap-4">
+                          <Button variant="primary" onClick={handleOpenFrontstage}>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            AI 创建第一个故事
+                          </Button>
+                          <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
+                            手动创建
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Loading State */}
+                  {(isLoading || isStoriesLoading) && (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="loading-reel" />
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            </div>
+
+            {/* 创作路径 */}
+            <div className="col-span-12 lg:col-span-4">
+              <Panel title="创作路径">
+                <CreationPathGuide
+                  onFrontstage={handleOpenFrontstage}
+                  onWizard={() => setIsWizardOpen(true)}
+                  onQuick={() => {
+                    useAppStore.getState().setPendingQuickCreate(true);
+                    setCurrentView('stories');
+                  }}
+                />
+              </Panel>
+            </div>
+
+            {/* 运行记录 */}
+            <div className="col-span-12">
+              <Panel title="运行记录" collapsible defaultOpen>
+                <div className="h-80">
+                  <GenesisPanel embedded />
+                </div>
+              </Panel>
+            </div>
           </div>
         </div>
-      )}
-
-      {/* Empty State */}
-      {!isStoriesLoading && stories.length === 0 && (
-        <Card className="py-12">
-          <CardContent className="text-center">
-            <BookOpen className="w-16 h-16 text-cinema-700 mx-auto mb-4" />
-            <h3 className="font-display text-xl font-semibold text-white mb-2">开始你的创作之旅</h3>
-            <p className="text-gray-500 max-w-md mx-auto mb-6">
-              使用 AI 向导创建一个新故事，或者导入已有的创作。草苔将帮助你管理角色、章节，并提供 AI
-              辅助写作。
-            </p>
-            <div className="flex justify-center gap-4">
-              <Button variant="primary" onClick={handleOpenFrontstage}>
-                <Sparkles className="w-4 h-4 mr-2" />
-                AI 创建第一个故事
-              </Button>
-              <Button variant="secondary" onClick={() => setIsModalOpen(true)}>
-                手动创建
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Loading State */}
-      {(isLoading || isStoriesLoading) && (
-        <div className="flex items-center justify-center py-12">
-          <div className="loading-reel" />
-        </div>
-      )}
+      </main>
 
       {/* Create Modal */}
       {isModalOpen && (

@@ -325,7 +325,7 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen bg-cinema-950 film-grain">
+      <div className="flex h-screen bg-cinema-950 film-grain dark">
         <DataLoader />
         <ConnectionStatus />
         <UpdateNotification
