@@ -477,6 +477,28 @@ const FrontstageApp: React.FC = () => {
   const [upgradeTrigger, setUpgradeTrigger] = useState('');
   const subscription = useSubscription();
 
+  // Phase 4 fix: chapters 表已剥离 content 字段，Scene 为唯一内容真相源。
+  // get_chapter 返回的 Chapter 不再携带正文，需要额外聚合 scenes 内容。
+  const loadChapterWithContent = useCallback(async (id: string): Promise<Chapter | null> => {
+    const chapter = await loggedInvoke<Chapter | null>('get_chapter', { id });
+    if (chapter && !chapter.content) {
+      try {
+        const content = await loggedInvoke<string>('get_chapter_aggregated_content', {
+          chapter_id: id,
+        });
+        if (content !== undefined) {
+          chapter.content = content;
+        }
+      } catch (e) {
+        frontstageLogger.error('Failed to load aggregated chapter content', {
+          error: e,
+          chapterId: id,
+        });
+      }
+    }
+    return chapter;
+  }, []);
+
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
   // 统一实时状态同步中心：幕前监听后台数据变更，自动刷新本地状态
   // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
@@ -563,7 +585,7 @@ const FrontstageApp: React.FC = () => {
         // 刚通过 ChapterSwitch 加载的 HTML 排版内容
         (async () => {
           try {
-            const updated = await loggedInvoke<Chapter | null>('get_chapter', { id: chapterId });
+            const updated = await loadChapterWithContent(chapterId);
             if (updated && updated.content !== undefined) {
               const rawDbContent = updated.content || '';
               // v0.26.15: 从 DB 加载的内容也可能是模型自重复（旧数据或保存路径异常）。
@@ -2313,7 +2335,7 @@ const FrontstageApp: React.FC = () => {
         lazyLoadingChapterIdsRef.current.add(chapter.id);
         (async () => {
           try {
-            const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
+            const full = await loadChapterWithContent(chapter.id);
             if (full) {
               frontstageLogger.info('[selectChapter] Lazy-loaded full chapter', {
                 chapter_id: full.id,
@@ -2335,7 +2357,7 @@ const FrontstageApp: React.FC = () => {
       if (chapterIndex === -1 && currentStory) {
         (async () => {
           try {
-            const full = await loggedInvoke<Chapter | null>('get_chapter', { id: chapter.id });
+            const full = await loadChapterWithContent(chapter.id);
             if (full) {
               setChapters(prev => {
                 const map = new Map(prev.map(c => [c.id, c]));
@@ -2501,6 +2523,7 @@ const FrontstageApp: React.FC = () => {
       currentStory,
       scenes,
       loadStoryChapters,
+      loadChapterWithContent,
       setContent,
       setCurrentChapter,
       setCurrentScene,

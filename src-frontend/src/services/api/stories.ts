@@ -61,6 +61,9 @@ export const getStoryChaptersPaged = (storyId: string, limit: number, offset: nu
 
 export const getChapter = (id: string) => loggedInvoke<Chapter | null>('get_chapter', { id });
 
+export const getChapterAggregatedContent = (chapterId: string) =>
+  loggedInvoke<string>('get_chapter_aggregated_content', { chapter_id: chapterId });
+
 export const updateChapter = (id: string, updates: UpdateChapterRequest) =>
   loggedInvoke<void>('update_chapter', { id, ...updates });
 
