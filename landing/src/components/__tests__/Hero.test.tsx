@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hero } from "../Hero";
+import { __resetLatestReleaseCache } from "../../hooks/useLatestRelease";
 
 vi.mock("framer-motion", async () => {
   const actual =
@@ -15,9 +16,22 @@ vi.mock("framer-motion", async () => {
 });
 
 describe("Hero", () => {
-  it("renders headline, version badge and CTAs", () => {
+  beforeEach(() => {
+    __resetLatestReleaseCache();
+    // A version distinct from the fallback proves the badge is driven by the
+    // manifest rather than a hardcoded constant.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ version: "0.30.99" }),
+    } as Response);
+  });
+
+  it("renders headline, version badge and CTAs", async () => {
     render(<Hero />);
-    expect(screen.getByText(/v0\.30\.0/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/v0\.30\.99/)).toBeInTheDocument();
+    });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
       "让故事自己生长",
     );

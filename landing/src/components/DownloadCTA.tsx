@@ -1,7 +1,10 @@
 import { DownloadButton } from "./DownloadButton";
 import { Reveal } from "./Reveal";
+import { useLatestRelease } from "../hooks/useLatestRelease";
 
 export function DownloadCTA() {
+  const release = useLatestRelease();
+
   return (
     <section
       id="download"
@@ -19,7 +22,7 @@ export function DownloadCTA() {
             搬回你的书桌
           </h2>
           <p className="text-pretty mb-10 max-w-[520px] leading-relaxed text-mist">
-            v0.30.0 ·
+            v{release.version} ·
             多代理创作框架、持续学习、创作评估全部就位。本地运行，开源可审计。
           </p>
           <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">

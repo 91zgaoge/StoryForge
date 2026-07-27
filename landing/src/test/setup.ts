@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 class IntersectionObserverMock {
   observe = vi.fn();
@@ -24,4 +24,11 @@ Object.defineProperty(window, "matchMedia", {
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })),
+});
+
+// Restore any vi.spyOn mocks (e.g. global.fetch) between tests so a fetch spy
+// in one test file never leaks into another. vi.stubGlobal is cleaned up by the
+// per-test afterEach in the suites that use it.
+afterEach(() => {
+  vi.restoreAllMocks();
 });

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { useReducedMotion } from "../hooks/useReducedMotion";
+import { useLatestRelease } from "../hooks/useLatestRelease";
 import { DownloadButton } from "./DownloadButton";
 import { InkButton } from "./InkButton";
 import { MossScape } from "./MossScape";
@@ -7,6 +8,7 @@ import { ChevronDown } from "lucide-react";
 
 export function Hero() {
   const reduced = useReducedMotion();
+  const release = useLatestRelease();
 
   const container = {
     hidden: {},
@@ -40,7 +42,7 @@ export function Hero() {
                 className="inline-block h-1.5 w-1.5 rounded-full bg-moss"
                 aria-hidden="true"
               />
-              v0.30.0 · 多代理创作框架
+              v{release.version} · 多代理创作框架
             </span>
           </motion.div>
 

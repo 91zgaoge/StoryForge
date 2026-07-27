@@ -1,13 +1,8 @@
 import type { ReactNode, AnchorHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
+import { useLatestRelease, type ReleaseUrls } from "../hooks/useLatestRelease";
 
-const RELEASE_BASE = "https://storymoss.top/releases";
-
-const ASSETS = {
-  mac: `${RELEASE_BASE}/StoryMoss_0.30.0_aarch64.dmg`,
-  windows: `${RELEASE_BASE}/StoryMoss_0.30.0_x64_zh-CN.msi`,
-  linux: `${RELEASE_BASE}/StoryMoss_0.30.0_amd64.AppImage`,
-};
+const RELEASES_INDEX = "https://storymoss.top/releases/";
 
 export type Platform = "mac" | "macIntel" | "windows" | "linux" | "unknown";
 
@@ -29,12 +24,12 @@ export function detectPlatform(): Platform {
   return "unknown";
 }
 
-export function downloadUrl(platform: Platform): string {
-  if (platform === "windows") return ASSETS.windows;
-  if (platform === "linux") return ASSETS.linux;
-  if (platform === "mac") return ASSETS.mac;
+export function downloadUrl(platform: Platform, urls: ReleaseUrls): string {
+  if (platform === "windows") return urls.windows;
+  if (platform === "linux") return urls.linux;
+  if (platform === "mac") return urls.mac;
   // macIntel and unknown fall back to the releases page so users can pick a build.
-  return "https://storymoss.top/releases/";
+  return RELEASES_INDEX;
 }
 
 export function downloadLabel(
@@ -61,6 +56,7 @@ export function DownloadButton({
   ...rest
 }: DownloadButtonProps) {
   const [platform, setPlatform] = useState<Platform>("unknown");
+  const release = useLatestRelease();
 
   useEffect(() => {
     setPlatform(detectPlatform());
@@ -73,7 +69,7 @@ export function DownloadButton({
       ? "bg-moss text-canvas [@media(hover:hover)]:hover:bg-moss-soft"
       : "surface-2 border border-subtle text-paper [@media(hover:hover)]:hover:surface-3";
 
-  const url = downloadUrl(platform);
+  const url = downloadUrl(platform, release.urls);
   const label = children ?? downloadLabel(platform, fallbackLabel);
 
   return (
