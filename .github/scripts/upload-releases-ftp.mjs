@@ -73,6 +73,13 @@ const WEBSITE_RELEASES_URL =
   process.env.WEBSITE_RELEASES_URL || 'https://storymoss.top/releases';
 
 /**
+ * Number of recent release versions to retain on the website.
+ * Older versioned artifacts are deleted after each upload to prevent
+ * the hosting space from growing indefinitely.
+ */
+const RETENTION_COUNT = parseInt(process.env.RELEASE_RETENTION_COUNT || '5', 10);
+
+/**
  * Rewrite the updater manifest so that binary download URLs point to the
  * website source instead of GitHub Releases. GitHub Releases keeps the
  * original manifest as the fallback endpoint.
@@ -103,6 +110,88 @@ async function* walk(dir) {
       yield fullPath;
     }
   }
+}
+
+/**
+ * Parse a version string like "0.30.27" into a comparable numeric tuple.
+ */
+function parseVersion(version) {
+  const parts = version.split('.').map((part) => parseInt(part, 10));
+  return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+}
+
+function compareVersions(a, b) {
+  const av = parseVersion(a);
+  const bv = parseVersion(b);
+  for (let i = 0; i < 3; i++) {
+    if (av[i] !== bv[i]) return av[i] - bv[i];
+  }
+  return 0;
+}
+
+/**
+ * Extract the embedded StoryMoss version from a release filename.
+ * Examples:
+ *   StoryMoss_0.30.27_amd64.deb        -> 0.30.27
+ *   StoryMoss_0.30.27_x64_zh-CN.msi    -> 0.30.27
+ *   StoryMoss_aarch64.app.tar.gz       -> null
+ *   latest.json                        -> null
+ */
+function extractVersionFromFileName(name) {
+  const match = name.match(/^StoryMoss_(\d+\.\d+\.\d+)_/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Clean up old versioned release artifacts on the FTP server, retaining only
+ * the most recent `RETENTION_COUNT` versions. Unversioned files (e.g. the
+ * shared macOS app.tar.gz and latest.json) are never removed.
+ */
+async function cleanupOldReleases(client, remoteDir) {
+  if (!Number.isFinite(RETENTION_COUNT) || RETENTION_COUNT <= 0) {
+    console.log('⏭️  RELEASE_RETENTION_COUNT invalid; skipping cleanup');
+    return;
+  }
+
+  const remoteFiles = await client.list(remoteDir);
+  const filesByVersion = new Map();
+  const unversioned = [];
+
+  for (const file of remoteFiles) {
+    if (file.type !== 2 && file.type !== 'file') continue; // skip directories
+    const version = extractVersionFromFileName(file.name);
+    if (version) {
+      if (!filesByVersion.has(version)) filesByVersion.set(version, []);
+      filesByVersion.get(version).push(file.name);
+    } else if (matchesReleaseFile(file.name)) {
+      unversioned.push(file.name);
+    }
+  }
+
+  if (filesByVersion.size <= RETENTION_COUNT) {
+    console.log(
+      `🧹 Found ${filesByVersion.size} version(s) on server (retention: ${RETENTION_COUNT}); nothing to clean up`
+    );
+    return;
+  }
+
+  const sortedVersions = Array.from(filesByVersion.keys()).sort(compareVersions).reverse();
+  const versionsToKeep = new Set(sortedVersions.slice(0, RETENTION_COUNT));
+  const versionsToDelete = sortedVersions.slice(RETENTION_COUNT);
+
+  console.log(
+    `🧹 Retaining ${RETENTION_COUNT} newest version(s): ${Array.from(versionsToKeep).join(', ')}`
+  );
+  console.log(`🗑️  Deleting ${versionsToDelete.length} old version(s): ${versionsToDelete.join(', ')}`);
+
+  for (const version of versionsToDelete) {
+    for (const fileName of filesByVersion.get(version)) {
+      console.log(`  🗑️  ${fileName}`);
+      await client.remove(join(remoteDir, fileName));
+    }
+  }
+
+  console.log('✅ Old release cleanup complete');
 }
 
 async function main() {
@@ -154,6 +243,9 @@ async function main() {
     }
 
     console.log(`✅ Uploaded ${files.length} file(s) to ${host}${remoteDir}`);
+
+    // Keep only the most recent RETENTION_COUNT release versions on the server.
+    await cleanupOldReleases(client, remoteDir);
   } catch (err) {
     console.error('❌ FTP upload failed:', err.message);
     process.exit(1);

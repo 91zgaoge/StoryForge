@@ -56,6 +56,7 @@ node scripts/cdp-inspect.js           # CDP 截图
    ```bash
    git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z
    ```
+6. **网站 Release 保留策略**：`.github/scripts/upload-releases-ftp.mjs` 每次上传后会自动清理 `/releases` 目录，仅保留最近 5 个版本的安装包（`RELEASE_RETENTION_COUNT=5`，可通过环境变量覆盖），防止服务器空间不足。禁止删除 `latest.json` 与无版本号文件（如 `StoryMoss_aarch64.app.tar.gz`）。
 
 ## 提交信息格式
 
