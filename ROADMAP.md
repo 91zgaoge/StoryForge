@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-28（v0.30.32 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联）
+> 最后更新: 2026-07-28（v0.30.33 修复关闭应用时续写内容丢失）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.33 - 修复关闭应用时续写内容丢失 ✅ (2026-07-28)
+
+- [x] 关闭前 flush 协调：后端 `CloseRequested` -> `api.prevent_close()` + emit `frontstage-flush-requested` + 3s 超时兜底；前端监听 -> 立即 `update_scene` 落库 -> `invoke('graceful_quit')` 优雅关闭（WAL checkpoint）；`graceful_shutdown` 加 `AtomicBool` 幂等守卫
+- [x] AI 追加立即落库：`appendAiContent` 的 `scheduleAutoSave(..., 2000)` 替换为 `void flushSceneSave()`，消除文思活跃连续续写防抖永不出火的丢失窗口
+- [x] 章节切换前 flush：`selectChapter` 的 `cancelAutoSave()` 替换为 `void flushSceneSaveRef.current()`，切换前落库当前场景
+- [x] 提取 `flushSceneSave` 共享落库逻辑
 
 ### ✨ v0.30.32 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联 ✅ (2026-07-28)
 

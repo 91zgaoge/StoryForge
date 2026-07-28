@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.32
+- **版本**: v0.30.33
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -94,6 +94,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.33 - 修复关闭应用时续写内容丢失（关闭前 flush + AI 追加立即落库 + 章节切换 flush）
+
+用户报告"多次续写后关闭应用再重启，续写内容丢失，没有得到及时保存"。根因：幕前续写 `appendAiContent` 追加 AI 内容后仅调度 2000ms 防抖保存（`scheduleAutoSave(..., 2000)`），文思活跃连续续写时每次 `cancelAutoSave()` 重置定时器，间隔 <2s 则永不出火；关闭应用时后端 `CloseRequested` 直接 `graceful_shutdown -> std::process::exit(0)` 不给前端 flush 机会，防抖窗口内的内容随进程退出丢失。三层修复：
+
+- **主修复·关闭前 flush 协调（`lib.rs` + `FrontstageApp.tsx`）**：后端 `CloseRequested` 由直接 `graceful_shutdown` 改为 `api.prevent_close()` + emit `frontstage-flush-requested` 事件 + 3s 超时兜底线程；前端 `useEffect` 监听该事件 -> `await flushSceneSaveRef.current()`（取消防抖 + 立即 `update_scene` 落库 `latestContentRef.current`）-> `invoke('graceful_quit')` 命令触发优雅关闭（WAL checkpoint 确保刚写入的数据落盘）。`graceful_shutdown` 加 `AtomicBool` 幂等守卫防 flush 完成与超时兜底竞争。3s 超时兜底覆盖前端无响应/已崩溃/flush 卡住。
+- **纵深·AI 追加立即落库（`FrontstageApp.tsx` `appendAiContent`）**：`scheduleAutoSave(..., 2000)` 替换为 `void flushSceneSave()`（立即 fire-and-forget 落库）。AI 内容是离散完整块（非高频打字），立即落库合适；消除文思活跃连续续写 cancelAutoSave 反复重置定时器导致永不出火的丢失窗口；即使应用崩溃（非优雅关闭）内容也已落库。wordCount 已在上方 `setWordCount` 更新无需重复。
+- **附带·章节切换前 flush（`FrontstageApp.tsx` `selectChapter`）**：`cancelAutoSave()` 替换为 `void flushSceneSaveRef.current()`，切换章节前将当前场景未保存内容落库，避免防抖窗口内的续写/编辑内容在切换章节时丢失（flush 内部已 cancelAutoSave 无需重复）。
+- **提取 `flushSceneSave`（`FrontstageApp.tsx`）**：此前保护性保存（新建小说前 `cancelAutoSave + sync update_scene`，line 3888）与自动保存 saveFn 各自重复同一套 `update_scene` 逻辑；现提取为共享 `flushSceneSave` useCallback（cancelAutoSave -> 读 store sceneId/title + latestContentRef -> `loggedInvoke('update_scene')` -> setIsSaved + justSavedRef），通过 `flushSceneSaveRef` 暴露给 effect 监听器与 selectChapter。
+- **验证**：`cargo test --lib` 1078 passed；`npx tsc --noEmit` ✅；`npx vitest run` 322 passed / 3 skipped；`cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.32 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联
 
@@ -646,7 +656,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-28 - v0.30.32_
+_最后更新: 2026-07-28 - v0.30.33_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

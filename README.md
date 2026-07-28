@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.32-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.33-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.33 · 修复关闭应用时续写内容丢失
+
+多次续写后关闭应用再重启，续写内容丢失。根因：AI 追加内容后仅调度 2 秒防抖保存，文思活跃连续续写时防抖被反复重置导致「永不出火」；关闭应用时后端直接退出不给保存机会。三层修复：①关闭前先保存未写入内容再退出（`CloseRequested` → 防关 → 通知前端 flush → 优雅关闭）；②AI 每次追加后立即保存；③切换章节前也先保存当前内容。
 
 ### v0.30.32 · 增强性指令纳入世界观 / 故事大纲 / 场景大纲 / 上下文强关联
 

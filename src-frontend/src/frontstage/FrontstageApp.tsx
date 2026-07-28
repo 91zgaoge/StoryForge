@@ -856,6 +856,34 @@ const FrontstageApp: React.FC = () => {
   // v0.7.7: 统一后台活动监听器 — 聚合所有进度事件到 backendActivityStore
   useBackendActivityListener();
 
+  // v0.30.33: 监听后端关闭前 flush 请求。
+  // 后端 CloseRequested -> prevent_close -> emit 'frontstage-flush-requested'。
+  // 前端收到后立即将未保存内容落库（update_scene），再调 graceful_quit 命令
+  // 触发优雅关闭（WAL checkpoint 确保数据落盘）。后端有 3s 超时兜底。
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen('frontstage-flush-requested', () => {
+      void (async () => {
+        try {
+          await flushSceneSaveRef.current();
+        } catch {
+          // flush 失败不阻止关闭
+        } finally {
+          try {
+            await invoke('graceful_quit');
+          } catch {
+            // 进程可能已退出
+          }
+        }
+      })();
+    }).then(fn => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   // v0.8.0: 将本地 isGenerating 与 backendActivityStore 对齐，避免状态分裂
   // v0.26.5: 不再使用 useBackendActivityStore(selector) hook，因为 hook 会在
   // backendActivityStore 每次更新时评估 selector，高频进度事件下仍会触发
@@ -1111,6 +1139,37 @@ const FrontstageApp: React.FC = () => {
   const typewriterFrameRef = useRef<number | null>(null);
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
+
+  // v0.30.33: flushSceneSave — 取消待执行的防抖保存，立即将 latestContentRef 落库。
+  // 用于三个场景：①应用关闭前 flush（后端 emit frontstage-flush-requested）；
+  // ②AI 追加内容后立即落库（消除 2000ms 防抖窗口的丢失风险）；
+  // ③切换章节前 flush 当前场景（避免 cancelAutoSave 丢弃未保存内容）。
+  // 通过 ref 暴露给 effect 监听器，确保始终调用最新闭包。
+  const flushSceneSave = useCallback(async (): Promise<void> => {
+    cancelAutoSave();
+    const sceneId = useFrontstageStore.getState().sceneId;
+    if (!sceneId) return;
+    const content = latestContentRef.current;
+    if (!content) return;
+    try {
+      await loggedInvoke<unknown>(
+        'update_scene',
+        buildUpdateSceneIpcArgs({
+          sceneId,
+          title: useFrontstageStore.getState().sceneTitle,
+          content,
+        })
+      );
+      setIsSaved(true);
+      justSavedRef.current = Date.now();
+    } catch (e) {
+      frontstageLogger.error('Flush scene save failed', { error: e });
+    }
+  }, []);
+  const flushSceneSaveRef = useRef(flushSceneSave);
+  useEffect(() => {
+    flushSceneSaveRef.current = flushSceneSave;
+  }, [flushSceneSave]);
   // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
   // A4-1.8: notify_backstage_content_changed 节流定时器
@@ -2384,7 +2443,9 @@ const FrontstageApp: React.FC = () => {
         loadStoryChapters(currentStory.id, nextPage);
       }
 
-      cancelAutoSave();
+      // v0.30.33: 切换章节前 flush 当前场景未保存内容，避免 cancelAutoSave 丢弃
+      // 防抖窗口内的续写/编辑内容。flush 内部已 cancelAutoSave，无需重复调用。
+      void flushSceneSaveRef.current();
       setCurrentChapter(chapter);
       let formattedContent = '';
       try {
@@ -3566,34 +3627,13 @@ const FrontstageApp: React.FC = () => {
           currentChapterPrevWordCountRef.current = newWordCount;
 
           const sceneIdForSave = useFrontstageStore.getState().sceneId;
-          const sceneTitleForSave = useFrontstageStore.getState().sceneTitle;
           if (sceneIdForSave) {
-            scheduleAutoSave(
-              () => ({
-                sceneId: sceneIdForSave,
-                title: sceneTitleForSave ?? undefined,
-                content: latestContentRef.current,
-                wordCount: computeWordCount(latestContentRef.current),
-              }),
-              async payload => {
-                try {
-                  await loggedInvoke<unknown>(
-                    'update_scene',
-                    buildUpdateSceneIpcArgs({
-                      sceneId: payload.sceneId,
-                      title: payload.title,
-                      content: payload.content,
-                    })
-                  );
-                  setWordCount(payload.wordCount);
-                  setIsSaved(true);
-                  justSavedRef.current = Date.now();
-                } catch (e) {
-                  frontstageLogger.error('Auto-save after AI append failed', { error: e });
-                }
-              },
-              2000
-            );
+            // v0.30.33: AI 追加后立即落库，消除 2000ms 防抖窗口内的丢失风险。
+            // 文思活跃连续续写时，每次 appendAiContent 调 scheduleAutoSave 都会
+            // cancelAutoSave 重置 2000ms 定时器，若续写间隔 <2s 则定时器永不出火，
+            // 关闭/崩溃时内容丢失。AI 内容是离散完整块（非高频打字），立即落库合适。
+            // wordCount 已在上方 setWordCount(newWordCount) 更新，无需重复。
+            void flushSceneSave();
           }
 
           logToBackend('frontstage:append_ai_store_sync', 'synced store content after append', {

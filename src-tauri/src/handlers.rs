@@ -329,4 +329,6 @@ tauri::generate_handler! {
     // Tracing commands
     commands::tracing::get_generation_trace,
     commands::tracing::list_recent_generation_traces,
+    // v0.30.33: 前端 flush 完成后触发优雅关闭
+    graceful_quit,
 }

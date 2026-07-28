@@ -74,7 +74,10 @@ mod tests;
 #[macro_use]
 mod commands;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use config::AppConfig;
 use db::{init_db, DbPool};
@@ -82,7 +85,7 @@ use migration::storyforge::{migration_needed, run_storyforge_migration};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use skills::SkillManager;
-use tauri::{path::BaseDirectory, Manager};
+use tauri::{path::BaseDirectory, Emitter, Manager};
 
 // NOTE: Collab WebSocket server is reserved for future use (Phase 4)
 // use collab::websocket::WebSocketServer;
@@ -95,8 +98,17 @@ pub(crate) fn record_ai_operation(pool: &DbPool, req: db::CreateAiOperationReque
     }
 }
 
+/// v0.30.33: 防止 graceful_shutdown 被并发调用（flush 超时兜底线程与
+/// graceful_quit 命令可能竞争）。 第一次调用执行完整关闭流程并
+/// exit(0)，后续调用直接返回。
+static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
+
 /// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
 fn graceful_shutdown(app_handle: &tauri::AppHandle) {
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        log::info!("[Shutdown] Already in progress, skipping duplicate call");
+        return;
+    }
     log::info!("[Shutdown] Starting graceful shutdown...");
 
     // 1. SQLite WAL checkpoint — 确保所有数据已写入主数据库
@@ -141,6 +153,16 @@ fn graceful_shutdown(app_handle: &tauri::AppHandle) {
     // 4. 退出应用
     log::info!("[Shutdown] Exiting application");
     std::process::exit(0);
+}
+
+/// v0.30.33: 前端 flush 完成后调用的退出命令。
+/// 前端收到 `frontstage-flush-requested`
+/// 事件后，先将未保存内容落库（update_scene）， 再调用此命令触发优雅关闭（WAL
+/// checkpoint 确保刚写入的数据落盘）。
+#[tauri::command]
+fn graceful_quit(app_handle: tauri::AppHandle) {
+    log::info!("[Shutdown] Graceful quit requested by frontend (post-flush)");
+    graceful_shutdown(&app_handle);
 }
 
 /// 种子内置数据：StyleDNA、导出模板、GenreProfiles
@@ -584,7 +606,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
                     "backstage" => {
                         // 关闭幕后窗口时，只隐藏它，不退出应用，也不影响幕前窗口
@@ -592,8 +614,29 @@ pub fn run() {
                         let _ = window.hide();
                     }
                     "frontstage" => {
-                        // 优雅关闭: 检查数据库、保存向量索引、停止自动化服务
-                        graceful_shutdown(&window.app_handle());
+                        // v0.30.33: 给前端机会 flush 未保存的续写/编辑内容，再优雅关闭。
+                        // 此前直接 graceful_shutdown -> exit(0)，前端 2000ms 防抖窗口内的
+                        // 内容（尤其是文思活跃连续续写时 cancelAutoSave 反复重置定时器导致
+                        // 永不出火的场景）在进程退出时丢失。
+                        // 流程：prevent_close -> emit flush-requested -> 前端 flush 后调
+                        // graceful_quit 命令 -> graceful_shutdown。超时 3s 兜底强制关闭。
+                        api.prevent_close();
+                        let app_handle = window.app_handle().clone();
+                        let _ = app_handle.emit("frontstage-flush-requested", ());
+                        log::info!(
+                            "[Shutdown] Frontstage close requested, emitted flush event, \
+                             waiting for frontend to flush (3s timeout fallback)"
+                        );
+                        // 超时兜底：前端无响应/已崩溃/flush 卡住时强制关闭
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            if !SHUTDOWN_STARTED.load(Ordering::SeqCst) {
+                                log::warn!(
+                                    "[Shutdown] Flush timeout (3s), force shutting down"
+                                );
+                                graceful_shutdown(&app_handle);
+                            }
+                        });
                     }
                     _ => {
                         // 其他窗口默认退出

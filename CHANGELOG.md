@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.33（2026-07-28）
+
+### 修复关闭应用时续写内容丢失（关闭前 flush + AI 追加立即落库 + 章节切换 flush）
+
+用户报告"多次续写后关闭应用再重启，续写内容丢失，没有得到及时保存"。根因：幕前续写 `appendAiContent` 追加 AI 内容后仅调度 2000ms 防抖保存，文思活跃连续续写时每次 `cancelAutoSave()` 重置定时器导致永不出火；关闭应用时后端 `CloseRequested` 直接 `graceful_shutdown -> exit(0)` 不给前端 flush 机会，防抖窗口内的内容随进程退出丢失。三层修复：
+
+- **关闭前 flush 协调（`lib.rs` + `FrontstageApp.tsx`）**：后端 `CloseRequested` 改为 `api.prevent_close()` + emit `frontstage-flush-requested` + 3s 超时兜底；前端监听该事件 -> 立即 `update_scene` 落库 `latestContentRef` -> `invoke('graceful_quit')` 触发优雅关闭（WAL checkpoint 落盘）。`graceful_shutdown` 加 `AtomicBool` 幂等守卫防竞争。
+- **AI 追加立即落库（`FrontstageApp.tsx` `appendAiContent`）**：`scheduleAutoSave(..., 2000)` 替换为 `void flushSceneSave()`（立即 fire-and-forget 落库），消除文思活跃连续续写防抖永不出火的丢失窗口，即使崩溃内容也已落库。
+- **章节切换前 flush（`FrontstageApp.tsx` `selectChapter`）**：`cancelAutoSave()` 替换为 `void flushSceneSaveRef.current()`，切换前落库当前场景未保存内容。
+- **提取 `flushSceneSave`**：共享 `update_scene` 落库逻辑，供关闭 flush / AI 追加 / 章节切换 / 保护性保存复用。
+- **验证**：`cargo test --lib` 1078 passed；`tsc` / `vitest`（322/3 skipped）/ `fmt` / `clippy`（540 零新增）/ `architecture_guard` / `format:check` 全绿。
+
 ## v0.30.32（2026-07-28）
 
 ### 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联

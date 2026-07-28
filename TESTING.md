@@ -1,10 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.32)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.33)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
-### v0.30.32 变更说明
+### v0.30.33 变更说明
+
+- 修复关闭应用时续写内容丢失：`lib.rs` `graceful_shutdown` 加 `AtomicBool` 幂等守卫 + 新增 `graceful_quit` 命令 + `CloseRequested` 改 `api.prevent_close()` + emit `frontstage-flush-requested` + 3s 超时兜底；`FrontstageApp.tsx` 新增 `flushSceneSave` 共享落库函数 + close-flush 监听 effect + `appendAiContent` 改立即落库 + `selectChapter` 切换前 flush。
+- 全量基线：`cargo test --lib` 1078 passed / 2 ignored（无新增后端测试，无逻辑变更影响现有测试）；`npx vitest run` 322 passed / 3 skipped（无前端逻辑变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联：`commands/orchestrator.rs` `build_logline_context_sync` 新增 `world_setting`（拉 world_buildings concept+rules前3+history）；`agents/orchestrator.rs` `build_progression_anchor` 加 `user_instruction` 参数 + 显式调和指令（资产=硬约束/指令=创作方向）；`agency/coordinator.rs` 创世 `writer_first_chapter`/`writer_prose_fallback` 调和；2 份 prompt 资产（`agency_logline_suffix_contextual.md`/`orchestrator_timesliced_writer.md`）。
 - 后端测试变更：`test_build_progression_anchor_injects_all_sections` 扩展断言指令段 + 调和指令（本次创作指令/在硬约束内落实指令核心意图/保留指令核心意图）；`test_build_progression_anchor_empty_returns_empty` 改传空指令；新增 `test_build_progression_anchor_directive_only_no_assets`（仅有指令无资产边界：断言"推进剧情向前发展"且不含"硬约束"调和措辞）。
