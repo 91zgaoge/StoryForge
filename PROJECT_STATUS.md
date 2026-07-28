@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.31 项目完成状态
+# StoryMoss (草苔) v0.30.32 项目完成状态
 
-> 最后更新: 2026-07-28（v0.30.31 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向）
+> 最后更新: 2026-07-28（v0.30.32 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.32 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联（2026-07-28）
+
+- 承接 v0.30.31 让资产彼此强关联后，补齐增强性指令（logline 后缀）未纳入强关联的缺口：增强后缀生成时不看世界观，进入管线后又与资产各居一隅、互不交叉引用。
+- **P0-A 增强生成纳入世界观**：`build_logline_context_sync` 新增拉 `world_buildings`（concept+rules前3+history 截断1000）为 `world_setting` 字段；`agency_logline_suffix_contextual.md` 新增 `## 世界观设定` 段 + "后缀须与世界观规则一致"输出要求。
+- **P0-B TriShot 指令纳入 `build_progression_anchor` + 显式调和**：签名加 `user_instruction`，指令非空时作为首个段注入；收尾改为显式调和（资产=硬约束，指令=创作方向，在硬约束内落实指令核心意图，冲突时调整指令以符合约束但保留核心意图，不得因约束丢指令也不得因指令违反约束）。
+- **P1-C 创世指令-资产调和**：`writer_first_chapter`/`writer_prose_fallback` 写作要求增"故事前提是创作方向；创作资产是硬约束，须在硬约束内落实前提核心意图"；fallback 补回"资产区为准"系统提示。
+- **P1-D TimeSliced 指令-资产调和**：`orchestrator_timesliced_writer.md` + fallback 字符串加"写作指令须与上下文协调一致；冲突时在遵循硬约束前提下落实指令核心意图"。
+- 验证：`cargo test --lib` 1078 passed（+1）；clippy 540 零新增；tsc/vitest(322/3 skipped)/fmt/architecture_guard/format:check 全绿。
 
 ### v0.30.31 - 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向（2026-07-28）
 

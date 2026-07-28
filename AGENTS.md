@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.31
+- **版本**: v0.30.32
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,7 +84,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1077 passed
+- `cargo test -p storymoss` ✅ 1078 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 322 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -94,6 +94,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.32 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联
+
+承接 v0.30.31 让世界观/故事大纲/场景大纲/进度彼此强关联后，用户指出增强性指令（logline 后缀）未被纳入这套强关联--增强后缀生成时不看世界观，进入管线后又与资产各居一隅、互不交叉引用，"失去了增强性指令的意义"。本版本补齐两个缺口：增强生成纳入世界观，指令与资产在 writer prompt 显式调和（资产=硬约束，指令=创作方向，在硬约束内落实指令核心意图，冲突时调整指令具体表现以符合约束但保留核心意图）。
+
+- **P0-A·增强生成纳入世界观（`commands/orchestrator.rs` + `agency_logline_suffix_contextual.md`）**：`build_logline_context_sync` 此前只拉 story_outline/scene_outline/characters/current_content，**完全不读 `world_buildings`**，增强后缀可能在不知世界规则下提出违反世界观的设定。现 `LoglineContext` 新增 `world_setting` 字段，拉 `WorldBuildingRepository` 渲染 concept + rules 前3 + history（截断 1000），`build_contextual_logline_system` 注入 `world_setting` var；`agency_logline_suffix_contextual.md` 新增 `## 世界观设定` 段 + 输出要求"后缀须与世界观规则一致，不得提出违反世界观的设定或角色"。
+- **P0-B·TriShot 指令纳入 `build_progression_anchor` + 显式调和（`agents/orchestrator.rs`）**：v0.30.31 的 `build_progression_anchor` 注入 story_outline/scene/progress/world 标记"最高优先级，不得偏离"，但**不接收指令参数、从不引用用户指令**；指令被 Call1 LLM 抽象进 `synthesized_prompt`，与资产各居一隅、无调和。现签名加 `user_instruction: &str`，指令非空时作为首个段【本次创作指令（你的创作方向，须与下方硬约束协调一致）】注入；收尾指令改为显式调和："本次创作指令是你的创作方向；故事大纲/场景大纲/世界观/已推进进度是硬约束。须在硬约束内落实指令核心意图--推进到故事大纲下一节点、遵循世界观规则、承接已推进进度。若指令与某硬约束冲突，调整指令的具体表现以符合约束，但保留指令核心意图；不得因约束丢弃指令，也不得因指令违反约束。"调用点传 `&task.input`（raw 指令，空则跳过指令段走原推进约束）；仅有指令无资产时输出指令段 + "推进剧情向前发展"。
+- **P1-C·创世指令-资产调和（`agency/coordinator.rs`）**：`writer_first_chapter`/`writer_prose_fallback` 写作要求增"故事前提是你的创作方向；创作资产（世界观/大纲/伏笔）是硬约束，须在硬约束内落实前提核心意图，不得自相矛盾"；`writer_prose_fallback` 补回"资产区为准"系统提示。
+- **P1-D·TimeSliced 指令-资产调和（`orchestrator_timesliced_writer.md` + `agents/orchestrator.rs` fallback）**：要求段加"写作指令须与故事上下文中的世界观、故事大纲、场景大纲协调一致；若冲突，在遵循上下文硬约束的前提下落实指令核心意图"。
+- **验证**：`cargo test --lib` 1078 passed（+1：`test_build_progression_anchor_directive_only_no_assets` 边界；现有 2 测试更新为断言指令段 + 调和约束）；`cargo check` / `tsc` / `vitest`（322 passed / 3 skipped）/ `cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 零新增）/ `architecture_guard` / `format:check` 全绿。
 
 ### v0.30.31 - 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向
 
@@ -636,7 +646,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-28 - v0.30.31_
+_最后更新: 2026-07-28 - v0.30.32_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.31)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.32)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.32 变更说明
+
+- 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联：`commands/orchestrator.rs` `build_logline_context_sync` 新增 `world_setting`（拉 world_buildings concept+rules前3+history）；`agents/orchestrator.rs` `build_progression_anchor` 加 `user_instruction` 参数 + 显式调和指令（资产=硬约束/指令=创作方向）；`agency/coordinator.rs` 创世 `writer_first_chapter`/`writer_prose_fallback` 调和；2 份 prompt 资产（`agency_logline_suffix_contextual.md`/`orchestrator_timesliced_writer.md`）。
+- 后端测试变更：`test_build_progression_anchor_injects_all_sections` 扩展断言指令段 + 调和指令（本次创作指令/在硬约束内落实指令核心意图/保留指令核心意图）；`test_build_progression_anchor_empty_returns_empty` 改传空指令；新增 `test_build_progression_anchor_directive_only_no_assets`（仅有指令无资产边界：断言"推进剧情向前发展"且不含"硬约束"调和措辞）。
+- 全量基线：`cargo test --lib` 1078 passed / 2 ignored（+1）；`npx vitest run` 322 passed / 3 skipped（无前端逻辑变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.31 变更说明
 

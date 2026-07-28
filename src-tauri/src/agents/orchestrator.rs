@@ -1007,6 +1007,7 @@ impl AgentOrchestrator {
                  {bundle_prompt}\n\n\
                  {continuation_ctx}\n\n\
                  【创作指令】\n{user_instruction}\n\n\
+                 写作指令须与上述设定（世界观/故事大纲/场景大纲）协调一致；若冲突，在遵循设定硬约束的前提下落实指令核心意图。\n\n\
                  请直接输出正文，不要写说明、标题或分章标记。"
             )
         };
@@ -1618,6 +1619,7 @@ impl AgentOrchestrator {
                 pool.inner(),
                 &task.context.story.story_id,
                 chapter_number,
+                &task.input,
             );
             if !progression.is_empty() {
                 final_prompt.push_str(&progression);
@@ -3698,43 +3700,60 @@ fn build_continuation_context(
 }
 
 /// v0.30.31: 剧情推进方向锚点--确定性注入故事大纲/场景大纲/世界观/已推进进度
-/// 到 TriShot Call3 writer prompt。
+/// 到 TriShot Call3 writer prompt。v0.30.32: 纳入用户本次创作指令并显式调和
+/// 指令与资产（资产=硬约束，指令=创作方向）。
 ///
 /// 根因：TriShot 正常路径 `final_prompt = Call1 LLM 合成的
 /// synthesized_prompt`， 而 manifest 不含 story_outline、synthesizer 不透传
 /// bundle_prompt 关键段， 导致故事大纲/场景大纲 outline_content/world_buildings
 /// 三者均不到达 writer （v0.30.15 注释声称修了 TimeSliced/TriShot
-/// 看不到故事大纲，实际只修了 TimeSliced）。本函数作为确定性兜底，无论 Call1
-/// 合成质量如何都把硬约束注入 Call3。调用方仅在 `!synthesis.is_fallback`
-/// 时调用（fallback 时 synthesized_prompt = to_prompt 已含这些段，避免重复）。
+/// 看不到故事大纲，实际只修了 TimeSliced）。且用户指令（含增强后缀）被 Call1
+/// 抽象进 synthesized_prompt，与资产各居一隅、无调和，增强性指令失去意义。
+/// 本函数把用户指令与资产一并确定性注入并显式调和：在硬约束内落实指令核心意图，
+/// 冲突时调整指令具体表现以符合约束但保留核心意图。调用方仅在
+/// `!synthesis.is_fallback` 时调用（fallback 时 synthesized_prompt = to_prompt
+/// 已含这些段，避免重复）。
 fn build_progression_anchor(
     bundle: &crate::domain::write_time_bundle::WriteTimeBundle,
     pool: &crate::db::DbPool,
     story_id: &str,
     chapter_number: i32,
+    user_instruction: &str,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
+    let mut has_assets = false;
 
-    // 故事大纲（前 1200 字）
+    // 本次创作指令（用户意图，含增强后缀）--创作方向，须与下方硬约束协调一致
+    let directive = user_instruction.trim();
+    if !directive.is_empty() {
+        sections.push(format!(
+            "【本次创作指令（你的创作方向，须与下方硬约束协调一致）】\n{}",
+            directive
+        ));
+    }
+
+    // 故事大纲（前 1200 字）--硬约束
     if let Some(ref outline) = bundle.story_outline {
         if !outline.trim().is_empty() {
             let truncated: String = outline.chars().take(1200).collect();
             sections.push(format!(
-                "【故事大纲（必须围绕展开，禁止偏离）】\n{}",
+                "【故事大纲（硬约束：必须围绕展开，禁止偏离）】\n{}",
                 truncated
             ));
+            has_assets = true;
         }
     }
 
-    // 本章场景大纲 outline_content（前 800 字）
+    // 本章场景大纲 outline_content（前 800 字）--硬约束
     if let Some(ref scene) = bundle.scene_outline {
         if let Some(ref oc) = scene.outline_content {
             if !oc.trim().is_empty() {
                 let truncated: String = oc.chars().take(800).collect();
                 sections.push(format!(
-                    "【本章场景大纲（必须遵循的章节方向）】\n{}",
+                    "【本章场景大纲（硬约束：必须遵循的章节方向）】\n{}",
                     truncated
                 ));
+                has_assets = true;
             }
         }
     }
@@ -3747,16 +3766,18 @@ fn build_progression_anchor(
             "【已推进进度（承接上一节点，引出下一节点）】\n{}",
             progress
         ));
+        has_assets = true;
     }
 
-    // 世界观核心规则（前 600 字）
+    // 世界观核心规则（前 600 字）--硬约束
     if let Some(ref world) = bundle.world_setting {
         if !world.trim().is_empty() {
             let truncated: String = world.chars().take(600).collect();
             sections.push(format!(
-                "【世界观核心规则（须遵循，违反即严重错误）】\n{}",
+                "【世界观核心规则（硬约束：须遵循，违反即严重错误）】\n{}",
                 truncated
             ));
+            has_assets = true;
         }
     }
 
@@ -3764,9 +3785,20 @@ fn build_progression_anchor(
         return String::new();
     }
 
+    // v0.30.32: 显式调和指令与资产。资产=硬约束，指令=创作方向；
+    // 在硬约束内落实指令核心意图，冲突时调整指令具体表现以符合约束但保留核心意图。
+    let closing = if !directive.is_empty() && has_assets {
+        "\n- 本次创作指令是你的创作方向；故事大纲/场景大纲/世界观/已推进进度是硬约束。须在硬约束内落实指令核心意图--推进到故事大纲下一节点、遵循世界观规则、承接已推进进度。若指令与某硬约束冲突，调整指令的具体表现以符合约束，但保留指令核心意图；不得因约束丢弃指令，也不得因指令违反约束。"
+    } else if !directive.is_empty() {
+        "\n- 推进剧情向前发展，不得原地踏步、不得仅复述设定或复述前文。"
+    } else {
+        "\n- 必须推进到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文。角色行为须在世界观规则约束内，与已推进进度承接连贯。"
+    };
+
     format!(
-        "\n\n【剧情推进方向（最高优先级，不得偏离）】\n{}\n- 必须推进到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文\n- 角色行为须在世界观规则约束内，与已推进进度承接连贯",
-        sections.join("\n\n")
+        "\n\n【剧情推进方向（确定性注入，优先于上方合成提示词，须严格遵守）】\n{}{}",
+        sections.join("\n\n"),
+        closing
     )
 }
 
@@ -4710,7 +4742,8 @@ mod tests {
     #[test]
     fn test_build_progression_anchor_injects_all_sections() {
         // v0.30.31: TriShot 确定性注入--无论 Call1 合成质量如何，故事大纲/场景大纲/
-        // 世界观/已推进进度都必须到达 Call3 writer。本测试验证四段全注入 + 推进约束。
+        // 世界观/已推进进度都必须到达 Call3 writer。
+        // v0.30.32: 用户本次创作指令也确定性注入，并与资产显式调和。
         let pool = crate::db::create_test_pool().unwrap();
         use crate::db::{
             dto::CreateStoryRequest,
@@ -4754,8 +4787,11 @@ mod tests {
             Some("世界规则：核能受严格管控".to_string()),
             Some("本章：主角对峙反派".to_string()),
         );
-        let anchor = build_progression_anchor(&bundle, &pool, &story.id, 3);
+        let directive = "续写主角揭穿核电站阴谋，但反派设下陷阱";
+        let anchor = build_progression_anchor(&bundle, &pool, &story.id, 3, directive);
         assert!(anchor.contains("剧情推进方向"), "应含推进方向总段");
+        assert!(anchor.contains("本次创作指令"), "应含用户指令段");
+        assert!(anchor.contains("揭穿核电站阴谋"), "指令段应含用户指令原文");
         assert!(anchor.contains("故事大纲"), "应含故事大纲段");
         assert!(anchor.contains("本章场景大纲"), "应含场景大纲段");
         assert!(anchor.contains("已推进进度"), "应含已推进进度段");
@@ -4764,15 +4800,44 @@ mod tests {
             "进度应含第二章 outline_content"
         );
         assert!(anchor.contains("世界观核心规则"), "应含世界观段");
-        assert!(anchor.contains("不得原地踏步"), "应含推进约束");
+        // v0.30.32: 显式调和--指令与资产冲突时调整指令以符合约束但保留核心意图
+        assert!(
+            anchor.contains("在硬约束内落实指令核心意图"),
+            "应含指令-资产调和约束"
+        );
+        assert!(
+            anchor.contains("保留指令核心意图"),
+            "应含冲突时保留指令核心意图"
+        );
     }
 
     #[test]
     fn test_build_progression_anchor_empty_returns_empty() {
-        // 空 bundle + 无前序场景：无任何可注入段，返回空串（调用方不追加）
+        // 空 bundle + 无前序场景 + 无指令：无任何可注入段，返回空串（调用方不追加）
         let pool = crate::db::create_test_pool().unwrap();
         let bundle = progression_bundle(None, None, None);
-        let anchor = build_progression_anchor(&bundle, &pool, "no-such-story", 1);
-        assert!(anchor.is_empty(), "空 bundle 无 scenes 应返回空串");
+        let anchor = build_progression_anchor(&bundle, &pool, "no-such-story", 1, "");
+        assert!(anchor.is_empty(), "空 bundle 无 scenes 无指令应返回空串");
+    }
+
+    #[test]
+    fn test_build_progression_anchor_directive_only_no_assets() {
+        // v0.30.32: 仅有用户指令、无任何资产时，仍注入指令段 + 推进约束（不返回空）。
+        // 边界：无资产时不出现"硬约束调和"语句，仅推进剧情约束。
+        let pool = crate::db::create_test_pool().unwrap();
+        let bundle = progression_bundle(None, None, None);
+        let anchor =
+            build_progression_anchor(&bundle, &pool, "no-such-story", 1, "续写主角逃离险境");
+        assert!(!anchor.is_empty(), "仅有指令无资产应注入指令段");
+        assert!(anchor.contains("本次创作指令"), "应含用户指令段");
+        assert!(anchor.contains("逃离险境"), "指令段应含原文");
+        assert!(
+            anchor.contains("推进剧情向前发展"),
+            "无资产时应含推进剧情约束"
+        );
+        assert!(
+            !anchor.contains("在硬约束内落实指令核心意图"),
+            "无资产时不应含硬约束调和语句"
+        );
     }
 }

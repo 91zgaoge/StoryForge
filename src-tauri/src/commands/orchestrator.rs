@@ -1076,6 +1076,7 @@ async fn build_contextual_logline_system(
     vars.insert("scene_outline".to_string(), ctx.scene_outline);
     vars.insert("characters".to_string(), ctx.characters);
     vars.insert("current_content".to_string(), ctx.current_content);
+    vars.insert("world_setting".to_string(), ctx.world_setting);
 
     crate::prompts::registry::resolve_prompt_default_with_vars(
         "agency_logline_suffix_contextual",
@@ -1089,6 +1090,7 @@ struct LoglineContext {
     scene_outline: String,
     characters: String,
     current_content: String,
+    world_setting: String,
 }
 
 fn build_logline_context_sync(
@@ -1138,11 +1140,41 @@ fn build_logline_context_sync(
         .collect::<Vec<_>>()
         .join("\n");
 
+    // v0.30.32: 纳入世界观（concept + rules 前3 +
+    // history），让增强后缀与世界观规则一致，
+    // 不再在不知世界规则下提出违反世界观的设定。与 build_continue_writer_context
+    // 同源但更精简。
+    let world_setting = crate::db::repositories::WorldBuildingRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .ok()
+        .flatten()
+        .map(|w| {
+            let mut parts = vec![format!("概念：{}", w.concept)];
+            if !w.rules.is_empty() {
+                let rules = w
+                    .rules
+                    .iter()
+                    .take(3)
+                    .map(|r| format!("- {}：{}", r.name, r.description.as_deref().unwrap_or("")))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                parts.push(format!("核心规则：\n{}", rules));
+            }
+            if let Some(ref h) = w.history {
+                if !h.trim().is_empty() {
+                    parts.push(format!("历史：{}", h));
+                }
+            }
+            truncate_chars(&parts.join("\n"), 1000)
+        })
+        .unwrap_or_default();
+
     Ok(LoglineContext {
         story_outline,
         scene_outline,
         characters,
         current_content,
+        world_setting,
     })
 }
 

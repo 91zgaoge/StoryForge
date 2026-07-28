@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-28（v0.30.31 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向）
+> 最后更新: 2026-07-28（v0.30.32 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.32 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联 ✅ (2026-07-28)
+
+- [x] P0-A：增强生成纳入世界观--`build_logline_context_sync` 拉 `world_buildings`（concept+rules前3+history）为 `world_setting`；`agency_logline_suffix_contextual.md` 新增世界观段 + 输出要求"后缀须与世界观规则一致"
+- [x] P0-B：TriShot `build_progression_anchor` 加 `user_instruction` 参数，指令作为首个段注入 + 显式调和（资产=硬约束，指令=创作方向，在硬约束内落实指令核心意图，冲突时调整指令以符合约束但保留核心意图）
+- [x] P1-C：创世 `writer_first_chapter`/`writer_prose_fallback` 指令-资产调和
+- [x] P1-D：TimeSliced `orchestrator_timesliced_writer.md` + fallback 指令-资产调和
+- [x] 验证：`cargo test --lib` 1078 passed（+1）；tsc / vitest（322/3 skipped）/ fmt / clippy（baseline 540 零新增）/ architecture_guard / prettier 全绿
 
 ### ✨ v0.30.31 - 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向 ✅ (2026-07-28)
 
