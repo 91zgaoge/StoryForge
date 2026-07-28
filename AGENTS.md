@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.30
+- **版本**: v0.30.31
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,7 +84,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1069 passed
+- `cargo test -p storymoss` ✅ 1077 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 322 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -94,6 +94,18 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.31 - 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向
+
+用户报告"世界观设定没有体现在续写中，世界观和故事大纲、场景大纲结合不紧密，续写内容剧情推进不够紧凑，迷失剧情推进方向"。全面审计定位五类根因，聚焦幕前续写实际路径（Legacy TriShot）+ 共享生成端/prompt 资产 + Agency 注入函数顺带修复。进度指针用现有 `scenes.outline_content` 回读最近 3 章，无 DB 迁移、无 schema 变更。
+
+- **P0-A·Legacy TriShot 确定性注入（最关键）**：根因--TriShot `final_prompt = Call1 LLM 合成的 synthesized_prompt`，manifest 不含 story_outline、synthesizer 不透传 bundle_prompt 关键段，故事大纲/场景大纲 outline_content/world_buildings 三者均不到达 writer（v0.30.15 注释声称修了 TimeSliced/TriShot，实际只修了 TimeSliced）。①`write_time_bundle.rs` load_sync 读 world_buildings 表（concept+rules前5+history+cultures前3，截断 2000）为 `world_setting`；`domain/write_time_bundle.rs` WriteTimeBundle 新增 `world_setting: Option<String>`；`to_prompt` 增【世界观设定】段。②`manifest.rs` build 增加 story_outline+world_setting 清单项（hard_constraint），scene_outline one_line 纳入 outline_content。③`orchestrator.rs` 新增 `build_progression_anchor`，在 `final_prompt = synthesized_prompt` 后确定性注入【剧情推进方向（最高优先级）】段（故事大纲1200+场景大纲800+已推进进度+世界观600+推进约束），`!is_fallback` 时注入。
+- **P0-B·writer prompt 推进约束**：`writer_system.md`/`orchestrator_timesliced_writer.md`/`trishot_synthesizer.md` 各加"剧情必须推进到下一节点，不得原地踏步、不得仅复述设定或复述前文"。
+- **P0-C·scene_outline.md 修伪前提 + 加 world/progress 变量**：删"按序号定位节点"伪前提（故事大纲是散文无编号节点），改为"根据【已推进进度】定位"；Legacy `creation_commands.rs generate_scene_outline` 加载 world_buildings + 最近 3 章 outline_content 注入 task.parameters，`service.rs build_outline_prompt` 读取注入 vars；Agency `generate_chapter_outline` vars 同步注入。
+- **P1-A·Agency build_continue_writer_context 修复（顺带修）**：世界观全字段（concept+rules前5+history+cultures前3），此前只 concept+history 且超 6000 整段丢弃，现超预算截断降级注入；前文阈值倒挂修复（>8000->>12000 且保底最近 1 场正文 1500 字）；新增【已推进进度】段；`write_chapter` 三分支加推进约束+点名世界观。
+- **P1-C·world_buildings 生成端填全字段**：`ensure_world_building` concept 存全文（此前截 500）；prompt 增"正文末尾用【核心规则】列出 3-5 条世界规则"，best-effort 解析存 rules；history 不再冗余存储（concept 全文已含）。
+- **P1-D·editor 质量门预注入参照资产**：`evaluate_gate_impl` editor task 预注入参照资产（世界观红线+世界观设定+故事大纲），使"合同兑现/连续性/世界观一致性/推进方向"维度可校验。
+- **验证**：`cargo test --lib` 1077 passed（+2：build_progression_anchor 全段注入 + 空场景返回空）；`cargo check`/`npx tsc --noEmit`/`npx vitest run`（322/3 skipped）/`cargo +nightly fmt`/`cargo clippy --lib`（baseline 540 零新增）/`architecture_guard`/`npm run format:check` 全绿。
 
 ### v0.30.30 - Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿
 
@@ -624,7 +636,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-28 - v0.30.30_
+_最后更新: 2026-07-28 - v0.30.31_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

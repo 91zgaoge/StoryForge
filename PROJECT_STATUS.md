@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.30 项目完成状态
+# StoryMoss (草苔) v0.30.31 项目完成状态
 
-> 最后更新: 2026-07-28（v0.30.30 Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿）
+> 最后更新: 2026-07-28（v0.30.31 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.31 - 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向（2026-07-28）
+
+- 幕前续写实际走 Legacy TriShot，但故事大纲/场景大纲/世界观三者均不到达 writer（TriShot `final_prompt = Call1 LLM 合成`，manifest 不含 story_outline）。新增 `build_progression_anchor` 确定性注入【剧情推进方向】段（故事大纲 + 场景大纲 + 已推进进度 + 世界观 + 推进约束），无论 Call1 合成质量如何都到达 Call3 writer。
+- WriteTimeBundle 新增 `world_setting` 字段（读 world_buildings 表 concept/rules/history/cultures），manifest 增加 story_outline/world_setting 清单项，scene_outline 纳入 outline_content。
+- 进度指针：用现有 `scenes.outline_content` 回读最近 3 章作为"已推进到哪"，无 DB 迁移、无 schema 变更。
+- `scene_outline.md` 修"按序号定位节点"伪前提为"按已推进进度定位"；Legacy（`creation_commands.rs`/`service.rs`）与 Agency（`generate_chapter_outline`）双路径注入 world + progress。
+- Agency `build_continue_writer_context` 世界观全字段 + 前文保底（修复阈值倒挂 >8000->>12000）+ 进度指针；`ensure_world_building` concept 存全文 + rules 解析落库；editor 质量门预注入参照资产。
+- 验证：`cargo test --lib` 1077 passed（+2）；clippy 540 零新增；tsc/vitest/fmt/architecture_guard/format:check 全绿。
 
 ### v0.30.26 - 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色（2026-07-27）
 

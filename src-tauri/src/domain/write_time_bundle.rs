@@ -21,6 +21,12 @@ pub struct WriteTimeBundle {
     /// 必须围绕它展开， 防止续写偏离大纲自创情节/角色。TimeSliced/TriShot
     /// 路径此前根本看不到故事大纲。
     pub story_outline: Option<String>,
+    /// v0.30.31: 世界观设定（world_buildings 表的
+    /// concept/rules/history/cultures
+    /// 渲染文本）--与 contract_redlines（MASTER_SETTING 合同）互补。Legacy
+    /// bundle 此前完全不读 world_buildings
+    /// 表，用户在世界观面板填的设定从不到达 writer。
+    pub world_setting: Option<String>,
     /// GenreProfile 反模式清单
     pub genre_antipatterns: Vec<String>,
     /// 风格 DNA 片段（题材自适应，部分题材为 None）

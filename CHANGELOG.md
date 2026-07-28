@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.31（2026-07-28）
+
+### 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向
+
+用户报告"世界观设定没有体现在续写中，世界观和故事大纲、场景大纲结合不紧密，续写内容剧情推进不够紧凑，迷失剧情推进方向"。全面审计定位五类根因，聚焦幕前续写实际路径（Legacy TriShot）+ 共享生成端/prompt 资产 + Agency 注入函数顺带修复。**进度指针用现有 `scenes.outline_content` 字段回读最近 3 章，无 DB 迁移、无 schema 变更。**
+
+- **P0-A·Legacy TriShot 确定性注入世界观/故事大纲/场景大纲（最关键）**：根因--TriShot 正常路径 `final_prompt = Call1 LLM 合成的 synthesized_prompt`，而 manifest 不含 story_outline、synthesizer 不透传 bundle_prompt 关键段，导致故事大纲/场景大纲 outline_content/world_buildings 三者均不到达 writer（v0.30.15 注释声称修了 TimeSliced/TriShot，实际只修了 TimeSliced）。①`write_time_bundle.rs` load_sync 新增读 world_buildings 表（concept + rules 前5 + history + cultures 前3，截断 2000 字）为 `world_setting` 字段；`domain/write_time_bundle.rs` WriteTimeBundle 新增 `world_setting: Option<String>`；`to_prompt` 在故事大纲段后增【世界观设定】段。②`manifest.rs` build 增加 story_outline（hard_constraint）+ world_setting（hard_constraint）清单项，scene_outline 清单 one_line 纳入 outline_content 摘要。③`orchestrator.rs` 新增 `build_progression_anchor`，在 TriShot `final_prompt = synthesized_prompt` 之后确定性注入【剧情推进方向（最高优先级）】段（故事大纲 1200 字 + 本章场景大纲 800 字 + 已推进进度 + 世界观核心规则 600 字 + 推进约束），无论 Call1 合成质量如何都到达 Call3 writer；`!is_fallback` 时注入（fallback 时 synthesized_prompt=to_prompt 已含这些段，避免重复）。
+- **P0-B·writer prompt 推进约束**：`writer_system.md` / `orchestrator_timesliced_writer.md` / `trishot_synthesizer.md` 各加"剧情必须推进到故事大纲下一节点，不得原地踏步、不得仅复述设定或复述前文"。
+- **P0-C·scene_outline.md 修伪前提 + 加 world/progress 变量**：删"按序号定位节点"伪前提（故事大纲是散文无编号节点），改为"根据【已推进进度】定位当前应推进的段落"；variables 增加 `world`、`progress`；Legacy `creation_commands.rs generate_scene_outline` 加载 world_buildings + 最近 3 章 outline_content 注入 task.parameters，`service.rs build_outline_prompt` 读取注入 vars；Agency `generate_chapter_outline` vars 同步注入 world + progress。
+- **P1-A·Agency build_continue_writer_context 修复（顺带修，防未来接线）**：世界观注入全字段（concept + rules 前5 + history + cultures 前3），此前只 concept+history 且超 6000 整段丢弃（全有或全无），现超预算截断降级注入；前文阈值倒挂修复（此前 >8000 在故事大纲之后，大纲一大就丢前文），现阈值 >12000 且保底至少注入最近 1 场正文 1500 字；新增【已推进进度】段（最近 3 章 outline_content 各 200 字）；`write_chapter` writer task 三分支加推进约束 + 点名世界观。
+- **P1-C·world_buildings 生成端填全字段**：`ensure_world_building` concept 存全文（此前截 500 字，注入层丢信息）；prompt 增"正文末尾用【核心规则】列出 3-5 条世界规则"，best-effort 解析该段存入 rules（失败则 rules 空，不阻断）；history 不再单独冗余存储（concept 全文已含历史背景，避免注入层 concept+history 重复）。
+- **P1-D·editor 质量门预注入参照资产**：`evaluate_gate_impl` editor task 预注入参照资产（世界观红线 + 世界观设定 + 故事大纲），与 writer 同源，使"合同兑现/连续性/世界观一致性/推进方向"维度可校验。此前 editor 只见草稿正文、无参照物。
+- **验证**：`cargo test --lib` 1077 passed（+2：`build_progression_anchor` 全段注入 + 空场景返回空）；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（322 passed / 3 skipped）/ `cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
+
 ## v0.30.30（2026-07-28）
 
 ### Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿

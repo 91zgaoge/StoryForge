@@ -2825,13 +2825,16 @@ impl AgencyCoordinator {
         let system = "你是故事世界观构建师。根据故事前提和已有角色，生成一个包含冲突源、权力结构和内在张力的世界观设定。\
                        世界观必须为故事提供冲突土壤--权力争夺、资源匮乏、价值观对立、生存威胁等。\
                        不要泛泛而谈，要给出具体的冲突根源、社会结构和潜在矛盾。\
+                       正文末尾必须用【核心规则】列出 3-5 条世界规则（格式：【核心规则】\\n- 规则名：描述），\
+                       这些规则将作为 writer 写作的硬约束。\
                        只输出世界观设定正文，不要输出 JSON 或标题前缀。";
         let user = format!(
             "故事前提：{}\n\n已有角色：\n{}\n\n请生成世界观设定（800-1500 字），包含：\n\
              1. 世界概念与核心设定\n\
              2. 历史背景与冲突根源\n\
              3. 权力结构与社会矛盾\n\
-             4. 对角色构成压力的冲突源",
+             4. 对角色构成压力的冲突源\n\
+             5. 正文末尾用【核心规则】列出 3-5 条世界规则（writer 须遵循）",
             premise,
             if chars_ctx.is_empty() {
                 "（暂无角色卡）"
@@ -2858,11 +2861,13 @@ impl AgencyCoordinator {
             );
             return Ok(());
         }
-        // 落库：concept 存全文前 500 字，history 存全文
-        let concept: String = text.chars().take(500).collect();
+        // v0.30.31: concept 存全文（此前截 500 字，build_continue_writer_context
+        // 读 concept 时丢失规则/文化等关键信息）；history 不再单独重复存（concept
+        // 全文已含历史背景，避免注入层 concept+history 重复）。best-effort 解析
+        // 【核心规则】段为 rules 落库（失败则 rules 空，不阻断）。
+        let concept = text.clone();
         let pool = self.pool.clone();
         let sid = story_id.to_string();
-        let history = text.clone();
         let _ = self
             .db(move || -> Result<(), AppError> {
                 use crate::db::repositories::WorldBuildingRepository;
@@ -2872,22 +2877,64 @@ impl AgencyCoordinator {
                 Ok(())
             })
             .await;
-        // 补写 history（create_with_source 不接受 history 参数）
-        let pool2 = self.pool.clone();
-        let sid2 = story_id.to_string();
-        let _ = self
-            .db(move || -> Result<(), AppError> {
-                let conn = pool2
-                    .get()
-                    .map_err(|e| AppError::from(format!("pool: {}", e)))?;
-                conn.execute(
-                    "UPDATE world_buildings SET history = ?2 WHERE story_id = ?1 AND (history IS NULL OR history = '')",
-                    rusqlite::params![sid2, history],
-                )
-                .map_err(AppError::from)?;
-                Ok(())
-            })
-            .await;
+        // v0.30.31: best-effort 解析【核心规则】段为 rules 并 UPDATE 落库
+        let rules: Vec<crate::db::models::WorldRule> = {
+            let mut parsed = Vec::new();
+            if let Some(idx) = text.find("【核心规则】") {
+                let after = &text[idx + "【核心规则】".len()..];
+                // 取该段到下一个【】标题或文末
+                let segment = match after.find('【') {
+                    Some(end) => &after[..end],
+                    None => after,
+                };
+                for line in segment.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let name_part = line.strip_prefix('-').unwrap_or(line).trim();
+                    let (n, desc) = match name_part.split_once('：') {
+                        Some((n, d)) => (n.trim().to_string(), Some(d.trim().to_string())),
+                        None => (name_part.to_string(), None),
+                    };
+                    if n.is_empty() || n.chars().count() > 50 {
+                        continue; // 跳过空名或超长（非规则名）
+                    }
+                    parsed.push(crate::db::models::WorldRule {
+                        id: String::new(),
+                        name: n,
+                        description: desc,
+                        rule_type: crate::db::models::RuleType::Custom,
+                        importance: 5,
+                    });
+                }
+            }
+            parsed
+        };
+        if !rules.is_empty() {
+            let rules_json = serde_json::to_string(&rules).unwrap_or_else(|_| "[]".to_string());
+            let pool2 = self.pool.clone();
+            let sid2 = story_id.to_string();
+            let _ = self
+                .db(move || -> Result<(), AppError> {
+                    let conn = pool2
+                        .get()
+                        .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                    conn.execute(
+                        "UPDATE world_buildings SET rules = ?2 WHERE story_id = ?1",
+                        rusqlite::params![sid2, rules_json],
+                    )
+                    .map_err(AppError::from)?;
+                    Ok(())
+                })
+                .await;
+            log::info!(
+                "agency: 世界观规则已解析并落库 story={} run={}（{} 条规则）",
+                story_id,
+                run_id,
+                rules.len()
+            );
+        }
         log::info!(
             "agency: 世界观已生成并落库 story={} run={}（{} 字符）",
             story_id,
@@ -3094,56 +3141,126 @@ impl AgencyCoordinator {
                 }
                 ctx.push_str(&line);
             }
-            // 世界构建（与 asset_query(kind=world) 同源）
+            // v0.30.31: 世界观全字段注入（concept + rules 前5 + history + cultures 前3）。
+            // 此前只注入 concept+history 且超 6000 整段丢弃（全有或全无），用户在世界观
+            // 面板填的规则/文化从不到达 writer；现改为超预算截断降级注入，规则/文化不再
+            // 整段丢失。与 C 链路 WriteTimeBundle.world_setting 同源。
             if let Ok(Some(w)) = WorldBuildingRepository::new(pool.clone()).get_by_story(&sid) {
-                let line = format!(
-                    "【世界观】概念：{}\n历史：{}\n",
-                    w.concept,
-                    w.history.as_deref().unwrap_or("-"),
-                );
-                if ctx.chars().count() + line.chars().count() <= 6000 {
-                    ctx.push_str(&line);
+                let mut parts = vec![format!("概念：{}", w.concept)];
+                if !w.rules.is_empty() {
+                    let rules = w
+                        .rules
+                        .iter()
+                        .take(5)
+                        .map(|r| {
+                            format!("- {}：{}", r.name, r.description.as_deref().unwrap_or(""))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    parts.push(format!("核心规则：\n{}", rules));
                 }
+                if let Some(ref h) = w.history {
+                    if !h.trim().is_empty() {
+                        parts.push(format!("历史：{}", h));
+                    }
+                }
+                if !w.cultures.is_empty() {
+                    let cultures = w
+                        .cultures
+                        .iter()
+                        .take(3)
+                        .map(|c| format!("- {}：{}", c.name, c.description))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    parts.push(format!("文化：\n{}", cultures));
+                }
+                let full = parts.join("\n");
+                // 预算 2500 字：超则截断降级注入（不再整段丢弃）
+                let world_text: String = if full.chars().count() > 2500 {
+                    let mut s: String = full.chars().take(2500).collect();
+                    s.push_str("\n…（世界观已截断）");
+                    s
+                } else {
+                    full
+                };
+                ctx.push_str(&format!(
+                    "【世界观设定（须遵循其规则与约束，违反即判定为严重错误）】\n{}\n\n",
+                    world_text
+                ));
             }
-            // 故事大纲（v0.30.21 新增：writer 必须遵循整体推进方向）
+            // 故事大纲（v0.30.21：writer 必须遵循整体推进方向）
             if let Ok(Some(outline)) = StoryOutlineRepository::new(pool.clone()).get_by_story(&sid)
             {
                 let outline_text: String = outline.content.chars().take(4000).collect();
-                let line = format!("【故事大纲】{}\n", outline_text);
-                if ctx.chars().count() + line.chars().count() <= 10000 {
-                    ctx.push_str(&line);
-                }
+                ctx.push_str(&format!("【故事大纲】{}\n", outline_text));
             }
-            // Logline（v0.30.22 新增：writer 必须遵循的核心方向）
+            // Logline（v0.30.22：writer 必须遵循的核心方向）
             if let Ok(Some(story)) = StoryRepository::new(pool.clone()).get_by_id(&sid) {
                 if let Some(ref ll) = story.logline {
                     if !ll.is_empty() {
-                        let line = format!("【故事Logline】{}\n", ll);
-                        if ctx.chars().count() + line.chars().count() <= 10000 {
-                            ctx.push_str(&line);
-                        }
+                        ctx.push_str(&format!("【故事Logline】{}\n", ll));
                     }
                 }
             }
-            // 最近 2 个场景（与 asset_query(kind=scenes) 同源，取最新 2 章）
-            let scenes = SceneRepository::new(pool)
+            // v0.30.31: 已推进进度（进度指针）--回读最近 3 章 outline_content，
+            // 让 writer 知道"故事已推进到哪"，承接上一节点、引出下一节点，解决续写
+            // 原地踏步/迷失方向。无 outline_content 则跳过。
+            let scenes = SceneRepository::new(pool.clone())
                 .get_by_story(&sid)
                 .unwrap_or_default();
-            for s in scenes.iter().rev().take(2) {
+            let mut prior_progress: Vec<_> = scenes
+                .iter()
+                .filter(|s| {
+                    s.outline_content
+                        .as_ref()
+                        .map(|o| !o.trim().is_empty())
+                        .unwrap_or(false)
+                })
+                .collect();
+            prior_progress.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+            let progress_lines: Vec<String> = prior_progress
+                .into_iter()
+                .take(3)
+                .map(|s| {
+                    let o = s.outline_content.as_deref().unwrap_or("");
+                    let truncated: String = o.chars().take(200).collect();
+                    format!("第{}章：{}", s.sequence_number, truncated)
+                })
+                .collect();
+            if !progress_lines.is_empty() {
+                ctx.push_str(&format!(
+                    "【已推进进度（承接此处，推进到下一节点，不得原地踏步）】\n{}\n\n",
+                    progress_lines.join("\n")
+                ));
+            }
+            // 前文（与 asset_query(kind=scenes) 同源，取最新 3 章）。
+            // v0.30.31: 修复前文阈值倒挂（此前 >8000 在故事大纲之后，大纲一大就把前文
+            // 全丢）；现阈值提到 >12000，且保底至少注入最近 1 场正文 1500 字（即便超
+            // 阈值也注入，确保 writer 至少能看到上一章结尾以承接）。
+            let mut scenes_sorted = scenes;
+            scenes_sorted.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+            for (i, s) in scenes_sorted.iter().take(3).enumerate() {
                 let content: String = s
                     .content
                     .as_deref()
                     .unwrap_or("")
                     .chars()
-                    .take(2000)
+                    .take(if i == 0 { 1500 } else { 2000 })
                     .collect();
+                if content.trim().is_empty() {
+                    continue;
+                }
                 let title = s.title.as_deref().unwrap_or("无标题");
                 let line = format!("【前文·第{}场 {}】{}\n", s.sequence_number, title, content);
-                if ctx.chars().count() + line.chars().count() > 8000 {
+                if i == 0 {
+                    // 保底：最近 1 场正文无条件注入
+                    ctx.push_str(&line);
+                } else if ctx.chars().count() + line.chars().count() <= 12000 {
+                    ctx.push_str(&line);
+                } else {
                     ctx.push_str("…（更多前文已省略）");
                     break;
                 }
-                ctx.push_str(&line);
             }
             Ok(ctx)
         })
@@ -3166,7 +3283,9 @@ impl AgencyCoordinator {
         assets_ctx: &str,
     ) -> String {
         let key = format!("第{}章", chapter_number);
-        // v0.30.21: 无故事大纲时不生成章节大纲（章节大纲须服从故事大纲）
+        // v0.30.31: 无故事大纲时短路（writer 上下文不含【故事大纲】段）--章节
+        // 大纲须服从故事大纲，无大纲则生成无意义且徒增一次 LLM 调用；有故事大纲
+        // 时注入 world+progress 生成锚定进度的章节大纲。短路恢复原 v0.30.21 行为。
         if !assets_ctx.contains("【故事大纲】") {
             return String::new();
         }
@@ -3208,8 +3327,71 @@ impl AgencyCoordinator {
                 .collect::<Vec<_>>()
                 .join("\n");
             let scene_info = format!("故事前提：{}\n本章：{}", premise_c, key_c);
+            // v0.30.31: 加载世界观与已推进进度（进度指针，解决"凭章号盲推"）
+            let world = {
+                use crate::db::repositories::WorldBuildingRepository;
+                match WorldBuildingRepository::new(pool.clone()).get_by_story(&sid) {
+                    Ok(Some(w)) => {
+                        let mut parts = vec![format!("世界概念：{}", w.concept)];
+                        if let Some(ref h) = w.history {
+                            if !h.trim().is_empty() {
+                                parts.push(format!("历史：{}", h));
+                            }
+                        }
+                        if !w.rules.is_empty() {
+                            let rules = w
+                                .rules
+                                .iter()
+                                .take(5)
+                                .map(|r| {
+                                    format!(
+                                        "- {}：{}",
+                                        r.name,
+                                        r.description.as_deref().unwrap_or("")
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            parts.push(format!("核心规则：\n{}", rules));
+                        }
+                        parts.join("\n")
+                    }
+                    _ => "（暂无世界观）".to_string(),
+                }
+            };
+            let progress = {
+                use crate::db::repositories::SceneRepository;
+                let scenes = SceneRepository::new(pool.clone())
+                    .get_by_story(&sid)
+                    .unwrap_or_default();
+                let mut prior: Vec<_> = scenes
+                    .into_iter()
+                    .filter(|s| s.sequence_number < chapter_number)
+                    .collect();
+                prior.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+                let lines: Vec<String> = prior
+                    .into_iter()
+                    .take(3)
+                    .filter_map(|s| {
+                        s.outline_content
+                            .as_ref()
+                            .filter(|o| !o.trim().is_empty())
+                            .map(|o| {
+                                let truncated: String = o.chars().take(200).collect();
+                                format!("第{}章：{}", s.sequence_number, truncated)
+                            })
+                    })
+                    .collect();
+                if lines.is_empty() {
+                    "（暂无前序进度）".to_string()
+                } else {
+                    lines.join("\n")
+                }
+            };
             let mut vars = HashMap::new();
             vars.insert("story_outline".to_string(), story_outline);
+            vars.insert("world".to_string(), world);
+            vars.insert("progress".to_string(), progress);
             vars.insert("scene_number".to_string(), scene_number);
             vars.insert("characters".to_string(), characters);
             vars.insert("scene_info".to_string(), scene_info);
@@ -3314,15 +3496,17 @@ impl AgencyCoordinator {
             )
             .await;
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
-            format!("续写{}（1500-2500 字）。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
+            format!("续写{}（1500-2500 字）。必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
         } else if !chapter_outline.is_empty() {
             // v0.30.21: 严格 task--故事大纲（整体方向）+ 本章大纲（章节方向）+ 写作要求
+            // v0.30.31: 推进约束 + 点名世界观（assets_ctx 已含世界观全字段 + 进度指针）
             format!(
                 "续写{}（1500-2500 字）。\n\
                  【本章大纲（必须遵循的章节方向）】\n{}\n\
                  【世界观、角色、故事大纲与前文】\n{}\n\
                  写作要求：\n\
-                 - 严格按照本章大纲的冲突和转折撰写，不得偏离故事大纲的推进方向\n\
+                 - 严格按照本章大纲的冲突和转折撰写，必须推进到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文\n\
+                 - 遵循世界观设定中的规则与约束，违反即判定为严重错误\n\
                  - 必须有起伏、有转折、有精彩的冲突\n\
                  - 角色行为符合其性格和目标，与前文保持连贯\n\
                  - 禁止重复：同一段落/句子不得出现两次，不得复述前文段落\n\
@@ -3330,7 +3514,7 @@ impl AgencyCoordinator {
                 key, chapter_outline, assets_ctx, key
             )
         } else {
-            format!("续写{}（1500-2500 字）。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
+            format!("续写{}（1500-2500 字）。必须推进剧情到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文；遵循世界观设定中的规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
         };
         let writer_out = self
             .run_role_with_llm_and_budget(
@@ -4363,6 +4547,55 @@ async fn evaluate_gate_impl(
     // 含可解析裁决 JSON，先 parse_lenient；②散文回退--熔断或重试后仍无裁决
     // 时单次直接请求裁决 JSON（不经 tool_loop/工具），与 writer_prose_fallback
     // 同理（本地模型对裸 JSON 遵从度远高于 action）。
+    // v0.30.31: editor 预注入参照资产（世界观红线/世界观设定/故事大纲），与
+    // writer 同源。此前 editor 只见草稿正文、无参照物，"合同兑现/连续性/世界观
+    // 一致性/推进方向"维度无法校验。构建一次供两次 attempt 复用。
+    let editor_assets = {
+        let pool_c = pool.clone();
+        let sid = story_id.to_string();
+        tokio::task::spawn_blocking(move || -> String {
+            use crate::db::{
+                repositories::{StoryOutlineRepository, WorldBuildingRepository},
+                StoryContractRepository,
+            };
+            let mut ctx = String::new();
+            if let Ok(Some(c)) =
+                StoryContractRepository::new(pool_c.clone()).get_by_type(&sid, "MASTER_SETTING")
+            {
+                let redline = crate::creative_engine::write_time_bundle::extract_redline_text(
+                    &c.contract_json,
+                );
+                if !redline.trim().is_empty() {
+                    ctx.push_str(&format!("【世界观红线】\n{}\n\n", redline));
+                }
+            }
+            if let Ok(Some(w)) = WorldBuildingRepository::new(pool_c.clone()).get_by_story(&sid) {
+                let mut parts = vec![format!("概念：{}", w.concept)];
+                if !w.rules.is_empty() {
+                    let rules = w
+                        .rules
+                        .iter()
+                        .take(5)
+                        .map(|r| {
+                            format!("- {}：{}", r.name, r.description.as_deref().unwrap_or(""))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    parts.push(format!("核心规则：\n{}", rules));
+                }
+                let world = parts.join("\n");
+                let truncated: String = world.chars().take(1500).collect();
+                ctx.push_str(&format!("【世界观设定】\n{}\n\n", truncated));
+            }
+            if let Ok(Some(outline)) = StoryOutlineRepository::new(pool_c).get_by_story(&sid) {
+                let outline_text: String = outline.content.chars().take(2000).collect();
+                ctx.push_str(&format!("【故事大纲】\n{}\n\n", outline_text));
+            }
+            ctx
+        })
+        .await
+        .unwrap_or_default()
+    };
     let mut verdict: Option<EditorVerdict> = None;
     let mut last_raw = String::new();
     let mut aborted_reason: Option<&'static str> = None;
@@ -4378,8 +4611,13 @@ async fn evaluate_gate_impl(
             story_id,
             premise,
             &format!(
-                "审查以下章节草稿（{}）并出具裁决 JSON：\n\n{}\n\n按系统提示词的 rubric 出具裁决。",
+                "审查以下章节草稿（{}）并出具裁决 JSON。\n\n\
+                 【参照资产（用于校验合同兑现/连续性/世界观一致性/推进方向）】\n{}\n\
+                 【待审查草稿】\n{}\n\n\
+                 按系统提示词的 rubric 出具裁决，重点校验：草稿是否违背世界观规则与红线、\
+                 是否偏离故事大纲推进方向、是否原地踏步或仅复述设定。",
                 draft.key,
+                editor_assets,
                 draft.content.chars().take(8000).collect::<String>()
             ),
             // v0.30.20: v0.30.19 的 salvage + editor_verdict_prose_fallback 已使

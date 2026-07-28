@@ -50,6 +50,7 @@ mod integration_tests {
             core_characters: vec![],
             scene_outline: None,
             story_outline: None,
+            world_setting: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {

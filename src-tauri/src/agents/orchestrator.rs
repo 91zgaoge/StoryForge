@@ -1606,6 +1606,24 @@ impl AgentOrchestrator {
         //
         // v0.26.49: 尾部预览仍注入中段作背景；末句硬锚点延后到输出纪律之后，
         // 保证模型最后读到的是「从哪一句接着写」。
+        // v0.30.31: 确定性注入剧情推进方向锚点（故事大纲/场景大纲/世界观/已推进进度）。
+        // 根因：TriShot 正常路径 final_prompt = Call1 LLM 合成的 synthesized_prompt，
+        // 而 manifest 不含 story_outline、synthesizer 不透传 bundle_prompt 关键段，
+        // 导致故事大纲/场景大纲 outline_content/world_buildings 三者均不到达 writer。
+        // 本锚点作为确定性兜底，!is_fallback 时注入（fallback 时 synthesized_prompt
+        // = to_prompt 已含这些段，避免重复）。
+        if !synthesis.is_fallback {
+            let progression = build_progression_anchor(
+                &bundle,
+                pool.inner(),
+                &task.context.story.story_id,
+                chapter_number,
+            );
+            if !progression.is_empty() {
+                final_prompt.push_str(&progression);
+            }
+        }
+
         if !is_genesis_first_chapter {
             let continuation_ctx = build_continuation_context(
                 pool.inner(),
@@ -3679,6 +3697,110 @@ fn build_continuation_context(
     }
 }
 
+/// v0.30.31: 剧情推进方向锚点--确定性注入故事大纲/场景大纲/世界观/已推进进度
+/// 到 TriShot Call3 writer prompt。
+///
+/// 根因：TriShot 正常路径 `final_prompt = Call1 LLM 合成的
+/// synthesized_prompt`， 而 manifest 不含 story_outline、synthesizer 不透传
+/// bundle_prompt 关键段， 导致故事大纲/场景大纲 outline_content/world_buildings
+/// 三者均不到达 writer （v0.30.15 注释声称修了 TimeSliced/TriShot
+/// 看不到故事大纲，实际只修了 TimeSliced）。本函数作为确定性兜底，无论 Call1
+/// 合成质量如何都把硬约束注入 Call3。调用方仅在 `!synthesis.is_fallback`
+/// 时调用（fallback 时 synthesized_prompt = to_prompt 已含这些段，避免重复）。
+fn build_progression_anchor(
+    bundle: &crate::domain::write_time_bundle::WriteTimeBundle,
+    pool: &crate::db::DbPool,
+    story_id: &str,
+    chapter_number: i32,
+) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    // 故事大纲（前 1200 字）
+    if let Some(ref outline) = bundle.story_outline {
+        if !outline.trim().is_empty() {
+            let truncated: String = outline.chars().take(1200).collect();
+            sections.push(format!(
+                "【故事大纲（必须围绕展开，禁止偏离）】\n{}",
+                truncated
+            ));
+        }
+    }
+
+    // 本章场景大纲 outline_content（前 800 字）
+    if let Some(ref scene) = bundle.scene_outline {
+        if let Some(ref oc) = scene.outline_content {
+            if !oc.trim().is_empty() {
+                let truncated: String = oc.chars().take(800).collect();
+                sections.push(format!(
+                    "【本章场景大纲（必须遵循的章节方向）】\n{}",
+                    truncated
+                ));
+            }
+        }
+    }
+
+    // 已推进进度：最近 3 章 outline_content（各 200
+    // 字）--进度指针，解决"凭章号盲推"
+    let progress = build_recent_outline_progress(pool, story_id, chapter_number);
+    if !progress.is_empty() {
+        sections.push(format!(
+            "【已推进进度（承接上一节点，引出下一节点）】\n{}",
+            progress
+        ));
+    }
+
+    // 世界观核心规则（前 600 字）
+    if let Some(ref world) = bundle.world_setting {
+        if !world.trim().is_empty() {
+            let truncated: String = world.chars().take(600).collect();
+            sections.push(format!(
+                "【世界观核心规则（须遵循，违反即严重错误）】\n{}",
+                truncated
+            ));
+        }
+    }
+
+    if sections.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "\n\n【剧情推进方向（最高优先级，不得偏离）】\n{}\n- 必须推进到故事大纲的下一节点，不得原地踏步、不得仅复述设定或复述前文\n- 角色行为须在世界观规则约束内，与已推进进度承接连贯",
+        sections.join("\n\n")
+    )
+}
+
+/// v0.30.31: 读取最近 3 章的 scenes.outline_content
+/// 作为"已推进到哪"的进度指针。 利用现有 scenes.outline_content 字段，无 DB
+/// 迁移。无大纲或无前序章节时返回空串。
+fn build_recent_outline_progress(
+    pool: &crate::db::DbPool,
+    story_id: &str,
+    chapter_number: i32,
+) -> String {
+    use crate::db::repositories::SceneRepository;
+    let scenes = match SceneRepository::new(pool.clone()).get_by_story(story_id) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+    let mut prior: Vec<_> = scenes
+        .into_iter()
+        .filter(|s| s.sequence_number < chapter_number)
+        .collect();
+    // 按 sequence_number 降序，取最近 3 章
+    prior.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+    let mut lines = Vec::new();
+    for s in prior.into_iter().take(3) {
+        if let Some(ref oc) = s.outline_content {
+            if !oc.trim().is_empty() {
+                let truncated: String = oc.chars().take(200).collect();
+                lines.push(format!("第{}章：{}", s.sequence_number, truncated));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
 /// 清洗 LLM 生成的小说正文，去除元评论与 markdown 格式。
 ///
 /// 作为输出纪律的兜底——即便 prompt 要求了纪律，部分模型仍会泄漏元评论，
@@ -4529,8 +4651,128 @@ mod tests {
             "ending anchor must follow output discipline (Lost-in-the-Middle defense)"
         );
         assert!(
-            prompt.trim_end().ends_with('—') || prompt.contains("请紧接上句继续写"),
+            prompt.trim_end().ends_with('-') || prompt.contains("请紧接上句继续写"),
             "prompt must end on the hard-anchor instruction"
         );
+    }
+
+    // ---- v0.30.31: build_progression_anchor 确定性注入回归 ----
+
+    fn progression_bundle(
+        story_outline: Option<String>,
+        world_setting: Option<String>,
+        scene_outline_content: Option<String>,
+    ) -> crate::domain::write_time_bundle::WriteTimeBundle {
+        use crate::domain::write_time_bundle::{
+            GenreCategory, SceneOutline, StoryMeta, WriteTimeBundle,
+        };
+        WriteTimeBundle {
+            contract_redlines: None,
+            core_characters: vec![],
+            scene_outline: Some(SceneOutline {
+                dramatic_goal: None,
+                conflict_type: None,
+                external_pressure: None,
+                setting_location: None,
+                characters_present: vec![],
+                setting_time: None,
+                setting_atmosphere: None,
+                outline_content: scene_outline_content,
+            }),
+            story_outline,
+            world_setting,
+            genre_antipatterns: vec![],
+            style_slice: None,
+            story_meta: StoryMeta {
+                title: "t".to_string(),
+                genre: None,
+                tone: None,
+                pacing: None,
+                description: None,
+            },
+            genre_category: GenreCategory::Unknown,
+            narrative_phase_guidance: None,
+            pending_foreshadowings: vec![],
+            overdue_foreshadowings: vec![],
+            style_dna_summary: None,
+            narrative_quartet: None,
+            style_dna_extension: None,
+            methodology_extension: None,
+            genre_profile_strategy: None,
+            secondary_genre_profile_strategy: None,
+            writing_strategy_constraints: None,
+            runtime_contract: None,
+            reference_scene_fewshots: vec![],
+            related_entity_summaries: vec![],
+        }
+    }
+
+    #[test]
+    fn test_build_progression_anchor_injects_all_sections() {
+        // v0.30.31: TriShot 确定性注入--无论 Call1 合成质量如何，故事大纲/场景大纲/
+        // 世界观/已推进进度都必须到达 Call3 writer。本测试验证四段全注入 + 推进约束。
+        let pool = crate::db::create_test_pool().unwrap();
+        use crate::db::{
+            dto::CreateStoryRequest,
+            repositories::{SceneRepository, SceneUpdate, StoryRepository},
+        };
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "测试书".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        // 预置 2 个前序场景（含 outline_content，作为进度指针数据源）
+        let scene_repo = SceneRepository::new(pool.clone());
+        let s1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &s1.id,
+                &SceneUpdate {
+                    outline_content: Some("主角抵达首尔，遭遇伏击".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let s2 = scene_repo.create(&story.id, 2, Some("第二章")).unwrap();
+        scene_repo
+            .update(
+                &s2.id,
+                &SceneUpdate {
+                    outline_content: Some("主角潜入核电站，发现阴谋".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let bundle = progression_bundle(
+            Some("1. 首尔暗战\n2. 核电站阴谋\n3. 真相对决".to_string()),
+            Some("世界规则：核能受严格管控".to_string()),
+            Some("本章：主角对峙反派".to_string()),
+        );
+        let anchor = build_progression_anchor(&bundle, &pool, &story.id, 3);
+        assert!(anchor.contains("剧情推进方向"), "应含推进方向总段");
+        assert!(anchor.contains("故事大纲"), "应含故事大纲段");
+        assert!(anchor.contains("本章场景大纲"), "应含场景大纲段");
+        assert!(anchor.contains("已推进进度"), "应含已推进进度段");
+        assert!(
+            anchor.contains("核电站阴谋"),
+            "进度应含第二章 outline_content"
+        );
+        assert!(anchor.contains("世界观核心规则"), "应含世界观段");
+        assert!(anchor.contains("不得原地踏步"), "应含推进约束");
+    }
+
+    #[test]
+    fn test_build_progression_anchor_empty_returns_empty() {
+        // 空 bundle + 无前序场景：无任何可注入段，返回空串（调用方不追加）
+        let pool = crate::db::create_test_pool().unwrap();
+        let bundle = progression_bundle(None, None, None);
+        let anchor = build_progression_anchor(&bundle, &pool, "no-such-story", 1);
+        assert!(anchor.is_empty(), "空 bundle 无 scenes 应返回空串");
     }
 }

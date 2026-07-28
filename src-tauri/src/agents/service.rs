@@ -2770,6 +2770,24 @@ impl AgentService {
             );
             vars.insert("characters".to_string(), ctx.format_characters());
             vars.insert("scene_info".to_string(), task.input.clone());
+            // v0.30.31: 注入世界观与已推进进度（进度指针），让场景大纲承接进度、
+            // 锚定世界观规则，杜绝"按序号盲推"导致的剧情迷失。
+            vars.insert(
+                "world".to_string(),
+                task.parameters
+                    .get("world")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("（暂无世界观）")
+                    .to_string(),
+            );
+            vars.insert(
+                "progress".to_string(),
+                task.parameters
+                    .get("progress")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("（暂无前序进度）")
+                    .to_string(),
+            );
             let tpl = self.resolve_prompt("scene_outline");
             return TemplateEngine::render_with_conditions(&tpl, &vars);
         }

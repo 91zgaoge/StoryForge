@@ -375,11 +375,67 @@ impl WriteTimeBundle {
                 }
             });
 
+        // v0.30.31: 加载 world_buildings 表渲染世界观设定（concept/rules/history/
+        // cultures）。Legacy bundle 此前只读 MASTER_SETTING 合同红线，用户在世界观
+        // 面板填的设定从不到达 writer，导致"世界观没体现在续写中"。
+        let world_setting = {
+            use crate::db::repositories::WorldBuildingRepository;
+            match WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
+                Ok(Some(w)) => {
+                    let mut parts: Vec<String> = Vec::new();
+                    if !w.concept.trim().is_empty() {
+                        parts.push(format!("世界概念：{}", w.concept));
+                    }
+                    if !w.rules.is_empty() {
+                        let rules_text = w
+                            .rules
+                            .iter()
+                            .take(5)
+                            .map(|r| {
+                                format!("- {}：{}", r.name, r.description.as_deref().unwrap_or(""))
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        parts.push(format!("核心规则：\n{}", rules_text));
+                    }
+                    if let Some(ref h) = w.history {
+                        if !h.trim().is_empty() {
+                            parts.push(format!("历史背景：{}", h));
+                        }
+                    }
+                    if !w.cultures.is_empty() {
+                        let cultures_text = w
+                            .cultures
+                            .iter()
+                            .take(3)
+                            .map(|c| format!("- {}：{}", c.name, c.description))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        parts.push(format!("文化与势力：\n{}", cultures_text));
+                    }
+                    if parts.is_empty() {
+                        None
+                    } else {
+                        let joined = parts.join("\n\n");
+                        // 2000 字符预算截断
+                        if joined.chars().count() > 2000 {
+                            let truncated: String = joined.chars().take(2000).collect();
+                            Some(format!("{}…（已截断）", truncated))
+                        } else {
+                            Some(joined)
+                        }
+                    }
+                }
+                _ => None,
+            }
+        };
+
         Ok(WriteTimeBundle {
             contract_redlines,
             core_characters,
             scene_outline,
             story_outline,
+            world_setting,
             genre_antipatterns,
             style_slice,
             story_meta,
@@ -543,6 +599,17 @@ impl WriteTimeBundle {
             sections.push(format!(
                 "【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】\n{}\n（若下方「本场景任务」与此大纲冲突，以本故事大纲为准，并使用已登场角色，禁止自创新角色。）",
                 outline
+            ));
+        }
+
+        // ①c 世界观设定--v0.30.31：world_buildings 表的
+        // concept/rules/history/cultures。 与①的红线（MASTER_SETTING
+        // 合同）互补：红线是硬性禁令，本段是世界观土壤，
+        // writer 须在其规则与约束内推进情节。置于故事大纲之后、角色之前。
+        if let Some(ref world) = self.world_setting {
+            sections.push(format!(
+                "【世界观设定（须遵循其规则与约束，违反即判定为严重错误）】\n{}",
+                world
             ));
         }
 
@@ -993,6 +1060,7 @@ mod tests {
             core_characters: vec![],
             scene_outline: None,
             story_outline: None,
+            world_setting: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {
@@ -1032,6 +1100,7 @@ mod tests {
             core_characters: vec![],
             scene_outline: None,
             story_outline: None,
+            world_setting: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {
@@ -1079,6 +1148,7 @@ mod tests {
             }],
             scene_outline: None,
             story_outline: None,
+            world_setting: None,
             genre_antipatterns: vec!["某反模式".to_string()],
             style_slice: None,
             story_meta: StoryMeta {
@@ -1151,6 +1221,7 @@ mod tests {
             core_characters: vec![],
             scene_outline: None,
             story_outline,
+            world_setting: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {

@@ -2486,9 +2486,11 @@ async fn test_ensure_world_building_generates_when_missing() {
         wb.concept.contains("双星文明"),
         "concept should contain generated text"
     );
+    // v0.30.31: concept 现存全文（含历史背景），history 不再单独冗余存储
+    // （build_continue_writer_context 注入 concept 全文已含历史，避免重复）。
     assert!(
-        wb.history.as_deref().unwrap_or("").contains("星环崩塌"),
-        "history should contain generated text"
+        wb.concept.contains("星环崩塌"),
+        "concept (full text) should contain history background"
     );
 }
 

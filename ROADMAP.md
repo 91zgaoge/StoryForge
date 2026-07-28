@@ -1,8 +1,18 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-28（v0.30.30 Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿）
+> 最后更新: 2026-07-28（v0.30.31 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.31 - 续写链路修复：世界观/故事大纲/场景大纲注入与剧情推进方向 ✅ (2026-07-28)
+
+- [x] P0-A：Legacy TriShot 确定性注入--`build_progression_anchor` 在 `final_prompt = synthesized_prompt` 后注入【剧情推进方向】段（故事大纲+场景大纲+已推进进度+世界观+推进约束）；WriteTimeBundle 新增 `world_setting` 字段读 world_buildings 表；manifest 增加 story_outline/world_setting 清单项
+- [x] P0-B：writer_system/timesliced_writer/trishot_synthesizer prompt 加"剧情必须推进到下一节点，不得原地踏步"
+- [x] P0-C：scene_outline.md 修"按序号定位节点"伪前提为"按已推进进度定位"；Legacy（`creation_commands.rs`/`service.rs`）与 Agency（`generate_chapter_outline`）双路径注入 world + progress
+- [x] P1-A：Agency `build_continue_writer_context` 世界观全字段 + 前文保底（阈值倒挂修复 >8000->>12000）+ 进度指针；`write_chapter` 三分支加推进约束
+- [x] P1-C：`ensure_world_building` concept 存全文 + rules 解析落库；history 不再冗余存储
+- [x] P1-D：`evaluate_gate_impl` editor 预注入参照资产（世界观红线+世界观设定+故事大纲）
+- [x] 验证：`cargo test --lib` 1077 passed（+2）；tsc / vitest（322/3 skipped）/ fmt / clippy（baseline 540 零新增）/ architecture_guard / prettier 全绿
 
 ### ✨ v0.30.30 - Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿 ✅ (2026-07-28)
 

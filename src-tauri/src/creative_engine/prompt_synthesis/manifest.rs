@@ -32,6 +32,33 @@ impl AssetManifest {
             });
         }
 
+        // ①b 故事大纲--硬约束（v0.30.31：此前 manifest 不含 story_outline，
+        // TriShot Call1 合成时看不到故事大纲，导致续写偏离大纲自创情节）
+        if let Some(ref outline) = bundle.story_outline {
+            if !outline.trim().is_empty() {
+                items.push(AssetManifestItem {
+                    id: "story_outline".into(),
+                    kind: "outline".into(),
+                    label: "故事大纲".into(),
+                    one_line: truncate(outline, 300),
+                    tags: vec!["hard_constraint".into(), "outline".into()],
+                });
+            }
+        }
+
+        // ①c 世界观设定--硬约束（v0.30.31：world_buildings 表渲染，与红线互补）
+        if let Some(ref world) = bundle.world_setting {
+            if !world.trim().is_empty() {
+                items.push(AssetManifestItem {
+                    id: "world_setting".into(),
+                    kind: "world".into(),
+                    label: "世界观设定".into(),
+                    one_line: truncate(world, 120),
+                    tags: vec!["hard_constraint".into(), "world".into()],
+                });
+            }
+        }
+
         // ② 角色——硬约束
         if !bundle.core_characters.is_empty() {
             let names: Vec<&str> = bundle
@@ -60,12 +87,25 @@ impl AssetManifest {
             if let Some(ref s) = outline.setting_location {
                 parts.push(format!("地点:{}", s));
             }
-            if !parts.is_empty() {
+            // v0.30.31: 纳入 outline_content 摘要（此前被丢弃，TriShot writer
+            // 看不到场景大纲正文）
+            let mut one_line = parts.join(" ");
+            if let Some(ref o) = outline.outline_content {
+                if !o.trim().is_empty() {
+                    let oc = truncate(o, 200);
+                    if one_line.is_empty() {
+                        one_line = format!("场景大纲:{}", oc);
+                    } else {
+                        one_line.push_str(&format!(" 场景大纲:{}", oc));
+                    }
+                }
+            }
+            if !one_line.is_empty() {
                 items.push(AssetManifestItem {
                     id: "scene_outline".into(),
                     kind: "scene".into(),
                     label: "本场景任务".into(),
-                    one_line: parts.join(" "),
+                    one_line,
                     tags: vec!["hard_constraint".into(), "scene".into()],
                 });
             }
@@ -336,6 +376,7 @@ mod tests {
             core_characters: vec![],
             scene_outline: None,
             story_outline: None,
+            world_setting: None,
             genre_antipatterns: vec![],
             style_slice: None,
             story_meta: StoryMeta {

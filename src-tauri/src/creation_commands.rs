@@ -1462,12 +1462,72 @@ pub async fn generate_scene_outline(
                 c
             }
         });
+    // v0.30.31: 加载世界观与已推进进度（进度指针），注入场景大纲生成
+    let world_setting = {
+        use crate::db::repositories::WorldBuildingRepository;
+        match WorldBuildingRepository::new(pool.inner().clone()).get_by_story(&scene.story_id) {
+            Ok(Some(w)) => {
+                let mut parts = vec![format!("世界概念：{}", w.concept)];
+                if let Some(ref h) = w.history {
+                    if !h.trim().is_empty() {
+                        parts.push(format!("历史：{}", h));
+                    }
+                }
+                if !w.rules.is_empty() {
+                    let rules = w
+                        .rules
+                        .iter()
+                        .take(5)
+                        .map(|r| {
+                            format!("- {}：{}", r.name, r.description.as_deref().unwrap_or(""))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    parts.push(format!("核心规则：\n{}", rules));
+                }
+                Some(parts.join("\n"))
+            }
+            _ => None,
+        }
+    };
+    let progress = {
+        let scenes = scene_repo.get_by_story(&scene.story_id).unwrap_or_default();
+        let mut prior: Vec<_> = scenes
+            .into_iter()
+            .filter(|s| s.sequence_number < scene.sequence_number)
+            .collect();
+        prior.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+        let lines: Vec<String> = prior
+            .into_iter()
+            .take(3)
+            .filter_map(|s| {
+                s.outline_content
+                    .as_ref()
+                    .filter(|o| !o.trim().is_empty())
+                    .map(|o| {
+                        let truncated: String = o.chars().take(200).collect();
+                        format!("第{}章：{}", s.sequence_number, truncated)
+                    })
+            })
+            .collect();
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
+    };
     let mut parameters = HashMap::new();
     if let Some(ref outline) = story_outline {
         parameters.insert(
             "story_outline".to_string(),
             serde_json::Value::String(outline.clone()),
         );
+    }
+    if let Some(ref w) = world_setting {
+        parameters.insert("world".to_string(), serde_json::Value::String(w.clone()));
+    }
+    if let Some(ref p) = progress {
+        parameters.insert("progress".to_string(), serde_json::Value::String(p.clone()));
     }
     parameters.insert(
         "scene_number".to_string(),

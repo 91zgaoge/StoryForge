@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.30)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.31)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.31 变更说明
+
+- 续写链路修复（世界观/故事大纲/场景大纲注入与剧情推进方向）：`orchestrator.rs` `build_progression_anchor` + `write_time_bundle.rs`/`manifest.rs`/`creation_commands.rs`/`service.rs` 注入层 + `coordinator.rs` Agency 注入函数 + 4 份 prompt 资产。
+- 后端测试变更：新增 `test_build_progression_anchor_injects_all_sections`（预置 story + 2 场景 outline_content + bundle 含 story_outline/world_setting/scene_outline -> 输出含剧情推进方向/故事大纲/本章场景大纲/已推进进度/世界观核心规则/不得原地踏步）与 `test_build_progression_anchor_empty_returns_empty`（空 bundle 无场景 -> 空串）；`test_ensure_world_building_generates_when_missing` 断言更新（concept 现存全文含历史背景，history 不再单独冗余存储，断言改为 concept 含"星环崩塌"）；`test_batch_parallel_two_chapters` 因 `generate_chapter_outline` 恢复"无故事大纲时短路"保持并发时序通过。
+- 全量基线：`cargo test --lib` 1077 passed / 2 ignored（+2）；`npx vitest run` 322 passed / 3 skipped（无前端逻辑变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.30 变更说明
 
