@@ -105,7 +105,7 @@ fn pass_script() -> Arc<MockLlm> {
         r#"{"type":"final","content":"资产就绪"}"#,
         write.as_str(),
         r#"{"type":"final","content":"第一章完成"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[\"可加强嗅觉描写\"],\"comments\":\"合格的首章\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[\"可加强嗅觉描写\"],\"comments\":\"合格的首章\"}"}"#,
     ])
 }
 
@@ -155,7 +155,7 @@ async fn test_genesis_revision_path() {
         r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"修订稿：他为了生存而拾荒。","summary":"修订稿"}}"#,
         r#"{"type":"final","content":"修订完成"}"#,
         // 修订后的第二轮审查（P1 无论结果放行）
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"修订后合格\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"修订后合格\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator.run_genesis("r2", LONG_PREMISE).await.unwrap();
@@ -316,7 +316,7 @@ fn fastpath_script() -> (Arc<MockLlm>, String) {
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
         r#"{"world":"双星废土，星环环绕，资源配给制","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链（第三卷回收）"]}"#,
         chapter.as_str(),
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
     ]);
     (llm, chapter)
 }
@@ -408,7 +408,7 @@ async fn test_fastpath_fallback_to_legacy() {
         r#"{"type":"final","content":"资产就绪"}"#,
         write.as_str(),
         r#"{"type":"final","content":"第一章完成"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
     let result = coordinator
@@ -449,7 +449,7 @@ async fn test_editor_verdict_prose_fallback() {
         "依然不是JSON action，本地模型不遵从。",
         "第三次散文，触发连续解析失败熔断。",
         // editor 散文回退（单次 complete 调用）：直接产出裁决 JSON -> 成功
-        r#"{"verdict":"pass","blocking_issues":[],"suggestions":["可加强嗅觉描写"],"comments":"合格的首章"}"#,
+        r#"{"verdict":"pass","score":4.5,"blocking_issues":[],"suggestions":["可加强嗅觉描写"],"comments":"合格的首章"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
@@ -484,7 +484,7 @@ async fn test_depth_assets_prose_salvaged() {
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
         depth_prose,
         chapter.as_str(),
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);
     let result = coordinator
@@ -533,7 +533,7 @@ async fn test_legacy_writer_prose_fallback() {
         "他紧了紧面罩，目光扫过残骸。仍不是 JSON。", // writer prose #2 (parse fail)
         "远处传来机械的轰鸣。第三次散文输出。",     // writer prose #3 (parse fail -> 熔断)
         chapter.as_str(),                           // writer_prose_fallback 自由体散文
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor final pass */
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor final pass */
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
     let result = coordinator
@@ -893,7 +893,7 @@ async fn test_fastpath_cancel_not_routed_to_legacy() {
         r#"{"world":"双星废土","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链"]}"#,
         chapter.as_str(),
         // legacy 若接手会消费此条（不应发生）
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
     ]);
     // writer 调用（第 3 次：concept -> depth -> writer）后即触发取消
     // （Phase B 窗口：producer 先、writer 后，串行编排下 writer 是第 3 次调用）
@@ -963,10 +963,10 @@ fn test_verdict_legacy_format_fallback() {
             dimension_scores: None,
         })
         .model_score
-            - 0.85)
+            - 0.7)
             .abs()
             < 0.001
-    );
+    ); // v0.30.30：scoreless pass 兜底从 0.85 降到 0.7
 }
 
 #[test]
@@ -1131,7 +1131,7 @@ async fn test_continue_chapter_end_to_end() {
         write2.as_str(),
         r#"{"type":"final","content":"第二章完成"}"#,
         // editor: pass
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
@@ -1209,7 +1209,7 @@ async fn test_continue_writer_prose_fallback() {
         "还不是 JSON",     // writer parse fail #2
         "依然不是 JSON",   // writer parse fail #3 -> 熔断
         chapter2.as_str(), // writer_prose_fallback 散文
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor pass */
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor pass */
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
@@ -1365,7 +1365,7 @@ async fn test_generate_logline_from_simple_premise() {
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
         r#"{"world":"双星废土","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链（第三卷回收）"]}"#,
         chapter.as_str(),
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
     let result = coordinator
@@ -1446,7 +1446,7 @@ async fn test_logline_stored_after_genesis() {
         r#"{"title":"解码者","genre":"科幻","logline":"考古学家的七十二小时","characters":[{"name":"林深","background":"星际考古学家","personality":"执着","goals":"解码警告信号"}]}"#,
         r#"{"world":"星际联邦时代，远古文明遗迹遍布","outline":"第一卷：信号解码","foreshadowing":["远古文明的最后一行文字"]}"#,
         chapter.as_str(),
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);
     let result = coordinator
@@ -1557,7 +1557,7 @@ async fn test_gate_rule_recheck_blocks_repeated_opening() {
 
     // editor 放行（pass）；门应被规则复检拦下 → RevisionRequired
     let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let registry = Arc::new(ToolRegistry::agency_default());
@@ -1716,8 +1716,8 @@ async fn test_batch_parallel_two_chapters() {
         ],
     );
     mock.push("editor", vec![
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好1\"}"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好2\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好1\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好2\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
     let result = coordinator
@@ -1760,7 +1760,7 @@ async fn test_batch_revision_sends_bus_proposal() {
     ]);
     mock.push("editor", vec![
         r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
     let result = coordinator
@@ -1847,8 +1847,8 @@ async fn test_batch_revision_no_cross_chapter_mixup() {
     ]);
     mock.push("editor", vec![
         r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过1\"}"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过2\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过1\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过2\"}"}"#,
     ]);
     let revise_mock = Arc::new(ReviseAwareMock {
         inner: mock,
@@ -1987,7 +1987,7 @@ async fn test_resume_run_restores_board_and_wraps_history() {
         "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
         write2.as_str(),
         r#"{"type":"final","content":"完成"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let outcome = coordinator.resume_run("old-run").await.unwrap();
@@ -2195,7 +2195,7 @@ async fn test_gate_record_keys_have_round_suffix() {
     ]);
     mock.push("editor", vec![
         r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"动机弱\"],\"suggestions\":[],\"comments\":\"修\"}"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
     let result = coordinator
@@ -2406,7 +2406,7 @@ async fn test_checkpoints_written_at_milestones() {
         "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
         write1.as_str(),
         r#"{"type":"final","content":"完成"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     coordinator
@@ -2666,4 +2666,208 @@ async fn test_generate_chapter_outline_skips_without_story_outline() {
         outline.is_empty(),
         "chapter outline should be empty when no story outline exists"
     );
+}
+
+// ---- v0.30.30 D/E 结构性优化测试 ----
+
+/// 构造一个 Draft 区 BoardItem 供纯函数测试用。
+fn make_draft(content: &str) -> BoardItem {
+    BoardItem {
+        id: "d1".into(),
+        run_id: "r".into(),
+        story_id: "s".into(),
+        zone: BoardZone::Draft,
+        item_type: "chapter".into(),
+        key: "第1章".into(),
+        content: content.into(),
+        summary: "summary".into(),
+        version: 1,
+        producer: AgentRole::LeadWriter,
+        status: "active".into(),
+        created_at: "2026-01-01".into(),
+        updated_at: "2026-01-01".into(),
+    }
+}
+
+/// E1：scoreless pass 兜底从 0.85 降到 0.7（低于 0.75 阈值）。
+/// 配合 test_verdict_legacy_format_fallback 的 0.7 断言，此处验证有分路径
+/// 不受影响（score=4.5 -> 0.9）。
+#[test]
+fn test_model_grader_scoreless_pass_below_threshold() {
+    // scoreless pass -> 0.7（低于 0.75 阈值，须 code+rule 兜底）
+    let scoreless = EditorVerdict {
+        verdict: "pass".into(),
+        blocking_issues: vec![],
+        suggestions: vec![],
+        comments: String::new(),
+        score: None,
+        dimension_scores: None,
+    };
+    let m = ModelGraderReport::from_verdict(&scoreless).model_score;
+    assert!(
+        (m - 0.7).abs() < 0.001,
+        "scoreless pass 应为 0.7，实际 {}",
+        m
+    );
+    assert!(m < 0.75, "scoreless pass 不应单凭 model 项过门");
+    // 有分路径不受影响
+    let scored = EditorVerdict {
+        verdict: "pass".into(),
+        blocking_issues: vec![],
+        suggestions: vec![],
+        comments: String::new(),
+        score: Some(4.5),
+        dimension_scores: None,
+    };
+    let m2 = ModelGraderReport::from_verdict(&scored).model_score;
+    assert!((m2 - 0.9).abs() < 0.001, "score=4.5 -> 0.9，实际 {}", m2);
+}
+
+/// E2：质量门 Failed 降级放行。editor 完全失败时，substantive 草稿（≥600 字符）
+/// 合成 pass 裁决保产出；过短草稿返回 None 维持 Err。
+#[test]
+fn test_salvage_failed_gate() {
+    // substantive 草稿 -> 降级放行
+    let long = make_draft(&"章节正文内容。".repeat(200)); // > 600 字符
+    let v = AgencyCoordinator::salvage_failed_gate(&long, "编辑审计失败").expect("长稿应降级放行");
+    assert_eq!(v.verdict, "pass");
+    assert!(v.score.is_none(), "降级裁决不应有数值分");
+    assert!(v.blocking_issues.is_empty());
+    assert!(
+        v.comments.contains("编辑审计失败"),
+        "comments 应含降级原因: {}",
+        v.comments
+    );
+    // 过短草稿 -> None（不救垃圾稿）
+    let short = make_draft("只有几十字的草稿，远低于 600 字符阈值。");
+    assert!(
+        AgencyCoordinator::salvage_failed_gate(&short, "编辑审计失败").is_none(),
+        "过短草稿不应降级放行"
+    );
+    // 临界值：恰好 600 字符应放行
+    let boundary = make_draft(&"章".repeat(600));
+    assert!(
+        AgencyCoordinator::salvage_failed_gate(&boundary, "编辑审计失败").is_some(),
+        "恰好 600 字符应降级放行"
+    );
+}
+
+/// D1：cleanup_prose_for_persist 对自重复内容执行清理（genesis 首章无既有
+/// 场景，strip_existing_overlap 自动跳过，仅 trim_self_repetition +
+/// trim_dangling_tail）。
+#[tokio::test]
+async fn test_cleanup_prose_for_persist_trims_self_repetition() {
+    let pool = create_test_pool().unwrap();
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(vec![]));
+    // 两段完全相同的段落 -> 段落级自重复检测裁掉后半段
+    let para = "阿苔走进星环遗迹，辐射风暴在身后渐渐平息。她握紧那枚项链，妹妹的笑容浮现在眼前。";
+    let raw = format!("{}\n\n{}", para, para);
+    let cleaned = coordinator
+        .cleanup_prose_for_persist(&raw, "story-no-existing-scenes")
+        .await;
+    assert!(
+        cleaned.chars().count() < raw.chars().count(),
+        "自重复段落应被清理（清理前 {} 字符，清理后 {} 字符）",
+        raw.chars().count(),
+        cleaned.chars().count()
+    );
+    assert!(
+        cleaned.matches(para).count() == 1,
+        "清理后应只保留一段（实际 {} 段）",
+        cleaned.matches(para).count()
+    );
+}
+
+/// E3：writer MaxTurns 熔断时从黑板取回已产出草稿，而非整章失败。
+/// 续写 writer tool_loop 连续 board_write（无 final）-> 达到 max_turns 熔断；
+/// 熔断前已 board_write 产出 substantive 草稿到黑板 -> E3 取回并装配成功。
+#[tokio::test]
+async fn test_continue_writer_maxturns_board_recovery() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "MaxTurns 测试".into(),
+            description: Some("前提".into()),
+            genre: Some("科幻".into()),
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    // 续写需要故事大纲 + 第一章正文
+    // 预置角色 + 世界观 + 故事大纲，使 ensure_assets 不触发 Producer 资产补齐
+    // / ensure_world_building 的额外 LLM 调用（否则会消费 mock 队列导致错位）。
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("第一章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
+    let bw = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"星舰苏醒"}}}}"#,
+        chapter2
+    );
+    let editor_pass = r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#;
+    // generate_chapter_outline（1 调用，因 story_outline 存在触发）+ 10 次
+    // board_write（writer tool_loop 跑满 max_turns=10 无 final -> MaxTurns 熔断）
+    // + editor（pass）。ensure_assets 因角色/世界/大纲齐备不消费任何 LLM 调用。
+    let mut lines: Vec<String> =
+        vec!["本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区。".into()];
+    for _ in 0..10 {
+        lines.push(bw.clone());
+    }
+    lines.push(editor_pass.into());
+    let llm = MockLlm::scripted(lines.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let result = coordinator
+        .run_continue("rc-maxturns", &story.id, 2)
+        .await
+        .expect("MaxTurns 熔断后应从黑板取回草稿，run 不应失败");
+    assert_eq!(result.chapter_number, 2);
+    let scene = SceneRepository::new(pool.clone())
+        .get_by_id(&result.scene_id)
+        .unwrap()
+        .unwrap();
+    assert!(
+        scene
+            .content
+            .as_deref()
+            .unwrap_or("")
+            .contains("第二章正文"),
+        "装配的 scene 应为黑板取回的第二章草稿"
+    );
+    let run = AgencyRepository::new(pool.clone())
+        .get_run("rc-maxturns")
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.status, "completed", "MaxTurns 取回草稿后 run 应完成");
 }

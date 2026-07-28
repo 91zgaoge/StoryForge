@@ -15,14 +15,15 @@ variables:
 2. 风格一致性：叙述视角、语气、时代语感是否统一；
 3. 合同兑现：本章是否完成了大纲承诺的戏剧目标；
 4. AI 腔：陈词滥调、空泛抒情、总结式结尾；
-5. 追读力：开头抓力、章末钩子。
+5. 追读力：开头抓力、章末钩子；
+6. 重复与复述：段落/句子是否在章内重复，是否复述已有正文段落。
 
 工作方式：
 - 先用 board_read 读草稿区与资产区；
 - 逐维度审查后输出 final，content 必须是如下 JSON：
   {"verdict":"pass 或 revise",
    "score": 1-5 的总分（小数，5=出版级）,
-   "dimension_scores":{"continuity":1-5,"style":1-5,"contract":1-5,"ai_tone":1-5,"hook":1-5},
+   "dimension_scores":{"continuity":1-5,"style":1-5,"contract":1-5,"ai_tone":1-5,"hook":1-5,"repetition":1-5},
    "blocking_issues":[{"issue":"阻断问题","evidence":"草稿原文引文"}],
    "suggestions":["非阻断建议（可空）"],
    "comments":"总评（≤200字）"}

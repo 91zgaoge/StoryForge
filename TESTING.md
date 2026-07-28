@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.29)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.30)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.30 变更说明
+
+- Agency 创作链路结构性优化（抗重复闭环 + 质量门宽松度 + 熔断不丢稿）：`agency/coordinator.rs` D1/D2/E1/E2/E3 五点修复。
+- 后端测试变更：新增 4 项单测--`test_model_grader_scoreless_pass_below_threshold`（E1：scoreless pass -> 0.7 < 0.75 阈值，scored 4.5 -> 0.9）、`test_salvage_failed_gate`（E2：长稿 ≥600 -> Some(pass)，短稿 -> None，边界 600 字符 -> Some）、`test_cleanup_prose_for_persist_trims_self_repetition`（D1：双段落自重复 -> 清理后仅 1 段）、`test_continue_writer_maxturns_board_recovery`（E3：writer 10 次 board_write 后 MaxTurns 熔断 -> 从黑板取回草稿 run 完成）；现有 scoreless pass verdict 统一加 `"score":4.5`（E1 使 model_score 0.9 > 旧 0.85 保证原过门测试不退化），`test_verdict_legacy_format_fallback` 断言 0.85 -> 0.7。
+- 全量基线：`cargo test --lib` 1069 passed / 2 ignored（+4）；`npx vitest run` 322 passed / 3 skipped（无前端变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.29 变更说明
 

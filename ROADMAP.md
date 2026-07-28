@@ -1,8 +1,17 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-28（v0.30.29 内容质量根因修复：强模型结构化大纲不再被丢弃 + 大纲/世界观约束到生成链路）
+> 最后更新: 2026-07-28（v0.30.30 Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.30 - Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿 ✅ (2026-07-28)
+
+- [x] D1：抗重复提示词补齐（lead_writer/editor_auditor 系统提示词 + 内联 writer prompts）+ 创世装配接入清理三件套（抽取 `cleanup_prose_for_persist` 共享 helper，创世 `review_and_assemble` 与续写 `handle_gate` 共用）
+- [x] D2：失效 prompt_id 核查（占位 ID by-design 回退 `default_role_prompt`，仅加注释）
+- [x] E1：质量门 scoreless pass 兜底 0.85 -> 0.7（editor 不给数值分时不再单凭 model 项过门）
+- [x] E2：editor 连累整 run 修复（`salvage_failed_gate` helper：substantive 草稿 ≥600 字符降级放行保产出，4 个 Failed arm 不再直接丢稿）
+- [x] E3：writer 熔断丢稿修复（MaxTurns/Deadline 先 `latest_draft`/`latest_draft_by_key` 取黑板已产出草稿，取不到才散文回退）
+- [x] 验证：`cargo test --lib` 1069 passed（+4）；tsc / vitest（322/3 skipped）/ fmt / clippy（baseline 540 零新增）/ architecture_guard / prettier 全绿
 
 ### ✨ v0.30.26 - 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色 ✅ (2026-07-27)
 

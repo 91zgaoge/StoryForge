@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.29
+- **版本**: v0.30.30
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,7 +84,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1065 passed
+- `cargo test -p storymoss` ✅ 1069 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 322 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -94,6 +94,17 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.30 - Agency 创作链路结构性优化：抗重复闭环 + 质量门宽松度 + 熔断不丢稿
+
+承接 v0.30.29 内容质量根因修复后显式推迟的 D/E 两类结构性优化。聚焦 Agency 创世/续写链路三个"产出被白白丢弃"的结构性缺口：①创世装配写 RAW 正文不经清理（续写在 v0.30.29 已接清理三件套，创世没有）；②质量门 model 分对 scoreless pass 兜底 0.85 过宽松；③editor 完全评不出裁决时整 run 失败、writer MaxTurns/Deadline 熔断直接丢稿。把"熔断不等于丢稿"哲学（v0.30.19 salvage + 散文回退）补齐到 writer 与 gate Failed 两个剩余缺口，并把创世装配纳入与续写一致的清理管线。
+
+- **D1·抗重复提示词补齐 + 创世装配接入清理三件套（`coordinator.rs` + 两份 agency 提示词资产）**：①提取共享 helper `cleanup_prose_for_persist(raw, story_id)`（`spawn_blocking` 内 `trim_self_repetition` -> `strip_existing_overlap`（取最新场景全文，无则跳过）-> `trim_dangling_tail`，join 失败回退原文）；创世 `review_and_assemble` 装配 Scene 前调此 helper（此前写 RAW `draft.content`）；续写 `handle_gate` 内联清理块替换为调此 helper（行为等价去重）。②`agency_lead_writer_system.md` 创作红线新增"禁止重复输出"一条；`agency_editor_auditor_system.md` 审查维度新增第 6 维"重复与复述" + `dimension_scores` 模板加 `"repetition":1-5`。③内联 writer prompts（`writer_first_chapter`/`writer_prose_fallback`/`write_chapter` 三分支/`build_revision_task`）各加一句禁止重复指令。
+- **D2·失效 prompt_id 核查（结论：by-design，仅加注释）**：`agency/roles.rs` 中 `Writer/Inspector/OutlinePlanner/StyleMimic` 引用 `agency_writer_system` 等占位 ID（无 bundled 文件），但运行时回退 `default_role_prompt`（`roles.rs` 注释已明确），且这些角色不在创世/续写主流程（只用 LeadWriter/Producer/EditorAuditor）。9 个"orphan" prompt 文件已被 WalkDir 注册供用户覆盖/未来用，非 bug。仅在 `writer.rs`/`inspector.rs`/`outline_planner.rs`/`style_mimic.rs` spec 处补注释说明占位 ID 回退，无功能改动。
+- **E1·模型分宽松 - scoreless pass 兜底 0.85 -> 0.7（`coordinator.rs` `ModelGraderReport::from_verdict`）**：editor 不给数值分只给 `verdict:"pass"`（本地模型常见）时 `model_score` 由 0.85 降到 0.7。Gate v2 加权 `0.2*code+0.3*rule+0.5*model` 阈值 0.75：0.85 时单 model 项贡献 0.425，code+rule 仅需 65% 满分即过门（太宽松）；0.7 低于阈值，须 code+rule 达 80% 满分才放行，code/rule 满分时仍可过（0.85）不误伤优质稿。`"revise"=0.4`/兜底 `0.5` 不动。
+- **E2·editor 连累整 run - GateOutcome::Failed 降级放行（`coordinator.rs`）**：新增 helper `salvage_failed_gate(draft, reason) -> Option<EditorVerdict>`：草稿 `chars().count() >= 600`（substantive）-> 合成 `verdict:"pass"` 裁决（`comments` 透明记录降级原因），`log::warn!` 标记；草稿过短返回 `None`（不救垃圾稿）。4 个 Failed arm（genesis 首门/复审、续写首门/复审）由直接 `return Err` 改为先尝试 salvage：救回则继续装配（仍走 D1/C3 清理三件套），救不回才 Err。对齐 v0.30.19 salvage 哲学"熔断不等于丢稿"。
+- **E3·writer 熔断丢稿 - MaxTurns/Deadline 先取黑板草稿（`coordinator.rs`）**：genesis 与续写 writer abort 处理原先仅在 `reason == "连续解析失败"` 时触发 `writer_prose_fallback`，`MaxTurns`/`Deadline` 直接 `return Err`。但 MaxTurns/Deadline 熔断前 writer 可能在早期轮次已 `board_write` 产出草稿到黑板 Draft 区（`LoopResult.output` 是占位串不含正文，黑板里有）。现统一：MaxTurns/Deadline 先 `latest_draft`/`latest_draft_by_key` 取回已产出草稿（`>= 200` 字符才用），取不到/过短才落 `writer_prose_fallback` 散文回退，仍失败才 Err。连续解析失败路径行为不变（黑板通常无稿 -> 直接散文回退）。
+- **验证**：`cargo test --lib` 1069 passed（+4：scoreless pass 阈值 / salvage_failed_gate 长短稿边界 / cleanup_prose_for_persist 自重复清理 / 续写 writer MaxTurns 黑板取回）；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（322 passed / 3 skipped）/ `cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.29 - 内容质量根因修复：强模型结构化大纲不再被丢弃 + 大纲/世界观约束到生成链路
 
@@ -613,7 +624,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-28 - v0.30.29_
+_最后更新: 2026-07-28 - v0.30.30_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

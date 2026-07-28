@@ -390,7 +390,11 @@ impl ModelGraderReport {
         let model_score = match verdict.score {
             Some(s) => (s / 5.0).clamp(0.0, 1.0),
             None => match verdict.verdict.as_str() {
-                "pass" => 0.85,
+                // v0.30.30：scoreless pass 从 0.85 降到 0.7（低于 0.75 阈值）。
+                // editor 不给数值分只给 "pass"（本地模型常见）时不再单凭 model 项
+                // 过门，须 code+rule 达 80% 满分才放行；code/rule 满分时仍可过
+                // （0.85），不误伤优质稿。
+                "pass" => 0.7,
                 "revise" => 0.4,
                 _ => 0.5,
             },
@@ -1888,7 +1892,7 @@ impl AgencyCoordinator {
             .await
             .unwrap_or_default();
         let text = llm.complete(
-            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。",
+            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。",
             &format!("故事前提：{}\n\n概念设定：{}\n\n创作资产：\n{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。须紧扣故事大纲的起因（第一幕）开篇。", premise, concept_json, assets_ctx),
             TaskType::CreativeWriting,
             8192,
@@ -1943,7 +1947,7 @@ impl AgencyCoordinator {
         let assets_ctx = self.build_assets_ctx_brief(run_id).await?;
         let text = llm
             .complete(
-                "你是小说主创，只输出章节正文。",
+                "你是小说主创，只输出章节正文。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。",
                 &format!(
                     "故事前提：{}\n\n创作资产：\n{}\n\n写作要求：章节正文，1500-2500 字，只输出正文，不写标题。",
                     premise, assets_ctx
@@ -2167,26 +2171,40 @@ impl AgencyCoordinator {
             )
             .await
             .map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
-        if writer_out.aborted {
+        // v0.30.30：writer 熔断降级取稿。MaxTurns/Deadline 前可能已 board_write
+        // 产出草稿到黑板 Draft 区（LoopResult.output 是占位串不含正文，但黑板有）。
+        // 连续解析失败：模型写散文不遵从 JSON，黑板通常无稿 -> 直接散文回退。
+        let draft = if writer_out.aborted {
             let reason = circuit_break_reason(&writer_out);
-            // 连续解析失败：本地模型写散文而非 JSON action -> 回退自由体散文
-            // 单调用（与快速路径同模式），避免整 run 失败。
-            if reason == "连续解析失败" {
-                log::warn!(
-                    "agency: 主创 tool_loop 连续解析失败，回退自由体散文 run={}",
-                    run_id
-                );
-                self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章")
-                    .await?;
+            log::warn!(
+                "agency: 主创 tool_loop 熔断（{}），尝试降级取稿 run={}",
+                reason,
+                run_id
+            );
+            if reason != "连续解析失败" {
+                // MaxTurns/Deadline：先试黑板取回已产出草稿
+                match self.latest_draft(&board, run_id).await {
+                    Ok(d) if d.content.chars().count() >= 200 => {
+                        log::warn!(
+                            "agency: 熔断后从黑板取回草稿（{}字符）run={}",
+                            d.content.chars().count(),
+                            run_id
+                        );
+                        d
+                    }
+                    _ => {
+                        // 黑板无草稿或过短 -> 散文回退（与连续解析失败同路径）
+                        self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章")
+                            .await?
+                    }
+                }
             } else {
-                return Err(AppError::from(circuit_break_message(
-                    "主创 Agent",
-                    "首章未完成",
-                    reason,
-                )));
+                self.writer_prose_fallback(run_id, &story_id, premise, budget, "第1章")
+                    .await?
             }
-        }
-        let draft = self.latest_draft(&board, run_id).await?;
+        } else {
+            self.latest_draft(&board, run_id).await?
+        };
         self.check_cancel(cancel)?;
 
         // 5)+6) 质量门 + 修订 + 装配（与快速路径共用）
@@ -2206,8 +2224,40 @@ impl AgencyCoordinator {
         })
     }
 
+    /// 落库前抗重复清理（对齐 C 链路 orchestrator ②③④三件套）：
+    /// `trim_self_repetition` 去自重复 -> `strip_existing_overlap` 剥离复述已有
+    /// 正文（取最新场景全文，无则跳过；函数内部只比对尾部 3000 字）->
+    /// `trim_dangling_tail` 裁截断末句。`spawn_blocking` join 失败时回退原文。
+    ///
+    /// v0.30.30：从续写 `handle_gate` 抽取为共享 helper，创世
+    /// `review_and_assemble` 装配也接入（genesis 首章无既有场景，overlap
+    /// 自动跳过）。
+    pub(crate) async fn cleanup_prose_for_persist(&self, raw: &str, story_id: &str) -> String {
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let raw_content = raw.to_string();
+        let raw_for_fallback = raw_content.clone();
+        tokio::task::spawn_blocking(move || -> String {
+            use crate::{db::repositories::SceneRepository, utils::text::TextUtils};
+            let mut t = TextUtils::trim_self_repetition(&raw_content);
+            if let Ok(scenes) = SceneRepository::new(pool).get_by_story(&sid) {
+                if let Some(existing) = scenes
+                    .iter()
+                    .next_back()
+                    .and_then(|s| s.content.as_deref())
+                    .filter(|c| !c.is_empty())
+                {
+                    t = TextUtils::strip_existing_overlap(&t, existing);
+                }
+            }
+            TextUtils::trim_dangling_tail(&t)
+        })
+        .await
+        .unwrap_or(raw_for_fallback)
+    }
+
     /// 质量门 + 至多 1 轮修订（第二轮审查后无论结果放行，Failed 除外）+
-    /// 装配（草稿 → Scene 真源，统一输出装配器 P1 形态）。快速路径与
+    /// 装配（草稿 -> Scene 真源，统一输出装配器 P1 形态）。快速路径与
     /// legacy 六阶段共用。返回 (最终草稿, 是否修订, 最终裁决, scene_id)。
     #[allow(clippy::too_many_arguments)]
     async fn review_and_assemble(
@@ -2290,12 +2340,20 @@ impl AgencyCoordinator {
                         GateOutcome::Passed { verdict } => break 'gate verdict,
                         GateOutcome::RevisionRequired { verdict, .. } => break 'gate verdict, /* 第二轮放行 */
                         GateOutcome::Failed { reason } => {
+                            // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
+                            if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
+                                break 'gate v;
+                            }
                             return Err(AppError::from(format!("质量门未通过: {}", reason)));
                         }
                     }
                 }
                 GateOutcome::RevisionRequired { verdict, .. } => break 'gate verdict,
                 GateOutcome::Failed { reason } => {
+                    // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
+                    if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
+                        break 'gate v;
+                    }
                     return Err(AppError::from(format!("质量门未通过: {}", reason)));
                 }
             }
@@ -2308,7 +2366,11 @@ impl AgencyCoordinator {
         self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
         let pool = self.pool.clone();
         let sid = story_id.to_string();
-        let content = draft.content.clone();
+        // v0.30.30：装配前抗重复清理（与续写 handle_gate 同源 helper）。
+        // genesis 首章无既有场景，strip_existing_overlap 自动跳过。
+        let content = self
+            .cleanup_prose_for_persist(&draft.content, story_id)
+            .await;
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = SceneRepository::new(pool);
             let scene = repo
@@ -3252,7 +3314,7 @@ impl AgencyCoordinator {
             )
             .await;
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
-            format!("续写{}（1500-2500 字）。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
+            format!("续写{}（1500-2500 字）。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
         } else if !chapter_outline.is_empty() {
             // v0.30.21: 严格 task--故事大纲（整体方向）+ 本章大纲（章节方向）+ 写作要求
             format!(
@@ -3263,11 +3325,12 @@ impl AgencyCoordinator {
                  - 严格按照本章大纲的冲突和转折撰写，不得偏离故事大纲的推进方向\n\
                  - 必须有起伏、有转折、有精彩的冲突\n\
                  - 角色行为符合其性格和目标，与前文保持连贯\n\
+                 - 禁止重复：同一段落/句子不得出现两次，不得复述前文段落\n\
                  完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。",
                 key, chapter_outline, assets_ctx, key
             )
         } else {
-            format!("续写{}（1500-2500 字）。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
+            format!("续写{}（1500-2500 字）。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。\n资产已注入下方，无需 board_read 重复读取（如确有遗漏可补读）：\n{}\n完成后用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, assets_ctx, key)
         };
         let writer_out = self
             .run_role_with_llm_and_budget(
@@ -3282,28 +3345,43 @@ impl AgencyCoordinator {
             )
             .await
             .map_err(|e| AppError::from(format!("主创 Agent 阶段失败: {}", e)))?;
+        // v0.30.30：writer 熔断降级取稿。MaxTurns/Deadline 前可能已 board_write
+        // 产出草稿到黑板 Draft 区；连续解析失败黑板通常无稿 -> 直接散文回退。
+        // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
         if writer_out.aborted {
             let reason = circuit_break_reason(&writer_out);
-            // v0.30.20: 连续解析失败（本地模型写散文而非 JSON action）时回退自由体
-            // 散文单调用（与 genesis legacy 同理），避免整章失败。
-            if reason == "连续解析失败" {
-                log::warn!(
-                    "agency: 续写主创 tool_loop 连续解析失败，回退自由体散文 run={}",
-                    run_id
-                );
-                self.writer_prose_fallback(run_id, story_id, premise, budget, &key)
-                    .await?;
+            log::warn!(
+                "agency: 续写主创 tool_loop 熔断（{}），尝试降级取稿 run={}",
+                reason,
+                run_id
+            );
+            if reason != "连续解析失败" {
+                // MaxTurns/Deadline：先试黑板取回已产出草稿
+                match self
+                    .latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
+                    .await
+                {
+                    Ok(d) if d.content.chars().count() >= 200 => {
+                        log::warn!(
+                            "agency: 续写熔断后从黑板取回草稿（{}字符）run={}",
+                            d.content.chars().count(),
+                            run_id
+                        );
+                        Ok(d)
+                    }
+                    _ => {
+                        self.writer_prose_fallback(run_id, story_id, premise, budget, &key)
+                            .await
+                    }
+                }
             } else {
-                return Err(AppError::from(circuit_break_message(
-                    "主创 Agent",
-                    "本章未完成",
-                    reason,
-                )));
+                self.writer_prose_fallback(run_id, story_id, premise, budget, &key)
+                    .await
             }
+        } else {
+            self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
+                .await
         }
-        // 按约定 key 取稿：模型用错 key 时大声失败（错误文案含约定 key）
-        self.latest_draft_by_key(board, run_id, &key, "主创未按约定 key 写入")
-            .await
     }
 
     /// 单章 gate 结果处理：修订（≤1 轮，总线记录 proposal）→ 装配 Scene。
@@ -3390,13 +3468,23 @@ impl AgencyCoordinator {
                     GateOutcome::Passed { verdict } => verdict,
                     GateOutcome::RevisionRequired { verdict, .. } => verdict,
                     GateOutcome::Failed { reason } => {
-                        return Err(AppError::from(format!("质量门未通过: {}", reason)))
+                        // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
+                        if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
+                            v
+                        } else {
+                            return Err(AppError::from(format!("质量门未通过: {}", reason)));
+                        }
                     }
                 }
             }
             GateOutcome::RevisionRequired { verdict, .. } => verdict,
             GateOutcome::Failed { reason } => {
-                return Err(AppError::from(format!("质量门未通过: {}", reason)))
+                // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
+                if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
+                    v
+                } else {
+                    return Err(AppError::from(format!("质量门未通过: {}", reason)));
+                }
             }
         };
         // 装配：草稿 → Scene 真源
@@ -3419,32 +3507,10 @@ impl AgencyCoordinator {
             .unwrap_or(None);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
-        // v0.30.29：落库前抗重复清理（对齐 C 链路 orchestrator ②③④三件套）：
-        // trim_self_repetition 去自重复 -> strip_existing_overlap 剥离复述已有正文
-        // -> trim_dangling_tail 裁截断末句。existing 取最新场景全文（函数内部只
-        // 比对尾部 3000 字）。agency 续写此前完全不清理，自重复/复述/截断半句
-        // 直接入库并回灌污染后续章节。
-        let raw_content = draft.content.clone();
-        let pool_clean = pool.clone();
-        let sid_clean = sid.clone();
-        let raw_for_fallback = raw_content.clone();
-        let content = tokio::task::spawn_blocking(move || -> String {
-            use crate::{db::repositories::SceneRepository, utils::text::TextUtils};
-            let mut t = TextUtils::trim_self_repetition(&raw_content);
-            if let Ok(scenes) = SceneRepository::new(pool_clean).get_by_story(&sid_clean) {
-                if let Some(existing) = scenes
-                    .iter()
-                    .next_back()
-                    .and_then(|s| s.content.as_deref())
-                    .filter(|c| !c.is_empty())
-                {
-                    t = TextUtils::strip_existing_overlap(&t, existing);
-                }
-            }
-            TextUtils::trim_dangling_tail(&t)
-        })
-        .await
-        .unwrap_or(raw_for_fallback);
+        // v0.30.30：落库前抗重复清理抽为共享 helper（与创世装配同源）。
+        let content = self
+            .cleanup_prose_for_persist(&draft.content, story_id)
+            .await;
         let title_c = format!("第{}章", chapter_number);
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = crate::db::repositories::SceneRepository::new(pool);
@@ -4012,9 +4078,34 @@ impl AgencyCoordinator {
     /// 供 Task 2 修订路径与测试使用的指令生成（纯函数）。
     pub(crate) fn build_revision_task(draft: &BoardItem, issues: &[String]) -> String {
         format!(
-            "修订「{}」。先用 board_revise 直接修订该条目（item_id={}, expected_version={}），content 为完整修订稿。审查阻断问题：{}",
+            "修订「{}」。先用 board_revise 直接修订该条目（item_id={}, expected_version={}），content 为完整修订稿。修订时不得引入重复段落或复述原文。审查阻断问题：{}",
             draft.key, draft.id, draft.version, issues.join("；")
         )
+    }
+
+    /// 质量门 Failed 降级放行（v0.30.30）：editor 完全失败（tool_loop 熔断 +
+    /// salvage 失败 + 散文回退失败）时，若草稿 substantive（≥600 字符），合成
+    /// pass 裁决降级装配保产出（对齐 v0.30.19 salvage 哲学：熔断不等于丢稿）。
+    /// 草稿过短则返回 None，由调用方维持 Err。降级稿仍经清理三件套兜底。
+    pub(crate) fn salvage_failed_gate(draft: &BoardItem, reason: &str) -> Option<EditorVerdict> {
+        const MIN_SALVAGE_CHARS: usize = 600;
+        let chars = draft.content.chars().count();
+        if chars < MIN_SALVAGE_CHARS {
+            return None;
+        }
+        log::warn!(
+            "agency gate: 质量门 Failed（{}）但草稿 substantive（{}字符），降级放行保产出",
+            reason,
+            chars
+        );
+        Some(EditorVerdict {
+            verdict: "pass".to_string(),
+            blocking_issues: Vec::new(),
+            suggestions: Vec::new(),
+            comments: format!("编辑审计失败，已降级放行保产出：{}", reason),
+            score: None,
+            dimension_scores: None,
+        })
     }
 
     /// 角色驱动（委托自由函数 run_role_loop，与 'static GateRunner
