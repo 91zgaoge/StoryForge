@@ -21,6 +21,7 @@ import type {
 } from '@/types/llm';
 import { cn } from '@/utils/cn';
 import { normalizeFloat } from '@/utils/numberFormat';
+import { extractMessage } from '@/utils/errorHandler';
 
 interface ModelFormData {
   name: string;
@@ -406,7 +407,10 @@ export function ModelModal({
                         setFetchModelsError('未找到可用模型');
                       }
                     } catch (err) {
-                      const msg = err instanceof Error ? err.message : String(err);
+                      // 后端 AppError 经 Tauri 序列化为 { code, message, severity } 对象
+                      // （非 Error 实例），String(err) 会得到 "[object Object]"（issue #11）。
+                      // 用统一 extractMessage 兼容对象/Error/字符串三种形态。
+                      const msg = extractMessage(err);
                       setFetchModelsError(msg);
                     } finally {
                       setIsFetchingModels(false);

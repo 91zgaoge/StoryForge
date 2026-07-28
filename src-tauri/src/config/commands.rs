@@ -1495,6 +1495,50 @@ pub async fn test_model_connection(
     }
 }
 
+/// 从 OpenAI 兼容 /v1/models 响应中提取模型 id 列表。
+///
+/// 兼容多种中转站/公益站实际返回格式（issue #11：标准格式解析不出时
+/// 此前直接 continue 吞掉，用户无法判断是格式不符还是请求失败）：
+/// - 标准 OpenAI：`{"data":[{"id":"..."}]}`
+/// - 部分中转站：`{"models":[{"id":"..."}]}`
+/// - 纯数组：`[{"id":"..."}]` 或 `["model-a","model-b"]`
+fn parse_model_list(body: &str) -> Vec<String> {
+    let data: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let pick_ids = |arr: &[serde_json::Value]| -> Vec<String> {
+        arr.iter()
+            .filter_map(|m| {
+                m.as_str().map(|s| s.to_string()).or_else(|| {
+                    m.get("id")
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string())
+                })
+            })
+            .collect()
+    };
+    if let Some(arr) = data.get("data").and_then(|d| d.as_array()) {
+        let ids = pick_ids(arr);
+        if !ids.is_empty() {
+            return ids;
+        }
+    }
+    if let Some(arr) = data.get("models").and_then(|d| d.as_array()) {
+        let ids = pick_ids(arr);
+        if !ids.is_empty() {
+            return ids;
+        }
+    }
+    if let Some(arr) = data.as_array() {
+        let ids = pick_ids(arr);
+        if !ids.is_empty() {
+            return ids;
+        }
+    }
+    Vec::new()
+}
+
 /// 从 API 地址获取可用模型列表
 #[command]
 pub async fn fetch_models(
@@ -1519,45 +1563,67 @@ pub async fn fetch_models(
         ]
     };
 
-    for url in urls {
-        let mut req = client.get(&url);
+    // 记录最后一个 URL 的失败详情，用于在全部失败时给出可诊断的错误信息。
+    // 此前 `_ => continue` 静默吞掉 HTTP 状态码/响应体，用户只看到泛化提示，
+    // 无法判断是 401/403/429 还是地址错误或格式不符（issue #11）。
+    let mut last_error: Option<String> = None;
+
+    for url in &urls {
+        let mut req = client.get(url);
         if let Some(ref key) = api_key {
             if !key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", key));
             }
         }
 
-        match req.send().await {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json::<serde_json::Value>().await {
-                    Ok(data) => {
-                        let ids: Vec<String> = data
-                            .get("data")
-                            .and_then(|d| d.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|m| {
-                                        m.get("id")
-                                            .and_then(|id| id.as_str())
-                                            .map(|s| s.to_string())
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        if !ids.is_empty() {
-                            return Ok(ids);
-                        }
-                    }
-                    Err(_) => continue,
-                }
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                last_error = Some(format!("请求失败（{}）：{}", url, e));
+                continue;
             }
-            _ => continue,
+        };
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            let snippet: String = body.chars().take(200).collect();
+            last_error = Some(format!(
+                "{} 返回 HTTP {}：{}",
+                url,
+                status.as_u16(),
+                if snippet.is_empty() {
+                    "（空响应体）".to_string()
+                } else {
+                    snippet
+                }
+            ));
+            continue;
         }
+
+        let body = match resp.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                last_error = Some(format!("{} 读取响应体失败：{}", url, e));
+                continue;
+            }
+        };
+        let ids = parse_model_list(&body);
+        if !ids.is_empty() {
+            return Ok(ids);
+        }
+        let snippet: String = body.chars().take(200).collect();
+        last_error = Some(format!(
+            "{} 返回 200 但未解析到模型列表（响应片段：{}）",
+            url, snippet
+        ));
     }
 
-    Err(AppError::internal(
-        "无法从该 API 地址获取模型列表，请检查地址和密钥是否正确",
-    ))
+    let detail = last_error.unwrap_or_else(|| "所有候选 URL 均无响应".to_string());
+    Err(AppError::internal(format!(
+        "无法从该 API 地址获取模型列表：{}。请检查地址和密钥是否正确，或该中转站是否兼容 OpenAI /v1/models 接口。",
+        detail
+    )))
 }
 
 #[cfg(test)]
@@ -1692,5 +1758,46 @@ mod tests {
                 .all(|m| m.model_id != "off"),
             "gateway status must exclude disabled models"
         );
+    }
+
+    #[test]
+    fn parse_model_list_standard_openai_format() {
+        let body = r#"{"data":[{"id":"gpt-4"},{"id":"gpt-3.5-turbo"}]}"#;
+        let ids = parse_model_list(body);
+        assert_eq!(ids, vec!["gpt-4", "gpt-3.5-turbo"]);
+    }
+
+    #[test]
+    fn parse_model_list_models_field_format() {
+        // 部分中转站用 "models" 而非 "data"
+        let body = r#"{"models":[{"id":"deepseek-chat"},{"id":"deepseek-coder"}]}"#;
+        let ids = parse_model_list(body);
+        assert_eq!(ids, vec!["deepseek-chat", "deepseek-coder"]);
+    }
+
+    #[test]
+    fn parse_model_list_plain_array_of_objects() {
+        let body = r#"[{"id":"qwen-1"},{"id":"qwen-2"}]"#;
+        let ids = parse_model_list(body);
+        assert_eq!(ids, vec!["qwen-1", "qwen-2"]);
+    }
+
+    #[test]
+    fn parse_model_list_plain_array_of_strings() {
+        let body = r#"["model-a","model-b"]"#;
+        let ids = parse_model_list(body);
+        assert_eq!(ids, vec!["model-a", "model-b"]);
+    }
+
+    #[test]
+    fn parse_model_list_invalid_json_returns_empty() {
+        let ids = parse_model_list("not json");
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn parse_model_list_empty_data_returns_empty() {
+        let ids = parse_model_list(r#"{"data":[]}"#);
+        assert!(ids.is_empty());
     }
 }

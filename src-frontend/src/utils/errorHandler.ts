@@ -102,7 +102,7 @@ export function parseStructuredError(error: unknown): StructuredError | null {
   return null;
 }
 
-function extractMessage(error: unknown): string {
+export function extractMessage(error: unknown): string {
   const structured = parseStructuredError(error);
   if (structured) {
     return structured.message;
