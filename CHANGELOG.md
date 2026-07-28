@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.28（2026-07-28）
+
+### UI 双模式设计系统重塑 + 落地页下载自动同步 + 幕前交互打磨
+
+- **双模式设计系统（墨纸 / 机械）**：幕前「墨纸」系统（parchment 暖纸 + terracotta 陶土强调、无阴影扁平）与幕后「机械」系统（cinema 深底 + gold 金色强调、多层阴影仪表板）落地为统一 token（`--paper-*` / `--ink-*` / `--terracotta*` / `--cinema-*` / `--cinema-gold*`），Tailwind 暴露 `paper` / `ink` / `terracotta` / `cinema` / `status` 调色板与 `rounded-paper` / `rounded-panel` / `shadow-panel` 等 token；幕后仪表盘外壳、机械设置页、导航轨去重与无障碍改进、墨纸↔机械模式切换均按 `docs/plans/2026-07-27-ui-redesign-design.md` 实现；硬编码颜色全量 token 化（含 `bg-yellow-400` -> `status-warning`），`@apply` 不透明度工具类改用 `color-mix(in oklch, ...)` 修复 Vite 构建。
+- **落地页下载自动同步**：`landing/` 下载区运行时从 `https://storymoss.top/releases/latest.json` 拉取版本号拼出下载链接（`useLatestRelease` hook，模块级 cache + 单一 in-flight promise + `FALLBACK_VERSION` 兜底），每次发版自动跟随最新 release，无需重新部署落地页。AGENTS.md 新增用户级永久规则 #7（兜底版本随发版 bump、bundle 命名变更时校验）。
+- **幕前交互打磨**：恢复 UI 重塑时误删的 `.frontstage-input-ghost*` CSS，logline 增强后缀重获灰色 + 13px 小字号（更灰暗字体更小）并消除层叠；发射/取消按钮扁平化（实心圆块 -> `rounded-md` 淡彩底 + 陶土色图标，移除 `active:scale`，修正无效 `text-cinema-50`）；移除 ghost-chrome 静止蒙版（删除 `useGhostChrome` hook 及测试，顶栏/底栏不再在鼠标静止 3s 后淡出，常驻完整不透明）。
+- **验证**：`cargo test -p storymoss` 1060 passed（无 Rust 变更）；`npx tsc --noEmit` 通过；`npx vitest run` 322 passed / 3 skipped；`cargo +nightly fmt` / `cargo clippy --lib`（baseline 549 零新增）/ `npm run format:check` / `architecture_guard` 全绿。
+
 ## v0.30.27（2026-07-27）
 
 ### 上下文感知 Logline 后缀 + 输入框自适应高度

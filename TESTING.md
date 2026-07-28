@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.27)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.28)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.28 变更说明
+
+- UI 双模式设计系统重塑（幕前墨纸 / 幕后机械）+ 落地页下载从 `latest.json` 自动同步 + 幕前交互打磨。
+- 前端测试变更：移除 `useGhostChrome` hook 及其 6 项单元测试（ghost-chrome 静止蒙版下线）；`FrontstageBottomBar` logline 内联幽灵测试全绿。
+- 全量基线：`cargo test -p storymoss` 1060 passed（无 Rust 变更）；`npx vitest run` 322 passed / 3 skipped；`npx tsc --noEmit` ✅；fmt / clippy（baseline 549 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.26 变更说明
 

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.27
+- **版本**: v0.30.28
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -86,14 +86,21 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1060 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 310 passed / 3 skipped
+- `npx vitest run` ✅ 322 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 549（零新增）
+- `cargo clippy --lib` ✅ 540（零新增）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.28 - UI 双模式设计系统重塑；落地页下载自动同步；幕前交互打磨
+
+- **双模式设计系统**：幕前「墨纸」（`--paper-*`/`--ink-*`/`--terracotta*`，无阴影扁平）与幕后「机械」（`--cinema-*`/`--cinema-gold*`，多层阴影仪表板）落地为统一 token；`tailwind.config.js` 暴露 `paper`/`ink`/`terracotta`/`cinema`/`status` 调色板与 `rounded-paper`/`rounded-panel`/`shadow-panel`。幕后仪表盘外壳、机械设置页、导航轨去重 + 无障碍、墨纸↔机械模式切换按 `docs/plans/2026-07-27-ui-redesign-design.md` 实现；硬编码颜色全量 token 化，`@apply` 不透明度改 `color-mix(in oklch,...)` 修 Vite 构建。
+- **落地页自动同步**：`landing/src/hooks/useLatestRelease.ts` 运行时 fetch `latest.json` 拼下载链接（模块级 cache + in-flight promise + `FALLBACK_VERSION` 兜底），发版自动跟随无需重部署；AGENTS.md 新增用户级规则 #7（兜底版本随发版 bump、bundle 命名变更校验）。
+- **幕前交互打磨**：恢复 UI 重塑误删的 `.frontstage-input-ghost*` CSS（`frontstage.css`），logline 后缀灰色 + 13px 小字号、前缀占位对齐消除层叠；`FrontstageBottomBar.tsx` 剥离冲突 Tailwind 工具类让 CSS 为唯一源。发射/取消按钮扁平化（`rounded-md` 淡彩底 + 陶土色图标，移除 `active:scale`，修无效 `text-cinema-50`）。移除 ghost-chrome 静止蒙版：删 `useGhostChrome` hook + 测试，`FrontstageHeader`/`FrontstageBottomBar` 不再鼠标静止 3s 淡出至 `opacity 0.08`，常驻完整不透明。
+- **验证**：`cargo test -p storymoss` 1060 passed（无 Rust 变更）；`npx vitest run` 322 passed / 3 skipped；tsc / fmt / clippy（540 零新增）/ prettier / architecture_guard 全绿；landing 24 passed。
 
 ### v0.30.27 - 上下文感知 Logline 后缀；输入框自适应高度
 
@@ -597,7 +604,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-27 - v0.30.27_
+_最后更新: 2026-07-28 - v0.30.28_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
