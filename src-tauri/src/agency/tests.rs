@@ -308,14 +308,14 @@ async fn test_genesis_cancel_not_overwritten_by_completed() {
     assert_eq!(run.status, "cancelled");
 }
 
-/// 快速路径脚本：concept pack（含 2 张角色卡）→ 首章正文 → 深度资产 →
+/// 快速路径脚本：concept pack（含 2 张角色卡）→ 深度资产 → 首章正文 →
 /// 编辑裁决 pass。返回 (mock, 首章正文)。
 fn fastpath_script() -> (Arc<MockLlm>, String) {
     let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
     let llm = MockLlm::scripted(vec![
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
-        chapter.as_str(),
         r#"{"world":"双星废土，星环环绕，资源配给制","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链（第三卷回收）"]}"#,
+        chapter.as_str(),
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
     ]);
     (llm, chapter)
@@ -344,8 +344,8 @@ async fn test_fastpath_multi_model() {
         .unwrap()
         .unwrap();
     assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
-    // 黑板资产区含 character + world + outline（join! 内 writer/producer
-    // 相对顺序不定，不断言条目顺序）
+    // 黑板资产区含 character + world + outline（v0.30.29 起串行
+    // producer-first：producer 先写资产，writer 后写首章，不断言条目顺序）
     let board = crate::agency::board::BlackboardService::new(pool.clone());
     let snap = board.snapshot("rf-multi").unwrap();
     let types: Vec<&str> = snap.assets.iter().map(|i| i.item_type.as_str()).collect();
@@ -360,7 +360,7 @@ async fn test_fastpath_multi_model() {
 }
 
 #[tokio::test]
-async fn test_fastpath_single_model_writer_first() {
+async fn test_fastpath_single_model_producer_first() {
     let pool = create_test_pool().unwrap();
     let (llm, chapter) = fastpath_script();
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
@@ -378,7 +378,7 @@ async fn test_fastpath_single_model_writer_first() {
         .unwrap()
         .unwrap();
     assert_eq!(scene.content.as_deref(), Some(chapter.as_str()));
-    // 单模型调用顺序严格为 concept → writer → producer → editor：脚本
+    // 单模型调用顺序严格为 concept → producer（深度资产）→ writer → editor：
     // 队列按此序提供（顺序错则内容错配必然失败），此处再显式校验各次
     // 调用的提示词标记（run 完成后 finalize 可能追加摘要调用，故只校验
     // 前 4 次）。
@@ -386,13 +386,10 @@ async fn test_fastpath_single_model_writer_first() {
     assert!(calls.len() >= 4, "至少 4 次 LLM 调用: {:?}", *calls);
     assert!(calls[0].contains("characters"), "第 1 次应为概念调用");
     assert!(
-        calls[1].contains("写作要求"),
-        "第 2 次应为首章写作（主创优先）"
+        calls[1].contains("foreshadowing"),
+        "第 2 次应为深度资产（producer 先）"
     );
-    assert!(
-        calls[2].contains("foreshadowing"),
-        "第 3 次应为深度资产调用"
-    );
+    assert!(calls[2].contains("写作要求"), "第 3 次应为首章写作");
 }
 
 #[tokio::test]
@@ -474,7 +471,7 @@ async fn test_editor_verdict_prose_fallback() {
 /// Fix A：本地模型对 depth assets 返回散文而非 JSON 时，快速路径应兜底
 /// salvage 散文为 world 资产，而非失败回退 legacy（legacy writer tool_loop
 /// 要求 JSON action，对散文模型几乎必然熔断）。单模型序：concept ->
-/// writer -> depth -> editor。
+/// depth -> writer -> editor。
 #[tokio::test]
 async fn test_depth_assets_prose_salvaged() {
     let pool = create_test_pool().unwrap();
@@ -485,8 +482,8 @@ async fn test_depth_assets_prose_salvaged() {
                        失散妹妹的项链是唯一的线索。";
     let llm = MockLlm::scripted(vec![
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
-        chapter.as_str(),
         depth_prose,
+        chapter.as_str(),
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);
@@ -802,7 +799,7 @@ fn test_circuit_break_message_deadline_detail() {
 
 /// 结构化单调用（concept pack / depth assets）必须走 complete_json
 /// （JSON mode），散文首章不走。单模型模式调用序确定：concept ->
-/// writer（散文） -> depth assets -> editor。
+/// depth assets -> writer（散文） -> editor。
 #[tokio::test]
 async fn test_fastpath_structured_calls_use_json_mode() {
     let pool = create_test_pool().unwrap();
@@ -893,16 +890,17 @@ async fn test_fastpath_cancel_not_routed_to_legacy() {
     let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
     let inner = MockLlm::scripted(vec![
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"}]}"#,
-        chapter.as_str(),
         r#"{"world":"双星废土","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链"]}"#,
+        chapter.as_str(),
         // legacy 若接手会消费此条（不应发生）
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
     ]);
-    // writer 调用（第 2 次）后即触发取消（Phase B 窗口）
+    // writer 调用（第 3 次：concept -> depth -> writer）后即触发取消
+    // （Phase B 窗口：producer 先、writer 后，串行编排下 writer 是第 3 次调用）
     let llm = Arc::new(CancelOnCallLlm {
         inner: inner.clone(),
         run_id: "rf-cancel".to_string(),
-        fire_on: 2,
+        fire_on: 3,
         count: std::sync::atomic::AtomicUsize::new(0),
     });
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
@@ -1281,6 +1279,16 @@ async fn test_build_continue_writer_context() {
             ],
         )
         .unwrap();
+        // v0.30.29: 预置 MASTER_SETTING 合同（续写红线注入测试）
+        conn.execute(
+            "INSERT INTO story_contracts (id, story_id, contract_type, contract_json, version, created_at, updated_at)
+             VALUES ('ct1', ?1, 'MASTER_SETTING', ?2, 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![
+                story.id,
+                r#"{"world_rules":"禁止时间旅行；魔法须付出等价代价"}"#
+            ],
+        )
+        .unwrap();
     }
     let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
     let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
@@ -1322,6 +1330,24 @@ async fn test_build_continue_writer_context() {
         ctx.contains("废土拾荒者"),
         "context should contain logline content"
     );
+    // v0.30.29: MASTER_SETTING 红线应注入到 ctx 头部（最前最突出，对齐 C 链路
+    // WriteTimeBundle.to_prompt 不变量；agency 续写此前完全绕过红线）
+    assert!(
+        ctx.contains("【⚠️ 世界观红线"),
+        "context should contain MASTER_SETTING redline header"
+    );
+    assert!(
+        ctx.contains("禁止时间旅行"),
+        "context should contain world_rules redline content"
+    );
+    let redline_pos = ctx.find("世界观红线").unwrap();
+    let char_pos = ctx.find("阿苔").unwrap();
+    assert!(
+        redline_pos < char_pos,
+        "redline must precede character section (got redline@{} vs char@{})",
+        redline_pos,
+        char_pos
+    );
 }
 
 /// v0.30.22: 简单前提（< 100 字符）触发 PROBLEM logline 生成。
@@ -1337,8 +1363,8 @@ async fn test_generate_logline_from_simple_premise() {
     let llm = MockLlm::scripted(vec![
         logline,
         r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅","characters":[{"name":"阿岩","background":"星环拾荒者","personality":"坚韧","goals":"寻找失散的妹妹"},{"name":"薇拉","background":"空间站医师","personality":"冷静","goals":"守住疫苗配方"}]}"#,
-        chapter.as_str(),
         r#"{"world":"双星废土","outline":"第一卷：拾荒者卷入星环阴谋","foreshadowing":["妹妹的项链（第三卷回收）"]}"#,
+        chapter.as_str(),
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格的首章\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone()).with_model_count(1);
@@ -1418,8 +1444,8 @@ async fn test_logline_stored_after_genesis() {
     let llm = MockLlm::scripted(vec![
         logline,
         r#"{"title":"解码者","genre":"科幻","logline":"考古学家的七十二小时","characters":[{"name":"林深","background":"星际考古学家","personality":"执着","goals":"解码警告信号"}]}"#,
-        chapter.as_str(),
         r#"{"world":"星际联邦时代，远古文明遗迹遍布","outline":"第一卷：信号解码","foreshadowing":["远古文明的最后一行文字"]}"#,
+        chapter.as_str(),
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(1);

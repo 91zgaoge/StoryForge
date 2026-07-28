@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.29（2026-07-28）
+
+### 内容质量根因修复：强模型结构化大纲不再被丢弃 + 大纲/世界观真正约束到生成链路
+
+用户报告"故事大纲没有生成整个故事线"。审计 + 实证（`cargo test` 证实）定位根因：`DepthAssets.outline` 声明为 `String`，强模型返回结构化整书大纲对象（`core_conflict` + `three_act_structure` + `turning_points`，覆盖 80 章）时 serde 类型不匹配 -> `parse_lenient` 返回 `None` -> 走散文兜底（`outline=空`）-> 大纲不写 `story_outlines` 表 -> 创世首章与续写都看不到大纲。**模型越强、大纲越完整，越被丢弃**。叠加链路问题：创世首章不注入 world/outline、续写缺合同红线、续写无抗重复清理、章节大纲用硬编码内联 prompt 旁路了 `scene_outline.md`。本版本五点修复形成完整闭环：大纲能生成 -> 正确落库 -> 约束首章 -> 约束续写 -> 清理产出。
+
+- **P0 根因·DepthAssets 支持结构化 outline（`coordinator.rs`）**：`outline: String` -> `outline: serde_json::Value`（`#[serde(default)]`，兼容 String/Object/Array）；新增 `normalize_outline(v: &Value) -> String` 将结构化对象（core_conflict / three_act_structure{act1,act2,act3} / turning_points）渲染为可读文本（【核心冲突】【三幕结构】【关键转折点】），未知字段 fallback `to_string()`；新增 `outline_value_is_empty` 判空；散文兜底 `outline: String::new()` -> `Value::Null`；内联 prompt 鼓励整本书结构化大纲（三幕 + 转折点数组，覆盖整条故事线）。下游零改动（`story_outlines.content` 仍为 TEXT，消费者已当纯文本处理）。
+- **P1·创世快速路径首章注入 world/outline（`coordinator.rs`）**：Phase B 编排由多模型 `tokio::join!(writer, producer)` 并行改为串行 producer-first（producer 先写深度资产到黑板 Asset 区，writer 再读资产写首章），消除首章在无大纲/无世界观上下文下写就的脱节根因；新增 `build_assets_ctx_brief` helper（读黑板 Asset 区，3000 字符预算）注入 `writer_first_chapter` 与 `writer_prose_fallback` 的 user prompt，system prompt 增补"人设、世界观与已埋伏笔以资产区为准，不得自相矛盾"。任一失败仍上抛回退 legacy。串行化损失多模型并行性，创世总耗时增加约一次 producer 单次 JSON 调用时长（质量优先取舍，配合 v0.30.5 已放开的 1800s 超时上限）。
+- **C1·续写注入合同红线 MASTER_SETTING（`coordinator.rs` `build_continue_writer_context`）**：续写 writer 上下文最前注入 MASTER_SETTING 红线（`StoryContractRepository::get_by_type` + `extract_redline_text`，截断 800 字），对齐 C 链路 `WriteTimeBundle.to_prompt` "红线最前最突出"不变量。Agency 续写此前完全绕过红线。
+- **C3·续写落库前接入抗重复三件套（`coordinator.rs` `handle_gate`）**：装配 Scene 前对 `draft.content` 依次应用 `TextUtils::trim_self_repetition`（自重复）-> `strip_existing_overlap`（取最新场景全文比对尾部 3000 字剥离复述）-> `trim_dangling_tail`（截断末句），与 C 链路 `orchestrator.rs` 同款。Agency 续写此前完全不清理，自重复/复述/截断半句直接入库回灌污染后续章节。
+- **C4·章节大纲改用 scene_outline.md 提示词（`coordinator.rs` `generate_chapter_outline`）**：硬编码内联 system/user prompt 替换为 DB-backed 加载 `resolve_prompt_with_vars(pool, "scene_outline", &vars)`（经 `spawn_blocking`，支持用户在提示词管理界面覆盖），vars 单独查库（story_outline / scene_number / characters 格式化 / scene_info）；`unwrap_or_else` 保留硬编码作 fallback。章节大纲现受"禁止发明新角色、定位故事大纲节点"强约束。
+- **验证**：`cargo test --lib` 1065 passed（+5：normalize_outline 对象/字符串/空/部分/未知 fallback；C1 红线注入扩展）；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（322 passed / 3 skipped）/ `cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
+
 ## v0.30.28（2026-07-28）
 
 ### UI 双模式设计系统重塑 + 落地页下载自动同步 + 幕前交互打磨

@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.30.28 架构文档
+# StoryMoss (草苔) v0.30.29 架构文档
+
+> **v0.30.29**：内容质量根因修复--强模型返回的结构化整书大纲对象不再被 `parse_lenient` 丢弃。`agency/coordinator.rs` 五点修复：①`DepthAssets.outline` 由 `String` 改为 `serde_json::Value` + 新增 `normalize_outline` 将结构化对象（core_conflict/three_act_structure/turning_points）渲染为可读文本落库（实证根因：serde `String` 类型不匹配 -> `parse_lenient` 返回 `None` -> 散文兜底 outline=空 -> 大纲不写 `story_outlines` 表，模型越强大纲越完整越被丢弃）；②创世 Phase B 由 `tokio::join!(writer, producer)` 并行改串行 producer-first，新增 `build_assets_ctx_brief` 注入首章；③续写 `build_continue_writer_context` 最前注入 MASTER_SETTING 红线；④`handle_gate` 落库前接入抗重复三件套（trim_self_repetition/strip_existing_overlap/trim_dangling_tail）；⑤`generate_chapter_outline` 改用 DB-backed `scene_outline.md` 提示词。
 
 > **v0.30.26**：统一 Logline 增强提示为内联幽灵文本并修复分时预检缺少角色。`FrontstageBottomBar.tsx` 将 v0.30.24 的独立 `.frontstage-logline-hint` 建议条改为输入框内跟在已输入内容后的幽灵后缀（前缀 `visibility:hidden` 占位，后缀灰色透明），`FrontstageApp.tsx` 按 `→` 追加后缀、Enter 提交“原输入 + 增强后缀”组合文本；新增 `resources/prompts/agency/agency_logline_suffix.md` 让后端 `generate_logline_hint` 只返回追加后缀；简化 `handleSmartGeneration` 恢复只接收 `userInput`，移除 `originalInputForLoglineRef` / `intentClassificationInput` 透传。修复分时预检缺少角色：`intent.rs` 兜底路径按输入文本判断创世意图；`story_system/preflight.rs` 的 `QuickPreflightChecker` 在角色表为空时自动创建占位主角（仅一次 DB 写入，不触发 LLM），避免空角色表阻塞生成。
 >

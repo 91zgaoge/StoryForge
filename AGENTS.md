@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.28
+- **版本**: v0.30.29
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,7 +84,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1060 passed
+- `cargo test -p storymoss` ✅ 1065 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 322 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -94,6 +94,15 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.29 - 内容质量根因修复：强模型结构化大纲不再被丢弃 + 大纲/世界观约束到生成链路
+
+- **P0 根因·DepthAssets 结构化 outline（`coordinator.rs`）**：`outline: String` -> `serde_json::Value`（兼容 String/Object/Array）；新增 `normalize_outline` 将结构化对象（core_conflict/three_act_structure{act1,act2,act3}/turning_points）渲染为可读文本（【核心冲突】【三幕结构】【关键转折点】），未知字段 fallback `to_string()`；新增 `outline_value_is_empty` 判空；散文兜底 `outline` 改 `Value::Null`；内联 prompt 鼓励整书三幕+转折点大纲。**实证根因**：强模型返回结构化整书大纲对象时 serde `String` 类型不匹配 -> `parse_lenient` 返回 `None` -> 走散文兜底（`outline=空`）-> 大纲不写 `story_outlines` 表 -> 首章与续写都看不到大纲（模型越强、大纲越完整，越被丢弃）。下游零改动（`content` 仍 TEXT，消费者已当纯文本处理）。
+- **P1·创世首章注入 world/outline（`coordinator.rs`）**：Phase B 编排由多模型 `tokio::join!(writer, producer)` 并行改串行 producer-first（producer 先写深度资产到黑板 Asset 区，writer 后读资产写首章）；新增 `build_assets_ctx_brief` helper（读 Asset 区 3000 字符预算）注入 `writer_first_chapter`/`writer_prose_fallback`，system prompt 增补"人设/世界观/伏笔以资产为准不得自相矛盾"。消除首章在无大纲/无世界观下写就的脱节；任一失败仍上抛回退 legacy。
+- **C1·续写注入 MASTER_SETTING 红线（`coordinator.rs` `build_continue_writer_context`）**：上下文最前注入合同红线（`StoryContractRepository::get_by_type` + `extract_redline_text` 800 字截断），对齐 C 链路 `WriteTimeBundle.to_prompt` "红线最前最突出"不变量；Agency 续写此前完全绕过红线。
+- **C3·续写落库前抗重复三件套（`coordinator.rs` `handle_gate`）**：装配 Scene 前对 `draft.content` 应用 `TextUtils::trim_self_repetition` -> `strip_existing_overlap`（取最新场景全文比对尾部 3000 字）-> `trim_dangling_tail`，与 C 链路 `orchestrator.rs` 同款；此前自重复/复述/截断半句直接入库回灌污染后续章节。
+- **C4·章节大纲改用 scene_outline.md（`coordinator.rs` `generate_chapter_outline`）**：硬编码 prompt 替换为 DB-backed `resolve_prompt_with_vars(pool, "scene_outline", &vars)`（`spawn_blocking`，支持用户在提示词管理界面覆盖），vars 单独查库（story_outline/scene_number/characters/scene_info）；`unwrap_or_else` 保留硬编码 fallback。章节大纲受"禁止发明新角色、定位故事大纲节点"强约束。
+- **验证**：`cargo test --lib` 1065 passed（+5：normalize_outline 对象/字符串/空/部分/未知 fallback；C1 红线注入扩展）；`cargo check`/`npx tsc --noEmit`/`npx vitest run`（322 passed / 3 skipped）/`cargo +nightly fmt`/`cargo clippy --lib`（baseline 540 零新增）/`architecture_guard`/`npm run format:check` 全绿。
 
 ### v0.30.28 - UI 双模式设计系统重塑；落地页下载自动同步；幕前交互打磨
 
@@ -604,7 +613,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-28 - v0.30.28_
+_最后更新: 2026-07-28 - v0.30.29_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

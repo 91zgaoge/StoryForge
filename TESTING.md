@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.28)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.29)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.29 变更说明
+
+- 内容质量根因修复（强模型结构化大纲不再被丢弃 + 大纲/世界观约束到生成链路）：`agency/coordinator.rs` 五点修复。
+- 后端测试变更：新增 `depth_assets_outline_tests` 模块 5 项（`normalize_outline` 对象/字符串/空/部分/未知 fallback）；`test_build_continue_writer_context` 扩展 MASTER_SETTING 红线注入断言（红线在 ctx 头部、先于角色段）；`fastpath_script` 等 8 项编排测试适配 P1 串行 producer-first 调用序（mock 队列 concept -> depth -> writer -> editor，取消测试 `fire_on` 2 -> 3）。
+- 全量基线：`cargo test --lib` 1065 passed / 2 ignored；`npx vitest run` 322 passed / 3 skipped（无前端变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.28 变更说明
 

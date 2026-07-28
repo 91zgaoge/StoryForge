@@ -565,8 +565,11 @@ pub struct ConceptPack {
 }
 
 /// 创世快速路径：producer 深度资产单调用产出。
-/// world 带别名（本地模型常用 world_view 等变体键）；foreshadowing 宽松为
-/// Value 数组，消费时经 normalize_foreshadowing 归一为字符串。
+/// world 带别名（本地模型常用 world_view 等变体键）；outline 宽松为 Value
+/// （强模型常返回结构化对象 core_conflict/three_act_structure/turning_points，
+/// 弱模型返回纯文本字符串），消费时经 normalize_outline 归一为可读文本；
+/// foreshadowing 宽松为 Value 数组，消费时经 normalize_foreshadowing
+/// 归一为字符串。
 #[derive(Debug, serde::Deserialize)]
 pub struct DepthAssets {
     #[serde(
@@ -577,7 +580,7 @@ pub struct DepthAssets {
     )]
     pub world: String,
     #[serde(default)]
-    pub outline: String,
+    pub outline: serde_json::Value,
     #[serde(default)]
     pub foreshadowing: Vec<serde_json::Value>,
 }
@@ -607,6 +610,83 @@ pub(crate) fn normalize_foreshadowing(v: &serde_json::Value) -> String {
             .find_map(|k| other.get(k).and_then(|x| x.as_str()))
             .map(String::from)
             .unwrap_or_else(|| other.to_string()),
+    }
+}
+
+/// 故事大纲归一化（v0.30.29）：强模型常把 outline 返回为结构化对象
+/// （core_conflict / three_act_structure{act1,act2,act3} / turning_points），
+/// 此函数将其渲染为下游消费者（story_outlines.content 纯文本契约）可读的
+/// 文本；字符串原样返回；Null/空返回空串。修复 v0.30.28 前 outline: String
+/// 导致结构化对象被 serde 丢弃、整段大纲不落库的根因（模型越强越被丢弃）。
+pub(crate) fn normalize_outline(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Object(obj) => {
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(cc) = obj.get("core_conflict").and_then(|x| x.as_str()) {
+                if !cc.trim().is_empty() {
+                    parts.push(format!("【核心冲突】\n{}", cc.trim()));
+                }
+            }
+            if let Some(tas) = obj.get("three_act_structure").and_then(|x| x.as_object()) {
+                let mut acts: Vec<String> = Vec::new();
+                for (label, key) in [("起因", "act1"), ("发展", "act2"), ("高潮与结局", "act3")]
+                {
+                    if let Some(a) = tas.get(key).and_then(|x| x.as_str()) {
+                        if !a.trim().is_empty() {
+                            acts.push(format!("· {}：{}", label, a.trim()));
+                        }
+                    }
+                }
+                if !acts.is_empty() {
+                    parts.push(format!("【三幕结构】\n{}", acts.join("\n")));
+                }
+            }
+            if let Some(tp) = obj.get("turning_points").and_then(|x| x.as_array()) {
+                let pts: Vec<String> = tp
+                    .iter()
+                    .filter_map(|p| {
+                        let s = match p {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => normalize_foreshadowing(other),
+                        };
+                        let t = s.trim().to_string();
+                        if t.is_empty() {
+                            None
+                        } else {
+                            Some(t)
+                        }
+                    })
+                    .collect();
+                if !pts.is_empty() {
+                    let numbered: Vec<String> = pts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| format!("{}. {}", i + 1, p))
+                        .collect();
+                    parts.push(format!("【关键转折点】\n{}", numbered.join("\n")));
+                }
+            }
+            // 兜底：结构化字段全未命中但对象非空 -> 序列化原文保留信息
+            if parts.is_empty() && !obj.is_empty() {
+                parts.push(v.to_string());
+            }
+            parts.join("\n\n")
+        }
+        // Array / Bool / Number 等异常形态：序列化为文本保留信息
+        other => other.to_string(),
+    }
+}
+
+/// outline Value 空值判定：Null / 空串 / 空对象 / 空数组 视为空。
+pub(crate) fn outline_value_is_empty(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(s) => s.trim().is_empty(),
+        serde_json::Value::Object(o) => o.is_empty(),
+        serde_json::Value::Array(a) => a.is_empty(),
+        _ => false,
     }
 }
 
@@ -1420,43 +1500,30 @@ impl AgencyCoordinator {
         self.emit_activity(run_id, AgentRole::Producer, "done", "概念");
 
         let registry = Arc::new(ToolRegistry::agency_default());
-        // Phase B 双模式编排：>1 个可用生成模型 → 首章与深度资产并行；
-        // ≤1（单模型）→ 主创优先先出稿，资产随后
-        let draft = if self.generative_model_count().await > 1 {
-            self.update_phase(repo, run_id, "assets").await?;
-            self.emit_progress(run_id, "assets", "running", "首章与深度资产并行生成中");
-            self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
-            self.emit_activity(run_id, AgentRole::Producer, "start", "深度资产");
-            let (writer_res, producer_res) = tokio::join!(
-                self.writer_first_chapter(run_id, &story_id, premise, pack, budget),
-                self.producer_depth_assets(run_id, &story_id, premise, pack, budget),
-            );
-            // 两个都成功才继续；任一失败由外层回退 legacy
-            let draft = writer_res.map_err(|e| AppError::from(format!("首章单调用失败: {}", e)))?;
-            let n =
-                producer_res.map_err(|e| AppError::from(format!("深度资产单调用失败: {}", e)))?;
-            log::info!("agency: 深度资产写入 {} 条", n);
-            self.emit_activity(run_id, AgentRole::LeadWriter, "done", "首章");
-            self.emit_activity(run_id, AgentRole::Producer, "done", "深度资产");
-            draft
-        } else {
-            self.update_phase(repo, run_id, "writing").await?;
-            self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
-            self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
-            let draft = self
-                .writer_first_chapter(run_id, &story_id, premise, pack, budget)
-                .await?;
-            self.emit_activity(run_id, AgentRole::LeadWriter, "done", "首章");
-            self.update_phase(repo, run_id, "assets").await?;
-            self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产深度资产");
-            self.emit_activity(run_id, AgentRole::Producer, "start", "深度资产");
-            let n = self
-                .producer_depth_assets(run_id, &story_id, premise, pack, budget)
-                .await?;
-            log::info!("agency: 深度资产写入 {} 条", n);
-            self.emit_activity(run_id, AgentRole::Producer, "done", "深度资产");
-            draft
-        };
+        // Phase B 编排（v0.30.29）：producer 先生成深度资产（world/outline/
+        // foreshadowing 写入黑板 Asset 区），writer 再写首章--首章可读到世界观与
+        // 故事大纲，不再脱节。此前多模型并行（tokio::join!）让首章在无大纲/无
+        // 世界观上下文下写就，是首章剧情脱节的根因；现统一串行，producer 与
+        // writer 仍各用各的模型档（Producer/LeadWriter），仅不并行。任一失败
+        // 由外层回退 legacy。
+        self.update_phase(repo, run_id, "assets").await?;
+        self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产深度资产");
+        self.emit_activity(run_id, AgentRole::Producer, "start", "深度资产");
+        let n = self
+            .producer_depth_assets(run_id, &story_id, premise, pack, budget)
+            .await
+            .map_err(|e| AppError::from(format!("深度资产单调用失败: {}", e)))?;
+        log::info!("agency: 深度资产写入 {} 条", n);
+        self.emit_activity(run_id, AgentRole::Producer, "done", "深度资产");
+        self.check_cancel(cancel)?;
+        self.update_phase(repo, run_id, "writing").await?;
+        self.emit_progress(run_id, "writing", "running", "主创 Agent 正在写作第一章");
+        self.emit_activity(run_id, AgentRole::LeadWriter, "start", "首章");
+        let draft = self
+            .writer_first_chapter(run_id, &story_id, premise, pack, budget)
+            .await
+            .map_err(|e| AppError::from(format!("首章单调用失败: {}", e)))?;
+        self.emit_activity(run_id, AgentRole::LeadWriter, "done", "首章");
         self.check_cancel(cancel)?;
 
         // 资产落库（黑板资产区 → characters/world_buildings/story_outlines）
@@ -1577,12 +1644,23 @@ impl AgencyCoordinator {
             AgentRole::Producer,
         );
         let concept_json = serde_json::to_string(concept).unwrap_or_default();
-        let raw = llm.complete_json(
-            "你是小说策划，只输出 JSON。",
-            &format!("故事前提：{}\n\n概念设定：{}\n\n输出 JSON：{{\"world\":\"世界观设定\",\"outline\":\"第一卷大纲（必须基于 PROBLEM 七元素：P惩罚性核心冲突/R可共情主角/O原创转折/B可信世界规则/L改变人生赌注/E娱乐性/M主题意义。须含核心冲突、三幕结构、至少3个转折点）\",\"foreshadowing\":[\"伏笔1（含回收计划）\"]}}", premise, concept_json),
-            TaskType::WorldBuilding,
-            4096,
-        ).await?;
+        // v0.30.29：outline 改为结构化对象（core_conflict + three_act_structure +
+        // turning_points），要求覆盖整本书完整故事线（不只第一卷）。DepthAssets.outline
+        // 已宽松为 Value，经 normalize_outline 渲染为可读文本落库 story_outlines。
+        let prompt = format!(
+            "故事前提：{}\n\n概念设定：{}\n\n输出 JSON，outline 须覆盖整本书完整故事线（起因/发展/高潮结局 + ≥3 转折点），不要只写第一卷：\n{}",
+            premise,
+            concept_json,
+            r#"{"world":"世界观设定（时代背景、地理、势力、规则、资源约束）","outline":{"core_conflict":"根植于世界观矛盾的核心冲突","three_act_structure":{"act1":"起因：催化事件与主角立足","act2":"发展：冲突升级与转折","act3":"高潮与结局：最终抉择与收束"},"turning_points":["转折点1（让情况恶化或揭示新信息）","转折点2","转折点3"]},"foreshadowing":["伏笔1（含埋设与回收计划）"]}"#
+        );
+        let raw = llm
+            .complete_json(
+                "你是小说策划，只输出 JSON。",
+                &prompt,
+                TaskType::WorldBuilding,
+                4096,
+            )
+            .await?;
         let assets: DepthAssets = match parse_lenient(&raw) {
             Some(a) => a,
             None => {
@@ -1599,13 +1677,14 @@ impl AgencyCoordinator {
                 );
                 DepthAssets {
                     world: trimmed.to_string(),
-                    outline: String::new(),
+                    outline: serde_json::Value::Null,
                     foreshadowing: Vec::new(),
                 }
             }
         };
+        let outline_text = normalize_outline(&assets.outline);
         if assets.world.trim().is_empty()
-            && assets.outline.trim().is_empty()
+            && outline_value_is_empty(&assets.outline)
             && assets.foreshadowing.is_empty()
         {
             return Err(AppError::from("depth assets 内容为空"));
@@ -1615,8 +1694,8 @@ impl AgencyCoordinator {
         if !assets.world.trim().is_empty() {
             entries.push(("world", "世界观".to_string(), assets.world));
         }
-        if !assets.outline.trim().is_empty() {
-            entries.push(("outline", "第一卷大纲".to_string(), assets.outline));
+        if !outline_text.trim().is_empty() {
+            entries.push(("outline", "故事大纲".to_string(), outline_text));
         }
         for (i, f) in assets.foreshadowing.iter().enumerate() {
             let text = normalize_foreshadowing(f);
@@ -1768,6 +1847,26 @@ impl AgencyCoordinator {
     /// 首章单调用（LeadWriter 档）：只输出正文；文本为空或 <200 字符视为
     /// 失败（触发外层回退 legacy）。成功则以 LeadWriter 身份写入 draft 区
     /// （item_type=chapter, key=第1章）并返回该条目。
+    /// 读黑板资产区拼接为上下文文本（3000 字符预算截断），供首章与散文回退
+    /// 注入 writer（单次 complete 场景，不走 tool_loop，无需检索规划）。
+    async fn build_assets_ctx_brief(&self, run_id: &str) -> Result<String, AppError> {
+        let board = self.board();
+        let rid = run_id.to_string();
+        let assets = self
+            .db(move || board.list_zone(&rid, BoardZone::Asset))
+            .await?;
+        let mut ctx = String::new();
+        for a in &assets {
+            let line = format!("【{}·{}】{}\n", a.item_type, a.key, a.content);
+            if ctx.chars().count() + line.chars().count() > 3000 {
+                ctx.push_str("…（更多资产已省略）");
+                break;
+            }
+            ctx.push_str(&line);
+        }
+        Ok(ctx)
+    }
+
     async fn writer_first_chapter(
         &self,
         run_id: &str,
@@ -1782,9 +1881,15 @@ impl AgencyCoordinator {
             AgentRole::LeadWriter,
         );
         let concept_json = serde_json::to_string(concept).unwrap_or_default();
+        // v0.30.29：注入 producer 已写入黑板资产区的世界观/故事大纲/伏笔，
+        // 首章不再在无大纲/无世界观上下文下写就。
+        let assets_ctx = self
+            .build_assets_ctx_brief(run_id)
+            .await
+            .unwrap_or_default();
         let text = llm.complete(
-            "你是小说主创，只输出章节正文。",
-            &format!("故事前提：{}\n\n概念设定：{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。", premise, concept_json),
+            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。",
+            &format!("故事前提：{}\n\n概念设定：{}\n\n创作资产：\n{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。须紧扣故事大纲的起因（第一幕）开篇。", premise, concept_json, assets_ctx),
             TaskType::CreativeWriting,
             8192,
         ).await?;
@@ -1834,21 +1939,8 @@ impl AgencyCoordinator {
             AgentRole::LeadWriter,
         );
         let board = self.board();
-        // 读资产区构建上下文（截断防爆上下文）
-        let rid = run_id.to_string();
-        let board_c = board.clone();
-        let assets = self
-            .db(move || board_c.list_zone(&rid, BoardZone::Asset))
-            .await?;
-        let mut assets_ctx = String::new();
-        for a in &assets {
-            let line = format!("【{}·{}】{}\n", a.item_type, a.key, a.content);
-            if assets_ctx.chars().count() + line.chars().count() > 3000 {
-                assets_ctx.push_str("…（更多资产已省略）");
-                break;
-            }
-            assets_ctx.push_str(&line);
-        }
+        // 读资产区构建上下文（截断防爆上下文），复用首章同款 helper
+        let assets_ctx = self.build_assets_ctx_brief(run_id).await?;
         let text = llm
             .complete(
                 "你是小说主创，只输出章节正文。",
@@ -1891,6 +1983,11 @@ impl AgencyCoordinator {
     /// 可用生成模型数（双模式编排判据）：测试注入优先；否则读 AppConfig
     /// 经 UnifiedModelRegistry 统计；任何解析失败回退 2（多模型路径）。
     /// 配置加载为同步文件/SQLite IO，走 spawn_blocking。
+    ///
+    /// v0.30.29：genesis_fastpath 改为 producer->writer
+    /// 串行（首章需读到资产）， 此判据暂不再用于编排分支，
+    /// 保留以备未来按模型数恢复并行优化。
+    #[allow(dead_code)]
     async fn generative_model_count(&self) -> usize {
         if let Some(n) = self.model_count_override {
             return n;
@@ -2895,11 +2992,29 @@ impl AgencyCoordinator {
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         self.db(move || {
-            use crate::db::repositories::{
-                CharacterRepository, SceneRepository, StoryOutlineRepository,
-                WorldBuildingRepository,
+            use crate::db::{
+                repositories::{
+                    CharacterRepository, SceneRepository, StoryOutlineRepository,
+                    WorldBuildingRepository,
+                },
+                StoryContractRepository,
             };
             let mut ctx = String::new();
+            // 合同红线（v0.30.29）：MASTER_SETTING 红线最前最突出，对齐 C 链路
+            // WriteTimeBundle.to_prompt 的不变量。agency 续写此前完全绕过红线。
+            if let Ok(Some(c)) =
+                StoryContractRepository::new(pool.clone()).get_by_type(&sid, "MASTER_SETTING")
+            {
+                let redline = crate::creative_engine::write_time_bundle::extract_redline_text(
+                    &c.contract_json,
+                );
+                if !redline.trim().is_empty() {
+                    ctx.push_str(&format!(
+                        "【⚠️ 世界观红线（绝不可违背，违反即判定为严重错误）】\n{}\n\n",
+                        redline
+                    ));
+                }
+            }
             // 角色（与 asset_query(kind=characters) 同源）
             let chars = CharacterRepository::new(pool.clone())
                 .get_by_story(&sid)
@@ -2998,18 +3113,64 @@ impl AgencyCoordinator {
             budget.clone(),
             AgentRole::Producer,
         );
-        let system = "你是章节大纲规划师。根据故事大纲和前文，生成本章详细大纲。\
-                       章节大纲必须服从故事大纲的推进方向，指定本章的核心冲突、情节转折和推进内容。\
-                       要有起伏、有转折、有精彩的冲突。\
-                       只输出章节大纲正文，不要输出 JSON 或标题前缀。";
-        let user = format!(
-            "故事前提：{}\n\n本章：{}\n\n已有资产与前文：\n{}\n\n请生成本章大纲（200-400 字），包含：\n\
-             1. 本章核心冲突\n\
-             2. 情节转折点（至少 1 个）\n\
-             3. 本章推进内容（故事往前走什么）\n\
-             4. 场景设计（场景/对话/动作概要）",
-            premise, key, assets_ctx
-        );
+        // v0.30.29：改用 scene_outline.md 提示词（强制复用已登场角色、禁止发明
+        // 新角色、围绕故事大纲节点定位），替代硬编码内联 prompt。DB-backed 加载
+        // 支持用户在提示词管理界面覆盖。vars 单独查库获取干净变量。
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let premise_c = premise.to_string();
+        let key_c = key.clone();
+        let scene_number = chapter_number.to_string();
+        let prompt_text = tokio::task::spawn_blocking(move || -> String {
+            use crate::db::repositories::{CharacterRepository, StoryOutlineRepository};
+            use std::collections::HashMap;
+            let story_outline = StoryOutlineRepository::new(pool.clone())
+                .get_by_story(&sid)
+                .ok()
+                .flatten()
+                .map(|o| o.content)
+                .unwrap_or_default();
+            let chars = CharacterRepository::new(pool.clone())
+                .get_by_story(&sid)
+                .unwrap_or_default();
+            let characters: String = chars
+                .iter()
+                .map(|c| {
+                    format!(
+                        "- {}：性格{}｜目标{}",
+                        c.name,
+                        c.personality.as_deref().unwrap_or("-"),
+                        c.goals.as_deref().unwrap_or("-")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let scene_info = format!("故事前提：{}\n本章：{}", premise_c, key_c);
+            let mut vars = HashMap::new();
+            vars.insert("story_outline".to_string(), story_outline);
+            vars.insert("scene_number".to_string(), scene_number);
+            vars.insert("characters".to_string(), characters);
+            vars.insert("scene_info".to_string(), scene_info);
+            crate::prompts::registry::resolve_prompt_with_vars(&pool, "scene_outline", &vars)
+                .unwrap_or_else(|_| {
+                    format!(
+                        "你是章节大纲规划师。根据故事大纲和前文，生成本章详细大纲。\n                         章节大纲必须服从故事大纲的推进方向，指定本章的核心冲突、情节转折和推进内容。\n                         故事前提：{}\n本章：{}\n请生成本章大纲（200-400 字），只输出正文。",
+                        premise_c, key_c
+                    )
+                })
+        })
+        .await
+        .unwrap_or_default();
+        let system =
+            "你是专业的小说场景规划师，只输出本场景的执行大纲，不要输出 JSON 或整本书弧线规划。";
+        let user = if prompt_text.is_empty() {
+            format!(
+                "故事前提：{}\n\n本章：{}\n\n已有资产与前文：\n{}\n\n请生成本章大纲（200-400 字）",
+                premise, key, assets_ctx
+            )
+        } else {
+            prompt_text
+        };
         let result = llm.complete(system, &user, TaskType::Analysis, 2048).await;
         let text = match result {
             Ok(t) => t.trim().to_string(),
@@ -3258,7 +3419,32 @@ impl AgencyCoordinator {
             .unwrap_or(None);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
-        let content = draft.content.clone();
+        // v0.30.29：落库前抗重复清理（对齐 C 链路 orchestrator ②③④三件套）：
+        // trim_self_repetition 去自重复 -> strip_existing_overlap 剥离复述已有正文
+        // -> trim_dangling_tail 裁截断末句。existing 取最新场景全文（函数内部只
+        // 比对尾部 3000 字）。agency 续写此前完全不清理，自重复/复述/截断半句
+        // 直接入库并回灌污染后续章节。
+        let raw_content = draft.content.clone();
+        let pool_clean = pool.clone();
+        let sid_clean = sid.clone();
+        let raw_for_fallback = raw_content.clone();
+        let content = tokio::task::spawn_blocking(move || -> String {
+            use crate::{db::repositories::SceneRepository, utils::text::TextUtils};
+            let mut t = TextUtils::trim_self_repetition(&raw_content);
+            if let Ok(scenes) = SceneRepository::new(pool_clean).get_by_story(&sid_clean) {
+                if let Some(existing) = scenes
+                    .iter()
+                    .next_back()
+                    .and_then(|s| s.content.as_deref())
+                    .filter(|c| !c.is_empty())
+                {
+                    t = TextUtils::strip_existing_overlap(&t, existing);
+                }
+            }
+            TextUtils::trim_dangling_tail(&t)
+        })
+        .await
+        .unwrap_or(raw_for_fallback);
         let title_c = format!("第{}章", chapter_number);
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = crate::db::repositories::SceneRepository::new(pool);
@@ -4435,5 +4621,71 @@ fn default_role_prompt(prompt_id: &str) -> &'static str {
         "agency_producer_system" => "你是「管理」：生产世界观/角色/大纲/伏笔资产，写入 asset 区。",
         "agency_editor_auditor_system" => "你是「编辑审计」：按 rubric 审查草稿，输出裁决 JSON：verdict（pass/revise）、score（1-5 总分）、dimension_scores（continuity/style/contract/ai_tone/hook 各 1-5）、blocking_issues（阻塞问题，字符串或 {\"issue\",\"evidence\"} 对象，evidence 须引用原文证据）、suggestions、comments。",
         _ => "你是创作团队的一员。",
+    }
+}
+
+#[cfg(test)]
+mod depth_assets_outline_tests {
+    use super::{normalize_outline, outline_value_is_empty, parse_lenient, DepthAssets};
+
+    #[test]
+    fn structured_outline_object_parses_and_normalizes() {
+        // v0.30.29 修复：强模型返回 outline 为嵌套对象（core_conflict +
+        // three_act_structure + turning_points）时，DepthAssets.outline 已宽松为
+        // Value，不再被 serde 丢弃。经 normalize_outline 渲染为可读文本落库。
+        let raw = r#"{
+  "world": "五代十国末年，柳林集...",
+  "outline": {
+    "core_conflict": "李长风必须在资源极度匮乏中建立避难所",
+    "three_act_structure": {"act1":"穿越与立足","act2":"扩张与危机","act3":"浩劫与抉择"},
+    "turning_points": ["转折点1","转折点2","转折点3"]
+  },
+  "foreshadowing": ["伏笔1：霉变豆豉"]
+}"#;
+        let parsed: DepthAssets = parse_lenient(raw).expect("结构化 outline 对象应解析成功");
+        let text = normalize_outline(&parsed.outline);
+        assert!(text.contains("【核心冲突】"));
+        assert!(text.contains("李长风必须"));
+        assert!(text.contains("【三幕结构】"));
+        assert!(text.contains("穿越与立足"));
+        assert!(text.contains("扩张与危机"));
+        assert!(text.contains("浩劫与抉择"));
+        assert!(text.contains("【关键转折点】"));
+        assert!(text.contains("转折点1"));
+    }
+
+    #[test]
+    fn string_outline_parses_ok() {
+        let raw = r#"{"world":"世设","outline":"第一卷大纲纯文本","foreshadowing":["伏笔1"]}"#;
+        let parsed: DepthAssets = parse_lenient(raw).expect("字符串 outline 应解析成功");
+        // 字符串形态原样返回
+        assert_eq!(normalize_outline(&parsed.outline), "第一卷大纲纯文本");
+    }
+
+    #[test]
+    fn normalize_outline_null_and_empty() {
+        assert_eq!(normalize_outline(&serde_json::Value::Null), "");
+        assert!(outline_value_is_empty(&serde_json::Value::Null));
+        assert!(outline_value_is_empty(&serde_json::Value::String(
+            String::new()
+        )));
+        assert!(outline_value_is_empty(&serde_json::json!({})));
+        assert!(outline_value_is_empty(&serde_json::json!([])));
+        assert!(!outline_value_is_empty(&serde_json::json!({"a": 1})));
+    }
+
+    #[test]
+    fn normalize_outline_partial_object() {
+        // 仅 core_conflict，缺三幕与转折点：只渲染命中字段
+        let v = serde_json::json!({"core_conflict": "冲突A"});
+        assert_eq!(normalize_outline(&v), "【核心冲突】\n冲突A");
+    }
+
+    #[test]
+    fn normalize_outline_unknown_object_falls_back() {
+        // 对象非空但无已知字段 -> 序列化原文保留信息
+        let v = serde_json::json!({"unknown_field": "数据"});
+        let text = normalize_outline(&v);
+        assert!(text.contains("unknown_field"));
     }
 }
