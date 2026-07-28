@@ -1,106 +1,213 @@
 <p align="center">
-  <img src="docs/images/logo.png" alt="StoryMoss 草苔" width="120" />
+  <img src="docs/images/logo.png" alt="StoryMoss 草苔" width="140" />
 </p>
 
-# StoryMoss (草苔) — AI 辅助小说创作系统
+<h1 align="center">StoryMoss · 草苔</h1>
 
-> 🌿 越写越懂的 AI 小说创作桌面应用
->
-> 专为小说作者打造的创作工作台：幕后管理故事/角色/场景/世界观，幕前沉浸式写作，AI 在需要时随行辅助。
+<p align="center">
+  🌿 <strong>越写越懂的 AI 小说创作桌面应用</strong><br/>
+  幕后管理故事资产，幕前沉浸式写作，AI 在需要时随行辅助
+</p>
 
-[![Version](https://img.shields.io/badge/version-v0.30.32-gold)](./CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
+<p align="center">
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.32-gold"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
+  <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2.4-orange.svg">
+  <img alt="React" src="https://img.shields.io/badge/React-18-61dafb.svg">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95-dea584.svg">
+</p>
 
-**最新动态**：v0.30.32 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联（v0.30.31 让世界观/大纲/场景/进度彼此强关联但用户的增强指令未纳入这套强关联--增强后缀生成时不读世界观、进入管线后又与资产各居一隅"失去增强意义"；`build_logline_context_sync` 新增拉 `world_buildings` 为 `world_setting` 让后缀与世界观规则一致，`build_progression_anchor` 加 `user_instruction` 参数把指令作为首个段注入 + 显式调和"资产=硬约束/指令=创作方向/在硬约束内落实指令核心意图/冲突时调整指令以符合约束但保留核心意图"，创世 writer 与 TimeSliced prompt 同步补调和指令）；v0.30.31 续写链路修复（世界观/故事大纲/场景大纲注入与剧情推进方向：审计发现幕前续写走 Legacy TriShot 但 `final_prompt` 由 Call1 LLM 合成，故事大纲/场景大纲 outline_content/世界观三者均不到达 writer（v0.30.15 注释声称修了 TimeSliced/TriShot，实际只修了 TimeSliced）--新增 `build_progression_anchor` 在 final_prompt 后确定性注入【剧情推进方向】段无论 Call1 合成质量如何都到达 Call3 writer；WriteTimeBundle 新增 `world_setting` 读 world_buildings 表 concept/rules/history/cultures，manifest 增加 story_outline/world_setting 清单项；进度指针用现有 `scenes.outline_content` 回读最近 3 章作为"已推进到哪"无 DB 迁移；`scene_outline.md` 修"按序号定位节点"伪前提为"按已推进进度定位"，Legacy 与 Agency 双路径注入 world+progress；Agency `build_continue_writer_context` 世界观全字段+前文保底修复阈值倒挂+进度指针，`ensure_world_building` concept 存全文+rules 解析落库，editor 质量门预注入参照资产）；v0.30.30 Agency 创作链路结构性优化（抗重复闭环 + 质量门宽松度 + 熔断不丢稿：创世装配接入清理三件套 `cleanup_prose_for_persist` 与续写共用，lead_writer/editor_auditor 系统提示词 + 内联 writer prompts 补齐禁止重复指令；质量门 scoreless pass 兜底 0.85 -> 0.7，editor 不给数值分时不再单凭 model 项过门；`salvage_failed_gate` 让 editor 完全评不出裁决时 substantive 草稿降级放行保产出而非整 run 失败；writer MaxTurns/Deadline 熔断先从黑板取回已产出草稿再散文回退，不再直接丢稿）；v0.30.29 内容质量根因修复（强模型返回的结构化整书大纲对象不再被 `parse_lenient` 丢弃：`DepthAssets.outline` 由 `String` 改为 `serde_json::Value` + 新增 `normalize_outline` 渲染为可读文本落库，模型越强大纲越完整越被丢弃的根因消除；创世 Phase B 由 `tokio::join!` 并行改串行 producer-first，首章读到世界观/大纲不再脱节；续写注入 MASTER_SETTING 红线 + 落库前抗重复三件套 + 章节大纲改用 `scene_outline.md` 强约束禁止发明新角色）；v0.30.28 UI 双模式设计系统重塑（幕前墨纸 / 幕后机械，token 化调色板与圆角/阴影）+ 落地页下载从 latest.json 自动同步 + 幕前交互打磨（恢复 logline 幽灵后缀灰色小字号、发射按钮扁平化、移除鼠标静止蒙版）；v0.30.27 上下文感知 Logline 后缀 + 输入框自适应高度（已有故事大纲/场景大纲/角色/正文时，`generate_logline_hint` 结合上下文生成贴合剧情的后缀；`FrontstageBottomBar` textarea 根据内容与幽灵提示自动增高，上限 200px）；v0.30.26 统一 Logline 增强提示为内联幽灵文本并修复分时预检缺少角色问题（独立 `.frontstage-logline-hint` 建议条改为输入框内跟在已输入内容后的幽灵后缀；新增 `agency_logline_suffix` prompt 让后端只返回追加后缀；按 `→` 追加、Enter 提交原输入+后缀；意图分类兜底按输入文本判断创世意图，`QuickPreflightChecker` 在角色表为空时自动创建占位主角）；v0.30.25 修复续写 600s 超时（三层根因叠加：①前端 `FrontstageApp.tsx` 续写请求在调用 `smart_execute` 前 `await autoCreateMissingContracts` 串行 4 次 LLM 调用~6 分钟阻塞，v0.26.22 的 `is_silent_background` 只隐藏 `isAnyBackendActive` 但 `await` 仍阻塞触发 600s 看门狗--现续写时后台 fire-and-forget `fireAutoContractInBackground` + `autoContractInProgressRef` 防并发 + 非阻塞 toast，非续写保持阻塞；②`openai.rs` 的 `Message` 结构体不捕获 `reasoning_content` 字段，DeepSeek 推理模型把思维链放在该字段导致 `content=""` 静默失败合同永远补不齐--现结构体加 `reasoning_content: Option<String>` + `content` 为空时 fallback + 纯函数 `resolve_content`；③`auto_contract.rs` 每个 `build_*` 调用无超时--现各包 30s timeout，总上限 120s）；v0.30.24 Logline 幽灵提示（用户输入简单创世指令如"写一部现代间谍的长篇小说"时，后台用 v0.30.22 的 PROBLEM logline 生成功能产出一句强力 logline，以幽灵提示显示在输入栏下方，用户按 `->` 即可用 logline 替换原始简单指令再执行，避免简单指令得不到好结果而反复试；1.5s 防抖 + 请求 ID 防竞态 + 15s 超时静默降级 + 与现有 ghost hint 互斥）；v0.30.23 意图分类 Bug 修复（LLM 分类去偏 + 失败兜底上下文化：修复"写一部现代间谍的长篇小说"被误分类为续写导致 `VALIDATION_FAILED`；提示词移除 `已有故事=true` 上下文偏差注入 + 新增正例 + 移除保守措辞，LLM 基于用户输入本身判定意图；新增 `conservative_fallback_with_context`--LLM 失败时无故事返回创世/有故事返回续写；仅缓存 LLM 成功结果不缓存兜底；前端兜底上下文化）；v0.30.22 PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强：简单指令如"写一部科幻小说"现基于 Erik Bork 的 PROBLEM 七元素 Punishing/Relatable/Original/Believable/Life-Altering/Entertaining/Meaningful 自动生成强力 Logline"谁 + 催化事件 + 核心不可能的任务 + 失败后果"，替换原始指令作为下游故事生成前提，故事大纲受 PROBLEM 七元素引导，Logline 持久化到故事并注入续写上下文，prompts 注册表新增可编辑资产 `agency_problem_logline` / `agency_problem_outline`）；v0.30.21 续写资产层级生成（世界观 -> 故事大纲 -> 章节大纲 -> 正文：`ensure_assets` 扩展检查 world_buildings/story_outlines 缺失时强制生成，`generate_chapter_outline` 每章生成服从故事大纲的章节大纲，strict writer task 含方向约束与冲突要求，`handle_gate` 存 `scenes.outline_content`）；v0.30.20 修复质量门编辑审计 Agent 熔断（本地模型 JSON 不遵从：editor tool_loop 连续解析失败/达最大轮数熔断时原直接 Failed 导致整 run 失败；新增 salvage + 散文回退两层兜底，与 v0.30.3 writer 熔断同理）；v0.30.18 修复幕前意图分类 null 崩溃（E2E mock 未注册命令返回 null -> `null.is_new_novel` PAGEERROR；post-catch null 兜底）；v0.30.17 幕前顶部创世状态显示三 Agent 动作/进度；v0.30.16 故事资产手动编辑（大纲/摘要/伏笔编辑+删除/角色关系编辑）；v0.30.12 修复续写返回审查报告：force-correction 漏拦 inspector（planner 强制改 writer 列表漏 inspector，本地模型 Gemma 把续写误路由到 inspector；提取 `PlanGenerator::should_force_correct_to_writer` 纯函数按 LLM 分类分流，Rule 9/21 澄清续写≠refine 并禁用 inspector）；v0.30.11 用 LLM 意图分类器替换朴素子串意图匹配（IntentParser::classify_writing_intent 单次 LLM 调用产出全部路由决策 is_new_novel/is_continuation/task_type/is_prose_request/input_clarity/detected_genre/confidence，8s 超时 + 保守回退 + 会话 LRU 缓存；修复 6 处高危路由点 is_novel_creation_intent/find_template/from_instruction_and_context/force-correction/extract_genre/intention_graph；前端 classifyIntent API 取代 isNovelCreationIntent/isContinuationIntent）；v0.30.10 修复续写返回风格增强模板而非正文（模板匹配误路由--"这部小说"触发词匹配"继续写当前这部小说"导致跳过 planner 重放 style_enhancer 计划；4 层修复：续写意图跳过模板匹配 + force-correction 扩展 + content 空兜底注入 + Rule 21 强化）；v0.30.9 修复续写返回 Inspector 审查模板（inspector draft 空内容兜底注入）；v0.30.8 全面修复 nullable 列读取（`Invalid column type Null` 系列--cultures/rules/characters_present/llm_config 等 8 个文件 31 处）；v0.30.7 修复续写计划执行失败（LLM 在 `depends_on` 混入上下文名 "Story Context" 导致整 plan 链式 not found）；v0.30.6 修复获取角色失败（`dynamic_traits` 列 NULL 致 `Invalid column type Null`）；v0.30.5 修复创世流程严重超时（600s 顶满）；v0.30.4 幕前输入历史持久化--底部输入框已输入内容按故事隔离存入 localStorage，关闭窗口/重启后不丢失，↑ 键召回历史指令；v0.30.1 创世提速——创世从 12-18 次串行 LLM 调用压缩为三阶段 4 次（概念包 → 主创首章 ∥ 管理深度资产 → 编辑质量门），典型远程模型首章 ≤3 分钟，主创模型优先，解析失败自动回退串行流程；v0.30.0 完成 Agency 多代理创作框架（创世 2.0）P5——持续学习 + 代理可视化（观察层 observations.jsonl 轮转防自观察 → 后台 analyzer → instinct 置信度引擎与惰性清理 → 跨 story 晋升物化为目录技能、学习中心页、代理工作室页、eval 场景 CI 门禁）；v0.29.0 完成 P4——验证循环（code/rule/model/human 四级 grader、Gate v2 加权评分阈值 0.75、V110 里程碑检查点与对比、JSON 场景 eval harness 与 baseline 回归门、侧栏「创作评估」仪表盘页）；v0.28.0 发布 P3（角色×任务模型路由、全局 agency LLM 并发闸门、注入 token 预算与黑板三档目录、`agency_sessions` 会话快照与跨会话恢复）。
+---
 
-**上一版 v0.26.59** 完成 StoryForge → StoryMoss 品牌重命名收尾，上线官网落地页 `https://ai.91z.net`，下载按钮按平台自动指向对应安装包；v0.26.58 修复 Deepseek/OpenAI 兼容模型因 `top_p=0` 导致健康检测/生成失败。
+## ✨ 核心特性
 
-**上一版 v0.26.48** 修复自动更新——开启 `createUpdaterArtifacts`，CI 产出 `latest.json`/签名包并同步到 `https://storymoss.top/releases/`；应用内优先从官网检查更新，GitHub Releases 保留为回退源；Linux 补 AppImage。
+| | 特性 | 说明 |
+| :---: | --- | --- |
+| 🎬 | **双界面创作** | 幕前「墨纸」沉浸写作 + 幕后「机械」工作室管理，两套设计语言各得其所 |
+| 🤖 | **Agency 多代理创作** | 主创 / 管理 / 编辑审计三代理黑板并行协作，每章经 Gate v2 四级 grader 质量门（阈值 0.75）才交付 |
+| ⚡ | **分时介入架构** | 写作 < 15s 秒出正文，审计与洞察后台异步——解开「质量与速度不可兼得」的根本矛盾 |
+| 🧠 | **越写越懂你** | 持续学习：从创作事件观察模式 → 提炼 instinct → 确认后晋升为可复用技能 |
+| 📝 | **PROBLEM 七元素** | 简单指令自动基于 Erik Bork 七元素增强为强力 Logline，驱动大纲与续写 |
+| 🌍 | **资产强关联** | 世界观 / 故事大纲 / 场景大纲 / 用户指令四位一体显式调和，剧情不跑偏 |
+| 🔌 | **多模型适配** | OpenAI / Anthropic / Ollama / 本地 API，角色 × 任务模型路由 |
+| 📚 | **全链路资产管理** | 角色 / 世界构建 / 场景 / 知识图谱 / 伏笔看板 / 叙事分析 / 拆书，AI 不「吃书」 |
 
-**上一版 v0.26.47** CI 热修复——`cargo +nightly fmt` 格式化 v0.26.46 方法论/Genesis 代码，恢复 rust-check 全绿。
+---
 
-**上一版 v0.26.46** 创世方法论全链路注入——修复 background 模板断链，按步骤注入雪花/HDWB 并推进 `methodology_step`；题材画像 match-or-create；拆书 StoryArc/作者/伏笔落库与分块超时止血。
+## 📸 界面预览
 
-**上一版 v0.26.44** Genesis 首章质量——开篇骨架步 + 概念加厚 + 策略中文化 + 四元组接入。
+<p align="center">
+  <img src="docs/images/frontstage-preview.png" alt="幕前写作界面" width="82%" />
+</p>
 
-**上一版 v0.26.43** 修复底部「准备上下文」前图标显示为方框——改用 Lucide SVG，不再依赖 WebView emoji 字体。
+<p align="center"><em>幕前 · 极简全屏写作，AI 输入栏随行辅助，文思模式主动给萤火提示</em></p>
 
-**上一版 v0.26.42** 修复续写「有 Tab 提示、无幽灵文本、确认后无追加」——接受后 30s 渲染锁未在新续写时清零。
+<p align="center">
+  <img src="docs/images/backstage-preview.png" alt="幕后工作室" width="82%" />
+</p>
 
-**上一版 v0.26.41** 清偿两项架构债——管线 Finalize 按 `scene_id` 直写编辑场景；`kg_entities`/`memory_items` 统一读模型（VIEW + 链接列，物理表不 DROP）。
+<p align="center"><em>幕后 · 故事 / 角色 / 世界构建 / 场景 / 知识图谱 / 代理工作室等全套资产管理</em></p>
 
-**上一版 v0.26.40** 幕后资产闭环 P0–P3——侧栏生成影响徽章、KG 摘要进默认续写、MCP 降级设置扩展、SceneEditor 管线统一、MemoryFacade、生成链路覆盖率。
+---
 
-**上一版 v0.26.39** 幕后信息架构全面重排——侧栏五组分类、数据洞察合并、设置七 Tab 重组。
+## 🚀 安装与运行
 
-**上一版 v0.26.37** 修复幕前「保存中」常亮与顶部字数不随正文增长——根因是 `update_scene` IPC 参数形状错误，以及 AI 追加路径未刷新字数/未调度自动保存。
+### 下载预构建版本
 
-**上一版 v0.26.34** 修复后台提示词页面批量导入参数错误（`promptId` → `prompt_id`），新增「打开目录」按钮以在系统文件管理器中打开当前 prompts 资源目录，并新增「刷新」按钮重新加载提示词列表。
+访问官网 `https://storymoss.top` 或 GitHub Releases 页面，下载对应平台安装包后直接安装即可。
 
-**上一版 v0.26.33** 补齐综合优化计划阶段 2/3/4 的具体 UI/解耦缺口——知识图谱实体可归档、关系可删除；角色关系卡片新增删除按钮；前端 `frontstage` 与 `components/EditorSettings` 解耦。
+### 从源码运行
 
-**上一版 v0.26.30** 热修复旧数据库在 v0.26.28 迁移框架切换后可能缺失 `characters.scenes.world_buildings.kg_entities` 表的 `source` / `is_auto_generated` 列的问题——新增 V103 迁移与 `init_db` 启动兜底修复，确保 Genesis 与资产查询不再报 `no such column: source`。
+需要安装 [Node.js](https://nodejs.org/)（推荐 20 LTS）和 [Rust](https://rustup.rs/)。
+仓库通过 `rust-toolchain.toml` 固定 Rust 版本为 **1.95.0**，`rustup` 会自动下载对应工具链。
 
-**上一版 v0.26.29** 热修复 prompts 外部化后的策略选择 JSON schema 不匹配——`selector.rs` 新增 `LegacyStrategyResponse` 兜底解析，修复 Genesis「选择创作策略」步骤 `VALIDATION_FAILED: missing field rationale` 错误。
+```bash
+# 1. 克隆仓库
+git clone https://github.com/91zgaoge/StoryMoss.git
+cd StoryMoss
 
-**上一版 v0.26.26** L2 资产补齐与领域层止血——角色编辑/关系 CRUD、L2 创世溯源徽章、Story System 合同播种状态卡、StorySystem.tsx 拆分、Repository 层 trait 化与拆分。
+# 2. 安装前端依赖
+cd src-frontend && npm install
 
-**上一版 v0.26.25** Backstage Genesis 可观测性与测试基线——GenesisPanel 动态步骤/非致命 errors/L1 创作路径引导/Wizard 重复建故事修复/仪表盘统计卡可点击。
+# 3. 安装 Tauri CLI 并运行桌面应用
+cd ..
+npm install -g @tauri-apps/cli
+cargo tauri dev
+```
 
-- **v0.26.19 Phase 1（P0 竞态与契约）**：修复 Gap B（空 finalContent 不锁 delivered）、P0-2（角色世界观上下文闭包捕获竞态——character 提示词读取 `bundle.world_building` 恒为空，改为先 await world 拿真实 `world_concept`）、P0-3（ChapterSwitch delivered 时序——懒加载失败不标记 delivered）。
-- **v0.26.19 Phase 2（P1 架构对齐）**：后台错误可观测性（`GenesisContext.errors` → `genesis_runs.steps_json` + `genesis-warnings` 事件 → 前端 toast）；mutex 中毒锁加固；`window/mod.rs` 与 `FrontstageEvent.ts` 注释对齐 auto-accept 真实路径。
-- **v0.26.19 Phase 3（测试加固）**：8% 重试闸门 + ChapterSwitch payload 提取纯函数 + 契约测试；前端 Gap C + 状态机端点测试；**跨层共享 trim golden fixture**（Rust + TS 双跑锁定 `trim_self_repetition` 跨层一致性）。
-- **v0.26.19 Phase 4（代码整洁）**：`*_future` → `*_gen` 重命名；`AppConfig::load` 去重；`appendAiContent` skip 路径不 `markAccepted`；Gap C 重复入站也跳过 setContent。
+> **注意**：`Cargo.lock` 已纳入版本控制。如需升级依赖，请在本地验证 `cargo clippy` / `cargo test` 通过后再提交。
 
-**上一版 v0.26.18**：加固 Genesis 第一章重复的三个残留竞态缺口：
+### 仅运行前端（开发调试）
 
+```bash
+cd src-frontend
+npm run dev
+```
 
-- **根治「新写小说时第一章内容重复」**：替代 v0.26.7–v0.26.14 的散布补丁，从生成侧与前端的两个独立根因进行结构性修复。
-  - **生成侧验证闸门**：`genesis.rs` 检测 LLM 输出自重复比例，≥8% 时用更强 anti-repeat 指令重试；prompt 模板新增「结构纪律」段，明确禁止首尾回环与整章重复。
-  - **前端单写者状态机**：`FrontstageApp` 将 `genesisAutoAcceptedRef` 布尔替换为 `idle → generating → delivered` 三态状态机，`generating` 态阻塞外部内容投递，`delivered` 态阻塞幽灵文本恢复，消除多路径并发导致的重复叠加。
-  - `textCleanup` 与 Rust `trim_self_repetition` 统一 KMP 最长 border 检测，覆盖全部写入路径。
+然后在浏览器打开 `http://localhost:5173/`。
 
-- **修复 Issue #4：应用启动 panic/Windows 闪退**：当应用数据目录不可写导致 `init_db` 失败时，`GatewayExecutor` 不再通过 `state::<DbPool>()` 读取未 manage 的 pool，改为由 `setup` 显式传入 pool 并仅在 pool 可用时初始化网关，避免启动时 panic。
+### 构建官网落地页
 
-- **清理 CI 格式检查失败**：已全局运行 `cargo +nightly fmt` 与 `prettier --write`，`cargo +nightly fmt -- --check` 与 `npm run format:check` 均已通过。
+```bash
+cd landing
+npm install
+npm run build
+```
 
-**上一版**：v0.26.13 修复 Genesis 第一章渲染层视觉重复（幽灵容器残留）；v0.26.12 修复角色列表为空/未加载时的幕前崩溃与订阅状态空值；v0.26.11 修复 Genesis 第一章 store-editor 失步与崩溃隐患：
+构建产物位于 `landing/dist/`，可部署到任意静态托管服务。开发模式运行 `npm run dev`，测试运行 `npm run test`。
 
-- **修复「新写小说时第一章内容重复」深层根因**：v0.26.10 已确保数据层面只追加一次，但追加后 store 依赖 200ms onChange debounce 回写，当 `latestContentRef` 与编辑器 HTML 指纹相同时 `handleContentChange` 会提前返回，导致 store 长期为空，后续外部同步/章节切换可能引发视觉重复或内容抖动。v0.26.11 在 `appendAiContent` 追加后立即用 `editorRef.getHTML()` 同步 store 与 `latestContentRef`；`RichTextEditor.appendText` 空文档分支标记外部同步并更新 `lastExternalContentRef`，防止 content prop 被外部同步 effect 再次 setContent。
-- **修复「写完后过会儿页面崩溃」**：确认 `src-tauri/tauri.conf.json` 的 `devUrl` 指向 `http://localhost:5173`，避免 `cargo tauri dev` 加载陈旧 `dist` 中的旧代码触发崩溃；同时通过 store-editor 同步消除状态漂移引发的渲染异常。
+---
 
-> **上一版**：v0.26.9 将重复检测基准从 `editorRef.getText()` 改为 `latestContentRef.current`，覆盖 DOM 滞后竞态；v0.26.8 修复 pipeline-complete 先加载 DB 正文、smart_execute 后返回 final_content 的竞态重复；v0.26.7 修复 React #185 页面崩溃与 ChapterSwitch 路径下的重复。
+## 🆕 最新动态
 
-> **上一版**：v0.24.9 修复 TipTap 渲染错误边界与接受后 30s 禁止外部 setContent，进一步根治内容重复问题。v0.23.74 完成场景优先架构迁移——`scenes.content` 为唯一叙事真相源。
+> 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
-> **上一版**：v0.22.4 异星球末世生存复合题材创作流程优化（GenreResolver 题材解析 + 意图图资产发现 + 模型网关资产标签调度 + TimeSliced 次要题材补强）。v0.22.0 TimeSliced 全资产注入 + Inspector 全资产注入 + 意图调度接线 + 算力档案消费 + 资产→生成参数规则映射。
+### v0.30.32 · 增强性指令纳入世界观 / 故事大纲 / 场景大纲 / 上下文强关联
 
-> 🐛 v0.13.0 引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾：
+v0.30.31 让世界观 / 大纲 / 场景 / 进度彼此强关联，但**用户的增强性指令（logline 后缀）未纳入**这套强关联——生成时不读世界观、进入管线后又与资产各居一隅。本次：①增强后缀生成纳入世界观（`build_logline_context_sync` 拉 `world_buildings`）；②`build_progression_anchor` 加 `user_instruction` 参数，指令与资产**显式调和**（资产=硬约束，指令=创作方向，在硬约束内落实指令核心意图）。创世与 TimeSliced 同步加固。
 
-> 🌿 第一性原理：**把大灾难变成即时可见的小债务。** 蚂蚁搬家，不积巨石。
+### v0.30.31 · 续写链路修复：世界观 / 故事大纲 / 场景大纲注入与剧情推进方向
 
-AI 写长篇小说，强化专业资产（合同/伏笔/Inspector/记忆）就慢，放松就崩。v0.13.0 把"写"和"审"解耦成三条独立时间线：
+审计发现幕前续写走 Legacy TriShot，但 `final_prompt` 由 Call1 LLM 合成，故事大纲 / 场景大纲 / 世界观三者均不到达 writer。新增 `build_progression_anchor` 确定性注入【剧情推进方向】段（无论 Call1 合成质量如何都到达 writer）；进度指针用 `scenes.outline_content` 回读最近 3 章，无 DB 迁移。
 
-1. **写作时刻（< 15s 秒出正文）**：`WriteTimeBundle` 只带最小约束（合同红线 + 角色核心 + 场景大纲 + 题材反模式），直连 LLM 单轮生成，立即返回。不跑 Preflight 补合同、不跑 Inspector、不跑 Rewrite。
-2. **审计时刻（后台 30-90s）**：正文返回后，`AuditExecutor` 在后台异步跑 7 维 Inspector，发现的问题以 **inline 标注**（ai_audit 类型，按 severity 红黄蓝着色）回流到编辑器。用户当场处理小债，不让它滚成大灾难。
-3. **洞察时刻（每 5 段深度报告）**：`InsightExecutor` 汇总追读力趋势 + 追读债务 + 标注盘点，产出整体健康度报告，在「叙事分析」页呈现。
+### v0.30.30 · Agency 创作链路结构性优化（抗重复闭环 + 质量门宽松度 + 熔断不丢稿）
 
-顶栏新增**债务指示器**，实时显示未处理标注数，超阈值红色警告。
-
-**Phase 0 实测验证**（qwen3.6-35b，3 场景 A/B 盲测）：最小约束 vs 全量资产平均质量差距仅 **7.9%**（< 30% 阈值），且会被后台审计追平。证实"慢的根源不是资产量，而是同步链路堆叠的 Inspector/Rewrite"。
-
-设计文档见 [`docs/plans/2026-06-14-time-sliced-intervention-design.md`](./docs/plans/2026-06-14-time-sliced-intervention-design.md)，验收清单见 [`docs/time-sliced-architecture-qa-checklist.md`](./docs/time-sliced-architecture-qa-checklist.md)，完整变更见 [`CHANGELOG.md`](./CHANGELOG.md)。
+创世装配接入清理三件套与续写共用；质量门 scoreless pass 兜底 0.85→0.7；`salvage_failed_gate` 让 editor 评不出裁决时 substantive 草稿降级放行；writer MaxTurns / Deadline 熔断先取回黑板草稿再散文回退，不再直接丢稿。
 
 <details>
-<summary>📦 v0.12.0 性能重构（点击展开）</summary>
+<summary><b>📦 查看完整版本历史（v0.30.29 及更早）</b></summary>
 
-v0.12.0 针对「智能创作无处不在的卡顿、生成无输出」进行系统性性能重构：
+#### v0.30.x 系列
 
-1. **后端生成链路止血**：本地/局域网模型默认单候选 + 全局并发限流，候选总超时硬上限 90s；LLM 连接/生成超时拆分；上下文准备、SQLite 高频路径 spawn_blocking 化；全局 Mutex 替换为 OnceLock/RwLock。
-2. **前端响应与大数据量优化**：生成状态精确显示 + 可靠取消；移除高频心跳；场景/章节分页加载；sync-event 批量失效；文思分析移入 Web Worker；RichTextEditor HTML 序列化节流。
-3. **架构级重构**：统一 `generation-status` 事件；知识图谱 viewport 裁剪 + LOD；Agent 编排结构化 trace；后台 Ingest 任务 Semaphore + 取消令牌；引入 `tiktoken-rs` 真实 tokenizer 与上下文预算。
+- **v0.30.29** 内容质量根因修复：强模型结构化整书大纲对象不再被 `parse_lenient` 丢弃（`outline` String→`Value` + `normalize_outline`）；创世串行 producer-first；续写注入红线 + 落库前抗重复三件套 + 章节大纲改用 `scene_outline.md`
+- **v0.30.28** UI 双模式设计系统重塑（幕前墨纸 / 幕后机械）+ 落地页下载从 latest.json 自动同步 + 幕前交互打磨
+- **v0.30.27** 上下文感知 Logline 后缀 + 输入框自适应高度
+- **v0.30.26** 统一 Logline 增强提示为内联幽灵文本 + 修复分时预检缺少角色
+- **v0.30.25** 修复续写 600s 超时（auto_contract 阻塞 + reasoning_content 丢失 + 无超时，三层根因）
+- **v0.30.24** Logline 幽灵提示（简单创世指令实时生成增强版 logline，按 `->` 追加）
+- **v0.30.23** 意图分类 Bug 修复（LLM 分类去偏 + 失败兜底上下文化）
+- **v0.30.22** PROBLEM 七元素框架集成（Logline 生成 + 故事大纲增强）
+- **v0.30.21** 续写资产层级生成（世界观 → 故事大纲 → 章节大纲 → 正文）
+- **v0.30.20** Agency 续写效率优化与质量门硬化（run 级 deadline + 散文回退 + 上下文预注入）
+- **v0.30.19** 质量门编辑审计 Agent 熔断修复（salvage + 散文回退两层兜底）
+- **v0.30.18** 修复幕前意图分类 null 崩溃（E2E PAGEERROR 根因）
+- **v0.30.17** 幕前顶部创世状态显示三 Agent 动作 / 进度
+- **v0.30.16** 故事资产手动编辑（大纲 / 摘要 / 伏笔编辑+删除 / 角色关系编辑）
+- **v0.30.15** 场景围绕故事大纲生成（创作原则加固）
+- **v0.30.14** 续写返回风格增强模板修复（多步 plan 尾部非 writer 覆盖正文）
+- **v0.30.13** 续写返回风格增强模板修复（SING 路径绕过 force-correction）
+- **v0.30.12** 续写返回审查报告修复（force-correction 漏拦 inspector）
+- **v0.30.11** 用 LLM 解析器替换朴素子串意图匹配（`IntentParser::classify_writing_intent`）
+- **v0.30.10** 续写返回风格增强模板修复（模板匹配误路由）
+- **v0.30.9** 续写返回 Inspector 审查模板修复（draft 空内容兜底注入）
+- **v0.30.8** 全面修复 nullable 列读取（`Invalid column type Null` 系列）
+- **v0.30.7** 修复续写计划执行失败（`depends_on` 混入上下文名）
+- **v0.30.6** 修复获取角色失败（`dynamic_traits` 列 NULL）
+- **v0.30.5** 修复创世流程严重超时（600s 顶满 + 前端先杀后端）
+- **v0.30.4** 幕前输入历史持久化（按故事隔离存入 localStorage）
+- **v0.30.3** 创世主创 Agent 熔断修复（本地模型 JSON 不遵从，散文回退）
+- **v0.30.1** 创世提速（12-18 次 → 4 次 LLM 调用，首章 ≤3 分钟）
+- **v0.30.0** Agency 多代理创作框架 P5（持续学习 + 代理可视化）
+
+#### v0.29.0 / v0.28.0 / v0.27.0
+
+- **v0.29.0** P4 验证循环（code / rule / model / human 四级 grader、Gate v2 加权评分阈值 0.75、里程碑检查点、JSON 场景 eval harness）
+- **v0.28.0** P3（角色 × 任务模型路由、全局 agency LLM 并发闸门、注入 token 预算与黑板三档目录、`agency_sessions` 会话快照与跨会话恢复）
+- **v0.27.0** Agency 多代理创作框架 P1（创世 2.0 骨架：board 黑板 / tool_loop ReAct / 三角色 / coordinator 协调器）
+
+#### v0.26.x 系列（精选）
+
+- **v0.26.59** StoryForge → StoryMoss 品牌收尾 + 官网落地页上线
+- **v0.26.58** 修复 OpenAI / Deepseek `top_p=0` 健康检测失败
+- **v0.26.57** 自动划分章节 + 本地导出保存 + 提示词目录
+- **v0.26.54** 修复创作模型被粘性降级绕过（显式角色不受 demotion）
+- **v0.26.46** 创世方法论全链路注入 + 题材 match-or-create + 拆书持久化
+- **v0.26.45** Genesis 人物卡强制落地（姓名 + 欲望 / 阻力）
+- **v0.26.44** Genesis 首章质量（开篇骨架 + 提示词加厚）
+- **v0.26.41** 记忆统一读模型 + Finalize scene_id 根治
+- **v0.26.40** 幕后资产闭环 P0–P3
+- **v0.26.39** 幕后信息架构全面重排（侧栏五组 + 设置七 Tab）
+- **v0.26.24** 修复续写重复、截断与跨内容复述（5 项根因）
+- **v0.26.23** 修复续写卡死与幽灵文本混乱（4 项根因）
+- **v0.26.19** Genesis 创世流程全面审计与测试加固（Phase 1–4）
+- **v0.26.17** Issue #4 启动加固（打包 SQL 迁移 + init_db 诊断增强）
+- **v0.26.16** 根治 Genesis 第一章重复（生成侧验证闸门 + 前端单写者状态机）
+
+> v0.26.x 完整历史见 [`CHANGELOG.md`](./CHANGELOG.md) 与 [`docs/archive/AGENTS_HISTORY.md`](./docs/archive/AGENTS_HISTORY.md)。
+
+#### 🏛️ 架构里程碑
+
+<details>
+<summary>v0.13.0 · 分时介入架构（点击展开）</summary>
+
+引入**分时介入架构**，解开 AI 长篇小说创作中「质量与速度不可兼得」的根本矛盾。第一性原理：**把大灾难变成即时可见的小债务。** 蚂蚁搬家，不积巨石。
+
+把「写」和「审」解耦成三条独立时间线：
+
+1. **写作时刻（< 15s 秒出正文）**：`WriteTimeBundle` 只带最小约束（合同红线 + 角色核心 + 场景大纲 + 题材反模式），直连 LLM 单轮生成，立即返回。
+2. **审计时刻（后台 30-90s）**：正文返回后，`AuditExecutor` 后台异步跑 7 维 Inspector，问题以 inline 标注回流编辑器，用户当场处理小债。
+3. **洞察时刻（每 5 段深度报告）**：`InsightExecutor` 汇总追读力趋势 + 追读债务 + 标注盘点，产出整体健康度报告。
+
+Phase 0 实测（qwen3.6-35b，3 场景 A/B 盲测）：最小约束 vs 全量资产平均质量差距仅 **7.9%**（< 30% 阈值），且会被后台审计追平。证实「慢的根源不是资产量，而是同步链路堆叠的 Inspector / Rewrite」。
+
+设计文档见 [`docs/plans/2026-06-14-time-sliced-intervention-design.md`](./docs/plans/2026-06-14-time-sliced-intervention-design.md)，验收清单见 [`docs/time-sliced-architecture-qa-checklist.md`](./docs/time-sliced-architecture-qa-checklist.md)。
+
+</details>
+
+<details>
+<summary>v0.12.0 · 性能重构（点击展开）</summary>
+
+针对「智能创作无处不在的卡顿、生成无输出」进行系统性性能重构：
+
+1. **后端生成链路止血**：本地 / 局域网模型默认单候选 + 全局并发限流，候选总超时硬上限 90s；LLM 连接 / 生成超时拆分；上下文准备 SQLite 高频路径 spawn_blocking 化；全局 Mutex 替换为 OnceLock / RwLock。
+2. **前端响应与大数据量优化**：生成状态精确显示 + 可靠取消；场景 / 章节分页加载；sync-event 批量失效；文思分析移入 Web Worker；RichTextEditor HTML 序列化节流。
+3. **架构级重构**：统一 `generation-status` 事件；知识图谱 viewport 裁剪 + LOD；引入 `tiktoken-rs` 真实 tokenizer 与上下文预算。
 
 修复计划见 [`PERFORMANCE_FIX_PLAN.md`](./PERFORMANCE_FIX_PLAN.md)，阶段验证报告见 `QA-Stage1-report.md`、`QA-Stage2-report.md`、`QA-Stage3-report.md`。
+
+</details>
 
 </details>
 
@@ -447,54 +554,6 @@ MCP（Model Context Protocol）让草苔连接外部模型或数据源，扩展 
 - **顶部红色提示条"无法连接到本地服务"**：表示前端未连上后端。请等待几秒后点击"重试"，或重启应用。
 - **左下角"登录"**：未登录状态，点击可登录账号。
 - **右上角更新通知**：有新版本时弹出，可选择安装或忽略。
-
----
-
-## 🚀 安装与运行
-
-### 下载预构建版本
-
-访问官网 `https://storymoss.top` 或 GitHub Releases 页面，下载对应平台安装包后直接安装即可。
-
-### 从源码运行
-
-需要安装 [Node.js](https://nodejs.org/)（推荐 20 LTS）和 [Rust](https://rustup.rs/)。
-仓库通过 `rust-toolchain.toml` 固定 Rust 版本为 **1.95.0**，`rustup` 会自动下载对应工具链。
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/91zgaoge/StoryMoss.git
-cd StoryMoss
-
-# 2. 安装前端依赖
-cd src-frontend && npm install
-
-# 3. 安装 Tauri CLI 并运行桌面应用
-cd ..
-npm install -g @tauri-apps/cli
-cargo tauri dev
-```
-
-> **注意**：`Cargo.lock` 已纳入版本控制。如需升级依赖，请在本地验证 `cargo clippy` / `cargo test` 通过后再提交。
-
-### 仅运行前端（开发调试）
-
-```bash
-cd src-frontend
-npm run dev
-```
-
-然后在浏览器打开 `http://localhost:5173/`。
-
-### 构建官网落地页
-
-```bash
-cd landing
-npm install
-npm run build
-```
-
-构建产物位于 `landing/dist/`，可部署到任意静态托管服务。开发模式运行 `npm run dev`，测试运行 `npm run test`。
 
 ---
 
