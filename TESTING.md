@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.35)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.36)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.36 变更说明
+
+- 修复首次创世指令不保存到输入历史：`FrontstageApp.tsx` `handleSmartGeneration` 的 `story_created` 处理块在 `setCurrentStory(新故事)` 后同步 `saveInputHistory(新故事ID, [创世指令, ...])`，useEffect 随后加载即可读到。纯前端修复。
+- 测试调整：新增 `FrontstageApp.input-history-genesis.test.tsx`（+2：创世指令持久化到新故事 localStorage + 切换到新故事后按↑召回创世指令）。
+- 全量基线：`cargo test --lib` 1077 passed / 2 ignored（纯前端无 Rust 变更）；`npx vitest run` 328 passed / 3 skipped（+2）；`npx tsc --noEmit` ✅；prettier / architecture_guard 全绿。
 
 ### v0.30.35 变更说明
 

@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.36（2026-07-29）
+
+### 修复首次创世指令不保存到输入历史（按↑调取不到）
+
+用户报告"输入框的历史输入内容也没有保存，按向上方位键调取不到历史输入"。根因：`handleInputSubmit` 保存输入历史时读取 `sid = currentStory?.id`，首次创世（无已有故事）时 `currentStory=null` -> `sid=undefined` -> `if (sid) saveInputHistory(...)` 跳过，创世指令从未持久化；随后 `handleSmartGeneration` 的 isBootstrap 分支 `setCurrentStory(null)` 触发 useEffect 清空 `inputHistory`，创世成功后 `setCurrentStory(新故事)` 再次触发 useEffect 从 localStorage 加载（空）。新创建的故事输入历史始终为空，按↑调取不到任何历史，且无章节时 `fetchSmartHint` 也因 `!currentChapter` 提前返回--↑完全无响应。git blame 确认输入历史代码自 v0.30.5（2026-07-20）未改动，非 v0.30.34/35 回归；但 v0.30.23 修复意图分类（创世指令不再被误判为续写）后，创世指令正确走 isBootstrap 路径（`setCurrentStory(null)`），暴露了此前被续写误分类掩盖的首次创世不保存缺陷。
+
+- **主修复·创世成功后补存创世指令到新故事历史（`FrontstageApp.tsx`）**：`handleSmartGeneration` 的 `story_created` 处理块（`setCurrentStory(targetStory)` 之后）新增同步写入--`loadInputHistory(storyId)` 读取新故事现有历史（新故事为空数组），若不含 `userInput` 则 `saveInputHistory(storyId, [userInput, ...existing].slice(0, MAX))` 持久化。关键时序：此写入在 `setCurrentStory` 触发 `useEffect[currentStory?.id]` 之前同步执行（同一同步块无 await），useEffect 随后 `loadInputHistory(storyId)` 即可读到创世指令。非首次创世（已有旧故事选中）时 `handleInputSubmit` 已存到旧故事，此处补存到正确的新故事；旧故事多一条历史无实质影响。
+- **不动 `handleRequestGeneration`**：该函数是文思活跃续写路径（`user_input: context || '续写'`），非用户输入的创世指令，无有意义的用户输入可存；其 `story_created` 块作为安全网极少触发，保持原样。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 328 passed / 3 skipped（+2：创世指令持久化到新故事 localStorage + 切换到新故事后按↑召回创世指令）；`npm run format:check` ✅；`architecture_guard` ✅。纯前端，无 Rust 变更（cargo 基线 1077 不变）。
+
 ## v0.30.35（2026-07-29）
 
 ### editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈

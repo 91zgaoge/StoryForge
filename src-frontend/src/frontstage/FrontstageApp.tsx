@@ -4339,6 +4339,20 @@ const FrontstageApp: React.FC = () => {
                   first_chapter_content_preview: firstChapter?.content?.slice(0, 100) ?? 'EMPTY',
                 });
                 setCurrentStory(targetStory);
+                // v0.30.36 fix: 首次创世指令落号新故事输入历史。
+                // 根因：handleInputSubmit 时 currentStory=null（首次创世），sid=null
+                // 跳过 saveInputHistory，创世指令从未保存；新故事历史始终为空，
+                // 按↑调取不到。此处在 setCurrentStory(新故事) 触发 useEffect 之前
+                // 同步写入 localStorage，useEffect[currentStory?.id] 随后 loadInputHistory
+                // 即可读到。非首次创世（已有旧故事选中）时 handleInputSubmit 已存到旧故事，
+                // 此处补存到正确的新故事；旧故事多一条历史无实质影响。
+                const existingNewStoryHistory = loadInputHistory(storyId);
+                if (!existingNewStoryHistory.includes(userInput)) {
+                  saveInputHistory(
+                    storyId,
+                    [userInput, ...existingNewStoryHistory].slice(0, INPUT_HISTORY_MAX)
+                  );
+                }
                 setChapters(storyChapters);
                 setScenes(storyScenes);
                 if (storyChapters.length > 0) {

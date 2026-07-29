@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.35 项目完成状态
+# StoryMoss (草苔) v0.30.36 项目完成状态
 
-> 最后更新: 2026-07-29（v0.30.35 editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈）
+> 最后更新: 2026-07-29（v0.30.36 修复首次创世指令不保存到输入历史）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.36 - 修复首次创世指令不保存到输入历史（按↑调取不到）（2026-07-29）
+
+- 用户报告输入框历史输入内容没保存、按↑调取不到。根因：首次创世（无已有故事）时 `currentStory=null`，`handleInputSubmit` 的 `if (sid) saveInputHistory(...)` 跳过保存，创世指令从未持久化；isBootstrap 分支 `setCurrentStory(null)` 清空历史，创世成功后新故事历史为空。v0.30.23 修复意图分类后创世指令正确走 isBootstrap 路径，暴露了此前被续写误分类掩盖的缺陷。
+- **主修复（`FrontstageApp.tsx`）**：`handleSmartGeneration` 的 `story_created` 处理块在 `setCurrentStory(新故事)` 后同步 `saveInputHistory(新故事ID, [创世指令, ...])`，useEffect 随后 `loadInputHistory` 即可读到。关键时序：写入在 useEffect 触发前同步执行（同一同步块无 await）。
+- 验证：tsc ✅；vitest 328 passed / 3 skipped（+2）；format:check ✅；architecture_guard ✅。纯前端，cargo 基线 1077 不变。
 
 ### v0.30.35 - editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈（2026-07-29）
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.35-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.36-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.36 · 修复首次创世指令不保存到输入历史（按↑调取不到）
+
+用户报告输入框历史输入内容没保存、按↑调取不到。根因：首次创世（无已有故事）时 `currentStory=null`，`handleInputSubmit` 的 `if (sid) saveInputHistory(...)` 跳过保存，创世指令从未持久化；随后 isBootstrap 分支 `setCurrentStory(null)` 清空历史，创世成功后新故事历史为空。v0.30.23 修复意图分类后创世指令正确走 isBootstrap 路径，暴露了此前被续写误分类掩盖的缺陷。修复：`handleSmartGeneration` 的 `story_created` 处理块在 `setCurrentStory(新故事)` 后同步写入 `saveInputHistory(新故事ID, [创世指令, ...])`，useEffect 随后加载即可读到。纯前端修复，界面无变化。
 
 ### v0.30.35 · editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈
 

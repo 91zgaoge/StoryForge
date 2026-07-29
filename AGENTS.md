@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.35
+- **版本**: v0.30.36
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -86,7 +86,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1077 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 326 passed / 3 skipped
+- `npx vitest run` ✅ 328 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 539（零新增）
@@ -94,6 +94,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.36 - 修复首次创世指令不保存到输入历史（按↑调取不到）
+
+用户报告"输入框的历史输入内容也没有保存，按向上方位键调取不到历史输入"。根因：`handleInputSubmit` 保存输入历史时读取 `sid = currentStory?.id`，首次创世（无已有故事）时 `currentStory=null` -> `sid=undefined` -> `if (sid) saveInputHistory(...)` 跳过，创世指令从未持久化；随后 isBootstrap 分支 `setCurrentStory(null)` 触发 useEffect 清空 `inputHistory`，创世成功后 `setCurrentStory(新故事)` 再次触发 useEffect 从 localStorage 加载（空）。新故事输入历史始终为空，按↑无响应（无历史 + 无章节时 `fetchSmartHint` 也因 `!currentChapter` 提前返回）。v0.30.23 修复意图分类（创世不再被误判为续写）后，创世指令正确走 isBootstrap 路径，暴露了此前被续写误分类掩盖的首次创世不保存缺陷。
+
+- **主修复·创世成功后补存创世指令（`FrontstageApp.tsx`）**：`handleSmartGeneration` 的 `story_created` 处理块（`setCurrentStory(targetStory)` 之后）新增同步写入--`loadInputHistory(storyId)` 读取新故事现有历史，若不含 `userInput` 则 `saveInputHistory(storyId, [userInput, ...existing].slice(0, MAX))` 持久化。关键时序：此写入在 `setCurrentStory` 触发 `useEffect[currentStory?.id]` 之前同步执行（同一同步块无 await），useEffect 随后 `loadInputHistory(storyId)` 即可读到创世指令。
+- **不动 `handleRequestGeneration`**：文思活跃续写路径（`user_input: context || '续写'`），非用户创世指令，无有意义输入可存。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 328 passed / 3 skipped（+2：创世指令持久化 + 按↑召回）；`npm run format:check` ✅；`architecture_guard` ✅。纯前端，cargo 基线 1077 不变。
 
 ### v0.30.35 - editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈
 
@@ -675,7 +683,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.35_
+_最后更新: 2026-07-29 - v0.30.36_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
