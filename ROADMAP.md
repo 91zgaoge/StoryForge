@@ -1,8 +1,19 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-29（v0.30.34 序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升）
+> 最后更新: 2026-07-29（v0.30.35 editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.35 - editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈 ✅ (2026-07-29)
+
+- [x] 根因：editor 质检（`review_and_assemble` 的 `evaluate_gate`）在 Scene 装配前同步执行，被 600s 硬超时包裹；producer+writer 花约9分钟后 editor 仅剩约1分钟，其 300s LLM 调用被硬 600s 砍掉，整 run 超时无首章
+- [x] 新增 `assemble_only`（pub(crate)）：从 `review_and_assemble` 提取纯装配（抗重复三件套 + Scene 落库），不含 editor 质检
+- [x] 新增 `spawn_editor_qc`：后台 `tokio::spawn` 用独立 300s deadline 调 `evaluate_gate_impl`（不受 600s 限制）；三态结果 emit `genesis-qc-result`；`app_handle=None`（测试）时 no-op
+- [x] `genesis_fastpath` / `run_genesis_legacy_inner` Phase C 改为 `assemble_only` + `spawn_editor_qc`，返回 `verdict:EditorVerdict::pending()`
+- [x] 删除无用 `review_and_assemble`；`EditorVerdict` 加 `pending()`；新增 `EVENT_GENESIS_QC_RESULT`
+- [x] 前端 `genesis-qc-result` 监听 + 三态 toast（通过/降级放行/不合格建议重新创世）；后台不影响 `isGenerating`
+- [x] producer 深度资产保持前台（单次 `complete_json` ~30-60s，非瓶颈，保障首章不脱节）
+- [x] 验证：`cargo test --lib` 1077 passed（+2）；tsc / vitest（326/3 skipped）/ fmt / clippy（539 零新增）/ architecture_guard / prettier 全绿
 
 ### ✨ v0.30.34 - 序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升 ✅ (2026-07-29)
 

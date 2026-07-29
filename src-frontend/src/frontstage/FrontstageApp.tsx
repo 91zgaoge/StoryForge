@@ -2041,6 +2041,40 @@ const FrontstageApp: React.FC = () => {
       });
       unlisteners.push(unlistenGenesisWarnings);
 
+      // v0.30.35: 监听 genesis-qc-result 事件（后台编辑审计质检结果）
+      //   创世首章立即显示后，editor 质检在后台独立 300s deadline 运行，
+      //   完成后通过此事件反馈：通过 / 降级放行 / 不合格。不合格时提示用户
+      //   可重新输入创世指令重试，不自动重创世（由用户手动决定）。后台
+      //   editor 不影响 isGenerating（agency 事件不进 backendActivityStore）。
+      const unlistenGenesisQcResult = await listen<{
+        story_id: string;
+        passed: boolean;
+        salvaged: boolean;
+        issues?: string[];
+        reason?: string;
+      }>('genesis-qc-result', event => {
+        const p = event.payload;
+        frontstageLogger.info('[genesis-qc-result]', {
+          story_id: p.story_id,
+          passed: p.passed,
+          salvaged: p.salvaged,
+        });
+        logToBackend('frontstage:genesis_qc_result', 'background editor qc finished', {
+          story_id: p.story_id,
+          passed: p.passed,
+          salvaged: p.salvaged,
+        });
+        if (p.passed && !p.salvaged) {
+          toast.success('编辑审计质检通过');
+        } else if (p.passed && p.salvaged) {
+          toast.warning('质检降级放行（审计超时/失败，首章已保留）');
+        } else {
+          const issues = p.issues && p.issues.length > 0 ? p.issues.join('；') : '未提供具体问题';
+          toast.warning(`质检不合格，建议重新创世。问题：${issues}`);
+        }
+      });
+      unlisteners.push(unlistenGenesisQcResult);
+
       // 监听 novel-bootstrap-progress 事件
       const unlisten3 = await listen<{
         session_id: string;

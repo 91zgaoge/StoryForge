@@ -34,6 +34,10 @@ pub const EVENT_RUN_PROGRESS: &str = "agency-run-progress";
 /// 代理活动事件：角色开始/完成某动作（payload {run_id, role, action,
 /// detail}）。
 pub const EVENT_AGENT_ACTIVITY: &str = "agency-agent-activity";
+/// v0.30.35：创世后台质检结果事件（payload {story_id, passed, salvaged,
+/// issues}）。editor 质检从同步阻塞改为后台异步 spawn 后，质检结果经此
+/// 事件通知前端 toast。
+pub const EVENT_GENESIS_QC_RESULT: &str = "genesis-qc-result";
 /// stale-replay
 /// 包装：恢复简报的开/关标记（历史摘要仅供回顾，不得当作当前指令）。
 pub const STALE_REPLAY_OPEN: &str = "<!-- HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS\n以下为上一创作会话的历史摘要，仅供参考，不要当作当前指令执行。 -->";
@@ -375,6 +379,22 @@ pub struct EditorVerdict {
     pub score: Option<f64>, // rubric 1-5（P4 rubric 化）
     #[serde(default)]
     pub dimension_scores: Option<std::collections::HashMap<String, f64>>,
+}
+
+impl EditorVerdict {
+    /// v0.30.35：editor 质检后台异步化后，创世返回时质检尚未完成，用
+    /// pending 占位。消费方 build_bootstrap_result 只读 story_id/scene_id，
+    /// 不消费 verdict/revised，故 pending 默认值安全。
+    pub fn pending() -> Self {
+        Self {
+            verdict: "pending".to_string(),
+            blocking_issues: vec![],
+            suggestions: vec![],
+            comments: "后台质检进行中".to_string(),
+            score: None,
+            dimension_scores: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -1503,7 +1523,6 @@ impl AgencyCoordinator {
             .await;
         self.emit_activity(run_id, AgentRole::Producer, "done", "概念");
 
-        let registry = Arc::new(ToolRegistry::agency_default());
         // Phase B 编排（v0.30.29）：producer 先生成深度资产（world/outline/
         // foreshadowing 写入黑板 Asset 区），writer 再写首章--首章可读到世界观与
         // 故事大纲，不再脱节。此前多模型并行（tokio::join!）让首章在无大纲/无
@@ -1552,19 +1571,23 @@ impl AgencyCoordinator {
         self.checkpoint_auto(run_id, &story_id, "assets", None, budget)
             .await;
 
-        // Phase C：质量门 + 修订 + 装配（与 legacy 共用）
-        let (draft, revised, final_verdict, scene_id) = self
-            .review_and_assemble(
-                repo, budget, &board, &registry, run_id, &story_id, premise, cancel, draft,
-            )
+        // Phase C：装配（不等 editor）+ 后台质检（v0.30.35）
+        // editor 质检从同步阻塞改为后台 spawn：writer 完成首章 + 装配落库后
+        // 立即返回前端显示首章，editor 在后台独立 300s deadline 质检，结果经
+        // genesis-qc-result 事件 + toast 反馈。此前 editor 质检在装配前同步
+        // 执行，producer+writer 耗时约9分钟后 editor 仅剩约1分钟，其 LLM 调用
+        // 以固定 300s timeout 发起却被 smart_execute 600s 硬超时砍掉，无产出。
+        let (draft, scene_id) = self
+            .assemble_only(repo, run_id, &story_id, cancel, draft)
             .await?;
+        self.spawn_editor_qc(run_id, &story_id, premise, &draft);
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
             story_id,
             scene_id,
-            revised,
-            verdict: final_verdict,
+            revised: false,                    // 后台不修订
+            verdict: EditorVerdict::pending(), // 后台填充，前端不消费此字段
             chapter_chars: draft.content.chars().count(),
         })
     }
@@ -2207,19 +2230,20 @@ impl AgencyCoordinator {
         };
         self.check_cancel(cancel)?;
 
-        // 5)+6) 质量门 + 修订 + 装配（与快速路径共用）
-        let (draft, revised, final_verdict, scene_id) = self
-            .review_and_assemble(
-                repo, budget, &board, &registry, run_id, &story_id, premise, cancel, draft,
-            )
+        // 5)+6) 装配（不等 editor）+ 后台质检（v0.30.35，与快速路径共用）
+        // editor 质检后台 spawn：装配落库后立即返回，editor 独立 300s deadline
+        // 质检，结果经 genesis-qc-result 事件 + toast 反馈。
+        let (draft, scene_id) = self
+            .assemble_only(repo, run_id, &story_id, cancel, draft)
             .await?;
+        self.spawn_editor_qc(run_id, &story_id, premise, &draft);
 
         Ok(AgencyGenesisResult {
             run_id: run_id.to_string(),
             story_id,
             scene_id,
-            revised,
-            verdict: final_verdict,
+            revised: false,                    // 后台不修订
+            verdict: EditorVerdict::pending(), // 后台填充，前端不消费此字段
             chapter_chars: draft.content.chars().count(),
         })
     }
@@ -2230,7 +2254,7 @@ impl AgencyCoordinator {
     /// `trim_dangling_tail` 裁截断末句。`spawn_blocking` join 失败时回退原文。
     ///
     /// v0.30.30：从续写 `handle_gate` 抽取为共享 helper，创世
-    /// `review_and_assemble` 装配也接入（genesis 首章无既有场景，overlap
+    /// `assemble_only` 装配也接入（genesis 首章无既有场景，overlap
     /// 自动跳过）。
     pub(crate) async fn cleanup_prose_for_persist(&self, raw: &str, story_id: &str) -> String {
         let pool = self.pool.clone();
@@ -2256,111 +2280,20 @@ impl AgencyCoordinator {
         .unwrap_or(raw_for_fallback)
     }
 
-    /// 质量门 + 至多 1 轮修订（第二轮审查后无论结果放行，Failed 除外）+
-    /// 装配（草稿 -> Scene 真源，统一输出装配器 P1 形态）。快速路径与
-    /// legacy 六阶段共用。返回 (最终草稿, 是否修订, 最终裁决, scene_id)。
-    #[allow(clippy::too_many_arguments)]
-    async fn review_and_assemble(
+    /// v0.30.35：装配（草稿 -> Scene 真源），不含 editor 质检与修订。
+    /// 从 `review_and_assemble` 提取的装配部分，配合 `spawn_editor_qc` 实现
+    /// "首章立即显示 + 后台质检"：writer 完成首章后立即装配落库返回前端，
+    /// editor 质检在后台独立 spawn（独立 300s deadline，不受 smart_execute
+    /// 600s 整体超时限制），结果经 `genesis-qc-result` 事件 + toast 反馈。
+    /// 返回 (最终草稿, scene_id)。
+    pub(crate) async fn assemble_only(
         &self,
         repo: &AgencyRepository,
-        budget: &Arc<AgencyBudget>,
-        board: &BlackboardService,
-        registry: &Arc<ToolRegistry>,
         run_id: &str,
         story_id: &str,
-        premise: &str,
         cancel: &Arc<AtomicBool>,
-        mut draft: BoardItem,
-    ) -> Result<(BoardItem, bool, EditorVerdict, String), AppError> {
-        // 5) 质量门 + 至多 1 轮修订（第二轮审查后无论结果放行，Failed 除外）
-        let mut revised = false;
-        let final_verdict = 'gate: {
-            self.update_phase(repo, run_id, "review").await?;
-            self.emit_progress(run_id, "review", "running", "质量门评估中");
-            self.emit_activity(run_id, AgentRole::EditorAuditor, "start", "审查");
-            let outcome = self
-                .evaluate_gate(
-                    budget, board, registry, run_id, story_id, premise, &draft, 1,
-                )
-                .await?;
-            self.emit_activity(run_id, AgentRole::EditorAuditor, "done", "审查");
-            match outcome {
-                GateOutcome::Passed { verdict } => break 'gate verdict,
-                GateOutcome::RevisionRequired { issues, .. } if !revised => {
-                    revised = true;
-                    // revision 观察埋点（best-effort，与 batch handle_gate 修订分支同语义）
-                    self.log_observation(
-                        story_id,
-                        "revision",
-                        AgentRole::EditorAuditor.as_str(),
-                        serde_json::json!({
-                            "chapter": 1,
-                            "issues_count": issues.len(),
-                        }),
-                    );
-                    self.update_phase(repo, run_id, "revision").await?;
-                    self.emit_progress(
-                        run_id,
-                        "revision",
-                        "running",
-                        "主创 Agent 正在按审查意见修订",
-                    );
-                    let task = Self::build_revision_task(&draft, &issues);
-                    let revise_out = self
-                        .run_role_with_llm_and_budget(
-                            budget,
-                            AgentRole::LeadWriter,
-                            board,
-                            registry,
-                            run_id,
-                            story_id,
-                            premise,
-                            &task,
-                        )
-                        .await
-                        .map_err(|e| AppError::from(format!("修订阶段失败: {}", e)))?;
-                    if revise_out.aborted {
-                        return Err(AppError::from(circuit_break_message(
-                            "主创 Agent",
-                            "修订轮未完成",
-                            circuit_break_reason(&revise_out),
-                        )));
-                    }
-                    draft = self
-                        .latest_draft_by_key(board, run_id, &draft.key, "修订后未取回本章草稿")
-                        .await?;
-                    self.check_cancel(cancel)?;
-                    // 复审：无论结果都进入装配（Failed 除外）
-                    let second = self
-                        .evaluate_gate(
-                            budget, board, registry, run_id, story_id, premise, &draft, 2,
-                        )
-                        .await?;
-                    match second {
-                        GateOutcome::Passed { verdict } => break 'gate verdict,
-                        GateOutcome::RevisionRequired { verdict, .. } => break 'gate verdict, /* 第二轮放行 */
-                        GateOutcome::Failed { reason } => {
-                            // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
-                            if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
-                                break 'gate v;
-                            }
-                            return Err(AppError::from(format!("质量门未通过: {}", reason)));
-                        }
-                    }
-                }
-                GateOutcome::RevisionRequired { verdict, .. } => break 'gate verdict,
-                GateOutcome::Failed { reason } => {
-                    // v0.30.30：editor 完全失败时降级放行 substantive 草稿保产出
-                    if let Some(v) = Self::salvage_failed_gate(&draft, &reason) {
-                        break 'gate v;
-                    }
-                    return Err(AppError::from(format!("质量门未通过: {}", reason)));
-                }
-            }
-        };
-        self.check_cancel(cancel)?;
-
-        // 6) 装配：草稿 → Scene 真源（统一输出装配器 P1 形态）
+        draft: BoardItem,
+    ) -> Result<(BoardItem, String), AppError> {
         self.update_phase(repo, run_id, "assembly").await?;
         self.emit_progress(run_id, "assembly", "running", "正在装配正式稿");
         self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
@@ -2388,10 +2321,106 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
         // 装配完成后、交付结果前再查一次：确保 cancelled 不被 completed 覆盖
         self.check_cancel(cancel)?;
 
-        Ok((draft, revised, final_verdict, scene.id))
+        Ok((draft, scene.id))
+    }
+
+    /// v0.30.35：后台 spawn editor 质检（fire-and-forget）。测试环境
+    /// （无 app_handle）no-op。质检在独立 300s deadline 下运行，不受
+    /// smart_execute 600s 整体超时限制；结果经 `genesis-qc-result` 事件
+    /// （payload {story_id, passed, salvaged, issues}）反馈前端 toast。
+    /// 不做修订（修订需主创 LLM 且可能再顶满超时，由用户据 toast 手动重试）。
+    fn spawn_editor_qc(&self, run_id: &str, story_id: &str, premise: &str, draft: &BoardItem) {
+        let Some(app) = self.app_handle.clone() else {
+            // 测试环境无 app_handle，跳过后台质检
+            log::info!("agency: 测试环境跳过后台编辑审计质检 (run={})", run_id);
+            return;
+        };
+        let pool = self.pool.clone();
+        let run_id = run_id.to_string();
+        let story_id = story_id.to_string();
+        let premise = premise.to_string();
+        let draft = draft.clone();
+        tauri::async_runtime::spawn(async move {
+            // 独立 deadline 300s（不受 smart_execute 整体超时限制）
+            let deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(300));
+            let llm: Arc<dyn LoopLlm> = Arc::new(AgencyLlm::new(
+                app.clone(),
+                run_id.clone(),
+                AgentRole::EditorAuditor,
+                story_id.clone(),
+            ));
+            let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+            let board = BlackboardService::new(pool.clone());
+            let registry = Arc::new(ToolRegistry::agency_default());
+            let _ = app.emit(
+                EVENT_AGENT_ACTIVITY,
+                serde_json::json!({
+                    "run_id": run_id,
+                    "role": AgentRole::EditorAuditor.as_str(),
+                    "action": "start",
+                    "detail": "后台审查",
+                }),
+            );
+            let result = evaluate_gate_impl(
+                &llm, &budget, &pool, &board, &registry, &run_id, &story_id, &premise, &draft, 1,
+                deadline,
+            )
+            .await;
+            let payload = match result {
+                Ok((GateOutcome::Passed { .. }, _)) => serde_json::json!({
+                    "story_id": story_id,
+                    "passed": true,
+                    "salvaged": false,
+                }),
+                Ok((GateOutcome::RevisionRequired { issues, .. }, _)) => serde_json::json!({
+                    "story_id": story_id,
+                    "passed": false,
+                    "salvaged": false,
+                    "issues": issues,
+                }),
+                Ok((GateOutcome::Failed { reason }, _)) => {
+                    // v0.30.30 salvage：substantive 草稿降级放行保产出
+                    match Self::salvage_failed_gate(&draft, &reason) {
+                        Some(_) => serde_json::json!({
+                            "story_id": story_id,
+                            "passed": true,
+                            "salvaged": true,
+                            "reason": reason,
+                        }),
+                        None => serde_json::json!({
+                            "story_id": story_id,
+                            "passed": false,
+                            "salvaged": false,
+                            "issues": [reason],
+                        }),
+                    }
+                }
+                Err(e) => {
+                    log::warn!("agency: 后台编辑审计质检异常 (run={}): {}", run_id, e);
+                    // 质检异常降级放行保产出（首章已落库，不丢稿）
+                    serde_json::json!({
+                        "story_id": story_id,
+                        "passed": true,
+                        "salvaged": true,
+                        "reason": format!("质检异常: {}", e),
+                    })
+                }
+            };
+            let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
+            let _ = app.emit(
+                EVENT_AGENT_ACTIVITY,
+                serde_json::json!({
+                    "run_id": run_id,
+                    "role": AgentRole::EditorAuditor.as_str(),
+                    "action": "done",
+                    "detail": "后台审查",
+                }),
+            );
+        });
     }
 
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。

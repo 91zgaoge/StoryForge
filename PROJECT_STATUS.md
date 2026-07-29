@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.34 项目完成状态
+# StoryMoss (草苔) v0.30.35 项目完成状态
 
-> 最后更新: 2026-07-29（v0.30.34 序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升）
+> 最后更新: 2026-07-29（v0.30.35 editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.35 - editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈（2026-07-29）
+
+- 用户报告创世顶满 600s 超时无产出。根因：editor 质检（`review_and_assemble` 中的 `evaluate_gate`）在 Scene 装配落库**之前**同步执行，被 `tokio::time::timeout(600s)` 包裹；producer（深度资产 ~30-60s）+ writer（tool_loop ~4-5min）花约9分钟后 editor 只剩约1分钟，其 `editor_verdict_prose_fallback` 用固定 300s timeout 发起 LLM 调用，34s 后被硬 600s 砍掉，既未完成质检也无法走 `salvage_failed_gate` 保产出，整 run 超时无首章返回。
+- **后端·装配与质检分离（`coordinator.rs`）**：①新增 `assemble_only`（pub(crate)）从 `review_and_assemble` 提取纯装配部分（`cleanup_prose_for_persist` 抗重复三件套 + `SceneRepository::create/update` 落库），不含 editor 质检与修订。②新增 `spawn_editor_qc`--测试环境 `app_handle=None` 时 no-op；生产环境 `tokio::spawn` 后台任务，用 `Some(Instant::now() + 300s)` 独立 deadline（不受 smart_execute 600s 限制）调 `evaluate_gate_impl`，结果三态分支：`Passed` -> `{passed:true,salvaged:false}`；`RevisionRequired` -> `{passed:false,issues}`；`Failed` -> 先 `salvage_failed_gate`（草稿≥600字保产出）-> `{passed:true,salvaged:true}` 或 `{passed:false,issues}`；`Err` -> 降级放行 `{passed:true,salvaged:true}`。emit `genesis-qc-result` 事件 + `emit_activity(EditorAuditor,"后台审查")`。③`genesis_fastpath` / `run_genesis_legacy_inner` Phase C 改为 `assemble_only` + `spawn_editor_qc`，返回 `revised:false, verdict:EditorVerdict::pending()`。④删除无用 `review_and_assemble`；`EditorVerdict` 新增 `pending()`；新增 `EVENT_GENESIS_QC_RESULT` 常量。
+- **前端·后台质检结果 toast（`FrontstageApp.tsx`）**：`setupEventListeners` 新增 `genesis-qc-result` 监听，三态：质检通过 -> `toast.success`；降级放行（审计超时/失败但首章已保留）-> `toast.warning`；不合格 -> `toast.warning('质检不合格，建议重新创世。问题：…')`。后台 editor 不影响 `isGenerating`，用户可继续写作；不自动重新创世，由用户手动决定。
+- **producer 深度资产保持前台**：`producer_depth_assets` 已是单次 `complete_json` 调用（约30-60s）非瓶颈，且保障首章不脱节（v0.30.29 修复点）。移 editor 后台后用户在 writer 完成即可见首章（约5-6min vs 此前10min 超时）。
+- 验证：`cargo test --lib` 1077 passed（+2；移除 3 个不适用的 genesis 同步质检测试，`test_editor_verdict_prose_fallback` 改为直接测 `evaluate_gate`）；clippy 539 零新增；tsc/vitest(326/3 skipped)/fmt/architecture_guard/format:check 全绿。
 
 ### v0.30.32 - 增强性指令纳入世界观/故事大纲/场景大纲/上下文强关联（2026-07-28）
 

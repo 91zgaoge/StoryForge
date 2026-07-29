@@ -115,20 +115,23 @@ async fn test_genesis_end_to_end_pass() {
     let coordinator = AgencyCoordinator::for_test(pool.clone(), pass_script());
     let result = coordinator.run_genesis("r1", LONG_PREMISE).await.unwrap();
     assert!(!result.revised);
-    assert_eq!(result.verdict.verdict, "pass");
+    // v0.30.35：editor 质检后台化，genesis 返回 pending 裁决（后台填充）
+    assert_eq!(result.verdict.verdict, "pending");
     // run 状态 completed
     let repo = AgencyRepository::new(pool.clone());
     let run = repo.get_run("r1").unwrap().unwrap();
     assert_eq!(run.status, "completed");
     assert_eq!(run.story_id.as_deref(), Some(result.story_id.as_str()));
-    // 黑板三分区都有内容
+    // 黑板资产区与草稿区有内容（v0.30.35：editor 质检后台化，审查区前台为空）
     let board = crate::agency::board::BlackboardService::new(pool.clone());
     let snap = board.snapshot("r1").unwrap();
     assert_eq!(snap.assets.len(), 1);
     assert_eq!(snap.drafts.len(), 1);
-    assert_eq!(snap.reviews.len(), 1);
-    // 门判定 key 带轮次后缀（首轮 r1）
-    assert_eq!(snap.reviews[0].key, "gate-第1章-r1");
+    assert!(
+        snap.reviews.is_empty(),
+        "genesis 前台不再写审查区（editor 后台质检）: {:?}",
+        snap.reviews
+    );
     // Scene 已装配，正文来自草稿
     let scene = SceneRepository::new(pool.clone())
         .get_by_id(&result.scene_id)
@@ -141,31 +144,9 @@ async fn test_genesis_end_to_end_pass() {
     assert!(result.chapter_chars > 0);
 }
 
-#[tokio::test]
-async fn test_genesis_revision_path() {
-    let pool = create_test_pool().unwrap();
-    let llm = MockLlm::scripted(vec![
-        r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#,
-        r#"{"type":"final","content":"资产就绪"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"初稿。","summary":"初稿"}}"#,
-        r#"{"type":"final","content":"初稿完成"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"revise\",\"blocking_issues\":[\"主角动机缺失\"],\"suggestions\":[],\"comments\":\"须修订\"}"}"#,
-        // 修订轮
-        r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"修订稿：他为了生存而拾荒。","summary":"修订稿"}}"#,
-        r#"{"type":"final","content":"修订完成"}"#,
-        // 修订后的第二轮审查（P1 无论结果放行）
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"修订后合格\"}"}"#,
-    ]);
-    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-    let result = coordinator.run_genesis("r2", LONG_PREMISE).await.unwrap();
-    assert!(result.revised);
-    let scene = SceneRepository::new(pool.clone())
-        .get_by_id(&result.scene_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(scene.content.as_deref(), Some("修订稿：他为了生存而拾荒。"));
-}
+// v0.30.35：test_genesis_revision_path 已移除--editor 质检后台化后 genesis
+// 前台不再做修订（修订需主创 LLM 且可能再顶满超时，由用户据 toast 手动
+// 重试）。修订路径仍在续写 handle_gate 中保留并经其测试覆盖。
 
 #[tokio::test]
 async fn test_genesis_aborts_when_producer_fails() {
@@ -235,30 +216,9 @@ async fn test_circuit_break_message_includes_max_turns_reason() {
     assert!(err.to_string().contains("被熔断"), "保留熔断措辞: {}", err);
 }
 
-#[tokio::test]
-async fn test_genesis_aborts_when_editor_aborted() {
-    let pool = create_test_pool().unwrap();
-    let llm = MockLlm::scripted(vec![
-        r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#,
-        r#"{"type":"final","content":"资产就绪"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"初稿。","summary":"初稿"}}"#,
-        r#"{"type":"final","content":"初稿完成"}"#,
-        "不是 JSON",
-        "还不是",
-        "依然不是",         // editor 连续解析失败 → aborted → run failed（不得默认放行）
-        "仍然不是JSON裁决", // v0.30.19: editor 散文回退也失败 -> run failed
-    ]);
-    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-    let err = coordinator
-        .run_genesis("r4", LONG_PREMISE)
-        .await
-        .unwrap_err();
-    assert!(err.to_string().contains("编辑审计") || err.to_string().contains("熔断"));
-    let repo = AgencyRepository::new(pool.clone());
-    let run = repo.get_run("r4").unwrap().unwrap();
-    assert_eq!(run.status, "failed");
-}
+// v0.30.35：test_genesis_aborts_when_editor_aborted 已移除--editor 质检后台
+// 化后不再阻塞 genesis（后台 spawn_editor_qc 在测试环境 no-op，editor 熔断
+// 经 salvage_failed_gate 降级放行保产出，不再使 run failed）。
 
 /// concept 响应后立即置取消 flag 的 mock（模拟用户在概念完成后取消）。
 struct CancelAfterConceptLlm {
@@ -331,7 +291,8 @@ async fn test_fastpath_multi_model() {
         .await
         .unwrap();
     assert!(!result.revised);
-    assert_eq!(result.verdict.verdict, "pass");
+    // v0.30.35：editor 质检后台化，genesis 返回 pending 裁决
+    assert_eq!(result.verdict.verdict, "pending");
     assert!(result.chapter_chars >= 200);
     let repo = AgencyRepository::new(pool.clone());
     assert_eq!(
@@ -381,9 +342,9 @@ async fn test_fastpath_single_model_producer_first() {
     // 单模型调用顺序严格为 concept → producer（深度资产）→ writer → editor：
     // 队列按此序提供（顺序错则内容错配必然失败），此处再显式校验各次
     // 调用的提示词标记（run 完成后 finalize 可能追加摘要调用，故只校验
-    // 前 4 次）。
+    // 前 3 次）。
     let calls = llm.calls.lock().unwrap();
-    assert!(calls.len() >= 4, "至少 4 次 LLM 调用: {:?}", *calls);
+    assert!(calls.len() >= 3, "至少 3 次 LLM 调用: {:?}", *calls);
     assert!(calls[0].contains("characters"), "第 1 次应为概念调用");
     assert!(
         calls[1].contains("foreshadowing"),
@@ -429,43 +390,64 @@ async fn test_fastpath_fallback_to_legacy() {
 }
 
 /// v0.30.19: editor tool_loop 熔断（本地模型不遵从 JSON action）后，
-/// 散文回退单次直接请求裁决 JSON 成功，run 不应失败。
+/// 散文回退单次直接请求裁决 JSON 成功。v0.30.35：genesis 前台不再跑
+/// editor 质检（后台 spawn_editor_qc），此用例改为直接调 evaluate_gate
+/// 覆盖 editor_verdict_prose_fallback 路径（该函数仍被后台质检调用）。
 #[tokio::test]
 async fn test_editor_verdict_prose_fallback() {
     let pool = create_test_pool().unwrap();
-    let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
-    let write = format!(
-        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
-        chapter
-    );
-    let llm = MockLlm::scripted(vec![
-        r#"{"title":"测试之书","genre":"科幻","logline":"拾荒者的星环之旅"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星废土","summary":"双星废土"}}"#,
-        r#"{"type":"final","content":"资产就绪"}"#,
-        write.as_str(),
-        r#"{"type":"final","content":"第一章完成"}"#,
-        // editor tool_loop: 连续 3 次散文（非 JSON action）-> ParseFailures 熔断
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "散文回退书".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let repo = AgencyRepository::new(pool.clone());
+    repo.create_run(&AgencyRun::new("rg-fb", "续写")).unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let draft = board
+        .write(
+            "rg-fb",
+            &story.id,
+            AgentRole::LeadWriter,
+            BoardZone::Draft,
+            "chapter",
+            "第一章",
+            &pass_grade_content("第一章正文：风沙中的拾荒者。"),
+            "首章草稿",
+        )
+        .unwrap();
+    // editor tool_loop: 连续 3 次散文（非 JSON action）-> ParseFailures 熔断
+    // -> salvage parse 无果 -> 散文回退（单次 complete）：直接产出裁决 JSON
+    let llm: Arc<dyn LoopLlm> = MockLlm::scripted(vec![
         "这不是JSON工具动作，只是审查意见散文。",
         "依然不是JSON action，本地模型不遵从。",
         "第三次散文，触发连续解析失败熔断。",
-        // editor 散文回退（单次 complete 调用）：直接产出裁决 JSON -> 成功
         r#"{"verdict":"pass","score":4.5,"blocking_issues":[],"suggestions":["可加强嗅觉描写"],"comments":"合格的首章"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-    let result = coordinator
-        .run_genesis("rf-editor-fb", LONG_PREMISE)
+    let registry = Arc::new(ToolRegistry::agency_default());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    let outcome = coordinator
+        .evaluate_gate(
+            &budget, &board, &registry, "rg-fb", &story.id, "续写", &draft, 1,
+        )
         .await
         .unwrap();
-    assert_eq!(
-        result.verdict.verdict, "pass",
-        "editor 熔断后散文回退应产出 pass 裁决，run 不应失败"
-    );
-    let repo = AgencyRepository::new(pool.clone());
-    assert_eq!(
-        repo.get_run("rf-editor-fb").unwrap().unwrap().status,
-        "completed",
-        "editor 熔断经散文回退后 run 应完成"
-    );
+    match outcome {
+        GateOutcome::Passed { verdict } => {
+            assert_eq!(
+                verdict.verdict, "pass",
+                "editor 熔断后散文回退应产出 pass 裁决"
+            );
+        }
+        other => panic!("散文回退应产出 pass 裁决，实际: {:?}", other),
+    }
 }
 
 /// Fix A：本地模型对 depth assets 返回散文而非 JSON 时，快速路径应兜底
@@ -1015,41 +997,10 @@ fn test_validate_premise() {
     assert!(validate_premise(&at_limit).is_ok());
 }
 
-#[tokio::test]
-async fn test_gate_fails_after_verdict_parse_retry() {
-    let pool = create_test_pool().unwrap();
-    // concept + producer(tool,final) + writer(tool,final) + editor 两次非法裁决
-    let llm = MockLlm::scripted(vec![
-        r#"{"title":"测试之书","genre":"科幻","logline":"x"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星","summary":"双星"}}"#,
-        r#"{"type":"final","content":"资产就绪"}"#,
-        r#"{"type":"tool","name":"board_write","args":{"zone":"draft","item_type":"chapter","key":"第一章","content":"正文。","summary":"初稿"}}"#,
-        r#"{"type":"final","content":"完成"}"#,
-        r#"{"type":"final","content":"这根本不是JSON裁决"}"#,
-        r#"{"type":"final","content":"依然不是JSON"}"#,
-        // v0.30.19: editor 散文回退也失败 -> run failed
-        "仍然不是JSON裁决",
-    ]);
-    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-    let err = coordinator
-        .run_genesis("r-gate-1", LONG_PREMISE)
-        .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("质量门")
-            || err.to_string().contains("裁决")
-            || err.to_string().contains("审查")
-    );
-    let repo = AgencyRepository::new(pool.clone());
-    assert_eq!(repo.get_run("r-gate-1").unwrap().unwrap().status, "failed");
-    // 规格 5：门判定（含 Failed）落审查区 item_type="gate"
-    let board = crate::agency::board::BlackboardService::new(pool.clone());
-    let snap = board.snapshot("r-gate-1").unwrap();
-    assert!(
-        snap.reviews.iter().any(|i| i.item_type == "gate"),
-        "Failed 判定也应写 gate 条目"
-    );
-}
+// v0.30.35：test_gate_fails_after_verdict_parse_retry 已移除--genesis 前台
+// 不再跑 editor 质检（后台 spawn_editor_qc 在测试环境 no-op），editor 解析
+// 失败不再使 genesis run failed。editor 失败/熔断路径仍由续写 handle_gate 与
+// 直接 evaluate_gate 测试覆盖。
 
 /// 修订指令（纯函数）须携带 item_id 与 expected_version，供 board_revise
 /// 原地修订。
@@ -1453,7 +1404,8 @@ async fn test_logline_stored_after_genesis() {
         .run_genesis("rf-logline-store", "写一部科幻小说")
         .await
         .unwrap();
-    assert_eq!(result.verdict.verdict, "pass");
+    // v0.30.35：editor 质检后台化，genesis 返回 pending 裁决
+    assert_eq!(result.verdict.verdict, "pending");
     let story = crate::db::repositories::StoryRepository::new(pool.clone())
         .get_by_id(&result.story_id)
         .unwrap()
@@ -2390,10 +2342,10 @@ async fn test_checkpoints_written_at_milestones() {
     assert!(m["words_total"].as_i64().unwrap() > 0);
     assert!(m["tokens_used"].as_u64().is_some());
     assert!(m["elapsed_s"].as_i64().is_some());
+    // v0.30.35：editor 质检后台化，genesis 前台不再产出 gate_scores
+    //（后台 spawn_editor_qc 在测试环境 no-op）。续写仍前台质检，下方校验。
     let gates = m["gate_scores"].as_array().unwrap();
-    assert_eq!(gates.len(), 1);
-    assert_eq!(gates[0]["chapter"].as_i64(), Some(1));
-    assert!(gates[0]["weighted"].as_f64().unwrap() > 0.75);
+    assert!(gates.is_empty(), "genesis 前台无 gate_scores: {:?}", gates);
 
     // 单章续写：assets → chapter（章号 + weighted）→ run_final
     let story_id = seed_story_with_assets(&pool);
@@ -2752,6 +2704,57 @@ fn test_salvage_failed_gate() {
         AgencyCoordinator::salvage_failed_gate(&boundary, "编辑审计失败").is_some(),
         "恰好 600 字符应降级放行"
     );
+}
+
+/// v0.30.35：EditorVerdict::pending() 构造的默认值--genesis 前台返回此裁决，
+/// 后台质检完成后经 genesis-qc-result 事件反馈（前端不消费此字段）。
+#[test]
+fn test_editor_verdict_pending_defaults() {
+    let v = EditorVerdict::pending();
+    assert_eq!(v.verdict, "pending");
+    assert!(v.blocking_issues.is_empty());
+    assert!(v.suggestions.is_empty());
+    assert!(v.score.is_none());
+    assert!(v.dimension_scores.is_none());
+    assert!(!v.comments.is_empty(), "pending 裁决应有说明文案");
+}
+
+/// v0.30.35：assemble_only 装配草稿 -> Scene 真源，不跑 editor 质检。
+/// 用空 mock 证明装配阶段无 LLM 调用（editor 质检已后台化为 spawn_editor_qc，
+/// 测试环境无 app_handle 时 no-op）。这是创世首章"立即显示"的核心不变量。
+#[tokio::test]
+async fn test_assemble_only_persists_scene_without_qc() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "装配书".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let repo = AgencyRepository::new(pool.clone());
+    repo.create_run(&AgencyRun::new("ra-1", "创世")).unwrap();
+    // 空 mock：assemble_only 不应发起任何 LLM 调用（editor 质检后台化）
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), MockLlm::scripted(vec![]));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let content = pass_grade_content("第一章正文：风沙中的拾荒者。");
+    let draft = make_draft(&content);
+    let (returned_draft, scene_id) = coordinator
+        .assemble_only(&repo, "ra-1", &story.id, &cancel, draft)
+        .await
+        .unwrap();
+    assert!(!scene_id.is_empty(), "应返回非空 scene_id");
+    assert_eq!(returned_draft.content, content, "应原样返回草稿");
+    // Scene 已落库，正文来自草稿（cleanup 对该低重复内容无改动）
+    let scene = SceneRepository::new(pool.clone())
+        .get_by_id(&scene_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(scene.content.as_deref(), Some(content.as_str()));
 }
 
 /// D1：cleanup_prose_for_persist 对自重复内容执行清理（genesis 首章无既有

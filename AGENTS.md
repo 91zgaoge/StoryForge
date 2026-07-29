@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.34
+- **版本**: v0.30.35
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,16 +84,25 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1078 passed
+- `cargo test -p storymoss` ✅ 1077 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 322 passed / 3 skipped
+- `npx vitest run` ✅ 326 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 540（零新增）
+- `cargo clippy --lib` ✅ 539（零新增）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.35 - editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈
+
+用户报告创世顶满 600s 超时无产出。根因：editor 质检（`review_and_assemble` 中的 `evaluate_gate`）在 Scene 装配落库**之前**同步执行，被 `tokio::time::timeout(600s)` 包裹。producer（深度资产 ~30-60s）+ writer（tool_loop ~4-5min）花约9分钟后 editor 只剩约1分钟，而 editor 的 `editor_verdict_prose_fallback` 用固定 300s timeout 发起 LLM 调用，34s 后被硬 600s 砍掉，既未完成质检也无法走 `salvage_failed_gate` 保产出，整 run 超时无任何首章返回。本版本把 editor 质检从同步硬阻塞改为后台异步 spawn：writer 完成首章 + 装配落库后立即返回前端显示首章（约5-6min 即可见），editor 在后台独立 spawn 质检（独立 300s deadline，不受 smart_execute 600s 限制），结果通过 `genesis-qc-result` 事件 + toast 通知用户。
+
+- **后端·装配与质检分离（`coordinator.rs`）**：①新增 `assemble_only`（pub(crate)）-- 从 `review_and_assemble` 提取纯装配部分（`update_phase("assembly")` + `cleanup_prose_for_persist` 抗重复三件套 + `SceneRepository::create/update` 落库 + `emit_activity`），不含 editor 质检与修订，返回 `(BoardItem, scene_id)`。②新增 `spawn_editor_qc`--测试环境 `app_handle=None` 时 no-op；生产环境 `tokio::spawn` 后台任务，构造全新 `AgencyLlm(EditorAuditor)` / `AgencyBudget` / `BlackboardService` / `ToolRegistry`，用 `Some(Instant::now() + 300s)` 独立 deadline 调 `evaluate_gate_impl`，结果三态分支：`Passed` -> `{passed:true,salvaged:false}`；`RevisionRequired` -> `{passed:false,issues}`；`Failed` -> 先 `salvage_failed_gate`（草稿≥600字合成 pass 裁决保产出）-> 成功 `{passed:true,salvaged:true}` / 失败 `{passed:false,issues:[reason]}`；`Err` -> 降级放行 `{passed:true,salvaged:true}`。`emit_activity(EditorAuditor,"start"/"done","后台审查")` + emit `genesis-qc-result` 事件。③`genesis_fastpath` / `run_genesis_legacy_inner` Phase C 由 `review_and_assemble` 改为 `assemble_only` + `spawn_editor_qc`，返回 `revised:false, verdict:EditorVerdict::pending()`。④删除已无用的 `review_and_assemble` 方法（其 helper `build_revision_task`/`evaluate_gate` 仍被续写路径复用）。⑤`EditorVerdict` 新增 `pending()` 构造函数（verdict="pending"，comments="后台质检进行中"）。⑥新增事件常量 `EVENT_GENESIS_QC_RESULT = "genesis-qc-result"`。
+- **前端·后台质检结果 toast（`FrontstageApp.tsx`）**：`setupEventListeners` 新增 `genesis-qc-result` 监听，三态反馈：质检通过（`passed && !salvaged`）-> `toast.success('编辑审计质检通过')`；降级放行（`passed && salvaged`，审计超时/失败但首章已保留）-> `toast.warning('质检降级放行（审计超时/失败，首章已保留）')`；不合格（`!passed`）-> `toast.warning('质检不合格，建议重新创世。问题：' + issues)`。后台 editor 不影响 `isGenerating`（agency 事件不进 `backendActivityStore`），用户可在质检期间继续写作；不自动重新创世，由用户手动决定。
+- **producer 深度资产保持前台**：审计后发现 `producer_depth_assets` 已是单次 `complete_json` 调用（非 tool_loop，约30-60s），非瓶颈；且保障首章不脱节（v0.30.29 专门修复的"首章在无大纲/无世界观下写就脱节"问题）。主要瓶颈是 writer tool_loop（4-5min）+ editor tool_loop，移 editor 后台后用户在 writer 完成即可见首章。
+- **验证**：`cargo test --lib` 1077 passed（+2：`test_editor_verdict_pending_defaults` / `test_assemble_only_persists_scene_without_qc`；移除 3 个已不适用的 genesis 同步质检测试，`test_editor_verdict_prose_fallback` 改为直接测 `evaluate_gate` 保留 prose-fallback 覆盖）；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（326 passed / 3 skipped，+4：`genesis-qc-result` 注册 + passed/salvaged/failed 三态 toast）/ `cargo +nightly fmt` / `cargo clippy --lib`（539，baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.34 - 修复续写内容丢失根因：序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升
 
@@ -666,7 +675,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.34_
+_最后更新: 2026-07-29 - v0.30.35_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

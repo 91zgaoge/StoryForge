@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.34-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.35-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.35 · editor 质检后台异步化：首章立即显示 + 后台质检 + toast 反馈
+
+创世顶满 600s 超时无产出的根因：editor 质检在首章装配落库**之前**同步执行，被 600s 硬超时包裹；producer + writer 花约9分钟后 editor 仅剩约1分钟，其 LLM 调用被硬 600s 砍掉，整 run 超时无首章返回。修复：把 editor 质检从同步阻塞改为**后台异步 spawn**（`assemble_only` 装配 + `spawn_editor_qc` 后台质检，独立 300s deadline 不受 600s 限制）。writer 完成首章 + 装配后**立即返回显示首章**（约5-6min 可见，此前10min 超时），editor 后台质检完成后通过 `genesis-qc-result` 事件 + **toast** 反馈（通过 / 降级放行 / 不合格建议重新创世）。后台质检不影响写作，不自动重新创世。producer 深度资产保持前台（保障首章不脱节）。
 
 ### v0.30.34 · 序列化场景持久化：修复续写内容丢失根因
 

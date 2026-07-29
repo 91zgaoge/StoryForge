@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.34)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.35)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.35 变更说明
+
+- editor 质检后台异步化：`agency/coordinator.rs` 新增 `assemble_only`（pub(crate)，纯装配落库）+ `spawn_editor_qc`（后台 `tokio::spawn`，独立 300s deadline，`app_handle=None` 时 no-op）；`genesis_fastpath` / `run_genesis_legacy_inner` Phase C 改为 `assemble_only` + `spawn_editor_qc`，返回 `verdict:EditorVerdict::pending()`；删除 `review_and_assemble`；`EditorVerdict` 加 `pending()`；新增 `EVENT_GENESIS_QC_RESULT`。前端 `FrontstageApp.tsx` 新增 `genesis-qc-result` 监听 + 三态 toast。
+- 测试调整：新增 `test_editor_verdict_pending_defaults` + `test_assemble_only_persists_scene_without_qc`（Rust，+2）；移除 3 个已不适用的 genesis 同步质检测试（`test_genesis_revision_path` / `test_genesis_aborts_when_editor_aborted` / `test_gate_fails_after_verdict_parse_retry`）；`test_editor_verdict_prose_fallback` 由 genesis-based 改为直接测 `evaluate_gate` 保留 prose-fallback 覆盖；`test_fastpath_single_model_producer_first` 调用次数 `>= 4` -> `>= 3`（editor 后台化）；新增前端 `FrontstageApp.genesis-qc.test.tsx`（+4：事件注册 + passed/salvaged/failed 三态 toast）。
+- 全量基线：`cargo test --lib` 1077 passed / 2 ignored（+2 净增）；`npx vitest run` 326 passed / 3 skipped（+4）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（539，baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.34 变更说明
 
