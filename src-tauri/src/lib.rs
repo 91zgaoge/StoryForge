@@ -618,18 +618,21 @@ pub fn run() {
                         // 此前直接 graceful_shutdown -> exit(0)，前端 2000ms 防抖窗口内的
                         // 内容（尤其是文思活跃连续续写时 cancelAutoSave 反复重置定时器导致
                         // 永不出火的场景）在进程退出时丢失。
+                        // v0.30.34: 超时从 3s 提升到 6s--SQLite busy_timeout=5s，若
+                        // close-flush 的 update_scene 在写锁竞争下阻塞，3s 会被 kill
+                        // 导致最后一笔 flush 未提交。6s > 5s 确保写锁释放后仍能提交。
                         // 流程：prevent_close -> emit flush-requested -> 前端 flush 后调
-                        // graceful_quit 命令 -> graceful_shutdown。超时 3s 兜底强制关闭。
+                        // graceful_quit 命令 -> graceful_shutdown。超时 6s 兜底强制关闭。
                         api.prevent_close();
                         let app_handle = window.app_handle().clone();
                         let _ = app_handle.emit("frontstage-flush-requested", ());
                         log::info!(
                             "[Shutdown] Frontstage close requested, emitted flush event, \
-                             waiting for frontend to flush (3s timeout fallback)"
+                             waiting for frontend to flush (6s timeout fallback)"
                         );
                         // 超时兜底：前端无响应/已崩溃/flush 卡住时强制关闭
                         std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            std::thread::sleep(std::time::Duration::from_secs(6));
                             if !SHUTDOWN_STARTED.load(Ordering::SeqCst) {
                                 log::warn!(
                                     "[Shutdown] Flush timeout (3s), force shutting down"

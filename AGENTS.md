@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.33
+- **版本**: v0.30.34
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -94,6 +94,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.34 - 修复续写内容丢失根因：序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升
+
+v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写内容丢失。深入诊断定位三个收敛根因：①`flushSceneSave` 无序列化--文思活跃连续续写时多次 `void flushSceneSave()` 并发 fire-and-forget，`update_scene` 全量覆写在 `spawn_blocking` 线程池上 SQLite 写锁获取顺序非 FIFO，较早的小内容可能在较晚的大内容之后提交，静默覆写（编辑器显示正确但 DB 被回退，重启才发现）；②close-flush 3s 超时 < SQLite `busy_timeout` 5s，写锁竞争下 close-flush 的 `update_scene` 被 kill；③`handlePipelineRefine` 的 `setContent` / `onReviseResult` 的 `insertText` 绕过 `appendAiContent`，不更新 `latestContentRef`，关闭时 flush 保存旧内容。
+
+- **主修复·序列化场景持久化（`FrontstageApp.tsx`）**：新增 `saveChainRef`（Promise 链）+ `persistSceneContent(sceneId, content, title)` -- 每次调用捕获快照后排队，`await prev` 等待前一次完成再 `update_scene`，`finally release()` 释放链。所有 `update_scene` 调用（`flushSceneSave` / `handleContentChange` 防抖 saveFn / 保护性保存）统一走此函数，保证串行提交、最后一次写总是最新内容。`flushSceneSave` 改为 `cancelAutoSave + persistSceneContent`。
+- **Root Cause #2·关闭超时 3s -> 6s（`lib.rs`）**：`CloseRequested` 超时兜底线程从 `sleep(3s)` 提升到 `sleep(6s)`，超过 SQLite `busy_timeout=5s`，确保写锁竞争下 close-flush 的 `update_scene` 仍能提交。
+- **Root Cause #3·修稿 bypass 修复（`FrontstageApp.tsx`）**：①`handlePipelineRefine` 的 `editorRef.setContent(refined_content)` 后补 `getHTML -> setContent(store) -> latestContentRef = html -> void flushSceneSave()`（`setContent` 抑制 `onChange` 不更新 ref，此前关闭时 flush 保存修稿前旧内容）；②`onReviseResult` 的 `editorRef.insertText(html)` 后同理补同步 + `void flushSceneSave()`。
+- **保护性保存 + handleContentChange saveFn 统一（`FrontstageApp.tsx`）**：新建小说前保护性保存从手写 `cancelAutoSave + loggedInvoke` 改为 `await flushSceneSave()`（序列化）；`handleContentChange` 防抖 saveFn 从手写 `loggedInvoke('update_scene')` 改为 `await persistSceneContent(payload.sceneId, payload.content, payload.title)`（序列化）。消除所有非序列化的 `update_scene` 直调。
+- **验证**：`cargo test --lib` 1078 passed；`npx tsc --noEmit` ✅；`npx vitest run` 322 passed / 3 skipped；`cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.33 - 修复关闭应用时续写内容丢失（关闭前 flush + AI 追加立即落库 + 章节切换 flush）
 
@@ -656,7 +666,7 @@ type:
 
 ---
 
-_最后更新: 2026-07-28 - v0.30.33_
+_最后更新: 2026-07-29 - v0.30.34_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

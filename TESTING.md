@@ -1,8 +1,13 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.33)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.34)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.34 变更说明
+
+- 序列化场景持久化：`FrontstageApp.tsx` 新增 `saveChainRef` + `persistSceneContent` Promise 链序列化所有 `update_scene`；`flushSceneSave` / `handleContentChange` saveFn / 保护性保存统一走此函数；`handlePipelineRefine` `setContent` + `onReviseResult` `insertText` 补 `latestContentRef` 同步 + `flushSceneSave`；`lib.rs` close 超时 3s -> 6s。
+- 全量基线：`cargo test --lib` 1078 passed / 2 ignored（无新增后端测试）；`npx vitest run` 322 passed / 3 skipped；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.33 变更说明
 

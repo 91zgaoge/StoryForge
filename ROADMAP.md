@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-28（v0.30.33 修复关闭应用时续写内容丢失）
+> 最后更新: 2026-07-29（v0.30.34 序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.34 - 序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升 ✅ (2026-07-29)
+
+- [x] 序列化 `persistSceneContent`：Promise 链确保所有 `update_scene` 串行提交，消除并发覆写竞态（文思活跃连续续写时较早的小内容覆写较晚的大内容）
+- [x] `handleContentChange` saveFn / 保护性保存统一走 `persistSceneContent`
+- [x] 关闭超时 3s -> 6s（超过 SQLite `busy_timeout` 5s）
+- [x] `handlePipelineRefine` `setContent` bypass：补 `latestContentRef` 同步 + `flushSceneSave`
+- [x] `onReviseResult` `insertText` bypass：补 `latestContentRef` 同步 + `flushSceneSave`
 
 ### ✨ v0.30.33 - 修复关闭应用时续写内容丢失 ✅ (2026-07-28)
 

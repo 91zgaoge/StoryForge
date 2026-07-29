@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.34（2026-07-29）
+
+### 修复续写内容丢失根因：序列化场景持久化 + 修稿 bypass 修复 + 关闭超时提升
+
+v0.30.33 修复后续写内容仍丢失。深入诊断定位三个收敛根因：①`flushSceneSave` 无序列化--并发 `update_scene` 全量覆写在 `spawn_blocking` 线程池上写锁获取非 FIFO，较早的小内容可能覆写较晚的大内容（编辑器正确但 DB 回退，重启才发现）；②close-flush 3s 超时 < SQLite `busy_timeout` 5s；③修稿 `setContent`/`insertText` 绕过 `appendAiContent` 不更新 `latestContentRef`。
+
+- **序列化场景持久化（`FrontstageApp.tsx`）**：新增 `persistSceneContent` Promise 链序列化所有 `update_scene`，保证串行提交、最后一次写总是最新内容。`flushSceneSave` / `handleContentChange` saveFn / 保护性保存统一走此函数。
+- **关闭超时 3s -> 6s（`lib.rs`）**：超过 SQLite `busy_timeout` 5s，确保写锁竞争下 close-flush 仍能提交。
+- **修稿 bypass 修复（`FrontstageApp.tsx`）**：`handlePipelineRefine` `setContent` 和 `onReviseResult` `insertText` 后补 `latestContentRef` 同步 + `void flushSceneSave()`。
+- **验证**：`cargo test --lib` 1078 passed；`tsc` / `vitest`（322/3 skipped）/ `fmt` / `clippy`（540 零新增）/ `architecture_guard` / `format:check` 全绿。
+
 ## v0.30.33（2026-07-28）
 
 ### 修复关闭应用时续写内容丢失（关闭前 flush + AI 追加立即落库 + 章节切换 flush）

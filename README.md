@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.33-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.34-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.34 · 序列化场景持久化：修复续写内容丢失根因
+
+v0.30.33 修复后续写内容仍丢失。根因：多次续写时保存操作**并发执行**，`update_scene` 全量覆写在 SQLite 写锁竞争下乱序提交，较早的小内容覆写较晚的大内容（编辑器正常但 DB 回退，重启才发现）。修复：①所有 `update_scene` **串行化**（Promise 链排队，最后一次写总是最新）；②修稿 `setContent`/`insertText` 后补同步 + 立即保存；③关闭等待 3s -> 6s（超过 SQLite busy_timeout）。
 
 ### v0.30.33 · 修复关闭应用时续写内容丢失
 

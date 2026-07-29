@@ -88,3 +88,6 @@ src-core-archived/
 # Worktree dependency symlinks
 src-frontend/node_modules
 target
+
+# ZCode local session artifacts
+.zcode/

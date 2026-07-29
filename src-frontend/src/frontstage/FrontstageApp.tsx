@@ -1140,32 +1140,53 @@ const FrontstageApp: React.FC = () => {
   // v5.2.0: 标记刚完成自动保存的时间戳，避免循环刷新
   const justSavedRef = useRef<number>(0);
 
-  // v0.30.33: flushSceneSave — 取消待执行的防抖保存，立即将 latestContentRef 落库。
-  // 用于三个场景：①应用关闭前 flush（后端 emit frontstage-flush-requested）；
-  // ②AI 追加内容后立即落库（消除 2000ms 防抖窗口的丢失风险）；
-  // ③切换章节前 flush 当前场景（避免 cancelAutoSave 丢弃未保存内容）。
-  // 通过 ref 暴露给 effect 监听器，确保始终调用最新闭包。
+  // v0.30.34: 序列化场景持久化链 - 确保 update_scene 调用串行执行，消除
+  // 并发全量覆写竞态（last-write-wins：较早的小内容覆写较晚的大内容）。
+  // 文思活跃连续续写时多次 appendAiContent 各自 fire-and-forget flushSceneSave，
+  // 若不序列化，spawn_blocking 线程池上 SQLite 写锁获取顺序非 FIFO，
+  // 较早的 flush（小内容）可能在较晚的 flush（大内容）之后提交，静默覆写。
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
+  const persistSceneContent = useCallback(
+    async (sceneId: string, content: string, title?: string): Promise<void> => {
+      if (!sceneId || !content) return;
+      const prev = saveChainRef.current;
+      let release!: () => void;
+      saveChainRef.current = new Promise<void>(r => {
+        release = r;
+      });
+      await prev;
+      try {
+        await loggedInvoke<unknown>(
+          'update_scene',
+          buildUpdateSceneIpcArgs({ sceneId, title, content })
+        );
+        setIsSaved(true);
+        justSavedRef.current = Date.now();
+      } catch (e) {
+        frontstageLogger.error('Persist scene content failed', { error: e });
+      } finally {
+        release();
+      }
+    },
+    []
+  );
+
+  // v0.30.33: flushSceneSave - 取消待执行的防抖保存，立即将 latestContentRef 落库。
+  // v0.30.34: 改用 persistSceneContent 序列化，消除并发覆写竞态。
   const flushSceneSave = useCallback(async (): Promise<void> => {
     cancelAutoSave();
     const sceneId = useFrontstageStore.getState().sceneId;
     if (!sceneId) return;
     const content = latestContentRef.current;
     if (!content) return;
-    try {
-      await loggedInvoke<unknown>(
-        'update_scene',
-        buildUpdateSceneIpcArgs({
-          sceneId,
-          title: useFrontstageStore.getState().sceneTitle,
-          content,
-        })
-      );
-      setIsSaved(true);
-      justSavedRef.current = Date.now();
-    } catch (e) {
-      frontstageLogger.error('Flush scene save failed', { error: e });
-    }
-  }, []);
+    await persistSceneContent(
+      sceneId,
+      content,
+      useFrontstageStore.getState().sceneTitle ?? undefined
+    );
+  }, [persistSceneContent]);
   const flushSceneSaveRef = useRef(flushSceneSave);
   useEffect(() => {
     flushSceneSaveRef.current = flushSceneSave;
@@ -2941,18 +2962,9 @@ const FrontstageApp: React.FC = () => {
           }),
           async payload => {
             try {
-              // 后端签名：update_scene(scene_id, updates: SceneUpdate)
-              await loggedInvoke<unknown>(
-                'update_scene',
-                buildUpdateSceneIpcArgs({
-                  sceneId: payload.sceneId,
-                  title: payload.title,
-                  content: payload.content,
-                })
-              );
+              // v0.30.34: 走 persistSceneContent 序列化，消除并发覆写竞态
+              await persistSceneContent(payload.sceneId, payload.content, payload.title);
               setWordCount(payload.wordCount);
-              setIsSaved(true);
-              justSavedRef.current = Date.now();
             } catch (e) {
               frontstageLogger.error('Auto-save failed', { error: e });
             }
@@ -3882,27 +3894,12 @@ const FrontstageApp: React.FC = () => {
         genesisDeliveryRef.current = 'generating';
 
         // 保护性保存：若当前场景有未保存内容，先落盘再清空，避免用户输入丢失
-        const currentSceneId = useFrontstageStore.getState().sceneId;
-        if (!isSavedRef.current && currentSceneId && latestContentRef.current) {
+        // v0.30.34: 改用 flushSceneSave（序列化），消除并发覆写竞态
+        if (!isSavedRef.current) {
           frontstageLogger.info('[SmartGeneration] 新建小说前保护性保存当前场景', {
-            sceneId: currentSceneId,
+            sceneId: useFrontstageStore.getState().sceneId,
           });
-          cancelAutoSave();
-          try {
-            const contentToSave = latestContentRef.current;
-            await loggedInvoke<unknown>(
-              'update_scene',
-              buildUpdateSceneIpcArgs({
-                sceneId: currentSceneId,
-                title: useFrontstageStore.getState().sceneTitle,
-                content: contentToSave,
-              })
-            );
-            setIsSaved(true);
-            justSavedRef.current = Date.now();
-          } catch (e) {
-            frontstageLogger.error('[SmartGeneration] 保护性保存失败，继续初始化', { error: e });
-          }
+          await flushSceneSave();
         }
 
         setGeneratedText('');
@@ -4560,6 +4557,13 @@ const FrontstageApp: React.FC = () => {
       // 刷新编辑器内容
       if (result.refined_content) {
         editorRef.current?.setContent(result.refined_content);
+        // v0.30.34: setContent 抑制 onChange（isExternalSyncRef），不更新
+        // latestContentRef/store，关闭时 flushSceneSave 会保存旧内容导致修稿丢失。
+        // 显式同步 latestContentRef + store + 立即序列化落库。
+        const html = editorRef.current?.getHTML?.() || result.refined_content;
+        useFrontstageStore.getState().setContent(html);
+        latestContentRef.current = html;
+        void flushSceneSave();
       }
     } catch (e: any) {
       toast.error('修稿失败: ' + (e.message || String(e)), { id: 'pipeline-refine' });
@@ -4849,6 +4853,12 @@ const FrontstageApp: React.FC = () => {
                         // v0.7.4: 修稿结果自动排版（智能分段 + 引号规范化）
                         const html = autoFormatText(text);
                         editorRef.current.insertText(html);
+                        // v0.30.34: insertText 不更新 latestContentRef/store，
+                        // 显式同步 + 立即序列化落库，避免关闭时丢失修稿内容。
+                        const editorHtml = editorRef.current?.getHTML?.() || html;
+                        useFrontstageStore.getState().setContent(editorHtml);
+                        latestContentRef.current = editorHtml;
+                        void flushSceneSave();
                         toast.success('修改内容已应用到编辑器');
                       } catch (e) {
                         frontstageLogger.error('[onReviseResult] 应用修稿结果失败', {
