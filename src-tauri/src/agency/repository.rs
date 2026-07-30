@@ -107,6 +107,36 @@ impl AgencyRepository {
 
     // ---- board items ----
 
+    /// 列出某 story 的全部 run（按 created_at DESC），
+    /// 供代理工作室水合 activeRunId（页面打开时发现已有 run）。
+    pub fn list_runs_for_story(
+        &self,
+        story_id: &str,
+        limit: i32,
+    ) -> Result<Vec<AgencyRun>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, story_id, premise, status, phase, result_json, error_message, created_at, updated_at
+             FROM agency_runs WHERE story_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![story_id, limit], |row| {
+            Ok(AgencyRun {
+                id: row.get(0)?,
+                story_id: row.get(1)?,
+                premise: row.get(2)?,
+                status: row.get(3)?,
+                phase: row.get(4)?,
+                result_json: row.get(5)?,
+                error_message: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+    }
+
+    // ---- board items (legacy section header kept) ----
+
     pub fn insert_item(&self, item: &BoardItem) -> Result<(), rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;
         conn.execute(
@@ -388,7 +418,7 @@ impl AgencyRepository {
              FROM agency_checkpoints WHERE story_id = ?1 ORDER BY created_at ASC, rowid ASC",
         )?;
         let rows = stmt.query_map(params![story_id], map_checkpoint)?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        rows.collect::<Result<Vec<_>, _>>()
     }
 
     pub fn get_checkpoint(
@@ -639,6 +669,50 @@ mod tests {
         repo.finish_run("r1", "completed", None, None).unwrap();
         assert!(!repo.has_running_run_for_story("s1").unwrap());
         assert!(!repo.has_running_run_for_story("s2").unwrap());
+    }
+
+    #[test]
+    fn test_list_runs_for_story() {
+        let (repo, _) = repo();
+        // s1: 3 runs（不同状态/时间）
+        let mut r1 = AgencyRun::new("r1", "前提1");
+        r1.story_id = Some("s1".into());
+        repo.create_run(&r1).unwrap();
+        repo.update_run_phase("r1", "running", "writing").unwrap();
+        repo.finish_run("r1", "completed", None, None).unwrap();
+
+        // r2 稍晚创建（手动写 created_at 保证顺序）
+        let mut r2 = AgencyRun::new("r2", "前提2");
+        r2.story_id = Some("s1".into());
+        r2.created_at = chrono::Local::now().to_rfc3339();
+        repo.create_run(&r2).unwrap();
+
+        // s2: 1 run（验证 story_id 过滤）
+        let mut r3 = AgencyRun::new("r3", "前提3");
+        r3.story_id = Some("s2".into());
+        repo.create_run(&r3).unwrap();
+
+        // s1 有 2 个 run
+        let s1_runs = repo.list_runs_for_story("s1", 20).unwrap();
+        assert_eq!(s1_runs.len(), 2);
+        // r2 是最后创建的，应排第一
+        assert_eq!(s1_runs[0].id, "r2");
+        assert_eq!(s1_runs[1].id, "r1");
+        assert_eq!(s1_runs[1].status, "completed");
+
+        // s2 只有 1 个 run
+        let s2_runs = repo.list_runs_for_story("s2", 20).unwrap();
+        assert_eq!(s2_runs.len(), 1);
+        assert_eq!(s2_runs[0].id, "r3");
+
+        // limit 生效
+        let limited = repo.list_runs_for_story("s1", 1).unwrap();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].id, "r2");
+
+        // 不存在的 story 返回空
+        let empty = repo.list_runs_for_story("sX", 20).unwrap();
+        assert!(empty.is_empty());
     }
 
     #[test]

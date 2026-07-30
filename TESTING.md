@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.39)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.40)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.40 变更说明
+
+- 修复代理工作室不显示活动记录数据（`activeRunId` 仅从事件捕获 + 无 `list_runs` 命令）：后端新增 `agency_list_runs` 命令 + `list_runs_for_story` repository 方法；前端 `AgencyStudio.tsx` 水合 `activeRunId` + 历史时间线重建 + run 选择器。
+- 测试调整：`agency/repository.rs` +1 回归（`test_list_runs_for_story`：多 run 排序 / story_id 过滤 / limit / 空结果）；`AgencyStudio.test.tsx` +3（水合 activeRunId 显示黑板 / run 选择器多 option / 历史时间线从 board items 重建）；原有"渲染三角色状态卡与黑板空态"测试更新 mock（加 `listRuns`）。
+- 全量基线：`cargo test --lib` 1082 passed / 2 ignored（+1）；`npx vitest run` 339 passed / 3 skipped（+3）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（538，baseline 540，-2 修复既有 `needless_question_mark`）/ prettier / architecture_guard 全绿。
 
 ### v0.30.39 变更说明
 

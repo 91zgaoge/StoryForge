@@ -1,15 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
-import { getRun, listBoard } from '@/services/api/agency';
+import { getRun, listBoard, listRuns } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
 
-/** 角色事件流中的 role 值（AgentRole::as_str）→ 显示名 */
+/** 角色事件流中的 role 值（AgentRole::as_str）-> 显示名 */
 const ROLES: { key: string; name: string }[] = [
   { key: 'lead_writer', name: '主创' },
   { key: 'producer', name: '管理' },
   { key: 'editor_auditor', name: '编辑审计' },
 ];
+
+/** 扩展角色名映射（board items 的 producer 可能是 writer/inspector 等） */
+const ROLE_NAMES: Record<string, string> = {
+  lead_writer: '主创',
+  producer: '管理',
+  editor_auditor: '编辑审计',
+  writer: '写手',
+  inspector: '检查',
+  outline_planner: '大纲',
+  style_mimic: '风格',
+};
 
 const ZONES: { key: BoardItem['zone']; name: string }[] = [
   { key: 'asset', name: '资产' },
@@ -17,6 +28,8 @@ const ZONES: { key: BoardItem['zone']; name: string }[] = [
   { key: 'review', name: '审查' },
   { key: 'schedule', name: '计划' },
 ];
+
+const ZONE_NAMES: Record<string, string> = Object.fromEntries(ZONES.map(z => [z.key, z.name]));
 
 interface ActivityEvent {
   run_id: string;
@@ -40,6 +53,23 @@ function hhmmss(at: number) {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+function roleName(key: string): string {
+  return ROLE_NAMES[key] ?? key;
+}
+
+function runStatusLabel(status: string): string {
+  switch (status) {
+    case 'completed':
+      return '完成';
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '取消';
+    default:
+      return status;
+  }
+}
+
 export default function AgencyStudio() {
   const currentStory = useAppStore(s => s.currentStory);
   const qc = useQueryClient();
@@ -48,7 +78,6 @@ export default function AgencyStudio() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   // 事件接入：activity/progress 驱动时间线与角色卡；board-changed 失效黑板查询。
-  // 活跃 run_id 全部从事件捕获（agency 无 list_runs）。
   useEffect(() => {
     let un1: (() => void) | undefined, un2: (() => void) | undefined, un3: (() => void) | undefined;
     (async () => {
@@ -73,6 +102,23 @@ export default function AgencyStudio() {
     };
   }, [qc]);
 
+  // Run 发现：页面打开时从 DB 水合最新 run（不依赖实时事件）。
+  // 此前 activeRunId 仅从事件捕获 -> 页面后开时恒 null -> 空白。
+  const { data: runs } = useQuery({
+    queryKey: ['agency-runs', currentStory?.id],
+    queryFn: () => listRuns(currentStory!.id),
+    enabled: !!currentStory,
+    refetchInterval: 10_000,
+  });
+
+  // 水合：runs 数据到达且当前无 activeRunId 时，取最新 run。
+  // 实时事件仍可覆盖（新 run 启动时事件到达，切到新 run）。
+  useEffect(() => {
+    if (!activeRunId && runs && runs.length > 0) {
+      setActiveRunId(runs[0].id);
+    }
+  }, [runs, activeRunId]);
+
   const { data: board } = useQuery({
     queryKey: ['agency-board', activeRunId],
     queryFn: () => listBoard(activeRunId!),
@@ -93,16 +139,66 @@ export default function AgencyStudio() {
     ? `${latestProgress.phase} · ${latestProgress.status}`
     : run
       ? `${run.phase} · ${run.status}`
-      : '—';
+      : '-';
   const lastAction = (role: string) => {
     const a = [...activities].reverse().find(x => x.role === role);
-    return a ? `${a.action} ${a.detail}` : '—';
+    return a ? `${a.action} ${a.detail}` : '-';
   };
   const byZone = (zone: BoardItem['zone']) => (board ?? []).filter(i => i.zone === zone);
-  const timeline = [
-    ...activities.map(a => ({ at: a.at, text: `${a.role} ${a.action} ${a.detail}` })),
-    ...progress.map(p => ({ at: p.at, text: `${p.phase} ${p.status} ${p.message}` })),
-  ]
+
+  // 时间线重建：三源合并
+  // 1. Live 事件（activities + progress）--实时新事件
+  // 2. 历史重建（board items 的 created_at + producer + zone + key + summary）
+  // 3. Run 生命周期（created_at 启动 + updated_at 终态）
+  const liveTimeline = [
+    ...activities.map(a => ({
+      at: a.at,
+      text: `${roleName(a.role)} ${a.action} ${a.detail}`,
+    })),
+    ...progress.map(p => ({
+      at: p.at,
+      text: `${p.phase} ${p.status} ${p.message}`,
+    })),
+  ];
+
+  const historicalTimeline: { at: number; text: string }[] = [];
+  if (board) {
+    for (const item of board) {
+      const ts = new Date(item.created_at).getTime();
+      if (!isNaN(ts)) {
+        historicalTimeline.push({
+          at: ts,
+          text: `${roleName(item.producer)} 创建 ${ZONE_NAMES[item.zone] ?? item.zone}：${item.key}${item.summary ? ' - ' + item.summary : ''}`,
+        });
+      }
+    }
+  }
+  if (run) {
+    const startTs = new Date(run.created_at).getTime();
+    if (!isNaN(startTs)) {
+      historicalTimeline.push({
+        at: startTs,
+        text: `运行启动 - ${run.premise.slice(0, 50)}`,
+      });
+    }
+    const endTs = new Date(run.updated_at).getTime();
+    if (!isNaN(endTs) && run.status !== 'pending' && run.status !== 'running') {
+      historicalTimeline.push({
+        at: endTs,
+        text: `运行${runStatusLabel(run.status)} - ${run.phase}`,
+      });
+    }
+  }
+
+  // 合并 + 去重 + 排序（最新在前）
+  const seen = new Set<string>();
+  const timeline = [...liveTimeline, ...historicalTimeline]
+    .filter(t => {
+      const key = `${t.at}|${t.text}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .sort((x, y) => y.at - x.at)
     .slice(0, 100);
 
@@ -110,9 +206,26 @@ export default function AgencyStudio() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">代理工作室 · {currentStory.title}</h1>
-        <span className="text-xs text-gray-400">
-          {activeRunId ? `run ${activeRunId.slice(0, 8)}` : '等待事件'}
-        </span>
+        <div className="flex items-center gap-2">
+          {runs && runs.length > 0 ? (
+            <select
+              className="rounded border bg-white px-2 py-1 text-xs text-gray-600"
+              value={activeRunId ?? ''}
+              onChange={e => setActiveRunId(e.target.value)}
+            >
+              {runs.map(r => (
+                <option key={r.id} value={r.id}>
+                  [{r.status}] {r.phase} - {r.premise.slice(0, 30)} (
+                  {hhmmss(new Date(r.created_at).getTime())})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-xs text-gray-400">
+              {activeRunId ? `run ${activeRunId.slice(0, 8)}` : '等待事件'}
+            </span>
+          )}
+        </div>
       </div>
 
       <section className="grid grid-cols-3 gap-4">
@@ -127,7 +240,7 @@ export default function AgencyStudio() {
 
       {!activeRunId && (
         <p className="rounded border border-dashed p-4 text-sm text-gray-500">
-          暂无活动——启动创世或续写后，这里会实时显示代理动态。
+          暂无活动--启动创世或续写后，这里会实时显示代理动态。
         </p>
       )}
 
@@ -161,7 +274,7 @@ export default function AgencyStudio() {
       <section>
         <h2 className="mb-2 font-medium">时间线</h2>
         {timeline.length === 0 ? (
-          activeRunId && <p className="text-sm text-gray-400">等待新事件…</p>
+          <p className="text-sm text-gray-400">暂无记录</p>
         ) : (
           <div className="space-y-1 text-sm">
             {timeline.map((t, idx) => (

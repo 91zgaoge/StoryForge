@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.39-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.40-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.40 · 修复代理工作室不显示活动记录数据
+
+用户报告幕后"代理工作室"页面不显示代理活动记录数据。根因：`activeRunId` 仅从实时事件捕获，用户在 run 启动后或完成后打开页面时无事件到达，`activeRunId` 恒 null，页面永远显示"暂无活动"。且无 `list_runs` 命令发现已有 run，activity 事件 fire-and-forget 不持久化。修复：后端新增 `agency_list_runs` 命令（按 `created_at DESC` 列出 story 的全部 run）；前端页面打开时从 DB 水合最新 run 的 `activeRunId`（不依赖实时事件）；时间线从仅 live 事件改为三源合并（live 事件 + board items 历史重建 + run 生命周期）；新增 run 选择器下拉框可切换浏览历史 run。前后端修复。
 
 ### v0.30.39 · 修复续写不按故事大纲推进剧情
 

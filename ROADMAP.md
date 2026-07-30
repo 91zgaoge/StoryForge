@@ -1,8 +1,17 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-29（v0.30.39 修复续写不按故事大纲推进剧情--TimeSliced 路径缺失 build_progression_anchor）
+> 最后更新: 2026-07-29（v0.30.40 修复代理工作室不显示活动记录数据--activeRunId 仅从事件捕获 + 无 list_runs 命令）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.40 - 修复代理工作室不显示活动记录数据（activeRunId 仅从事件捕获 + 无 list_runs 命令）✅ (2026-07-29)
+
+- [x] 根因：`AgencyStudio.tsx` 的 `activeRunId` 仅从实时事件捕获，页面后开时恒 null -> IPC 查询不触发 -> 永远"暂无活动"；无 `list_runs` 命令发现已有 run；activity 事件 fire-and-forget 不持久化
+- [x] 后端：新增 `agency_list_runs` 命令（`list_runs_for_story` 按 `created_at DESC`，limit=20）
+- [x] 前端：`useQuery` + `useEffect` 水合 `activeRunId`（取最新 run，不依赖实时事件）
+- [x] 前端：历史时间线三源合并（live 事件 + board items 重建 + run 生命周期）
+- [x] 前端：run 选择器 `<select>` 下拉框切换浏览历史 run
+- [x] 验证：cargo test 1082 passed（+1）；vitest 339/3 skipped（+3）；clippy 538（baseline 540，-2 修复既有）；tsc ✅；fmt ✅；architecture_guard ✅；format:check ✅
 
 ### ✨ v0.30.39 - 修复续写不按故事大纲推进剧情（TimeSliced 路径缺失 build_progression_anchor）✅ (2026-07-29)
 

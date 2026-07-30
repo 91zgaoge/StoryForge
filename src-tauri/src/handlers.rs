@@ -230,7 +230,7 @@ tauri::generate_handler! {
     commands::audit::audit_story,
     // Agency (Genesis 2.0) commands
     agency::commands::agency_start_genesis, agency::commands::agency_get_run,
-    agency::commands::agency_list_board, agency::commands::agency_cancel_run,
+    agency::commands::agency_list_runs, agency::commands::agency_list_board, agency::commands::agency_cancel_run,
     agency::commands::agency_continue_chapter, agency::commands::agency_continue_batch,
     agency::commands::agency_resume_run,
     agency::commands::agency_list_checkpoints, agency::commands::agency_compare_checkpoints,

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.39
+- **版本**: v0.30.40
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,16 +84,27 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1081 passed
+- `cargo test -p storymoss` ✅ 1082 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 336 passed / 3 skipped
+- `npx vitest run` ✅ 339 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 539（零新增）
+- `cargo clippy --lib` ✅ 538（零新增，-2 修复既有冗余）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.40 - 修复代理工作室不显示活动记录数据（activeRunId 仅从事件捕获 + 无 list_runs 命令）
+
+用户报告"前端后台的代理工作室，没有显示代理活动的记录数据"。根因：`AgencyStudio.tsx` 的 `activeRunId` **仅从实时事件捕获**（`agency-agent-activity` / `agency-run-progress` / `agency-board-changed` 三个 `listen`），IPC 查询 `getRun`/`listBoard` 的 `enabled: !!activeRunId`--如果用户在 run 启动后或完成后才打开代理工作室，没有事件到达，`activeRunId` 恒为 `null`，页面永远显示"暂无活动"。此外无 `agency_list_runs` 命令发现已有 run，activity/progress 事件 fire-and-forget 不持久化（时间线数据页面卸载即丢失）。
+
+- **后端·新增 `agency_list_runs` 命令（`agency/repository.rs` + `agency/commands.rs` + `handlers.rs`）**：`AgencyRepository::list_runs_for_story(story_id, limit)` 按 `created_at DESC` 列出某 story 的全部 run（利用已有 `idx_agency_runs_story` 索引）；`agency_list_runs` Tauri 命令（limit=20）注册到 `handlers.rs`。前端可通过 IPC 发现已有 run，不依赖实时事件。
+- **前端·activeRunId 水合（`AgencyStudio.tsx`）**：新增 `useQuery(['agency-runs', currentStory?.id], () => listRuns(currentStory.id))` 查询（10s 轮询）；`useEffect` 在 `runs` 数据到达且 `!activeRunId` 时取 `runs[0].id`（最新 run）水合。实时事件仍可覆盖（新 run 启动时事件到达，切到新 run）。
+- **前端·历史时间线重建（`AgencyStudio.tsx`）**：时间线从仅 live 事件改为三源合并--①Live 事件（activities + progress）；②历史重建（board items 的 `created_at` + `producer` + `zone` + `key` + `summary` 生成时间线条目，如"管理 创建 资产：世界观 - 双星系统"）；③Run 生命周期（`created_at` 启动 + `updated_at` 终态）。合并后按 `(at, text)` 去重、时间倒序、截断 100 条。无需新表/迁移，从已持久化的 `agency_board_items` 重建。
+- **前端·Run 选择器（`AgencyStudio.tsx`）**：标题栏右侧新增 `<select>` 下拉框，每个 option 显示 `[status] phase - premise 前30字 (时间)`，用户可切换浏览历史 run。切换时 `setActiveRunId` -> react-query 自动刷新 board + run 数据。
+- **附带·clippy 冗余修复（`agency/repository.rs`）**：`list_runs_for_story` + `list_checkpoints` 的 `Ok(rows.collect::<Result<Vec<_>, _>>()?)` 改为 `rows.collect::<Result<Vec<_>, _>>()`（`Ok` + `?` 冗余，clippy `needless_question_mark`）。
+- **验证**：`cargo test --lib` 1082 passed（+1：`test_list_runs_for_story`）；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（339 passed / 3 skipped，+3：水合 / run 选择器 / 历史时间线）/ `cargo +nightly fmt` / `cargo clippy --lib`（538，baseline 540 零新增且 -2 修复既有）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.39 - 修复续写不按故事大纲推进剧情（TimeSliced 路径缺失 build_progression_anchor）
 
@@ -717,7 +728,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.39_
+_最后更新: 2026-07-29 - v0.30.40_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

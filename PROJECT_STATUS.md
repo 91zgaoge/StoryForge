@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.39 项目完成状态
+# StoryMoss (草苔) v0.30.40 项目完成状态
 
-> 最后更新: 2026-07-29（v0.30.39 修复续写不按故事大纲推进剧情--TimeSliced 路径缺失 build_progression_anchor）
+> 最后更新: 2026-07-29（v0.30.40 修复代理工作室不显示活动记录数据--activeRunId 仅从事件捕获 + 无 list_runs 命令）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,16 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.40 - 修复代理工作室不显示活动记录数据（activeRunId 仅从事件捕获 + 无 list_runs 命令）（2026-07-29）
+
+- 用户报告"前端后台的代理工作室，没有显示代理活动的记录数据"。
+- **根因（`AgencyStudio.tsx`）**：`activeRunId` 仅从实时事件捕获（三个 `listen`），IPC 查询 `enabled: !!activeRunId`--页面后开时无事件到达，`activeRunId` 恒 null，永远显示"暂无活动"。无 `list_runs` 命令发现已有 run，activity 事件 fire-and-forget 不持久化。
+- **后端·`agency_list_runs` 命令（`agency/repository.rs` + `agency/commands.rs` + `handlers.rs`）**：`list_runs_for_story(story_id, limit=20)` 按 `created_at DESC` 列出 story 的全部 run。
+- **前端·activeRunId 水合（`AgencyStudio.tsx`）**：新增 `listRuns` 查询 + `useEffect` 取最新 run 水合 `activeRunId`，不依赖实时事件。
+- **前端·历史时间线重建（`AgencyStudio.tsx`）**：时间线三源合并（live 事件 + board items 历史重建 + run 生命周期），去重排序。无需新表/迁移。
+- **前端·Run 选择器（`AgencyStudio.tsx`）**：新增 `<select>` 下拉框切换浏览历史 run。
+- 验证：`cargo test --lib` 1082 passed（+1）；`npx vitest run` 339/3 skipped（+3）；`cargo clippy --lib` 538（baseline 540，-2 修复既有）；`tsc`/`fmt`/`architecture_guard`/`format:check` 全绿。
 
 ### v0.30.39 - 修复续写不按故事大纲推进剧情（TimeSliced 路径缺失 build_progression_anchor）（2026-07-29）
 

@@ -178,6 +178,10 @@ export function getRun(runId: string) {
   return loggedInvoke<AgencyRun | null>('agency_get_run', { run_id: runId });
 }
 
+export function listRuns(storyId: string) {
+  return loggedInvoke<AgencyRun[]>('agency_list_runs', { story_id: storyId });
+}
+
 export function listBoard(runId: string) {
   return loggedInvoke<BoardItem[]>('agency_list_board', { run_id: runId });
 }

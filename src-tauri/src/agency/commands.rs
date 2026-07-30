@@ -211,6 +211,21 @@ pub async fn agency_get_run(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub async fn agency_list_runs(
+    story_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<AgencyRun>, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        AgencyRepository::new(pool)
+            .list_runs_for_story(&story_id, 20)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::from(format!("agency_list_runs join error: {}", e)))?
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub async fn agency_list_board(
     run_id: String,
     pool: State<'_, DbPool>,
