@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.41 项目完成状态
+# StoryMoss (草苔) v0.30.42 项目完成状态
 
-> 最后更新: 2026-07-30（v0.30.41 修复续写内容被假阳性去重静默丢弃--模型回显指令 + 短文本假阳性 + 内容丢失）
+> 最后更新: 2026-07-30（v0.30.42 修复世界观生成失败--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,10 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.42 - 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）（2026-07-30）
+
+issue #14 用户报告"世界观生成失败，请重试"，但日志显示 LLM API 调用成功返回内容，失败发生在下游 JSON 解析且完全无错误日志。根因：模型将 JSON 包裹在 ` ```json ... ``` ` 代码块中、或在字符串值内直接换行/使用裸双引号，`serde_json::from_str` 静默失败；`novel_creation.rs` 严格解析全量响应直接失败；prompt 要求"concepts 数组"但代码读 `world_buildings`，即使解析成功也找不到数组。三层修复：`parse_lenient` 复用 `extract_and_sanitize_json`（剥离围栏/修复裸换行/括号深度匹配）；`novel_creation.rs` 提取 `parse_world_options_response` 纯函数先剥离围栏再解析 + 失败时 `log::warn!` 记录片段；两份 prompt 修正字段名 + 新增格式约束。
 
 ### v0.30.41 - 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）（2026-07-30）
 

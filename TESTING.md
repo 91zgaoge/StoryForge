@@ -1,10 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.41)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.42)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
-### v0.30.41 变更说明
+### v0.30.42 变更说明
+
+- 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）：①`agency/coordinator.rs::parse_lenient` 复用 `crate::narrative::extract_and_sanitize_json`（剥离围栏/修复裸换行/括号深度匹配），失败回退旧首尾花括号截取；②`agents/novel_creation.rs` 提取 `parse_world_options_response` 纯函数先剥离围栏再解析 + 失败时 `log::warn!` 记录片段；③两份 prompt 修正字段名（`concepts` -> `world_buildings`）+ 格式约束。
+- 测试调整：`agency/tests.rs` +2（parse_lenient 剥离围栏 + 尾部杂散 `}` / 修复字符串内裸换行）；`novel_creation.rs` +3（干净 JSON / markdown 围栏包裹 / 缺 world_buildings 键报错守卫）。
+- 全量基线：`cargo test --lib` 1087 passed / 2 ignored（+5）；`npx vitest run` 349 passed / 3 skipped（无前端逻辑变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（538，零新增）/ prettier / architecture_guard 全绿。
 
 - 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）：`isTextDuplicate` 新增最小长度守卫（归一化后 < 30 字符直接返回 false）；新增 `stripInstructionEcho` 剥离模型回显的用户指令前缀，在 `handleRequestGeneration` 和 `handleSmartGeneration` 的 `sanitizeContinuationOutput` 后调用。纯前端修复，无 Rust 变更。
 - 测试调整：`isTextDuplicate.test.ts` +2（短文本假阳性守卫 + 长文本真阳性）；`textCleanup.test.ts` +7（`stripInstructionEcho` 7 场景：正常剥离/冒号分隔/不匹配不剥/短输入不剥/空输入不剥/剩余过短保留/长指令剥离）；更新 2 既有测试（前缀检测改用 ≥40 字符 + `isTextDuplicate` 用 ≥30 字符）。
@@ -675,4 +679,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-30 - v0.30.41 续写内容假阳性去重修复，测试基线 349_
+_最后更新: 2026-07-30 - v0.30.42 世界观 JSON 解析修复，测试基线 1087_

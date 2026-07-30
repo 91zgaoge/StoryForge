@@ -714,8 +714,21 @@ pub(crate) fn outline_value_is_empty(v: &serde_json::Value) -> bool {
     }
 }
 
-/// 宽容 JSON 提取：截取首个 '{' 与末个 '}' 之间解析。
+/// 宽容 JSON 提取：先用 narrative 的健壮提取器（剥离 markdown 围栏 / 推理链、
+/// 修复字符串内未转义换行、括号深度匹配跳过尾部杂散 `}`），失败再回退到旧的
+/// 首尾花括号截取。
+///
+/// v0.30.42：修复模型将 JSON 包裹在 ` ```json ... ``` ` 代码块中、或在字符串值
+/// 内直接换行导致解析静默失败（issue #14）。`extract_and_sanitize_json` 已处理
+/// 围栏 / 换行 / BOM / 尾随逗号 / 注释等常见 LLM 输出瑕疵，此处复用以覆盖
+/// agency 全部 JSON 解析路径（concept_pack / depth_assets / editor 裁决等）。
 pub(crate) fn parse_lenient<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T> {
+    if let Ok(sanitized) = crate::narrative::extract_and_sanitize_json(raw) {
+        if let Ok(v) = serde_json::from_str(&sanitized) {
+            return Some(v);
+        }
+    }
+    // 回退：旧的首尾花括号截取（向后兼容 extract_and_sanitize_json 未覆盖的边角）
     let start = raw.find('{')?;
     let end = raw.rfind('}')?;
     if end <= start {

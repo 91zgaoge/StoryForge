@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.41
+- **版本**: v0.30.42
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,7 +84,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1082 passed
+- `cargo test -p storymoss` ✅ 1087 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 349 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -94,6 +94,15 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.42 - 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
+
+issue #14 用户报告"世界观生成失败，请重试"，但日志显示 LLM API 调用成功返回内容（7636 字符），失败发生在下游 JSON 解析且完全无错误日志。根因三层：①模型将 JSON 包裹在 ` ```json ... ``` ` 代码块中、或在字符串值内直接换行/使用裸双引号，`serde_json::from_str` 静默失败；②`novel_creation.rs` 严格解析全量响应（含围栏）直接失败，`agency/coordinator.rs::parse_lenient` 用 `rfind('}')` 会被尾部杂散 `}` 误导且无法修复字符串内裸换行；③`novel_creation_world_options.md` prompt 要求"concepts 数组"但代码读 `parsed["world_buildings"]`，即使解析成功也找不到数组；prompt 缺少格式约束。
+
+- **Fix 1·`parse_lenient` 复用健壮提取器（`agency/coordinator.rs`）**：`parse_lenient` 改为先调 `crate::narrative::extract_and_sanitize_json`（剥离 markdown 围栏 / 推理链、括号深度匹配跳过尾部杂散 `}`、修复字符串内未转义换行、移除 BOM / 注释 / 尾随逗号），失败再回退旧的首尾花括号截取。覆盖 agency 全部 JSON 解析路径（concept_pack / producer_depth_assets 世界观 / editor 裁决 / retrieval plan）。`extract_and_sanitize_json` 已存在于 `narrative` 且被 memory/analysis 等模块使用，`agents` 已有 `crate::narrative::strip_reasoning_blocks` 先例，无新跨层依赖。
+- **Fix 2·`novel_creation.rs` 世界观选项解析健壮化**：提取 `parse_world_options_response` 纯函数（便于单测，无需 mock LlmService），先 `extract_and_sanitize_json` 剥离围栏再 `serde_json::from_str`；解析失败时 `log::warn!` 记录错误 + raw 长度 + 200 字片段（此前完全静默）；`world_buildings` 缺失时错误信息明确指出"缺少 world_buildings 数组"；元素反序列化 `unwrap` 改 `map_err` 不再 panic。
+- **Fix 3·prompt 字段名修正 + 格式约束（`novel_creation_world_options.md` + `narrative_world_building_generate.md`）**：`novel_creation_world_options.md` "concepts 数组" -> `world_buildings`（与代码一致）并补全完整 schema 示例；两份 prompt 新增格式约束--禁止 markdown 代码块包裹、字符串值内引用用中文引号「」或转义 `\"`、禁止 JSON 外输出任何文字。
+- **验证**：`cargo test --lib` 1087 passed / 2 ignored（+5：parse_lenient 剥围栏/修复裸换行 +2，novel_creation 解析 +3）；`npx tsc --noEmit` ✅；`npx vitest run` 349 passed / 3 skipped；`cargo +nightly fmt` / `cargo clippy --lib`（538 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.41 - 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）
 
@@ -737,7 +746,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-30 - v0.30.41_
+_最后更新: 2026-07-30 - v0.30.42_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

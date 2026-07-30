@@ -3,7 +3,7 @@ id: narrative_world_building_generate
 name: "创世-世界观构建"
 description: "Bootstrap：生成世界观设定；注入创作策略与方法论"
 category: creation
-version: 0.26.46
+version: 0.30.46
 variables:
   - story_title
   - genre
@@ -37,3 +37,6 @@ variables:
 3. 重要规则（importance >= 8）不超过5条
 4. 必须遵循【创作策略参考】中的体裁画像、方法论等约束（若本节非空）
 5. 只输出 JSON
+6. 禁止使用 markdown 代码块包裹（不要输出 ```json 或 ``` 标记）
+7. 字符串值内部若需引用文字，使用中文引号「」或转义双引号 \"，禁止使用未转义的裸双引号
+8. 不要在 JSON 之外输出任何解释、前言、后记

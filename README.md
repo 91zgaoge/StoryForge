@@ -104,6 +104,10 @@ npm run build
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+### v0.30.42 · 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON）
+
+issue #14 用户报告"世界观生成失败，请重试"，但日志显示 LLM API 调用成功返回内容，失败发生在下游 JSON 解析且完全无错误日志。根因三层：①模型将 JSON 包裹在 ` ```json ... ``` ` 代码块中、或在字符串值内直接换行/使用裸双引号，`serde_json::from_str` 静默失败；②`novel_creation.rs` 严格解析全量响应（含围栏）直接失败，agency `parse_lenient` 用 `rfind('}')` 会被尾部杂散 `}` 误导；③`novel_creation_world_options.md` prompt 要求"concepts 数组"但代码读 `world_buildings`，即使解析成功也找不到数组；prompt 缺少格式约束。三层修复：`parse_lenient` 复用 `extract_and_sanitize_json`（剥离围栏/修复裸换行/括号深度匹配）；`novel_creation.rs` 提取 `parse_world_options_response` 纯函数先剥离围栏再解析 + 失败时 `log::warn!` 记录片段（此前完全静默）；两份 prompt 修正字段名 + 新增格式约束（禁 markdown 围栏、引号转义）。
+
 ### v0.30.41 · 修复续写内容被假阳性去重静默丢弃
 
 用户诊断报告显示续写生成时 LLM（deepseek-v4）成功返回 2511 字符，但前端仅显示 6 字符（"续写\n黑暗。"），随后报"生成过程异常结束，未收到有效内容"。根因链：①模型在生成内容开头回显用户指令"续写"（非正文）；②打字机动画首帧仅 3 字符（"续写\n"），归一化后 2 字符"续写"几乎必然出现在已有正文中；③`isTextDuplicate` 假阳性返回 true，`setGeneratedText` 跳过赋值并 `markAccepted` 存入 2 字符指纹；④生成内容被静默丢弃。两层修复：`isTextDuplicate` 新增最小长度守卫（归一化后 < 30 字符直接返回 false，不进行去重检查）；新增 `stripInstructionEcho` 剥离模型回显的用户指令前缀，在 `handleRequestGeneration` 和 `handleSmartGeneration` 的 `sanitizeContinuationOutput` 后调用。纯前端修复，无 Rust 变更。

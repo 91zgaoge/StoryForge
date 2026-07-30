@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-30（v0.30.41 修复续写内容被假阳性去重静默丢弃--模型回显指令 + 短文本假阳性 + 内容丢失）
+> 最后更新: 2026-07-30（v0.30.42 修复世界观生成失败--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.42 - 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）✅ (2026-07-30)
+
+- [x] 根因（issue #14）：用户报告"世界观生成失败，请重试"，但日志显示 LLM API 调用成功返回内容（7636 字符），失败发生在下游 JSON 解析且完全无错误日志。模型将 JSON 包裹在 ` ```json ... ``` ` 代码块中、或在字符串值内直接换行/使用裸双引号，`serde_json::from_str` 静默失败；`novel_creation.rs` 严格解析全量响应（含围栏）直接失败；prompt 要求"concepts 数组"但代码读 `world_buildings`
+- [x] Fix 1（`agency/coordinator.rs` `parse_lenient`）：复用 `crate::narrative::extract_and_sanitize_json`（剥离 markdown 围栏 / 推理链、括号深度匹配跳过尾部杂散 `}`、修复字符串内未转义换行、移除 BOM/注释/尾随逗号），失败回退旧首尾花括号截取。覆盖 agency 全部 JSON 解析路径
+- [x] Fix 2（`agents/novel_creation.rs`）：提取 `parse_world_options_response` 纯函数先剥离围栏再解析；失败时 `log::warn!` 记录错误 + 200 字片段（此前完全静默）；元素反序列化 `unwrap` 改 `map_err` 不再 panic
+- [x] Fix 3（prompt）：`novel_creation_world_options.md` "concepts" -> `world_buildings`（与代码一致）+ 补全 schema；两份 prompt 新增格式约束（禁 markdown 围栏、引号转义、JSON 外无文字）
+- [x] 验证：cargo test --lib 1087 passed / 2 ignored（+5）；tsc ✅；vitest 349 passed / 3 skipped；fmt / clippy（538 零新增）/ architecture_guard / format:check 全绿
 
 ### ✨ v0.30.41 - 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）✅ (2026-07-30)
 

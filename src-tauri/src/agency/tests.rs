@@ -917,6 +917,27 @@ fn test_parse_lenient_json() {
 }
 
 #[test]
+fn test_parse_lenient_strips_markdown_code_fence_with_trailing_brace() {
+    // issue #14：JSON 被 ```json 代码块包裹，且代码块后有额外说明文本含 `}`。
+    // 旧 parse_lenient 用 rfind('}') 会截到尾部杂散 `}`，from_str 失败 -> None。
+    // 现 extract_and_sanitize_json 做括号深度匹配，只取首个完整对象。
+    let raw = "好的，以下是世界观：\n```json\n{\"verdict\":\"pass\",\"blocking_issues\":[]}\n```\n注意：以上为 JSON}。";
+    let v: EditorVerdict = parse_lenient(raw).expect("应剥离围栏并提取首个完整 JSON 对象");
+    assert_eq!(v.verdict, "pass");
+    assert!(v.blocking_issues.is_empty());
+}
+
+#[test]
+fn test_parse_lenient_repairs_unescaped_newline_in_string() {
+    // issue #14：模型在 JSON 字符串值内直接换行（未转义 \n）。旧 parse_lenient
+    // 的首尾花括号截取无法修复，serde_json::from_str 静默失败；现经
+    // extract_and_sanitize_json 将字符串内裸换行修复为转义 \n。
+    let raw = "```json\n{\"world\":\"双星废土\n文明\",\"outline\":\"大纲\"}\n```";
+    let a: DepthAssets = parse_lenient(raw).expect("围栏 + 字符串内裸换行应被修复后解析");
+    assert_eq!(a.world, "双星废土\n文明");
+}
+
+#[test]
 fn test_verdict_with_rubric_scores() {
     let raw = r#"{"verdict":"pass","score":4.2,"dimension_scores":{"continuity":4.5,"style":4.0,"contract":4.0,"ai_tone":4.5,"hook":3.8},"blocking_issues":[],"suggestions":[],"comments":"好"}"#;
     let v: EditorVerdict = parse_lenient(raw).unwrap();

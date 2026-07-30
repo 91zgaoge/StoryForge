@@ -115,16 +115,39 @@ impl NovelCreationAgent {
                 Some("世界观选项"),
             )
             .await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
+        match Self::parse_world_options_response(&response.content) {
+            Ok(options) => Ok(options),
+            Err(e) => {
+                let snippet: String = response.content.chars().take(200).collect();
+                log::warn!(
+                    "novel_creation: 世界观选项解析失败 err={} raw_len={} snippet={:?}",
+                    e,
+                    response.content.len(),
+                    snippet
+                );
+                Err(e.into())
+            }
+        }
+    }
 
-        let options: Vec<WorldBuildingOption> = parsed["world_buildings"]
+    /// 解析世界观选项响应为纯函数（issue #14）：先用 narrative 健壮提取器剥离
+    /// markdown 围栏 / 修复字符串内未转义换行，再反序列化。模型常将 JSON 包裹
+    /// 在 ` ```json ... ``` ` 中，旧实现直接 `serde_json::from_str` 全量内容会
+    /// 静默失败。提取为独立函数便于单测（无需 mock LlmService）。
+    fn parse_world_options_response(content: &str) -> Result<Vec<WorldBuildingOption>, String> {
+        let sanitized = crate::narrative::extract_and_sanitize_json(content)
+            .unwrap_or_else(|_| content.to_string());
+        let parsed: serde_json::Value = serde_json::from_str(&sanitized)
+            .map_err(|e| format!("世界观选项 JSON 解析失败: {}", e))?;
+        parsed["world_buildings"]
             .as_array()
-            .ok_or("Invalid response format")?
+            .ok_or_else(|| "Invalid response format: 缺少 world_buildings 数组".to_string())?
             .iter()
-            .map(|v| serde_json::from_value(v.clone()).unwrap())
-            .collect();
-
-        Ok(options)
+            .map(|v| {
+                serde_json::from_value(v.clone())
+                    .map_err(|e| format!("世界观项反序列化失败: {}", e))
+            })
+            .collect()
     }
 
     /// 第二步：根据世界观生成角色谱选项
@@ -398,4 +421,49 @@ pub struct SceneProposal {
     pub setting_time: String,
     pub setting_atmosphere: String,
     pub content: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VALID_WORLD_JSON: &str = r#"{"world_buildings":[{"id":"wb_1","concept":"双星废土文明","rules":[{"name":"星环律","description":"资源受星环周期约束","rule_type":"physical","importance":9}],"history":"千年前双星相撞","cultures":[{"name":"拾荒者","description":"废土游民","customs":["以物易物"],"values":["生存至上"]}]}]}"#;
+
+    #[test]
+    fn test_parse_world_options_clean_json() {
+        let opts = NovelCreationAgent::parse_world_options_response(VALID_WORLD_JSON).unwrap();
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].id, "wb_1");
+        assert_eq!(opts[0].concept, "双星废土文明");
+        assert_eq!(opts[0].rules.len(), 1);
+        assert_eq!(opts[0].rules[0].importance, 9);
+        assert_eq!(opts[0].cultures[0].customs, vec!["以物易物".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_world_options_markdown_fenced() {
+        // issue #14：模型将 JSON 包裹在 ```json ... ``` 代码块中，旧实现直接
+        // serde_json::from_str 全量内容会失败；现先经 extract_and_sanitize_json
+        // 剥离围栏再解析。
+        let raw = format!(
+            "好的，以下是世界观选项：\n```json\n{}\n```\n希望你喜欢。",
+            VALID_WORLD_JSON
+        );
+        let opts = NovelCreationAgent::parse_world_options_response(&raw).unwrap();
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].concept, "双星废土文明");
+    }
+
+    #[test]
+    fn test_parse_world_options_missing_key_errors() {
+        // prompt 误写 "concepts" 而 code 读 "world_buildings" 的回归守卫
+        let raw =
+            r#"{"concepts":[{"id":"wb_1","concept":"x","rules":[],"history":"","cultures":[]}]}"#;
+        let err = NovelCreationAgent::parse_world_options_response(raw).unwrap_err();
+        assert!(
+            err.contains("world_buildings"),
+            "错误信息应指出缺少 world_buildings 数组: {}",
+            err
+        );
+    }
 }
