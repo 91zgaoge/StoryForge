@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { extractMessage } from '@/utils/errorHandler';
 import { updateCharacterState } from '@/services/tauri';
 import type { Character, CharacterState } from '@/types';
 import toast from 'react-hot-toast';
@@ -74,7 +75,7 @@ export function CharacterStatePanel({ character, onUpdate }: CharacterStatePanel
       setIsEditing(false);
       onUpdate?.();
     } catch (e: any) {
-      toast.error('更新失败: ' + (e.message || String(e)));
+      toast.error('更新失败: ' + extractMessage(e));
     } finally {
       setIsSaving(false);
     }

@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.36)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.37)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.37 变更说明
+
+- 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）：10 个前端文件共 36 处 catch 块的 `String(err)` / `instanceof Error ? .message : String(err)` / `?.message || String(err)` 统一替换为 `extractMessage(err)`（`src/utils/errorHandler.ts`）。覆盖 `FrontstageApp`（smart_execute 主/次 + 修稿/审稿/定稿）/ `SceneEditor`（生成大纲/草稿）/ `Stories`（快速创作/向导创作/风格保存/风格生成）/ `RichTextEditor`（文思生成/排版）/ `WenSiPanel`（自动续写/修改）/ `usePipeline`（6 处）/ `CharacterStatePanel` / `Skills`（7 处）/ `PromptsPanel`（5 处）/ `useUpdater`。不动 `main.tsx`/`ErrorBoundary.tsx`（已优先取 `.message`）。
+- 测试调整：新增 `src/utils/__tests__/errorHandler.test.ts`（+8：AppError 普通对象提取 `message` 断言不等于 `[object Object]` / 带 `data` / `parseStructuredError` 识别 / `Error.message` 内嵌 JSON / 普通 Error / 字符串 / 带 `.message` 对象 / 兜底文案）。
+- 全量基线：`cargo test --lib` 1077 passed / 2 ignored（纯前端无 Rust 变更）；`npx vitest run` 336 passed / 3 skipped（+8）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（539，纯前端无 Rust 变更 baseline 不变）/ prettier / architecture_guard 全绿。
 
 ### v0.30.36 变更说明
 

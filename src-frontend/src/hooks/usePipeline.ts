@@ -22,6 +22,7 @@ import type {
   ReviewResult,
   PipelineResult,
 } from '@/types/pipeline';
+import { extractMessage } from '@/utils/errorHandler';
 
 export type PipelinePhase =
   | 'idle'
@@ -129,7 +130,7 @@ export function usePipeline(storyId: string, chapterNumber: number, sceneId?: st
         await refreshDrafts();
         return result;
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = extractMessage(e);
         setError(`修稿失败: ${msg}`);
         throw e;
       }
@@ -152,7 +153,7 @@ export function usePipeline(storyId: string, chapterNumber: number, sceneId?: st
         await refreshReviews(draftId);
         return result;
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = extractMessage(e);
         setError(`审稿失败: ${msg}`);
         throw e;
       }
@@ -180,7 +181,7 @@ export function usePipeline(storyId: string, chapterNumber: number, sceneId?: st
         await refreshDrafts();
         return result;
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = extractMessage(e);
         setError(`定稿失败: ${msg}`);
         throw e;
       }
@@ -201,7 +202,7 @@ export function usePipeline(storyId: string, chapterNumber: number, sceneId?: st
       await refreshDrafts();
       return result;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = extractMessage(e);
       setError(`修复失败: ${msg}`);
       throw e;
     }
@@ -213,7 +214,7 @@ export function usePipeline(storyId: string, chapterNumber: number, sceneId?: st
         await mergeRevision(revisionId);
         await refreshDrafts();
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = extractMessage(e);
         setError(`合并修稿失败: ${msg}`);
         throw e;
       }
@@ -268,7 +269,7 @@ export function usePipeline(storyId: string, chapterNumber: number, sceneId?: st
         setPhase('idle', '暂无活跃草稿', 100);
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = extractMessage(e);
       setError(`加载失败: ${msg}`);
     }
   }, [refreshDrafts, refreshRevisions, refreshReviews, setPhase, setError]);

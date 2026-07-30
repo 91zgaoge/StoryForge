@@ -23,6 +23,7 @@ import {
   GitMerge,
 } from 'lucide-react';
 import { useWorkflowProgress } from '@/hooks/useWorkflowProgress';
+import { extractMessage } from '@/utils/errorHandler';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/hooks/useStories';
@@ -573,7 +574,7 @@ export function Stories() {
         }
       }
     } catch (err: any) {
-      toast.error(`创作失败: ${err?.message || String(err)}`);
+      toast.error(`创作失败: ${extractMessage(err)}`);
     } finally {
       setCreatingStoryId(null);
       stopListening();
@@ -657,7 +658,7 @@ export function Stories() {
         setCurrentView('scenes');
       }
     } catch (error: any) {
-      toast.error(`向导创作失败: ${error?.message || String(error)}`);
+      toast.error(`向导创作失败: ${extractMessage(error)}`);
     } finally {
       setIsWizardCreating(false);
     }
@@ -1293,7 +1294,7 @@ export function Stories() {
                       setCurrentBlend(undefined);
                       toast.success(`风格混合「${blend.name}」已保存`);
                     } catch (err: any) {
-                      toast.error(`保存失败: ${err?.message || String(err)}`);
+                      toast.error(`保存失败: ${extractMessage(err)}`);
                     }
                   }}
                   onCancel={() => {
@@ -1346,7 +1347,7 @@ export function Stories() {
                       setShowStyleSampleInput(false);
                       setStyleSampleText('');
                     } catch (err: any) {
-                      toast.error(`风格生成失败: ${err?.message || String(err)}`);
+                      toast.error(`风格生成失败: ${extractMessage(err)}`);
                     } finally {
                       setIsAnalyzingStyle(false);
                     }

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.36-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.37-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.37 · 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）
+
+用户反馈创作/生成失败时错误提示显示 `[object Object]`。根因与 issue #11（v0.30.31 修复的"获取模型列表"路径）同源：后端 `AppError` 序列化为普通对象 `{ code, message, severity }`，Tauri v2.4 作为普通对象（非 `Error` 实例）投递到前端 catch 块，前端用 `String(err)` 转字符串产出 `[object Object]`，可读 `message` 被丢弃。v0.30.31 的 `extractMessage` helper 只覆盖了"获取模型列表"一条路径，创作/生成相关错误路径未迁移。修复：将 10 个前端文件（FrontstageApp / SceneEditor / Stories / RichTextEditor / WenSiPanel / usePipeline / CharacterStatePanel / Skills / PromptsPanel / useUpdater）共 36 处 catch 块的 `String(err)` / `instanceof Error ? .message : String(err)` / `?.message || String(err)` 统一替换为 `extractMessage(err)`。新增 8 个回归测试。纯前端修复，界面无变化。
 
 ### v0.30.36 · 修复首次创世指令不保存到输入历史（按↑调取不到）
 

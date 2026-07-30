@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.36
+- **版本**: v0.30.37
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -86,7 +86,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1077 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 328 passed / 3 skipped
+- `npx vitest run` ✅ 336 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 539（零新增）
@@ -94,6 +94,22 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.37 - 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）
+
+用户反馈 issue #12：创作/生成失败时错误提示显示 `[object Object]`。根因与 issue #11（v0.30.31 修复的"获取模型列表"路径）同源：后端 `AppError` 自定义 `Serialize` 产出普通 JSON 对象 `{ code, message, severity, data? }`，Tauri v2.4 作为普通对象（非 JS `Error` 实例）投递到前端 catch 块；前端用 `String(err)` 或 `err instanceof Error ? err.message : String(err)` 转字符串，对普通对象产出 `[object Object]`，可读 `message` 被丢弃。v0.30.31 的 `extractMessage` helper 只覆盖"获取模型列表"，**创作/生成错误路径未迁移**--幕前 smart_execute、幕后快速创作/AI 向导、生成草稿/大纲、文思生成、管线修稿/审稿/定稿仍显示 `[object Object]`。
+
+- **主修复·统一改用 `extractMessage`（10 个前端文件）**：所有创作/生成错误路径的 `String(err)` / `instanceof Error ? err.message : String(err)` / `err?.message || String(err)` 统一替换为 `extractMessage(err)`（`src/utils/errorHandler.ts`，依次尝试结构化 AppError 对象取 `.message` -> `Error.message` 内嵌 JSON 解析 -> 普通 Error `.message` -> 字符串 -> 带 `.message` 对象 -> 兜底 `'Unknown error'`）。
+  - `FrontstageApp.tsx`（5 处）：smart_execute 主 catch（`structured?.message ?? extractMessage(error)`，复用已计算 `structured`）+ 第二 smart_execute catch + 修稿/审稿/定稿。
+  - `SceneEditor.tsx`（2 处）：生成大纲/草稿失败。
+  - `Stories.tsx`（4 处）：幕后快速创作/向导创作/风格混合保存/风格样本生成。
+  - `RichTextEditor.tsx`（2 处）：文思内联建议生成/智能排版。
+  - `WenSiPanel.tsx`（2 处）：自动续写/自动修改。
+  - `usePipeline.ts`（6 处）：修稿/审稿/定稿/修复/合并/加载。
+  - `CharacterStatePanel.tsx`（1 处）、`Skills.tsx`（7 处）、`PromptsPanel.tsx`（5 处）、`useUpdater.ts`（2 处）。
+  - 不动 `main.tsx` / `ErrorBoundary.tsx`：已优先取 `.message`，`String()` 仅最后兜底，对带 `.message` 的 AppError 对象不会产出 `[object Object]`。
+- **回归测试（`src/utils/__tests__/errorHandler.test.ts`，+8）**：AppError 普通对象提取 `message`（断言不等于 `[object Object]`）/ 带 `data` / `parseStructuredError` 识别 / `Error.message` 内嵌 JSON / 普通 Error / 字符串 / 带 `.message` 对象 / 兜底文案。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 336 passed / 3 skipped（+8）；`npm run format:check` ✅；`architecture_guard` ✅。纯前端，无 Rust 变更（cargo 基线 1077 不变）。
 
 ### v0.30.36 - 修复首次创世指令不保存到输入历史（按↑调取不到）
 
@@ -683,7 +699,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.36_
+_最后更新: 2026-07-29 - v0.30.37_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

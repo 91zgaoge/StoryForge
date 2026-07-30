@@ -21,6 +21,7 @@ import {
   Send,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { extractMessage } from '@/utils/errorHandler';
 import {
   autoWrite,
   autoWriteCancel,
@@ -333,7 +334,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       });
       onShowStatus?.('自动续写已开始');
     } catch (err: any) {
-      const msg = err?.message || String(err);
+      const msg = extractMessage(err);
       if (msg.includes('feature_locked') || msg.includes('pro_required')) {
         onShowUpgrade('自动续写需专业版');
       } else {
@@ -390,7 +391,7 @@ export const WenSiPanel: React.FC<WenSiPanelProps> = ({
       setReviseProgress({ stage: 'started', progress: 0, message: '开始修改...' });
       onShowStatus?.('自动修改已开始');
     } catch (err: any) {
-      const msg = err?.message || String(err);
+      const msg = extractMessage(err);
       if (msg.includes('feature_locked') || msg.includes('pro_required')) {
         onShowUpgrade('自动修改需专业版');
       } else {

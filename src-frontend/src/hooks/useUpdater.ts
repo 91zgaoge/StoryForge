@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from '@/utils/logger';
 import { loggedInvoke } from '@/services/tauri';
+import { extractMessage } from '@/utils/errorHandler';
 
 const updaterLogger = createLogger('hooks:useUpdater');
 
@@ -144,7 +145,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
         updaterLogger.debug(`[Updater] New version available: ${result.latest_version}`);
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage = extractMessage(err);
       setError(errorMessage);
       updaterLogger.error('[Updater] Check update failed', { error: err });
     } finally {
@@ -163,7 +164,7 @@ export function useUpdater(autoCheck: boolean = true): UseUpdaterReturn {
       await loggedInvoke<unknown>('install_update');
       // 如果安装成功，应用会重启，这里不会执行到
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage = extractMessage(err);
       setError(errorMessage);
       setIsInstalling(false);
       setDownloadProgress(null);

@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-29（v0.30.36 修复首次创世指令不保存到输入历史）
+> 最后更新: 2026-07-29（v0.30.37 修复创作生成失败时 toast 显示 "[object Object]"，issue #12）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.37 - 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）✅ (2026-07-29)
+
+- [x] 根因：后端 `AppError` 序列化为普通对象 `{ code, message, severity }`，Tauri v2.4 作为普通对象（非 `Error` 实例）投递到前端 catch 块；`String(err)` / `instanceof Error ? .message : String(err)` 对普通对象产出 `[object Object]`，可读 `message` 被丢弃。v0.30.31（issue #11）的 `extractMessage` 只覆盖"获取模型列表"，创作/生成路径未迁移
+- [x] 修复（10 个前端文件，36 处）：`FrontstageApp`/`SceneEditor`/`Stories`/`RichTextEditor`/`WenSiPanel`/`usePipeline`/`CharacterStatePanel`/`Skills`/`PromptsPanel`/`useUpdater` 所有创作/生成错误路径统一改用 `extractMessage(err)`
+- [x] 新增 `src/utils/__tests__/errorHandler.test.ts`（+8）：AppError 普通对象 / 内嵌 JSON / 普通 Error / 字符串 / 兜底文案
+- [x] 验证：tsc ✅；vitest 336 passed / 3 skipped（+8）；format:check ✅；architecture_guard ✅。纯前端，cargo 基线 1077 不变
 
 ### ✨ v0.30.36 - 修复首次创世指令不保存到输入历史（按↑调取不到）✅ (2026-07-29)
 

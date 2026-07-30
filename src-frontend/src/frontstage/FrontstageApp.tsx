@@ -17,7 +17,7 @@ import {
   getPipelineActiveDraft,
 } from '@/services/tauri';
 import type { WritingIntentClassification } from '@/services/tauri';
-import { parseStructuredError } from '@/utils/errorHandler';
+import { extractMessage, parseStructuredError } from '@/utils/errorHandler';
 import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
@@ -3399,7 +3399,9 @@ const FrontstageApp: React.FC = () => {
           );
         frontstageLogger.error('Generation request failed', { error });
         const structured = parseStructuredError(error);
-        const msg = error instanceof Error ? error.message : String(error);
+        // v0.30.37: 用 extractMessage 提取结构化 AppError 的 message，
+        // 避免 String(error) 对普通对象产出 "[object Object]"（issue #12）。
+        const msg = structured?.message ?? extractMessage(error);
 
         // v0.25.0: 致命/需用户干预错误直接弹出中断模态，避免淹没在诊断卡片里
         if (structured?.severity === 'Fatal' || structured?.severity === 'UserAction') {
@@ -4400,7 +4402,8 @@ const FrontstageApp: React.FC = () => {
           );
         frontstageLogger.error('Smart execution failed', { error: e });
         const structured = parseStructuredError(e);
-        const msg = e?.message || String(e);
+        // v0.30.37: 提取结构化 AppError message，避免 "[object Object]"（issue #12）。
+        const msg = structured?.message ?? extractMessage(e);
 
         // v0.25.0: 致命/需用户干预错误直接弹出中断模态
         if (structured?.severity === 'Fatal' || structured?.severity === 'UserAction') {
@@ -4614,7 +4617,7 @@ const FrontstageApp: React.FC = () => {
         void flushSceneSave();
       }
     } catch (e: any) {
-      toast.error('修稿失败: ' + (e.message || String(e)), { id: 'pipeline-refine' });
+      toast.error('修稿失败: ' + extractMessage(e), { id: 'pipeline-refine' });
     }
   }, [currentStory, currentChapter]);
 
@@ -4633,7 +4636,7 @@ const FrontstageApp: React.FC = () => {
       const result = await runReview(currentStory.id, draft.id, undefined);
       toast.success(`审稿完成：综合评分 ${result.overall_score}分`, { id: 'pipeline-review' });
     } catch (e: any) {
-      toast.error('审稿失败: ' + (e.message || String(e)), { id: 'pipeline-review' });
+      toast.error('审稿失败: ' + extractMessage(e), { id: 'pipeline-review' });
     }
   }, [currentStory, currentChapter]);
 
@@ -4662,7 +4665,7 @@ const FrontstageApp: React.FC = () => {
       );
       toast.success('定稿完成，后处理已启动', { id: 'pipeline-finalize' });
     } catch (e: any) {
-      toast.error('定稿失败: ' + (e.message || String(e)), { id: 'pipeline-finalize' });
+      toast.error('定稿失败: ' + extractMessage(e), { id: 'pipeline-finalize' });
     }
   }, [currentStory, currentChapter, currentScene]);
 

@@ -23,6 +23,7 @@ import {
   GitMerge,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { extractMessage } from '@/utils/errorHandler';
 import { Card, CardContent } from '@/components/ui/Card';
 import type { Scene, ConflictType } from '@/types';
 import { getConflictTypeLabel, getConflictTypeColor } from '@/hooks/useScenes';
@@ -169,7 +170,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       toast.success('大纲生成成功');
       setActiveTab('outline');
     } catch (e: unknown) {
-      toast.error(`生成大纲失败: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`生成大纲失败: ${extractMessage(e)}`);
     } finally {
       setGeneratingOutline(false);
     }
@@ -194,7 +195,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
       toast.success('草稿生成成功');
       setActiveTab('drafting');
     } catch (e: unknown) {
-      toast.error(`生成草稿失败: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`生成草稿失败: ${extractMessage(e)}`);
     } finally {
       setGeneratingDraft(false);
     }

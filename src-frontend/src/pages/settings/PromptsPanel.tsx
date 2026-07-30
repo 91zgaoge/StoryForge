@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { extractMessage } from '@/utils/errorHandler';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
 import toast from 'react-hot-toast';
@@ -189,7 +190,7 @@ export function PromptsPanel() {
       }
       setEdited(edits);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = extractMessage(e);
       setLoadError('加载提示词列表失败：' + message);
       toast.error('加载提示词列表失败');
       console.error(e);
@@ -334,7 +335,7 @@ export function PromptsPanel() {
       );
       if (ok) toast.success(`已导出 ${overridden.length} 条提示词覆盖`);
     } catch (e) {
-      toast.error('导出失败: ' + String(e));
+      toast.error('导出失败: ' + extractMessage(e));
     }
   };
 
@@ -358,7 +359,7 @@ export function PromptsPanel() {
       );
       if (ok) toast.success(`已导出完整包 ${exportData.length} 条`);
     } catch (e) {
-      toast.error('导出失败: ' + String(e));
+      toast.error('导出失败: ' + extractMessage(e));
     }
   };
 
@@ -401,7 +402,7 @@ export function PromptsPanel() {
       }
       fetchEntries();
     } catch (err) {
-      toast.error('导入失败: ' + String(err));
+      toast.error('导入失败: ' + extractMessage(err));
     }
     e.target.value = '';
   };
@@ -416,7 +417,7 @@ export function PromptsPanel() {
       toast.success(`已打开：${path}`);
       setPromptsDir(path);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = extractMessage(e);
       toast.error('打开目录失败：' + message);
       console.error(e);
     }

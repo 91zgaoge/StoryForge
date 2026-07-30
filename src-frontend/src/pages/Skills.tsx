@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { extractMessage } from '@/utils/errorHandler';
 import {
   getSkills,
   getSkill,
@@ -78,7 +79,7 @@ export function Skills() {
       const data = await getSkills();
       setSkills(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(extractMessage(err));
     } finally {
       setLoading(false);
     }
@@ -104,7 +105,7 @@ export function Skills() {
         }
         await fetchSkills();
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(extractMessage(err));
       } finally {
         setTogglingId(null);
       }
@@ -131,7 +132,7 @@ export function Skills() {
       const result = await executeSkill(skill.id, params);
       setExecutionResult({ skillName: skill.name, result });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(extractMessage(err));
     } finally {
       setExecutingId(null);
     }
@@ -144,7 +145,7 @@ export function Skills() {
         await uninstallSkill(skill.id);
         await fetchSkills();
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(extractMessage(err));
       }
     },
     [fetchSkills]
@@ -166,7 +167,7 @@ export function Skills() {
       setSelectedSkill(safeSkill);
       setEditedSkill(JSON.parse(JSON.stringify(safeSkill)));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '加载技能详情失败');
+      toast.error('加载技能详情失败：' + extractMessage(err));
       setIsDetailOpen(false);
     } finally {
       setDetailLoading(false);
@@ -202,7 +203,7 @@ export function Skills() {
       await fetchSkills();
       closeDetail();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存失败');
+      toast.error('保存失败：' + extractMessage(err));
     } finally {
       setDetailSaving(false);
     }
@@ -224,7 +225,7 @@ export function Skills() {
       toast.success('技能导入成功');
       await fetchSkills();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(extractMessage(err));
     } finally {
       setIsImporting(false);
     }

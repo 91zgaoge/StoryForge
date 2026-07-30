@@ -24,6 +24,7 @@ import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
 import { Sparkles, X, Check } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { extractMessage } from '@/utils/errorHandler';
 import { useAppStore } from '@/stores/appStore';
 import type { Character } from '@/types/index';
 import { CharacterCardPopup } from './CharacterCardPopup';
@@ -892,7 +893,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
         } catch (err) {
           rtEditorLogger.error('Inline suggestion generation failed', { error: err });
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = extractMessage(err);
           onShowStatus?.(`文思生成失败：${msg}`);
         } finally {
           setIsAiThinking(false);
@@ -918,7 +919,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         onShowStatus?.('排版完成');
       } catch (error) {
         rtEditorLogger.error('Format text error', { error });
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = extractMessage(error);
         onShowStatus?.(`排版失败：${msg}`);
       } finally {
         setIsAiThinking(false);
