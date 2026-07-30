@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.37
+- **版本**: v0.30.38
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,7 +84,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1077 passed
+- `cargo test -p storymoss` ✅ 1081 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 336 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -94,6 +94,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.38 - 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false 导致 sanitize 跳过）
+
+用户报告"第三次续写时出的错"--续写产出正文后紧接一段 AI 文学编辑元评论（"好的，作为一名专业的文学编辑，我将根据您提供的问题列表和总体评分，对您的文本进行深度重塑…请粘贴您的《永夜神骸》第一章内容"）。续写误路由 bug 第 6 次复发（v0.30.9-14 各堵一条路径，但分类层根因未修）。
+
+- **根因（三层叠加）**：①分类提示词"继续写"示例省略 `is_prose`，LLM 若遵循示例返回合法 JSON 但缺该字段，`#[serde(default)]` 填 `is_prose_request=false`；②serde 默认值（false）与 LLM 失败兜底值（true）相反--partial-but-valid JSON 走 `parse_classification_json` 成功解析、`is_fallback=false` 被缓存，后续相同输入持续返回毒化 false；③`sanitize_plan_for_prose_request` 门控仅检查 `is_prose_request`，false 时跳过全部净化 -> SING 多步计划 `[writer, inspector, builtin.style_enhancer]` 未拦截 -> `final_content` = style_enhancer 元评论覆盖 writer 正文。
+- **Fix 1·后置不变量（`intent.rs` `parse_classification_json`）**：成功反序列化后若 `is_continuation || is_new_novel` 但 `is_prose_request=false`，强制设 true（续写/创世本质是 prose，逻辑必然）。
+- **Fix 2·提示词示例补全（`intent.rs` `build_classification_prompt`）**："继续写"示例补 `is_prose=true`，消除 LLM 省略该字段的源头。
+- **Fix 3·sanitize 门控扩展（`planner/mod.rs` `sanitize_plan_for_prose_request`）**：门控从 `is_prose_request` 扩展为 `is_prose_request || is_continuation`--纵深防御，即使 Fix 1 未生效，`is_continuation=true` 也触发净化+塌缩。
+- **验证**：`cargo test --lib` 1081 passed（+4 回归）；`cargo check`/`tsc`/`vitest`（336/3 skipped）/`fmt`/`clippy`（540->539 零新增）/`architecture_guard`/`format:check` 全绿。
 
 ### v0.30.37 - 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）
 
@@ -699,7 +709,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.37_
+_最后更新: 2026-07-30 - v0.30.38_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

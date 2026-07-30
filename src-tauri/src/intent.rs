@@ -522,7 +522,7 @@ JSON Schema:
 示例：
 - "写一部科幻小说" -> is_new_novel=true, task_type=genesis, is_prose=true
 - "当一个退役间谍在布拉格被昔日组织追杀，必须在 48 小时内找出潜伏在情报局高层的内鬼，否则他的家人将遭遇灭顶之灾。" -> is_new_novel=true, task_type=genesis, is_prose=true, detected_genre="间谍"
-- "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation
+- "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation, is_prose=true
 - "把这段改得更生动" -> is_new_novel=false, task_type=rewrite, is_prose=false
 
 仅输出 JSON：
@@ -559,6 +559,21 @@ JSON Schema:
                     .unwrap_or(false)
                 {
                     c.detected_genre = None;
+                }
+                // v0.30.38: 后置不变量--续写/创世本质是 prose 请求。
+                // 分类提示词的"继续写"示例省略了 is_prose，LLM 若遵循该示例
+                // 返回合法 JSON 但缺 is_prose 字段，serde #[serde(default)]
+                // 填 false -> sanitize_plan_for_prose_request 跳过净化 ->
+                // 多步计划 [writer, inspector, style_enhancer] 未拦截 ->
+                // editor 元评论污染正文（第 6 次复发根因）。
+                // 续写/创世 -> is_prose_request=true 是逻辑必然，强制纠正。
+                if (c.is_continuation || c.is_new_novel) && !c.is_prose_request {
+                    log::warn!(
+                        "[IntentParser] 分类后置纠正：is_continuation={} is_new_novel={} 但 is_prose_request=false，强制设为 true（续写/创世本质是 prose）",
+                        c.is_continuation,
+                        c.is_new_novel
+                    );
+                    c.is_prose_request = true;
                 }
                 Some(c)
             }
@@ -1021,7 +1036,9 @@ mod tests {
     #[test]
     fn test_parse_classification_json_lenient_prose_affix() {
         // 本地模型常在 JSON 前后加散文，需截取首 { 到末 }
-        let raw = "好的，这是判定结果：{\"is_new_novel\":false,\"is_continuation\":true,\"task_type\":\"rewrite\",\"is_prose\":false,\"input_clarity\":\"with_full_concept\",\"detected_genre\":\"都市\",\"confidence\":0.7} 以上判定。";
+        // v0.30.38: is_continuation 改为 false（改写非续写），否则后置不变量
+        // 会强制 is_prose_request=true，与测试断言 !is_prose_request 冲突。
+        let raw = "好的，这是判定结果：{\"is_new_novel\":false,\"is_continuation\":false,\"task_type\":\"rewrite\",\"is_prose\":false,\"input_clarity\":\"with_full_concept\",\"detected_genre\":\"都市\",\"confidence\":0.7} 以上判定。";
         let c = IntentParser::parse_classification_json(raw).unwrap();
         assert_eq!(c.task_type, AssetTaskType::Rewrite);
         assert!(!c.is_prose_request);
@@ -1049,6 +1066,41 @@ mod tests {
         assert!(IntentParser::parse_classification_json("").is_none());
         // 只有 { 没有 } -> None
         assert!(IntentParser::parse_classification_json("{ broken").is_none());
+    }
+
+    #[test]
+    fn test_parse_classification_json_continuation_missing_prose_forced_true() {
+        // v0.30.38 回归：LLM 遵循"继续写"示例省略 is_prose -> serde 默认 false
+        // -> 后置不变量强制 is_prose_request=true（续写本质是 prose）。
+        // 此前该场景导致 sanitize_plan_for_prose_request 跳过净化，
+        // 多步计划 [writer, inspector, style_enhancer] 未拦截 -> editor 元评论污染。
+        let json = r#"{"is_new_novel":false,"is_continuation":true,"task_type":"continuation","input_clarity":"vague","detected_genre":null,"confidence":0.8}"#;
+        let c = IntentParser::parse_classification_json(json).unwrap();
+        assert!(c.is_continuation);
+        assert!(c.is_prose_request, "续写缺 is_prose 时应后置纠正为 true");
+    }
+
+    #[test]
+    fn test_parse_classification_json_genesis_missing_prose_forced_true() {
+        // v0.30.38 回归：创世同理，is_new_novel=true 缺 is_prose -> 强制 true。
+        let json = r#"{"is_new_novel":true,"is_continuation":false,"task_type":"genesis","input_clarity":"vague","detected_genre":"科幻","confidence":0.9}"#;
+        let c = IntentParser::parse_classification_json(json).unwrap();
+        assert!(c.is_new_novel);
+        assert!(c.is_prose_request, "创世缺 is_prose 时应后置纠正为 true");
+    }
+
+    #[test]
+    fn test_parse_classification_json_rewrite_missing_prose_stays_false() {
+        // v0.30.38 回归：改写（非续写非创世）缺 is_prose -> 保持 false（改写可能非
+        // prose）。
+        let json = r#"{"is_new_novel":false,"is_continuation":false,"task_type":"rewrite","input_clarity":"with_seed","detected_genre":null,"confidence":0.7}"#;
+        let c = IntentParser::parse_classification_json(json).unwrap();
+        assert!(!c.is_continuation);
+        assert!(!c.is_new_novel);
+        assert!(
+            !c.is_prose_request,
+            "改写缺 is_prose 时应保持 false（非续写/创世不强制）"
+        );
     }
 
     #[test]

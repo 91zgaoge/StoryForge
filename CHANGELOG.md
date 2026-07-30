@@ -2,6 +2,21 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.38（2026-07-30）
+
+### 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false 导致 sanitize 跳过）
+
+用户报告"第三次续写时出的错"——续写产出正文后紧接一段 AI 文学编辑元评论（"好的，作为一名专业的文学编辑，我将根据您提供的问题列表和总体评分，对您的文本进行深度重塑…请粘贴您的《永夜神骸》第一章内容"）。这是续写误路由 bug **第 6 次复发**（v0.30.9-14 各堵一条路径，但分类层根因未修）。
+
+- **根因（三层叠加）**：
+  1. **分类提示词示例省略 `is_prose`**：`build_classification_prompt` 的"继续写"示例为 `is_new_novel=false, is_continuation=true, task_type=continuation`——**不含 `is_prose`**。LLM 若遵循该示例返回合法 JSON 但缺 `is_prose` 字段，`WritingIntentClassification` 的 `#[serde(default)]` 填 `is_prose_request = false`。
+  2. **serde 默认值与兜底值相反**：LLM 失败时兜底 `conservative_fallback_with_input` 防御性地设 `is_prose_request=true`，但 **partial-but-valid JSON**（缺字段）走 `parse_classification_json` 成功解析，serde 默认 `false`——与兜底意图完全相反。且该结果 `is_fallback=false`，被**写入会话缓存**，后续相同"续写"输入持续返回毒化的 `false`。
+  3. **sanitize 门控仅检查 `is_prose_request`**：`sanitize_plan_for_prose_request` 的门控 `Some(c) if c.is_prose_request => c, _ => return`——`is_prose_request=false` 时直接返回，**跳过全部净化**（移除 builtin.* 技能、续写塌缩单 writer、弹出尾部非 writer）。SING/PlanGenerator 产出的多步计划 `[writer, inspector, builtin.style_enhancer]` 未拦截：writer 产出正文、inspector 产出问题列表+评分、style_enhancer 收到 inspector 输出后产出"请粘贴您的内容"编辑器元评论。`execute_plan` 的 `final_content` = 最后产出 content 的步骤 = style_enhancer 元评论，覆盖 writer 正文。
+- **Fix 1·后置不变量（`intent.rs` `parse_classification_json`）**：成功反序列化后，若 `is_continuation || is_new_novel` 但 `is_prose_request=false`，强制设为 `true`（续写/创世本质是 prose 请求，逻辑必然）。`log::warn!` 记录纠正。堵住 serde 默认值与兜底值相反的漏洞。
+- **Fix 2·提示词示例补全（`intent.rs` `build_classification_prompt`）**："继续写"示例补 `is_prose=true`，消除 LLM 因遵循示例而省略 `is_prose` 的源头。
+- **Fix 3·sanitize 门控扩展（`planner/mod.rs` `sanitize_plan_for_prose_request`）**：门控从 `is_prose_request` 扩展为 `is_prose_request || is_continuation`——即使 Fix 1 未生效（如分类直接构造），`is_continuation=true` 也触发净化+塌缩。纵深防御。
+- **验证**：`cargo test --lib` 1081 passed（+4：续写缺 is_prose 后置纠正 / 创世缺 is_prose 后置纠正 / 改写缺 is_prose 保持 false / sanitize is_continuation+prose_false 仍塌缩）；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（336 passed / 3 skipped）/ `cargo +nightly fmt` / `cargo clippy --lib`（baseline 540 -> 539 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
+
 ## v0.30.37（2026-07-29）
 
 ### 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）

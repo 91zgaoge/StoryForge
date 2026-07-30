@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.37)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.38)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.38 变更说明
+
+- 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false 导致 sanitize 跳过）：三层修复--①`intent.rs` `parse_classification_json` 后置不变量（续写/创世缺 `is_prose` 时强制设 `true`）；②`intent.rs` `build_classification_prompt` "继续写"示例补 `is_prose=true`；③`planner/mod.rs` `sanitize_plan_for_prose_request` 门控扩展为 `is_prose_request || is_continuation`。
+- 测试调整：`intent.rs` +3 回归（续写缺 is_prose 后置纠正 / 创世缺 is_prose 后置纠正 / 改写缺 is_prose 保持 false）；`planner/mod.rs` +1 回归（is_continuation=true + is_prose_request=false 仍触发净化塌缩）。更新 `test_parse_classification_json_lenient_prose_affix`（is_continuation 改 false 避免与后置不变量冲突）。
+- 全量基线：`cargo test --lib` 1081 passed / 2 ignored（+4）；`npx vitest run` 336 passed / 3 skipped（无前端变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（539，baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.37 变更说明
 

@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-29（v0.30.37 修复创作生成失败时 toast 显示 "[object Object]"，issue #12）
+> 最后更新: 2026-07-30（v0.30.38 修复续写输出被编辑器元评论污染--is_prose_request 被 serde 默认 false 导致 sanitize 跳过）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.38 - 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false）✅ (2026-07-30)
+
+- [x] 根因：分类提示词"继续写"示例省略 `is_prose`，LLM 若遵循示例返回合法 JSON 但缺该字段，serde `#[serde(default)]` 填 `is_prose_request=false`；serde 默认值（false）与 LLM 失败兜底值（true）相反，partial-but-valid JSON 被缓存后持续返回毒化 false；`sanitize_plan_for_prose_request` 门控仅检查 `is_prose_request`，false 时跳过全部净化 -> SING 多步计划 `[writer, inspector, builtin.style_enhancer]` 未拦截 -> style_enhancer 元评论覆盖 writer 正文
+- [x] Fix 1（`intent.rs` `parse_classification_json`）：后置不变量--续写/创世缺 `is_prose` 时强制设 `true`
+- [x] Fix 2（`intent.rs` `build_classification_prompt`）："继续写"示例补 `is_prose=true`
+- [x] Fix 3（`planner/mod.rs` `sanitize_plan_for_prose_request`）：门控扩展为 `is_prose_request || is_continuation`（纵深防御）
+- [x] 验证：cargo test 1081 passed（+4）；tsc ✅；vitest 336/3 skipped；fmt ✅；clippy 539（零新增）；architecture_guard ✅；format:check ✅
 
 ### ✨ v0.30.37 - 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）✅ (2026-07-29)
 

@@ -249,8 +249,12 @@ impl PlanGenerator {
         classification: Option<&WritingIntentClassification>,
         context: &PlanContext,
     ) {
+        // v0.30.38: 门控扩展--is_continuation 也触发净化（纵深防御）。
+        // 此前门控仅检查 is_prose_request，但 LLM 可能省略 is_prose 字段
+        // 导致 serde 默认 false（尽管 Fix 1 已在后置纠正，此处再加一道保险）。
+        // 续写本质是 prose 请求，is_continuation=true 时净化必运行。
         let cls = match classification {
-            Some(c) if c.is_prose_request => c,
+            Some(c) if c.is_prose_request || c.is_continuation => c,
             _ => return,
         };
 
@@ -1203,6 +1207,35 @@ mod tests {
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "writer");
+    }
+
+    #[test]
+    fn test_sanitize_continuation_prose_false_still_collapsed() {
+        // v0.30.38 回归：is_continuation=true 但 is_prose_request=false
+        // （LLM 省略 is_prose，serde 默认 false）-> 门控扩展后仍触发净化 ->
+        // 塌缩单 writer。此前门控仅检查 is_prose_request 导致净化被跳过，
+        // 多步计划 [writer, inspector, style_enhancer] 未拦截 -> editor 元评论
+        // 污染正文（第 6 次复发根因）。
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: false,
+            task_type: AssetTaskType::Continuation,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "writer"),
+            make_step("s2", "inspector"),
+            make_step("s3", "builtin.style_enhancer"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+        );
+        assert_eq!(plan.steps.len(), 1, "续写多步计划应塌缩为单 writer");
+        assert_eq!(plan.steps[0].capability_id, "writer");
+        assert!(plan.understanding.contains("collapsed"));
     }
 
     #[test]

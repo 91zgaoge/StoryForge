@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.37-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.38-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.38 · 修复续写输出被编辑器元评论污染
+
+用户报告"第三次续写时出的错"--续写产出正文后紧接一段 AI 文学编辑元评论（"好的，作为一名专业的文学编辑，我将根据您提供的问题列表和总体评分，对您的文本进行深度重塑…"）。根因：分类提示词"继续写"示例省略 `is_prose` 字段，LLM 若遵循示例返回合法 JSON 但缺该字段，serde 默认 `is_prose_request=false`，导致 `sanitize_plan_for_prose_request` 跳过全部净化，SING 多步计划 `[writer, inspector, style_enhancer]` 未拦截，style_enhancer 的编辑器元评论覆盖 writer 正文。三层修复：①`parse_classification_json` 后置不变量--续写/创世缺 `is_prose` 时强制设 `true`；②提示词"继续写"示例补 `is_prose=true`；③sanitize 门控从 `is_prose_request` 扩展为 `is_prose_request || is_continuation`（纵深防御）。+4 回归测试。纯 Rust 修复，界面无变化。
 
 ### v0.30.37 · 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）
 

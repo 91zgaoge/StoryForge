@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.37 项目完成状态
+# StoryMoss (草苔) v0.30.38 项目完成状态
 
-> 最后更新: 2026-07-29（v0.30.37 修复创作生成失败时 toast 显示 "[object Object]"，issue #12）
+> 最后更新: 2026-07-30（v0.30.38 修复续写输出被编辑器元评论污染--is_prose_request 被 serde 默认 false 导致 sanitize 跳过）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.38 - 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false）（2026-07-30）
+
+- 用户报告"第三次续写时出的错"--续写产出正文后紧接 AI 文学编辑元评论（"好的，作为一名专业的文学编辑，我将根据您提供的问题列表和总体评分…"）。续写误路由 bug 第 6 次复发。
+- **根因（三层叠加）**：①分类提示词"继续写"示例省略 `is_prose`，LLM 若遵循示例返回合法 JSON 但缺该字段，serde `#[serde(default)]` 填 `is_prose_request=false`；②serde 默认值（false）与 LLM 失败兜底值（true）相反，且 partial-but-valid JSON 走 `parse_classification_json` 成功解析、`is_fallback=false` 被缓存，后续相同输入持续返回毒化 false；③`sanitize_plan_for_prose_request` 门控仅检查 `is_prose_request`，false 时跳过全部净化 -> SING 多步计划 `[writer, inspector, builtin.style_enhancer]` 未拦截 -> `final_content` = style_enhancer 元评论覆盖 writer 正文。
+- **Fix 1·后置不变量（`intent.rs`）**：`parse_classification_json` 成功反序列化后若 `is_continuation || is_new_novel` 但 `is_prose_request=false`，强制设 `true`。
+- **Fix 2·提示词示例补全（`intent.rs`）**："继续写"示例补 `is_prose=true`。
+- **Fix 3·sanitize 门控扩展（`planner/mod.rs`）**：门控从 `is_prose_request` 扩展为 `is_prose_request || is_continuation`（纵深防御）。
+- 验证：`cargo test --lib` 1081 passed（+4 回归）；`cargo check`/`tsc`/`vitest`（336/3 skipped）/`fmt`/`clippy`（540->539）/`architecture_guard`/`format:check` 全绿。
 
 ### v0.30.37 - 修复创作生成失败时 toast 显示 "[object Object]"（issue #12）（2026-07-29）
 
