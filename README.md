@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.38-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.39-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -103,6 +103,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.30.39 · 修复续写不按故事大纲推进剧情
+
+用户报告"续写和故事大纲仍然缺乏强关联"、"没有按照故事大纲来写剧情和推进剧情"。根因：v0.30.31 引入的 `build_progression_anchor`（确定性注入剧情推进方向锚点：故事大纲硬约束 + 已推进进度指针 + 世界观规则 + 显式调和指令）**只在 TriShot 路径调用，从未移植到 TimeSliced 路径**，而 TimeSliced 是默认续写路径（`generation_mode = "auto"` 路由续写到 TimeSliced）。TimeSliced writer 得到完整大纲但缺少"已推进进度"指针，无法判断当前在故事大纲哪个节点 -> 偏离大纲、原地踏步、仅复述设定。修复：在 `execute_time_sliced` 的 prompt 模板后、ending_anchor 前插入 `build_progression_anchor` 调用，与 TriShot 路径完全对齐。纯 Rust 修复，界面无变化。
 
 ### v0.30.38 · 修复续写输出被编辑器元评论污染
 

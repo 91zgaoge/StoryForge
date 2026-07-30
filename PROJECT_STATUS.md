@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.38 项目完成状态
+# StoryMoss (草苔) v0.30.39 项目完成状态
 
-> 最后更新: 2026-07-30（v0.30.38 修复续写输出被编辑器元评论污染--is_prose_request 被 serde 默认 false 导致 sanitize 跳过）
+> 最后更新: 2026-07-29（v0.30.39 修复续写不按故事大纲推进剧情--TimeSliced 路径缺失 build_progression_anchor）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.39 - 修复续写不按故事大纲推进剧情（TimeSliced 路径缺失 build_progression_anchor）（2026-07-29）
+
+- 用户报告"续写和故事大纲仍然缺乏强关联"、"没有按照故事大纲来写剧情和推进剧情"。
+- **根因（`agents/orchestrator.rs`）**：v0.30.31 引入的 `build_progression_anchor`（注入故事大纲硬约束 + 已推进进度指针 + 世界观规则 + 显式调和指令）**只在 TriShot 路径（`execute_trishot`）调用，从未移植到 TimeSliced 路径（`execute_time_sliced`）**。而 TimeSliced 是默认续写路径（`generation_mode = "auto"` 路由续写到 TimeSliced）。TimeSliced writer 有完整大纲但无进度指针，无法判断当前在故事大纲哪个节点 -> 偏离大纲、原地踏步、仅复述设定。
+- **Fix（`agents/orchestrator.rs` `execute_time_sliced`）**：在 prompt 模板渲染后、`ending_anchor` 注入前插入 `build_progression_anchor(&bundle, pool.inner(), &task.context.story.story_id, chapter_number, &user_instruction)` 调用，与 TriShot 路径完全对齐。`story_id` 在 `spawn_blocking` 闭包中被 move，改用 `&task.context.story.story_id`。
+- 验证：`cargo test --lib` 1081 passed；`cargo check`/`tsc`/`vitest`（336/3 skipped）/`fmt`/`clippy`（539 零新增）/`architecture_guard`/`format:check` 全绿。
 
 ### v0.30.38 - 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false）（2026-07-30）
 

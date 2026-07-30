@@ -1011,6 +1011,22 @@ impl AgentOrchestrator {
                  请直接输出正文，不要写说明、标题或分章标记。"
             )
         };
+        // v0.30.39: 确定性注入剧情推进方向锚点（与 TriShot 路径 execute_trishot
+        // line ~1617 对齐）。根因：build_progression_anchor 此前只在 TriShot 调用，
+        // TimeSliced（默认续写路径）从未调用 -> writer 得到完整大纲但无"已推进进度"
+        // 指针，无法判断当前在故事大纲的哪个节点 -> 续写偏离大纲、不按节点推进。
+        // 本锚点注入：本次创作指令 + 故事大纲(硬约束) + 本章场景大纲(硬约束) +
+        // 已推进进度(最近3章 outline_content) + 世界观规则(硬约束) + 显式调和指令。
+        let progression = build_progression_anchor(
+            &bundle,
+            pool.inner(),
+            &task.context.story.story_id,
+            chapter_number,
+            &user_instruction,
+        );
+        if !progression.is_empty() {
+            prompt.push_str(&progression);
+        }
         if !ending_anchor.is_empty() {
             prompt.push_str(&ending_anchor);
         }

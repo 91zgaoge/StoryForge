@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.38
+- **版本**: v0.30.39
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -94,6 +94,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.39 - 修复续写不按故事大纲推进剧情（TimeSliced 路径缺失 build_progression_anchor）
+
+用户报告"续写和故事大纲仍然缺乏强关联"、"没有按照故事大纲来写剧情和推进剧情"。根因：v0.30.31 引入的 `build_progression_anchor`（确定性注入剧情推进方向锚点）**只在 TriShot 路径（`execute_trishot`）调用，从未移植到 TimeSliced 路径（`execute_time_sliced`）**。而 TimeSliced 是默认续写路径（`generation_mode = "auto"` 路由续写到 TimeSliced 而非 TriShot）。TimeSliced 的 writer 通过 `bundle.to_prompt()` 得到完整故事大纲，但缺少"已推进进度"指针（最近 3 章 `scenes.outline_content`），无法判断当前在故事大纲的哪个节点，因此无法按节点推进剧情，导致续写偏离大纲、原地踏步或仅复述设定。
+
+- **根因·build_progression_anchor 未在 TimeSliced 调用（`agents/orchestrator.rs`）**：v0.30.31 新增 `build_progression_anchor` 函数，注入①本次创作指令（创作方向）；②故事大纲前1200字（硬约束）；③本章场景大纲前800字（硬约束）；④已推进进度（最近3章 outline_content，进度指针）；⑤世界观规则前600字（硬约束）；⑥显式调和指令（在硬约束内落实指令核心意图，推进到下一节点）。但该函数**仅在 `execute_trishot` 的 `!synthesis.is_fallback` 分支调用**（line ~1617），`execute_time_sliced`（默认续写路径，line 842-1068）从未调用。TimeSliced writer 只有 `bundle.to_prompt()`（含故事大纲）+ `build_continuation_context`（前文回顾）+ `build_ending_anchor`（末句硬锚点），**无进度指针、无显式调和指令**。
+- **Fix·TimeSliced 路径注入 build_progression_anchor（`agents/orchestrator.rs` `execute_time_sliced`）**：在 prompt 模板渲染后、`ending_anchor` 注入前，插入 `build_progression_anchor(&bundle, pool.inner(), &task.context.story.story_id, chapter_number, &user_instruction)` 调用，与 TriShot 路径完全对齐。writer 现在收到完整的推进方向锚点：故事大纲硬约束 + 已推进进度指针 + 显式调和指令（"推进到故事大纲下一节点、承接已推进进度，不得原地踏步"）。注意 `story_id` 在 `spawn_blocking` 闭包中被 move，改用 `&task.context.story.story_id`。
+- **验证**：`cargo test --lib` 1081 passed；`cargo check` / `npx tsc --noEmit` / `npx vitest run`（336 passed / 3 skipped）/ `cargo +nightly fmt` / `cargo clippy --lib`（539，baseline 540 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.38 - 修复续写输出被编辑器元评论污染（is_prose_request 被 serde 默认 false 导致 sanitize 跳过）
 
@@ -709,7 +717,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-30 - v0.30.38_
+_最后更新: 2026-07-29 - v0.30.39_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

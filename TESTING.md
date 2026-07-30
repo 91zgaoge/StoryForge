@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.38)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.39)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.39 变更说明
+
+- 修复续写不按故事大纲推进剧情（TimeSliced 路径缺失 `build_progression_anchor`）：v0.30.31 引入的 `build_progression_anchor` 只在 TriShot 路径调用，从未移植到 TimeSliced 路径（默认续写路径）。修复：`execute_time_sliced` 的 prompt 模板后、`ending_anchor` 前插入 `build_progression_anchor` 调用，与 TriShot 对齐。
+- 测试调整：无新增测试（`build_progression_anchor` 函数本身已由 v0.30.31 测试覆盖：`test_build_progression_anchor_directive_only_no_assets` + `test_build_progression_anchor_full_sections`）。本次为调用点接线修复，函数行为不变。
+- 全量基线：`cargo test --lib` 1081 passed / 2 ignored（无新增）；`npx vitest run` 336 passed / 3 skipped（无前端变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（539，baseline 540 零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.38 变更说明
 
