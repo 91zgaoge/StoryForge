@@ -1,10 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.40)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.41)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
-### v0.30.40 变更说明
+### v0.30.41 变更说明
+
+- 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）：`isTextDuplicate` 新增最小长度守卫（归一化后 < 30 字符直接返回 false）；新增 `stripInstructionEcho` 剥离模型回显的用户指令前缀，在 `handleRequestGeneration` 和 `handleSmartGeneration` 的 `sanitizeContinuationOutput` 后调用。纯前端修复，无 Rust 变更。
+- 测试调整：`isTextDuplicate.test.ts` +2（短文本假阳性守卫 + 长文本真阳性）；`textCleanup.test.ts` +7（`stripInstructionEcho` 7 场景：正常剥离/冒号分隔/不匹配不剥/短输入不剥/空输入不剥/剩余过短保留/长指令剥离）；更新 2 既有测试（前缀检测改用 ≥40 字符 + `isTextDuplicate` 用 ≥30 字符）。
+- 全量基线：`cargo test --lib` 1082 passed / 2 ignored（无 Rust 变更）；`npx vitest run` 349 passed / 3 skipped（+13）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（538，零新增）/ prettier / architecture_guard 全绿。
 
 - 修复代理工作室不显示活动记录数据（`activeRunId` 仅从事件捕获 + 无 `list_runs` 命令）：后端新增 `agency_list_runs` 命令 + `list_runs_for_story` repository 方法；前端 `AgencyStudio.tsx` 水合 `activeRunId` + 历史时间线重建 + run 选择器。
 - 测试调整：`agency/repository.rs` +1 回归（`test_list_runs_for_story`：多 run 排序 / story_id 过滤 / limit / 空结果）；`AgencyStudio.test.tsx` +3（水合 activeRunId 显示黑板 / run 选择器多 option / 历史时间线从 board items 重建）；原有"渲染三角色状态卡与黑板空态"测试更新 mock（加 `listRuns`）。
@@ -671,4 +675,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-23 - v0.30.23 意图分类 Bug 修复，测试基线 978_
+_最后更新: 2026-07-30 - v0.30.41 续写内容假阳性去重修复，测试基线 349_

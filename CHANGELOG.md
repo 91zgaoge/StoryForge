@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.41（2026-07-30）
+
+### 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）
+
+用户诊断报告显示续写生成时 LLM（deepseek-v4）成功返回 2511 字符，但前端仅显示 6 字符（"续写\n黑暗。"），随后报"生成过程异常结束，未收到有效内容"。根因链：①模型在生成内容开头回显用户指令"续写"（非正文）；②打字机动画首帧仅 3 字符（"续写\n"），归一化后 2 字符"续写"几乎必然出现在 9656 字已有正文中；③`isTextDuplicate` 假阳性返回 true，`setGeneratedText` 跳过赋值并 `markAccepted` 存入 2 字符指纹；④生成内容被静默丢弃。两层修复：
+
+- **Fix 1·`isTextDuplicate` 最小长度守卫（`textCleanup.ts`）**：归一化后 < 30 字符的生成文本直接返回 false，不进行去重检查。打字机首帧（3 字符）、短回显前缀（2 字符）等短文本在长篇正文中几乎必然命中 `includes()` 造成假阳性；只有生成文本足够长（≥30 归一化字符）时才检查是否为已有内容的子串。全量内容（2511 字符）仍正常评估去重。
+- **Fix 2·`stripInstructionEcho` 指令回显剥离（`textCleanup.ts` + `FrontstageApp.tsx`）**：新增 `stripInstructionEcho(generated, userInput)` --归一化比较生成文本开头与用户指令，若开头匹配则裁掉原始文本中对应前缀及紧随的分隔符（换行/冒号/逗号等），剩余内容过短（<10 字符）则保留原文防误剥。在 `handleRequestGeneration` 和 `handleSmartGeneration` 的 `sanitizeContinuationOutput` 后调用，覆盖打字机路径与 smart_execute 直接路径。
+- **测试**：`isTextDuplicate.test.ts` 新增 2 测试（短文本假阳性守卫 + 长文本真阳性验证），更新 1 测试（前缀检测改用 ≥40 字符）；`textCleanup.test.ts` 新增 7 测试（`stripInstructionEcho` 正常剥离/冒号分隔/不匹配不剥/短输入不剥/空输入不剥/剩余过短保留/长指令剥离），更新 1 测试（`isTextDuplicate` 用 ≥30 字符长文本）。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 349 passed / 3 skipped（+13）；`npm run format:check` ✅；`architecture_guard` ✅。纯前端修复，无 Rust 变更（cargo 基线不变）。
+
 ## v0.30.40（2026-07-29）
 
 ### 修复代理工作室不显示活动记录数据（activeRunId 仅从事件捕获 + 无 list_runs 命令）

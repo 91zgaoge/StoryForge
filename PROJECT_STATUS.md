@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.40 项目完成状态
+# StoryMoss (草苔) v0.30.41 项目完成状态
 
-> 最后更新: 2026-07-29（v0.30.40 修复代理工作室不显示活动记录数据--activeRunId 仅从事件捕获 + 无 list_runs 命令）
+> 最后更新: 2026-07-30（v0.30.41 修复续写内容被假阳性去重静默丢弃--模型回显指令 + 短文本假阳性 + 内容丢失）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +12,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.41 - 修复续写内容被假阳性去重静默丢弃（模型回显指令 + 短文本假阳性 + 内容丢失）（2026-07-30）
+
+- 用户诊断报告显示续写生成时 LLM（deepseek-v4）成功返回 2511 字符，但前端仅显示 6 字符（"续写\n黑暗。"），随后报"生成过程异常结束，未收到有效内容"。
+- **根因链**：①模型在生成内容开头回显用户指令"续写"（非正文）；②打字机动画首帧仅 3 字符（"续写\n"），归一化后 2 字符"续写"几乎必然出现在 9656 字已有正文中；③`isTextDuplicate` 假阳性返回 true，`setGeneratedText` 跳过赋值并 `markAccepted` 存入 2 字符指纹；④生成内容被静默丢弃。
+- **Fix 1·`isTextDuplicate` 最小长度守卫（`textCleanup.ts`）**：归一化后 < 30 字符的生成文本直接返回 false，不进行去重检查。
+- **Fix 2·`stripInstructionEcho` 指令回显剥离（`textCleanup.ts` + `FrontstageApp.tsx`）**：新增 `stripInstructionEcho(generated, userInput)` 剥离模型回显的用户指令前缀。在 `handleRequestGeneration` 和 `handleSmartGeneration` 的 `sanitizeContinuationOutput` 后调用。
+- 验证：`npx vitest run` 349 passed / 3 skipped（+13）；`tsc`/`format:check`/`architecture_guard` 全绿。纯前端修复，无 Rust 变更（cargo 基线 1082 不变）。
 
 ### v0.30.40 - 修复代理工作室不显示活动记录数据（activeRunId 仅从事件捕获 + 无 list_runs 命令）（2026-07-29）
 

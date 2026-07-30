@@ -29,6 +29,13 @@ export const isTextDuplicate = (existingText: string, generatedText: string): bo
   const normalizedGenerated = normalizeForDuplicateCheck(trimmedGenerated);
   if (!normalizedExisting || !normalizedGenerated) return false;
 
+  // v0.30.41: 最小长度守卫--归一化后 < 30 字符的生成文本几乎一定出现在
+  // 长篇已有正文中（如"续写"2 字在 9656 字小说中必然命中），导致假阳性
+  // 去重判定，静默丢弃生成内容。打字机动画首帧仅 3 字符，尤为脆弱。
+  // 只有生成文本足够长（>= 30 归一化字符）时才进行去重检查。
+  const MIN_DUPLICATE_CHECK_LEN = 30;
+  if (normalizedGenerated.length < MIN_DUPLICATE_CHECK_LEN) return false;
+
   const fingerprintLen = Math.min(500, normalizedGenerated.length);
   const generatedFingerprint = normalizedGenerated.slice(0, fingerprintLen);
 
@@ -139,13 +146,72 @@ export function trimDanglingTail(text: string): string {
 }
 
 /**
- * v0.26.24: 续写后处理管线——自重复清理 + 跨内容重叠剥离 + 截断末句裁剪。
+ * v0.26.24: 续写后处理管线--自重复清理 + 跨内容重叠剥离 + 截断末句裁剪。
  */
 export function sanitizeContinuationOutput(generated: string, existing: string): string {
   let result = trimSelfRepetition(generated);
   result = stripExistingOverlap(result, existing);
   result = trimDanglingTail(result);
   return result;
+}
+
+/**
+ * v0.30.41: 剥离模型回显的用户指令前缀。
+ *
+ * 某些模型（如 deepseek-v4）会在生成内容开头回显用户的写作指令
+ * （如用户输入"续写"，模型响应以"续写\n黑暗。..."开头）。
+ * 这不是正文内容，而是指令回显，应当剥离。
+ *
+ * 剥离策略：归一化比较生成文本开头与用户指令，若开头匹配则裁掉
+ * 原始文本中对应长度的前缀（含紧随的换行/冒号等分隔符）。
+ *
+ * @param generated 模型生成的文本
+ * @param userInput 用户的原始输入指令
+ * @returns 剥离指令回显后的文本
+ */
+export function stripInstructionEcho(generated: string, userInput: string): string {
+  const trimmedInput = userInput.trim();
+  if (!trimmedInput || trimmedInput.length < 2) return generated;
+
+  const normInput = normalizeForDuplicateCheck(trimmedInput);
+  if (!normInput || normInput.length < 2) return generated;
+
+  // 检查生成文本开头（取指令长度的 3 倍作为检测窗口，覆盖分隔符）是否匹配指令
+  const detectionWindow = generated.slice(0, Math.max(trimmedInput.length * 3, 50));
+  const normWindow = normalizeForDuplicateCheck(detectionWindow);
+  if (!normWindow.startsWith(normInput)) return generated;
+
+  // 在原始文本中定位指令结束位置：找到 trimmedInput 第一次出现的位置，
+  // 裁掉它及其后的前导分隔符（换行、冒号、空格等）
+  const echoIndex = generated.indexOf(trimmedInput);
+  if (echoIndex !== 0) return generated;
+
+  let cutEnd = trimmedInput.length;
+  // 跳过紧随的分隔符：\n : ： 、 ，, 等
+  while (cutEnd < generated.length) {
+    const ch = generated[cutEnd];
+    if (
+      ch === '\n' ||
+      ch === '\r' ||
+      ch === ':' ||
+      ch === '：' ||
+      ch === '、' ||
+      ch === ',' ||
+      ch === '，' ||
+      ch === ' ' ||
+      ch === '\t' ||
+      ch === '。'
+    ) {
+      cutEnd++;
+    } else {
+      break;
+    }
+  }
+
+  const remaining = generated.slice(cutEnd);
+  // 剥离后剩余内容过短则保留原文（避免误剥导致内容丢失）
+  if ([...remaining.trim()].length < 10) return generated;
+  return remaining;
 }
 
 /**

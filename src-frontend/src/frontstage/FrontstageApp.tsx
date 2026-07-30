@@ -23,7 +23,7 @@ import { modelService } from '@/services/modelService';
 import { autoFormatText } from '@/utils/format';
 import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDuplicate';
 import { trimSelfRepetition } from './utils/trimSelfRepetition';
-import { sanitizeContinuationOutput } from '@/utils/textCleanup';
+import { sanitizeContinuationOutput, stripInstructionEcho } from '@/utils/textCleanup';
 import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
@@ -3351,6 +3351,18 @@ const FrontstageApp: React.FC = () => {
             }
           );
         }
+        // v0.30.41: 剥离模型回显的用户指令前缀（如"续写\n黑暗。..." -> "黑暗。..."）
+        // 某些模型（deepseek-v4 等）会在生成内容开头回显用户输入的写作指令，
+        // 该回显不是正文内容，且会触发 isTextAlreadyInEditor 假阳性去重。
+        const echoBeforeLen = displayText.length;
+        displayText = stripInstructionEcho(displayText, context || '');
+        if (displayText.length !== echoBeforeLen) {
+          frontstageLogger.info('[RequestGeneration] Stripped instruction echo', {
+            echoLen: echoBeforeLen - displayText.length,
+            remainingLen: displayText.length,
+            userInput: context,
+          });
+        }
         // 如果去重后为空，说明 LLM 返回的内容与已有内容完全相同
         if (!displayText.trim()) {
           stopElapsedTimer();
@@ -4183,7 +4195,7 @@ const FrontstageApp: React.FC = () => {
           let finalContent = result.final_content!;
           // v0.26.14 fix: 模型可能生成自身重复的内容（如首尾段落相同），
           // 在后续去重/追加前先做一次自重复清理。
-          // v0.26.24: 续写后处理管线——自重复 + 跨内容重叠 + 截断末句。
+          // v0.26.24: 续写后处理管线--自重复 + 跨内容重叠 + 截断末句。
           const currentText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
           const rawFinalLen = finalContent.length;
           finalContent = sanitizeContinuationOutput(finalContent, currentText);
@@ -4191,6 +4203,8 @@ const FrontstageApp: React.FC = () => {
           if (currentText && finalContent.startsWith(currentText)) {
             finalContent = finalContent.slice(currentText.length).trimStart();
           }
+          // v0.30.41: 剥离模型回显的用户指令前缀（如"续写\n黑暗。..." -> "黑暗。..."）
+          finalContent = stripInstructionEcho(finalContent, userInput);
           frontstageLogger.info('[DEBUG-dup] finalContent prefix strip', {
             rawFinalLen,
             currentTextLen: currentText.length,

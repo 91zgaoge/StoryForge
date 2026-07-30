@@ -5,6 +5,7 @@ import {
   stripExistingOverlap,
   trimDanglingTail,
   sanitizeContinuationOutput,
+  stripInstructionEcho,
 } from '../textCleanup';
 
 describe('trimSelfRepetition', () => {
@@ -156,13 +157,66 @@ describe('sanitizeContinuationOutput', () => {
 });
 
 describe('isTextDuplicate', () => {
-  it('detects when generated text is contained in existing text', () => {
-    const existing = '这是一个很长的故事开头，后面还有很多内容。';
-    const generated = '这是一个很长的故事开头';
+  it('detects when generated text is contained in existing text (>= 30 normalized chars)', () => {
+    // v0.30.41: 最小长度守卫要求 >= 30 归一化字符才进行去重检查
+    const existing =
+      '这是一个很长的故事开头，后面还有很多内容。主角踏上了漫长而艰辛的旅途，穿越了无数的山川河流。';
+    const generated = '这是一个很长的故事开头，后面还有很多内容。主角踏上了漫长而艰辛的旅途';
     expect(isTextDuplicate(existing, generated)).toBe(true);
   });
 
   it('returns false for unrelated texts', () => {
     expect(isTextDuplicate('故事 A', '故事 B')).toBe(false);
+  });
+
+  it('returns false for short generated text even if contained in existing (v0.30.41)', () => {
+    const longNovel = '续写一段新的故事。' + '正文内容继续发展。'.repeat(50);
+    expect(isTextDuplicate(longNovel, '续写')).toBe(false);
+    expect(isTextDuplicate(longNovel, '续写\n黑暗。')).toBe(false);
+  });
+});
+
+describe('stripInstructionEcho', () => {
+  it('strips instruction echo at the beginning of generated text', () => {
+    const generated = '续写\n黑暗。\n彻底的、厚重的、几乎凝固成固体的黑暗笼罩了整个世界。';
+    const result = stripInstructionEcho(generated, '续写');
+    expect(result.startsWith('黑暗。')).toBe(true);
+    expect(result).not.toContain('续写');
+  });
+
+  it('strips instruction echo with colon separator', () => {
+    const generated = '续写：\n黑暗降临，一切归于寂静。';
+    const result = stripInstructionEcho(generated, '续写');
+    expect(result.startsWith('黑暗降临')).toBe(true);
+  });
+
+  it('does not strip when generated text does not start with instruction', () => {
+    const generated = '黑暗笼罩了整个世界，没有一丝光亮能够穿透。';
+    const result = stripInstructionEcho(generated, '续写');
+    expect(result).toBe(generated);
+  });
+
+  it('does not strip when user input is too short (< 2 chars)', () => {
+    const generated = '写\n黑暗降临。';
+    const result = stripInstructionEcho(generated, '写');
+    expect(result).toBe(generated);
+  });
+
+  it('does not strip when user input is empty', () => {
+    const generated = '续写\n黑暗降临。';
+    const result = stripInstructionEcho(generated, '');
+    expect(result).toBe(generated);
+  });
+
+  it('preserves original text when stripping would leave too little content', () => {
+    const generated = '续写\n好的';
+    const result = stripInstructionEcho(generated, '续写');
+    expect(result).toBe(generated);
+  });
+
+  it('strips longer instruction echo', () => {
+    const generated = '继续写下一章\n\n黑暗笼罩了整个世界，没有一丝光亮。';
+    const result = stripInstructionEcho(generated, '继续写下一章');
+    expect(result.startsWith('黑暗笼罩')).toBe(true);
   });
 });
