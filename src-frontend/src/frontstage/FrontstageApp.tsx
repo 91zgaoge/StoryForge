@@ -620,6 +620,23 @@ const FrontstageApp: React.FC = () => {
                 });
                 return;
               }
+              // v0.30.43: 保护用户未保存的内容。latestContentRef 是 flushSceneSave
+              // 会保存的内容。若它与 DB 内容不同，说明用户有尚未落库的输入（200ms
+              // HTML 防抖窗口内、或 2000ms 自动保存防抖未出火）。此时绝不能用 DB
+              // 旧内容覆写编辑器，否则用户输入会从编辑器消失、后续输入再覆盖
+              // latestContentRef，造成不可逆丢失。
+              const latestText = latestContentRef.current.replace(/<[^>]*>/g, '').trim();
+              if (latestText.length > 0 && latestText !== dbContent.trim()) {
+                frontstageLogger.info(
+                  '[onChapterUpdated] Skipped: latestContentRef has unsaved content differing from DB',
+                  {
+                    chapterId,
+                    latestLen: latestText.length,
+                    dbLen: dbContent.trim().length,
+                  }
+                );
+                return;
+              }
               setContent(prev => {
                 if (prev === formatted) {
                   return prev;
@@ -637,6 +654,9 @@ const FrontstageApp: React.FC = () => {
                 }, 2000);
                 return formatted;
               });
+              // v0.30.43: 同步 latestContentRef 为刷新后的内容，使后续 flush
+              // 保存的是 onChapterUpdated 刚加载的 DB 内容而非旧值
+              latestContentRef.current = formatted;
             }
           } catch (e) {
             frontstageLogger.error('Failed to refresh chapter content', { error: e });
@@ -1175,12 +1195,20 @@ const FrontstageApp: React.FC = () => {
 
   // v0.30.33: flushSceneSave - 取消待执行的防抖保存，立即将 latestContentRef 落库。
   // v0.30.34: 改用 persistSceneContent 序列化，消除并发覆写竞态。
+  // v0.30.43: 直接从编辑器读取实际 HTML，而非 latestContentRef。
+  //   RichTextEditor 的 onChange 有 200ms 防抖（htmlDebounceRef），latestContentRef
+  //   可能比编辑器实际内容滞后 200ms。关闭应用/切换章节时若读 latestContentRef，
+  //   最后 200ms 内的输入会丢失。直接读 editorRef.getHTML() 确保保存编辑器实际内容；
+  //   editorRef 不可用时回退 latestContentRef。同时回写 latestContentRef 保持一致。
   const flushSceneSave = useCallback(async (): Promise<void> => {
     cancelAutoSave();
     const sceneId = useFrontstageStore.getState().sceneId;
     if (!sceneId) return;
-    const content = latestContentRef.current;
+    const editorHtml = editorRef.current?.getHTML();
+    const content = editorHtml || latestContentRef.current;
     if (!content) return;
+    // 同步 latestContentRef，使后续保存基准与编辑器一致
+    latestContentRef.current = content;
     await persistSceneContent(
       sceneId,
       content,
@@ -2683,6 +2711,8 @@ const FrontstageApp: React.FC = () => {
           setCurrentChapter(null);
           setCurrentScene(null);
           setContent('');
+          // v0.30.43: 同步清空 latestContentRef，避免 flushSceneSave 保存已清空的旧内容
+          latestContentRef.current = '';
         }
       } catch (e) {
         console.error('Failed to load chapters:', e);

@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.43（2026-07-30）
+
+### 修复续写内容丢失根因：flushSceneSave 读取滞后的 latestContentRef + onChapterUpdated 覆写未保存内容
+
+v0.30.33/v0.30.34 的关闭前 flush + 序列化持久化仍未能完全解决续写内容丢失。深入诊断定位两个根因：①`flushSceneSave` 读取 `latestContentRef.current` 而非编辑器实际 HTML--RichTextEditor 的 `onChange` 有 200ms 防抖（`htmlDebounceRef`），`latestContentRef` 可能比编辑器实际内容滞后 200ms，关闭应用/切换章节时若读 `latestContentRef`，最后 200ms 内的输入会丢失；②`onChapterUpdated`（后台 auto_commit 触发）用 DB 旧内容 `setContent` 覆写编辑器但不更新 `latestContentRef`，若用户有尚未落库的输入（防抖窗口内），编辑器被 DB 旧内容覆写后用户再输入，旧输入从编辑器消失且 `latestContentRef` 被新输入覆盖，造成不可逆丢失。
+
+- **主修复·flushSceneSave 直接读编辑器（`FrontstageApp.tsx`）**：`flushSceneSave` 从 `editorRef.current?.getHTML()` 读取编辑器实际 HTML，`editorRef` 不可用时回退 `latestContentRef.current`；读后回写 `latestContentRef.current = content` 保持一致。覆盖关闭前 flush（`frontstage-flush-requested` 事件）、章节切换（`selectChapter`）、AI 追加（`appendAiContent`）、修稿（`handlePipelineRefine`/`onReviseResult`）全部 flush 路径。消除 200ms HTML 防抖窗口导致的内容丢失。
+- **Root Cause #2·onChapterUpdated 保护未保存内容 + 同步 latestContentRef（`FrontstageApp.tsx`）**：`onChapterUpdated` 在 `setContent(formatted)` 前新增守卫--若 `latestContentRef`（会被 flush 保存的内容）非空且与 DB 内容不同，说明用户有尚未落库的输入（200ms HTML 防抖窗口内或 2000ms 自动保存防抖未出火），此时绝不用 DB 旧内容覆写编辑器，直接 `return` 跳过；`setContent` 后补 `latestContentRef.current = formatted` 同步刷新后的内容，使后续 flush 保存 onChapterUpdated 刚加载的 DB 内容而非旧值。
+- **附带·setContent('') 清空 latestContentRef（`FrontstageApp.tsx`）**：无章节时 `setContent('')` 后补 `latestContentRef.current = ''`，避免 flushSceneSave 保存已清空的旧内容。
+- **验证**：`cargo test --lib` 1087 passed（无 Rust 变更）；`npx tsc --noEmit` ✅；`npx vitest run` 350 passed / 3 skipped（+1：close-flush 保存编辑器实际内容而非滞后 latestContentRef 回归测试）；`cargo +nightly fmt` / `cargo clippy --lib`（538 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
+
 ## v0.30.42（2026-07-30）
 
 ### 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）

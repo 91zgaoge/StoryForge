@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.42)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.43)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.43 变更说明
+
+- 修复续写内容丢失根因：`flushSceneSave` 改为直接读 `editorRef.getHTML()`（编辑器实际 HTML）而非滞后的 `latestContentRef`（200ms HTML 防抖窗口）；`onChapterUpdated` 新增守卫保护未保存内容 + 同步 `latestContentRef`。纯前端修复，无 Rust 变更。
+- 测试调整：`FrontstageApp.restart-content.test.tsx` +1（close-flush 保存编辑器实际内容而非滞后 latestContentRef 回归测试）；3 个测试文件的 RichTextEditor mock 补 `getHTML` 方法。
+- 全量基线：`cargo test --lib` 1087 passed / 2 ignored（无 Rust 变更）；`npx vitest run` 350 passed / 3 skipped（+1）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（538，零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.42 变更说明
 
@@ -679,4 +685,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-30 - v0.30.42 世界观 JSON 解析修复，测试基线 1087_
+_最后更新: 2026-07-30 - v0.30.43 续写内容丢失根因修复，测试基线 1087_

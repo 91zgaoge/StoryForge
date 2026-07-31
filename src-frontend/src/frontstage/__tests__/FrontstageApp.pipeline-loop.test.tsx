@@ -86,6 +86,7 @@ vi.mock('../components/RichTextEditor', () => ({
     },
     ref: React.ForwardedRef<{
       getText: () => string;
+      getHTML: () => string;
       appendText: (html: string) => void;
       setContent: (html: string) => void;
     }>
@@ -95,6 +96,7 @@ vi.mock('../components/RichTextEditor', () => ({
     captured.renderCount += 1;
     React.useImperativeHandle(ref, () => ({
       getText: () => props.content.replace(/<[^>]+>/g, ''),
+      getHTML: () => props.content,
       appendText: (html: string) => {
         const newContent = (props.content || '') + html;
         captured.content = newContent;

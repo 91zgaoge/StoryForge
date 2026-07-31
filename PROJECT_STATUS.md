@@ -1,6 +1,8 @@
-# StoryMoss (草苔) v0.30.42 项目完成状态
+# StoryMoss (草苔) v0.30.43 项目完成状态
 
-> 最后更新: 2026-07-30（v0.30.42 修复世界观生成失败--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
+> 最后更新: 2026-07-30（v0.30.43 修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
+>
+> v0.30.42：修复世界观生成失败--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -12,6 +14,10 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.43 - 修复续写内容丢失根因：flushSceneSave 读取滞后的 latestContentRef + onChapterUpdated 覆写未保存内容（2026-07-30）
+
+v0.30.33/v0.30.34 的关闭前 flush + 序列化持久化仍未能完全解决续写内容丢失。根因：①`flushSceneSave` 读取 `latestContentRef`（RichTextEditor 200ms HTML 防抖可能滞后）而非编辑器实际 HTML，关闭/切章时最后 200ms 输入丢失；②`onChapterUpdated` 用 DB 旧内容覆写编辑器但不更新 `latestContentRef`，用户未保存输入不可逆丢失。修复：`flushSceneSave` 改读 `editorRef.getHTML()`；`onChapterUpdated` 新增守卫跳过覆写 + 同步 `latestContentRef`。纯前端修复，无 Rust 变更。验证：`cargo test --lib` 1087 passed；`npx vitest run` 350 passed / 3 skipped（+1）。
 
 ### v0.30.42 - 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）（2026-07-30）
 

@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-30（v0.30.42 修复世界观生成失败--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
+> 最后更新: 2026-07-30（v0.30.43 修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.43 - 修复续写内容丢失根因：flushSceneSave 读取滞后的 latestContentRef + onChapterUpdated 覆写未保存内容 ✅ (2026-07-30)
+
+- [x] 根因：`flushSceneSave` 读取 `latestContentRef`（RichTextEditor 200ms HTML 防抖可能滞后 200ms）而非编辑器实际 HTML，关闭/切章时最后 200ms 输入丢失；`onChapterUpdated` 用 DB 旧内容覆写编辑器但不更新 `latestContentRef`，用户未保存输入不可逆丢失
+- [x] Fix 1（`FrontstageApp.tsx` `flushSceneSave`）：改为直接读 `editorRef.current?.getHTML()`（编辑器实际 HTML），回退 `latestContentRef.current`，读后回写 `latestContentRef` 保持一致。覆盖关闭前 flush / 章节切换 / AI 追加 / 修稿全部 flush 路径
+- [x] Fix 2（`FrontstageApp.tsx` `onChapterUpdated`）：`setContent` 前新增守卫--`latestContentRef` 非空且与 DB 内容不同时跳过（用户有未落库输入）；`setContent` 后补 `latestContentRef.current = formatted` 同步
+- [x] Fix 3（`FrontstageApp.tsx`）：无章节时 `setContent('')` 后补 `latestContentRef.current = ''`
+- [x] 验证：`cargo test --lib` 1087 passed（无 Rust 变更）；`npx vitest run` 350 passed / 3 skipped（+1）；`tsc`/`fmt`/`clippy`（538 零新增）/`architecture_guard`/`format:check` 全绿
 
 ### ✨ v0.30.42 - 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）✅ (2026-07-30)
 

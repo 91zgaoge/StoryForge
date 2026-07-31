@@ -104,6 +104,10 @@ npm run build
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+### v0.30.43 · 修复续写内容丢失根因（flushSceneSave 读滞后 ref + onChapterUpdated 覆写未保存内容）
+
+v0.30.33/v0.30.34 的关闭前 flush + 序列化持久化仍未能完全解决续写内容丢失。根因：①`flushSceneSave` 读取 `latestContentRef` 而非编辑器实际 HTML--RichTextEditor 的 `onChange` 有 200ms 防抖，`latestContentRef` 可能滞后 200ms，关闭/切章时最后 200ms 的输入丢失；②`onChapterUpdated`（后台 auto_commit）用 DB 旧内容覆写编辑器但不更新 `latestContentRef`，用户未保存的输入被覆写后不可逆丢失。修复：`flushSceneSave` 改为直接读 `editorRef.getHTML()`（编辑器实际内容），回写 `latestContentRef` 保持一致；`onChapterUpdated` 新增守卫--`latestContentRef` 与 DB 内容不同时跳过覆写（用户有未落库输入），覆写后同步 `latestContentRef`。
+
 ### v0.30.42 · 修复世界观生成失败（LLM 返回 markdown 代码块包裹的 JSON）
 
 issue #14 用户报告"世界观生成失败，请重试"，但日志显示 LLM API 调用成功返回内容，失败发生在下游 JSON 解析且完全无错误日志。根因三层：①模型将 JSON 包裹在 ` ```json ... ``` ` 代码块中、或在字符串值内直接换行/使用裸双引号，`serde_json::from_str` 静默失败；②`novel_creation.rs` 严格解析全量响应（含围栏）直接失败，agency `parse_lenient` 用 `rfind('}')` 会被尾部杂散 `}` 误导；③`novel_creation_world_options.md` prompt 要求"concepts 数组"但代码读 `world_buildings`，即使解析成功也找不到数组；prompt 缺少格式约束。三层修复：`parse_lenient` 复用 `extract_and_sanitize_json`（剥离围栏/修复裸换行/括号深度匹配）；`novel_creation.rs` 提取 `parse_world_options_response` 纯函数先剥离围栏再解析 + 失败时 `log::warn!` 记录片段（此前完全静默）；两份 prompt 修正字段名 + 新增格式约束（禁 markdown 围栏、引号转义）。
