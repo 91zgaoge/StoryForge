@@ -104,6 +104,10 @@ npm run build
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+### v0.30.44 · 修复文思活跃模式续写报"生成过程异常结束"
+
+用户报告"开启了文思活跃模式后，出现了报错的诊断信息"。诊断数据显示 LLM 成功返回 2460 字符，但前端 `generatedText` 仅剩 3 字符，打字机动画被中断，最终弹出"生成过程异常结束，未收到有效内容"。根因：`smartExecuteInFlightRef.current = false` 在 smartExecute resolve 后、内容处理前被提前清除--后台活动同步回调（100ms 防抖）在内容处理期间把 `isGenerating` 置 false，触发安全网 effect 误报；`handleRequestGeneration` 的活跃模式分支还错误地走了打字机幽灵文本（3 字符/帧）而非直接 `appendAiContent` 追加到编辑器正文。修复：移除 `handleRequestGeneration` 和 `handleSmartGeneration` 中 smartExecute resolve 后的提前清除，改为在各内容交付退出路径（active mode append / isFirstChapterReady / ghost text / aborted / finally）统一清除 `smartExecuteInFlightRef` + `smartExecuteNeedDiagnosticRef`；活跃模式分支在打字机之前直接 `appendAiContent` 绕过打字机。纯前端修复，无 Rust 变更。
+
 ### v0.30.43 · 修复续写内容丢失根因（flushSceneSave 读滞后 ref + onChapterUpdated 覆写未保存内容）
 
 v0.30.33/v0.30.34 的关闭前 flush + 序列化持久化仍未能完全解决续写内容丢失。根因：①`flushSceneSave` 读取 `latestContentRef` 而非编辑器实际 HTML--RichTextEditor 的 `onChange` 有 200ms 防抖，`latestContentRef` 可能滞后 200ms，关闭/切章时最后 200ms 的输入丢失；②`onChapterUpdated`（后台 auto_commit）用 DB 旧内容覆写编辑器但不更新 `latestContentRef`，用户未保存的输入被覆写后不可逆丢失。修复：`flushSceneSave` 改为直接读 `editorRef.getHTML()`（编辑器实际内容），回写 `latestContentRef` 保持一致；`onChapterUpdated` 新增守卫--`latestContentRef` 与 DB 内容不同时跳过覆写（用户有未落库输入），覆写后同步 `latestContentRef`。

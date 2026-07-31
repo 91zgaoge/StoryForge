@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.43)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.44)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.44 变更说明
+
+- 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"：移除 `handleRequestGeneration` 和 `handleSmartGeneration` 中 smartExecute resolve 后的提前 `smartExecuteInFlightRef.current = false`，改为在各内容交付退出路径统一清除 `smartExecuteInFlightRef` + `smartExecuteNeedDiagnosticRef`；活跃模式分支在打字机之前直接 `appendAiContent` 绕过打字机。纯前端修复，无 Rust 变更。
+- 测试调整：新增 `FrontstageApp.wensi-active.test.tsx`（+2 测试：①活跃模式续写内容直接追加到编辑器正文不走打字机幽灵文本；②`smartExecuteNeedDiagnosticRef` 被清除不触发误报诊断）。RichTextEditor mock 修复：`getHTML()` 此前返回 stale `props.content`（appendText 后未更新），改为用 mutable ref 跟踪编辑器内部 HTML。
+- 全量基线：`cargo test --lib` 1087 passed / 2 ignored（无 Rust 变更）；`npx vitest run` 352 passed / 3 skipped（+2）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（538，零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.43 变更说明
 
@@ -685,4 +691,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-30 - v0.30.43 续写内容丢失根因修复，测试基线 1087_
+_最后更新: 2026-07-29 - v0.30.44 文思活跃模式续写误报修复，测试基线 1087_

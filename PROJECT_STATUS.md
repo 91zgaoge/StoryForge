@@ -1,8 +1,8 @@
-# StoryMoss (草苔) v0.30.43 项目完成状态
+# StoryMoss (草苔) v0.30.44 项目完成状态
 
-> 最后更新: 2026-07-30（v0.30.43 修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
+> 最后更新: 2026-07-29（v0.30.44 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"）
 >
-> v0.30.42：修复世界观生成失败--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
+> v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
 
 ---
@@ -14,6 +14,10 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.44 - 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"（2026-07-29）
+
+用户报告"开启了文思活跃模式后，出现了报错的诊断信息"。诊断数据显示 LLM 成功返回 2460 字符，但前端 `generatedText` 仅剩 3 字符，打字机动画被中断，最终弹出"生成过程异常结束，未收到有效内容"。根因：`smartExecuteInFlightRef.current = false` 在 smartExecute resolve 后、内容处理前被提前清除--后台活动同步回调（100ms 防抖）在内容处理期间把 `isGenerating` 置 false，触发安全网 effect 误报；`handleRequestGeneration` 活跃模式分支错误地走了打字机幽灵文本（3 字符/帧）而非直接 `appendAiContent`。修复：移除 `handleRequestGeneration` 和 `handleSmartGeneration` 中 smartExecute resolve 后的提前清除，改为在各内容交付退出路径统一清除两标志；活跃模式分支在打字机之前直接 `appendAiContent` 绕过打字机。纯前端修复，无 Rust 变更。验证：`npx vitest run` 352 passed / 3 skipped（+2）；tsc/fmt/clippy（538 零新增）/architecture_guard/format:check 全绿。
 
 ### v0.30.43 - 修复续写内容丢失根因：flushSceneSave 读取滞后的 latestContentRef + onChapterUpdated 覆写未保存内容（2026-07-30）
 

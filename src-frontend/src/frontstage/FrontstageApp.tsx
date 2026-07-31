@@ -3228,7 +3228,11 @@ const FrontstageApp: React.FC = () => {
           timeoutPromise,
         ]);
         if (timeoutId) clearTimeout(timeoutId);
-        smartExecuteInFlightRef.current = false;
+        // v0.30.44: 不在此处清除 smartExecuteInFlightRef -- 续写路径的打字机动画
+        // 通过 requestAnimationFrame 异步运行，此处清除会让 backend activity sync
+        // (100ms 防抖) 在打字机仍在运行时把 isGenerating 置 false，触发安全网误报
+        // "生成过程异常结束"。smartExecuteInFlightRef 在各退出路径（打字机完成 /
+        // bail / catch）统一清除。
 
         setGenerationStatus('质检通过，生成完成');
         setOrchestratorStatus({ stepType: '完成', message: '质检通过，生成完成' });
@@ -3286,6 +3290,10 @@ const FrontstageApp: React.FC = () => {
           toast.success('故事已创建，第一章正在后台生成，完成后会自动加载', {
             duration: 5000,
           });
+          // v0.30.44: 清除 flight + diagnostic 标志（smartExecuteInFlightRef 不再在
+          // line 3231 提前清除，需在各退出路径显式清除）
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -3346,6 +3354,9 @@ const FrontstageApp: React.FC = () => {
             //   仅在「已 append」或「编辑器已有内容」时标记 delivered，
             //   避免 finalContent 经 trim 后为空时误锁状态机导致编辑器空白。
           }
+          // v0.30.44: 清除 flight + diagnostic 标志
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -3395,6 +3406,10 @@ const FrontstageApp: React.FC = () => {
         }
         // 如果去重后为空，说明 LLM 返回的内容与已有内容完全相同
         if (!displayText.trim()) {
+          // v0.30.44: 清除 flight + diagnostic 标志（文思活跃模式 streaming 已追加
+          // 内容到编辑器时 final_content 经 sanitize 后为空是正常情况，不应触发诊断）
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -3410,12 +3425,27 @@ const FrontstageApp: React.FC = () => {
           }, 3000);
           return;
         }
+        // v0.30.44: 文思活跃模式直接追加到编辑器，不走打字机幽灵文本。
+        // 根因：active 模式下 handleRequestGeneration（auto-continue 入口）仍走
+        // 打字机 -> setGeneratedText（幽灵文本），但 active 模式期望内容直接入正文。
+        // 幽灵文本在 active 模式下不会被 Tab 接受，auto-continue 触发新生成时旧
+        // 幽灵文本被覆盖，内容丢失。active 模式应直接 appendAiContent 入正文。
+        if (wensiModeRef.current === 'active') {
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          appendAiContentRef.current?.(displayText, 'auto');
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setOrchestratorStatus(null);
+          return;
+        }
         // A4-1.9: 使用 requestAnimationFrame 替代 16ms setInterval 打字机效果
         let index = 0;
         const typeFrame = () => {
           index += 3;
           if (index >= displayText.length) {
             typewriterFrameRef.current = null;
+            smartExecuteInFlightRef.current = false; // v0.30.44: 打字机完成才清除
             smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
             setGeneratedText(displayText);
             stopElapsedTimer();
@@ -4161,8 +4191,14 @@ const FrontstageApp: React.FC = () => {
         ]);
 
         if (timeoutId) clearTimeout(timeoutId);
-        smartExecuteInFlightRef.current = false;
+        // v0.30.44: 不在此处清除 smartExecuteInFlightRef -- 与 handleRequestGeneration 同理，
+        // 此处清除会让 backend activity sync (100ms 防抖) 在内容处理（isAlreadyPresent /
+        // active mode / appendAiContent 等同步步骤）期间把 isGenerating 置 false，
+        // 触发安全网误报。smartExecuteInFlightRef 在各退出路径（active mode append /
+        // isFirstChapterReady / ghost text / finally）统一清除。
         if (aborted) {
+          smartExecuteInFlightRef.current = false; // v0.30.44
+          smartExecuteNeedDiagnosticRef.current = false; // v0.30.44
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
@@ -4262,6 +4298,7 @@ const FrontstageApp: React.FC = () => {
               }
             );
             smartExecuteNeedDiagnosticRef.current = false;
+            smartExecuteInFlightRef.current = false; // v0.30.44
             // 标记 Genesis 正文已加载，防止后续任何路径再次恢复 generatedText
             if (isBootstrapCompleted) {
               genesisDeliveryRef.current = 'delivered';
@@ -4271,6 +4308,7 @@ const FrontstageApp: React.FC = () => {
               '[SmartGeneration] Genesis content already loaded via ChapterSwitch, skipping ghost text'
             );
             smartExecuteNeedDiagnosticRef.current = false;
+            smartExecuteInFlightRef.current = false; // v0.30.44
           } else if (wensiModeRef.current === 'active') {
             // v0.23.92: 文思活跃模式直接追加；否则走 generatedText + Tab 确认
             logToBackend(
@@ -4282,6 +4320,10 @@ const FrontstageApp: React.FC = () => {
               }
             );
             appendAiContent(finalContent, 'auto');
+            // v0.30.44: 内容已交付，清除 flight + 诊断标志（finally 块的 setIsGenerating(false)
+            // 不再触发安全网误报）
+            smartExecuteInFlightRef.current = false;
+            smartExecuteNeedDiagnosticRef.current = false;
             toast.success(
               isBootstrapCompleted ? '小说已创建，文思活跃中...' : '续写已追加，文思活跃中...'
             );
@@ -4303,6 +4345,9 @@ const FrontstageApp: React.FC = () => {
               );
               setIsGenerating(false);
               setGeneratedText('');
+              // v0.30.44: 内容已交付，清除 flight + 诊断标志
+              smartExecuteInFlightRef.current = false;
+              smartExecuteNeedDiagnosticRef.current = false;
               genesisDeliveryRef.current = 'delivered';
               postAcceptLockRef.current = Date.now() + 300000;
               setHideGhostUntil(Date.now() + 30000);
@@ -4333,6 +4378,9 @@ const FrontstageApp: React.FC = () => {
               isBootstrapCompleted,
             });
             setGeneratedText(finalContent);
+            // v0.30.44: 内容已交付到幽灵文本，清除 flight + 诊断标志
+            smartExecuteInFlightRef.current = false;
+            smartExecuteNeedDiagnosticRef.current = false;
             toast.success(isBootstrapCompleted ? '小说已创建！按 Tab 接受第一章' : '创作完成！');
           }
         } else if (isBackgroundBootstrap) {
@@ -4479,6 +4527,11 @@ const FrontstageApp: React.FC = () => {
         cancelGenerationRef.current = null;
         currentToastPhaseRef.current = null;
         setIsGenerating(false);
+        // v0.30.44: 在 setIsGenerating(false) 之后清除 flight 标志，
+        // 确保 setIsGenerating 触发 safety-net 检查时 flight 仍为 true（防 backend
+        // activity sync 干扰），检查完成后才释放。smartExecuteNeedDiagnosticRef
+        // 已在各内容交付路径清除；此处兜底清除 flight 防止泄漏到下一次生成。
+        smartExecuteInFlightRef.current = false;
         setOrchestratorStatus(null);
         // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
         // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空

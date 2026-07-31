@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.43
+- **版本**: v0.30.44
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -86,7 +86,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1087 passed
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 350 passed / 3 skipped
+- `npx vitest run` ✅ 352 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 538（零新增）
@@ -94,6 +94,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.44 - 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"
+
+用户报告"开启了文思活跃模式后，出现了报错的诊断信息"。诊断数据显示 LLM（deepseek-v4）成功返回 2460 字符，但前端 `generatedText` 仅剩 3 字符（"正文续"），打字机动画显示 18 字符增长（12->15->18）后被中断，最终弹出"生成过程异常结束，未收到有效内容"。根因：`smartExecuteInFlightRef.current = false` 在 smartExecute resolve 后、内容处理前被提前清除--后台活动同步回调（100ms 防抖）在内容处理期间把 `isGenerating` 置 false，触发安全网 effect（`!isGenerating && smartExecuteNeedDiagnosticRef.current`）误报。`handleRequestGeneration` 的活跃模式分支还错误地走了打字机幽灵文本（3 字符/帧），而非直接 `appendAiContent` 追加到编辑器正文。
+
+- **主修复·`handleRequestGeneration` 提前清除 flight 标志（`FrontstageApp.tsx`）**：移除 smartExecute resolve 后的 `smartExecuteInFlightRef.current = false`。改为在各退出路径统一清除：打字机完成时、displayText 空 bail、background bootstrap、genesis 首章、aborted、active mode 追加后。确保内容处理期间 `isGenerating` 不被后台活动同步干扰。
+- **主修复·`handleSmartGeneration` 同类根因（`FrontstageApp.tsx`）**：移除 smartExecute resolve 后的 `smartExecuteInFlightRef.current = false`，与 `handleRequestGeneration` 同理。在各内容交付路径（aborted / isAlreadyPresent / isBootstrapCompleted&&delivered / active mode append / isFirstChapterReady / ghost text）统一清除 `smartExecuteInFlightRef` + `smartExecuteNeedDiagnosticRef`；`finally` 块在 `setIsGenerating(false)` 之后兜底清除 flight 标志防泄漏。
+- **活跃模式直追（`FrontstageApp.tsx` `handleRequestGeneration`）**：在打字机之前新增活跃模式分支--`wensiModeRef.current === 'active'` 时直接 `appendAiContent(displayText, 'auto')` + 清除两标志 + `setIsGenerating(false)`，绕过打字机（与 `handleSmartGeneration` 活跃模式行为一致）。
+- **回归测试（`FrontstageApp.wensi-active.test.tsx`）**：+2 测试。①活跃模式续写内容直接追加到编辑器正文，不走打字机幽灵文本；②`smartExecuteNeedDiagnosticRef` 被清除，不触发"生成过程异常结束"诊断。测试 mock 修复：RichTextEditor mock 的 `getHTML()` 此前返回 stale `props.content`，改为用 mutable ref 跟踪编辑器内部 HTML（对齐真实 TipTap `getHTML` 返回实时 DOM 行为）。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 352 passed / 3 skipped（+2）；`cargo +nightly fmt` / `cargo clippy --lib`（538 零新增）/ `architecture_guard` / `npm run format:check` 全绿。纯前端修复，无 Rust 变更。
 
 ### v0.30.43 - 修复续写内容丢失根因：flushSceneSave 读取滞后的 latestContentRef + onChapterUpdated 覆写未保存内容
 
@@ -755,7 +765,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-30 - v0.30.43_
+_最后更新: 2026-07-29 - v0.30.44_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

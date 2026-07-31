@@ -15,7 +15,7 @@ const RELEASE_BASE = "https://storymoss.top/releases";
  * down, etc.). MUST be bumped alongside the release version in Cargo.toml /
  * package.json so a failed fetch still points to a valid, retained version.
  */
-export const FALLBACK_VERSION = "0.30.43";
+export const FALLBACK_VERSION = "0.30.44";
 
 export type Platform = "mac" | "windows" | "linux";
 

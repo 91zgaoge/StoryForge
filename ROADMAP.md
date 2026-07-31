@@ -1,8 +1,17 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-30（v0.30.43 修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）--LLM 返回 markdown 代码块包裹的 JSON + 未转义引号 + 静默失败 + prompt 字段名不匹配）
+> 最后更新: 2026-07-29（v0.30.44 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.44 - 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容" ✅ (2026-07-29)
+
+- [x] 根因：`smartExecuteInFlightRef.current = false` 在 smartExecute resolve 后、内容处理前被提前清除--后台活动同步回调（100ms 防抖）在内容处理期间把 `isGenerating` 置 false，触发安全网 effect（`!isGenerating && smartExecuteNeedDiagnosticRef.current`）误报"生成过程异常结束"；`handleRequestGeneration` 活跃模式分支错误地走了打字机幽灵文本（3 字符/帧）而非直接 `appendAiContent` 追加到编辑器正文
+- [x] Fix 1（`FrontstageApp.tsx` `handleRequestGeneration`）：移除 smartExecute resolve 后的 `smartExecuteInFlightRef.current = false`；改为在各退出路径（打字机完成 / displayText 空 bail / background bootstrap / genesis 首章 / aborted / active mode 追加后）统一清除
+- [x] Fix 2（`FrontstageApp.tsx` `handleSmartGeneration`）：移除 smartExecute resolve 后的 `smartExecuteInFlightRef.current = false`；在各内容交付路径（aborted / isAlreadyPresent / isBootstrapCompleted&&delivered / active mode append / isFirstChapterReady / ghost text）统一清除 `smartExecuteInFlightRef` + `smartExecuteNeedDiagnosticRef`；`finally` 块兜底清除 flight 标志防泄漏
+- [x] Fix 3（`FrontstageApp.tsx` `handleRequestGeneration`）：活跃模式分支在打字机之前直接 `appendAiContent(displayText, 'auto')` + 清除两标志，绕过打字机（与 `handleSmartGeneration` 活跃模式行为一致）
+- [x] 回归测试（`FrontstageApp.wensi-active.test.tsx`）：+2 测试（活跃模式直追 + 不触发误报诊断）；RichTextEditor mock 修复 `getHTML()` 返回 stale props.content 问题
+- [x] 验证：`npx vitest run` 352 passed / 3 skipped（+2）；`tsc`/`fmt`/`clippy`（538 零新增）/`architecture_guard`/`format:check` 全绿。纯前端修复，无 Rust 变更
 
 ### ✨ v0.30.43 - 修复续写内容丢失根因：flushSceneSave 读取滞后的 latestContentRef + onChapterUpdated 覆写未保存内容 ✅ (2026-07-30)
 
