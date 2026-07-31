@@ -102,17 +102,21 @@ struct Choice {
     message: Message,
 }
 
-/// v0.30.25: 推理模型（DeepSeek 等）可能把实际内容放在 reasoning_content 而
-/// content 为空。 此纯函数实现 fallback 逻辑，供单测验证。
+/// v0.30.45: 推理模型（DeepSeek 等）的 reasoning_content 是**思维链**（CoT），
+/// 不是正文。v0.30.25 的回退假设是错误的--它把 CoT 当正文返回，导致用户看到
+/// "这是一个小说续写任务，需要我以专业作者身份..."等推理过程而非小说正文。
+/// 现在当 content 为空时不再回退到 reasoning_content，而是返回空字符串，
+/// 让调用方处理（重试或报错）。
 fn resolve_content(content: &str, reasoning_content: &Option<String>) -> String {
     if content.is_empty() {
         if let Some(ref rc) = reasoning_content {
             if !rc.is_empty() {
                 log::warn!(
-                    "[OpenAI] content 为空，使用 reasoning_content fallback（{} 字符）",
+                    "[OpenAI] content 为空但 reasoning_content 有 {} 字符（思维链/CoT）。\
+                     不回退到 reasoning_content--它是模型的推理过程而非正文。\
+                     调用方应处理空 content（重试或报错）。",
                     rc.chars().count()
                 );
-                return rc.clone();
             }
         }
     }
@@ -344,14 +348,9 @@ impl LlmAdapter for OpenAiAdapter {
                 match serde_json::from_str::<OpenAiStreamResponse>(data) {
                     Ok(parsed) => {
                         if let Some(choice) = parsed.choices.first() {
-                            // v0.30.25: 优先转发 content，为空时 fallback reasoning_content
-                            let text = choice
-                                .delta
-                                .content
-                                .as_ref()
-                                .filter(|c| !c.is_empty())
-                                .or(choice.delta.reasoning_content.as_ref())
-                                .filter(|c| !c.is_empty());
+                            // v0.30.45: 只转发 content delta，不回退 reasoning_content。
+                            // reasoning_content 是思维链（CoT），不是正文。
+                            let text = choice.delta.content.as_ref().filter(|c| !c.is_empty());
                             if let Some(content) = text {
                                 if tx.send(Ok(content.clone())).await.is_err() {
                                     break;
@@ -394,7 +393,7 @@ mod tests {
         assert_eq!(sanitize_top_p(Some(1.0)), Some(1.0));
     }
 
-    // ===== v0.30.25: reasoning_content fallback 测试 =====
+    // ===== v0.30.45: reasoning_content 不再回退（它是 CoT 不是正文）=====
 
     #[test]
     fn resolve_content_uses_content_when_nonempty() {
@@ -404,9 +403,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_content_falls_back_to_reasoning_when_content_empty() {
-        let rc = Some("这是推理模型的实际内容".to_string());
-        assert_eq!(resolve_content("", &rc), "这是推理模型的实际内容");
+    fn resolve_content_does_not_fall_back_to_reasoning() {
+        // v0.30.45: content 为空时不再回退到 reasoning_content
+        // reasoning_content 是思维链（CoT），不是正文
+        let rc = Some("这是推理模型的思维链".to_string());
+        assert_eq!(resolve_content("", &rc), "");
     }
 
     #[test]

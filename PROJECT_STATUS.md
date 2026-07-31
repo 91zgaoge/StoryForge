@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.44 项目完成状态
+# StoryMoss (草苔) v0.30.45 项目完成状态
 
-> 最后更新: 2026-07-29（v0.30.44 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"）
+> 最后更新: 2026-07-31（v0.30.45 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文））
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,10 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.45 - 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）（2026-07-31）
+
+用户报告文思活跃模式续写返回 LLM 思维链推理而非小说正文（提示词泄露）。根因四层叠加：①`llm/openai.rs` 的 `resolve_content` 在 `content` 为空时错误回退到 `reasoning_content`（CoT），把思维链当正文返回；②`max_tokens: 2048` 对推理模型过小，CoT 耗尽全部 token 预算导致 `content` 恒为空、整段被 CoT 占据；③`sanitize_novel_output` 仅清洗 markdown/元评论，无法识别裸 CoT 思维链；④writer 提示词从未显式禁止推理输出。修复：①移除 `resolve_content` 的 `reasoning_content` 回退（`content` 为空即返回空，不再用 CoT 兜底）；②`max_tokens` 2048 -> 4096，给推理模型留足正文预算；③新增 `detect_and_strip_bare_cot`（检测 ≥3 条 CoT 信号行触发剥离），接入 `sanitize_novel_output` 后处理；④writer 提示词新增反推理指令（禁止输出思考过程/推理链）。验证：`cargo test --lib` 1091 passed / 2 ignored（+4）；`npx vitest run` 352 passed / 3 skipped；`cargo clippy --lib` 539（零新增）；tsc/fmt/architecture_guard/format:check 全绿。
 
 ### v0.30.44 - 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"（2026-07-29）
 

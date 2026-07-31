@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.44
+- **版本**: v0.30.45
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -84,16 +84,26 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1087 passed
+- `cargo test -p storymoss` ✅ 1091 passed
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 352 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 538（零新增）
+- `cargo clippy --lib` ✅ 539（零新增）
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.45 - 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）
+
+用户报告"开启了文思活跃模式后，出现提示词泄露问题"--续写返回的不是小说正文，而是 LLM 的思维链（CoT）："这是一个小说续写任务，需要我以专业作者身份..."。四层防线全部失守导致 deepseek-v4 推理模型的 CoT 被当作正文返回。
+
+- **根因 1·`resolve_content` 错误回退（`llm/openai.rs`）**：v0.30.25 假设推理模型可能把实际内容放在 reasoning_content，content 为空时回退。但 reasoning_content 是思维链不是正文。现移除回退，content 为空返回空 + warn。
+- **根因 2·`max_tokens: 2048` 太小（`agents/orchestrator.rs`）**：推理模型 CoT 消耗 1500-2500 token，2048 留给正文预算为 0 -> content 空 -> 触发回退。三处 `Some(2048)` -> `Some(4096)`。
+- **根因 3·裸 CoT 检测（`agents/orchestrator.rs` `sanitize_novel_output`）**：新增 `detect_and_strip_bare_cot` 纯函数--扫描前 2000 字符非空行，≥3 行命中 CoT 信号词（40+ 个）判定泄露，尝试提取正文起点，找不到返回空。作为 step 0e 插入。
+- **根因 4·prompt 禁止输出思考过程（`resources/prompts/writer/`）**：`writer_system.md` + `orchestrator_timesliced_writer.md` 新增"不要输出思考过程/分析/规划"+"禁止以分析性语句开头"。
+- **验证**：`cargo test --lib` 1091 passed / 2 ignored（+4）；`npx vitest run` 352 passed / 3 skipped；`cargo +nightly fmt` / `cargo clippy --lib`（539 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
 
 ### v0.30.44 - 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"
 
@@ -765,7 +775,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.44_
+_最后更新: 2026-07-31 - v0.30.45_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

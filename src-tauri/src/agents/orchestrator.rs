@@ -1061,7 +1061,9 @@ impl AgentOrchestrator {
             .generate_for_task_with_system_prompt(
                 crate::router::TaskType::CreativeWriting,
                 prompt,
-                Some(2048),
+                // v0.30.45: 2048 -> 4096。推理模型（DeepSeek 等）CoT 消耗 1500-2500
+                // token，2048 留给正文的预算为 0 -> content 返回空 -> 触发回退。
+                Some(4096),
                 {
                     // v0.23.66: 续写温度——优先用 continuation_temperature 覆盖，
                     // 回退到 profile 温度，最后默认 0.75
@@ -1772,7 +1774,8 @@ impl AgentOrchestrator {
             .generate_for_task_with_tags_timeout_and_system_prompt(
                 crate::router::TaskType::CreativeWriting,
                 final_prompt,
-                Some(2048),
+                // v0.30.45: 2048 -> 4096（推理模型 CoT 预算 + 正文预算）
+                Some(4096),
                 {
                     // v0.23.66: 续写/生成温度——优先用 creative_temperature（创世首章）
                     // 或 continuation_temperature（续写），回退到 profile 温度。
@@ -1888,7 +1891,8 @@ impl AgentOrchestrator {
                         .generate_for_task_with_tags_timeout_and_system_prompt(
                             crate::router::TaskType::CreativeWriting,
                             retry_prompt,
-                            Some(2048),
+                            // v0.30.45: 2048 -> 4096（推理模型 CoT 预算 + 正文预算）
+                            Some(4096),
                             {
                                 let app_dir =
                                     self.app_handle.path().app_data_dir().unwrap_or_default();
@@ -3949,6 +3953,17 @@ pub(crate) fn sanitize_novel_output(content: &str) -> String {
         return content.trim().to_string();
     }
 
+    // 0e. v0.30.45: 裸思维链（CoT）检测--推理模型（DeepSeek 等）可能把思维链
+    //     直接输出在 content 字段（非 reasoning_content），表现为分析性散文而非
+    //     小说正文（"这是一个小说续写任务，需要我以专业作者身份..."）。此步骤检测
+    //     并剥离裸 CoT，提取其中可能包含的正文部分。
+    text = detect_and_strip_bare_cot(&text);
+    if text.trim().is_empty() {
+        // 全文都是 CoT，返回空让调用方处理（重试/报错）
+        log::warn!("[sanitize_novel_output] 检测到裸思维链（CoT）泄露，全文均为分析性内容，已清空");
+        return String::new();
+    }
+
     // 1. 逐行去除 markdown 符号（先做，让后续整行判断能匹配到 **【】** 等包裹）
     let demd: Vec<String> = text
         .lines()
@@ -4228,6 +4243,135 @@ fn deduplicate_consecutive_paragraphs(text: &str) -> String {
     result.join("\n")
 }
 
+/// v0.30.45: 检测并剥离裸思维链（CoT）。
+///
+/// 推理模型（DeepSeek 等）可能把思维链直接输出在 content 字段，表现为分析性
+/// 散文而非小说正文（"这是一个小说续写任务，需要我以专业作者身份..."）。
+///
+/// 检测策略：扫描前 2000 字符内的非空行，统计命中 CoT 信号词的行数。
+/// 若 ≥3 行命中，判定为 CoT 泄露，尝试找到正文起点（第一个不含信号词且 >20
+/// 字符的行）；找不到则返回空字符串。
+///
+/// 设计原则：保守检测，宁可漏检也不误删正文。信号词组合是分析性语言的强信号，
+/// 小说正文几乎不会同时命中 3+ 行。
+pub(crate) fn detect_and_strip_bare_cot(text: &str) -> String {
+    if text.trim().is_empty() {
+        return text.to_string();
+    }
+
+    let lines: Vec<&str> = text.lines().collect();
+    // 只扫描前 2000 字符范围内的行，避免长正文误触发
+    let mut char_count = 0usize;
+    let scan_limit = lines
+        .iter()
+        .position(|line| {
+            char_count += line.chars().count();
+            char_count > 2000
+        })
+        .unwrap_or(lines.len());
+
+    let cot_signals: &[&str] = &[
+        "这是一个小说",
+        "这是一个续写",
+        "这是一个创作",
+        "这是一个故事",
+        "让我从",
+        "让我梳理",
+        "让我先",
+        "让我检查",
+        "让我整理",
+        "我需要落实",
+        "我需要让",
+        "我需要把",
+        "我需要集中",
+        "我打算",
+        "我决定",
+        "我现在需要",
+        "我来具体",
+        "根据要求",
+        "根据设定",
+        "根据提供",
+        "叙事四元组",
+        "叙事四件套",
+        "剧情引擎",
+        "桥段卡",
+        "叙述阶段",
+        "叙事阶段",
+        "语言基调",
+        "小说基调",
+        "核心冲突",
+        "故事大纲的起因",
+        "故事大纲的转折",
+        "故事大纲的阶段",
+        "故事大纲的描述",
+        "为了推进剧情",
+        "为了避免",
+        "我还需要纳入",
+        "让我检查一下",
+        "这意味着我需要",
+        "让我来梳理",
+        "高压关系",
+        "剧情必须向前推进",
+        "最佳收束",
+        "延迟释放",
+        "强制低谷",
+    ];
+
+    let mut cot_line_count = 0usize;
+    let mut cot_line_indices: Vec<usize> = Vec::new();
+    for (i, line) in lines[..scan_limit].iter().enumerate() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if cot_signals.iter().any(|sig| t.contains(sig)) {
+            cot_line_count += 1;
+            cot_line_indices.push(i);
+        }
+    }
+
+    if cot_line_count < 3 {
+        // 不足 3 行命中，不判定为 CoT
+        return text.to_string();
+    }
+
+    log::warn!(
+        "[detect_and_strip_bare_cot] 检测到裸思维链泄露：前 {} 行中有 {} 行命中 CoT 信号词，尝试提取正文",
+        scan_limit,
+        cot_line_count,
+    );
+
+    // 尝试找到正文起点：第一个不含 CoT 信号词、非空、>20 字符的行
+    // （CoT 行通常是短句或分析性段落，正文行通常是较长的叙述性段落）
+    let last_cot_line = *cot_line_indices.last().unwrap_or(&0);
+    for (i, line) in lines.iter().enumerate() {
+        if i <= last_cot_line {
+            // 跳过最后一个 CoT 行及之前的所有行
+            continue;
+        }
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if cot_signals.iter().any(|sig| t.contains(sig)) {
+            continue;
+        }
+        if t.chars().count() > 20 {
+            // 找到正文起点
+            let remaining = lines[i..].join("\n");
+            log::info!(
+                "[detect_and_strip_bare_cot] 提取到正文：从第 {} 行开始，{} 字符",
+                i + 1,
+                remaining.chars().count()
+            );
+            return remaining;
+        }
+    }
+
+    // 全文都是 CoT，找不到正文起点
+    String::new()
+}
+
 /// 判断一行是否为前导元评论（LLM 过渡语/开场白）。
 ///
 /// 仅匹配几乎确定是元评论的开头，保守以避免误伤正文。
@@ -4501,6 +4645,69 @@ mod tests {
         assert!(!cleaned.contains("```"));
         assert!(!cleaned.contains("这是代码块内容"));
         assert!(cleaned.contains("另一段正文。"));
+    }
+
+    // ===== v0.30.45: 裸思维链（CoT）检测测试 =====
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_strips_reasoning() {
+        // 模拟 DeepSeek 推理模型泄露的思维链
+        let cot = "这是一个小说续写任务，需要我以专业作者身份，根据给定的设定和指令，续写一部小说正文。\n\
+                   让我从设定中提取关键信息：核心是三位少年被卷入能源与权力的争夺。\n\
+                   我需要落实的剧情推进方向是继续写，而场景必须围绕故事大纲展开。\n\
+                   根据要求，剧情必须向前推进到故事大纲的下一节点。\n\
+                   叙事四元组要求主情绪是怕，冲突场类型是公开抉择。\n\
+                   \n\
+                   空气是粘稠的，带着一种金属锈蚀的味道。凯尔停下脚步，回头望向来路。";
+        let result = detect_and_strip_bare_cot(cot);
+        // 应该剥离 CoT 部分，只保留正文
+        assert!(
+            result.contains("空气是粘稠的"),
+            "应保留正文部分，实际: {}",
+            result
+        );
+        assert!(!result.contains("这是一个小说续写任务"));
+        assert!(!result.contains("让我从设定中提取"));
+    }
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_all_cot_returns_empty() {
+        // 全文都是 CoT，没有正文
+        let cot = "这是一个小说续写任务，需要我以专业作者身份。\n\
+                   让我梳理时间线和角色关系。\n\
+                   我需要让读者感受到三人之间的保护与被保护的结构。\n\
+                   根据设定，核心冲突是光耀会的极权统治。\n\
+                   叙事四元组要求主情绪是恐怖感。";
+        let result = detect_and_strip_bare_cot(cot);
+        assert!(result.is_empty(), "全文都是 CoT 应返回空，实际: {}", result);
+    }
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_preserves_normal_prose() {
+        // 正常小说正文不应被误删
+        let prose = "空气是粘稠的，带着一种金属锈蚀和腐败的甜腥味。\n\
+                     凯尔的呼吸声在头盔内部被放大成粗重的喘息。\n\
+                     他紧握手中的能源探测仪，屏幕上的数字跳动着，越往下走，读数越不稳定。\n\
+                     身后的雷娜忽然停下脚步，抬手示意众人安静。";
+        let result = detect_and_strip_bare_cot(prose);
+        assert_eq!(result, prose, "正常正文不应被修改");
+    }
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_below_threshold_not_stripped() {
+        // 只有 2 行命中（< 3 阈值），不应剥离
+        let text = "这是一个小说续写任务，需要我来写。\n\
+                    让我先看看设定。\n\
+                    \n\
+                    空气是粘稠的，带着金属锈蚀的味道。凯尔停下脚步。\n\
+                    雷娜回头望向来路，黑暗中似乎有什么东西在移动。";
+        let result = detect_and_strip_bare_cot(text);
+        // 只有 2 行命中 CoT 信号，不触发剥离
+        assert!(
+            result.contains("这是一个小说续写任务"),
+            "不足 3 行命中不应剥离"
+        );
+        assert!(result.contains("空气是粘稠的"));
     }
 
     #[test]

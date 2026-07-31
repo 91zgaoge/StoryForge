@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.44)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.45)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.45 变更说明
+
+- 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）：①`llm/openai.rs` `resolve_content` 移除 `reasoning_content` 回退（`content` 为空即返回空，不再用 CoT 兜底）；②`max_tokens` 2048 -> 4096；③新增 `detect_and_strip_bare_cot`（≥3 条 CoT 信号行触发剥离）接入 `sanitize_novel_output` 后处理；④writer 提示词新增反推理指令（禁止输出思考过程/推理链）。
+- 测试调整：新增 `detect_and_strip_bare_cot` 单元测试（+4：纯正文不剥离 / 纯 CoT 全量剥离 / 混合内容剥离 CoT 保留正文 / 不足 3 信号行不剥离）。无前端逻辑变更。
+- 全量基线：`cargo test --lib` 1091 passed / 2 ignored（+4）；`npx vitest run` 352 passed / 3 skipped（无前端逻辑变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` / clippy（539，零新增）/ prettier / architecture_guard 全绿。
 
 ### v0.30.44 变更说明
 
@@ -691,4 +697,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-29 - v0.30.44 文思活跃模式续写误报修复，测试基线 1087_
+_最后更新: 2026-07-31 - v0.30.45 文思活跃模式续写提示词泄露修复，测试基线 1091_

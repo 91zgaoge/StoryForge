@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.45（2026-07-31）
+
+### 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）
+
+用户报告"开启了文思活跃模式后，出现提示词泄露问题"--续写返回的不是小说正文，而是 LLM 的思维链（CoT）："这是一个小说续写任务，需要我以专业作者身份，根据给定的设定和指令，续写一部小说正文。让我从设定中提取关键信息..."。诊断显示 LLM（deepseek-v4）成功返回 2460 字符，但全部是分析性规划文本而非小说正文。四层防线全部失守：
+
+- **根因 1·`resolve_content` 错误回退（`llm/openai.rs`）**：v0.30.25 假设"推理模型可能把实际内容放在 reasoning_content"，当 `content` 为空时回退到 `reasoning_content`。但 DeepSeek 的 `reasoning_content` 是**思维链**（CoT），不是正文。回退直接把 CoT 当正文返回。现移除回退：`content` 为空时返回空字符串 + `log::warn!`，让调用方处理（重试/报错）。流式版本同理移除 `reasoning_content` fallback。
+- **根因 2·`max_tokens: 2048` 太小（`agents/orchestrator.rs`）**：推理模型 CoT 消耗 1500-2500 token，2048 留给正文的预算为 0 -> `content` 返回空 -> 触发回退。三处 `Some(2048)` 改为 `Some(4096)`（TimeSliced line 1064 / TriShot line 1775 / TriShot retry line 1891），给 CoT ~2500 token + 正文 ~1500 token。
+- **根因 3·裸 CoT 检测（`agents/orchestrator.rs` `sanitize_novel_output`）**：新增 `detect_and_strip_bare_cot` 纯函数--扫描前 2000 字符内的非空行，统计命中 CoT 信号词（"这是一个小说续写任务"/"让我从"/"我需要落实"/"根据要求"/"叙事四元组"/"剧情引擎"/"桥段卡" 等 40+ 个）的行数；≥3 行命中判定为 CoT 泄露，尝试提取正文起点（第一个不含信号词且 >20 字符的行），找不到则返回空。作为 `sanitize_novel_output` step 0e 插入（step 0d markdown 剥离之后、step 1 demd 之前）。设计原则：保守检测（≥3 行阈值），宁可漏检也不误删正文。
+- **根因 4·prompt 禁止输出思考过程（`resources/prompts/writer/`）**：`writer_system.md`（version 0.26.44 -> 0.30.45）输出要求段新增"不要输出你的思考过程、分析、规划或元评论--直接从小说正文第一句开始"+"禁止以'这是一个...'、'让我...'、'我需要...'等分析性语句开头"；`orchestrator_timesliced_writer.md`（version 0.30.32 -> 0.30.45）要求段新增"6. 直接输出正文，不要输出思考过程、分析或规划"。
+- **测试**：`openai.rs` 更新 1 测试（`resolve_content_does_not_fall_back_to_reasoning` 断言空 content + 有 reasoning_content 时返回空而非 CoT）；`orchestrator.rs` +3 测试（`detect_and_strip_bare_cot` 正向剥离 / 全 CoT 返回空 / 正常正文不误删 / 不足阈值不剥离）。
+- **验证**：`cargo test --lib` 1091 passed / 2 ignored（+4）；`npx tsc --noEmit` ✅；`npx vitest run` 352 passed / 3 skipped；`cargo +nightly fmt` / `cargo clippy --lib`（539 零新增）/ `architecture_guard` / `npm run format:check` 全绿。
+
 ## v0.30.44（2026-07-29）
 
 ### 修复文思活跃模式续写报"生成过程异常结束，未收到有效内容"

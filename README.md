@@ -104,6 +104,10 @@ npm run build
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+### v0.30.45 · 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）
+
+用户报告文思活跃模式续写返回的是 LLM 思维链推理而非小说正文。根因四层：①`openai.rs` 的 `resolve_content` 在 `content` 为空时错误回退到 `reasoning_content`（CoT），把思维链当正文返回；②`max_tokens: 2048` 对推理模型过小，CoT 耗尽全部 token 预算导致 `content` 恒为空、整段被 CoT 占据；③`sanitize_novel_output` 仅清洗 markdown/元评论，无法识别裸 CoT 思维链；④writer 提示词从未显式禁止推理输出。修复：移除 `reasoning_content` 回退；`max_tokens` 提升至 4096；新增 `detect_and_strip_bare_cot`（≥3 条 CoT 信号行触发剥离）；writer 提示词新增反推理指令。测试：cargo test 1091 passed（+4）；vitest 352 passed；clippy 539（零新增）；全绿。
+
 ### v0.30.44 · 修复文思活跃模式续写报"生成过程异常结束"
 
 用户报告"开启了文思活跃模式后，出现了报错的诊断信息"。诊断数据显示 LLM 成功返回 2460 字符，但前端 `generatedText` 仅剩 3 字符，打字机动画被中断，最终弹出"生成过程异常结束，未收到有效内容"。根因：`smartExecuteInFlightRef.current = false` 在 smartExecute resolve 后、内容处理前被提前清除--后台活动同步回调（100ms 防抖）在内容处理期间把 `isGenerating` 置 false，触发安全网 effect 误报；`handleRequestGeneration` 的活跃模式分支还错误地走了打字机幽灵文本（3 字符/帧）而非直接 `appendAiContent` 追加到编辑器正文。修复：移除 `handleRequestGeneration` 和 `handleSmartGeneration` 中 smartExecute resolve 后的提前清除，改为在各内容交付退出路径（active mode append / isFirstChapterReady / ghost text / aborted / finally）统一清除 `smartExecuteInFlightRef` + `smartExecuteNeedDiagnosticRef`；活跃模式分支在打字机之前直接 `appendAiContent` 绕过打字机。纯前端修复，无 Rust 变更。
