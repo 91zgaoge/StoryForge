@@ -329,7 +329,14 @@ async fn smart_execute_inner(
                         .get_by_id(&scene_id)
                         .map_err(AppError::from)?
                         .ok_or_else(|| AppError::from("装配场景不存在"))?;
-                    Ok(scene.content.unwrap_or_default())
+                    // v0.30.46 fix: content 为空时返回错误而非静默吞掉，避免前端拿到空白正文。
+                    let content = scene.content.unwrap_or_default();
+                    if content.trim().is_empty() {
+                        return Err(AppError::from(
+                            "装配场景正文为空（scenes.content 为空），请检查生成链路",
+                        ));
+                    }
+                    Ok(content)
                 })
                 .await
                 .map_err(|e| AppError::from(format!("scene read join error: {}", e)))??;

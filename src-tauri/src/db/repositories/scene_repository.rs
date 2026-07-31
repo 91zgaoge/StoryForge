@@ -550,6 +550,14 @@ impl SceneRepository {
     ) -> Result<usize, rusqlite::Error> {
         let now = Local::now().to_rfc3339();
 
+        // v0.30.46 fix: 空字符串 content 视为 None，避免静默覆盖已有正文。
+        // 允许 Some("") 显式清空正文的场景不存在，正文清空应由专门操作处理。
+        let content_param: Option<&str> = match updates.content.as_deref() {
+            Some(c) if c.trim().is_empty() => None,
+            Some(c) => Some(c),
+            None => None,
+        };
+
         let count = tx.execute(
             "UPDATE scenes SET
                 title = COALESCE(?2, title),
@@ -588,7 +596,7 @@ impl SceneRepository {
                     .character_conflicts
                     .as_ref()
                     .map(|c| serde_json::to_string(c).unwrap()),
-                updates.content,
+                content_param,
                 updates.setting_location,
                 updates.setting_time,
                 updates.setting_atmosphere,

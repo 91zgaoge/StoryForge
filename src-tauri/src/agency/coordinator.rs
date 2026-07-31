@@ -2317,12 +2317,24 @@ impl AgencyCoordinator {
         let content = self
             .cleanup_prose_for_persist(&draft.content, story_id)
             .await;
+        // v0.30.46 fix: 装配前校验正文非空，避免空内容落库后前端拿到空白。
+        if content.trim().is_empty() {
+            return Err(AppError::from(
+                "装配内容为空（cleanup 后正文为空），拒绝落库，请检查生成质量",
+            ));
+        }
+        // v0.30.46 fix: create 与 update 合成单事务，避免 update 失败残留空场景。
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
-            let repo = SceneRepository::new(pool);
+            let repo = SceneRepository::new(pool.clone());
+            let mut conn = pool
+                .get()
+                .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+            let tx = conn.transaction().map_err(AppError::from)?;
             let scene = repo
-                .create(&sid, 1, Some("第一章"))
+                .create_in_tx(&tx, &sid, 1, Some("第一章"))
                 .map_err(AppError::from)?;
-            repo.update(
+            repo.update_in_tx(
+                &tx,
                 &scene.id,
                 &SceneUpdate {
                     content: Some(content),
@@ -2330,6 +2342,7 @@ impl AgencyCoordinator {
                 },
             )
             .map_err(AppError::from)?;
+            tx.commit().map_err(AppError::from)?;
             Ok(scene)
         })
         .await
@@ -3486,12 +3499,15 @@ impl AgencyCoordinator {
         let outline_key = format!("outline-{}", key);
         let outline_text = text.clone();
         let summary: String = text.chars().take(60).collect();
+        // v0.30.46 fix: 章节大纲写入 Draft 区时必须使用 LeadWriter 身份，
+        // 否则被 BlackboardService 降级为 proposed，handle_gate 只取 active 导致
+        // scenes.outline_content 恒为 None。
         let _ = self
             .db(move || {
                 board.write(
                     &rid,
                     &sid,
-                    AgentRole::Producer,
+                    AgentRole::LeadWriter,
                     BoardZone::Draft,
                     "outline",
                     &outline_key,
@@ -3737,13 +3753,26 @@ impl AgencyCoordinator {
         let content = self
             .cleanup_prose_for_persist(&draft.content, story_id)
             .await;
+        // v0.30.46 fix: 装配前校验正文非空，避免空内容落库。
+        if content.trim().is_empty() {
+            return Err(AppError::from(format!(
+                "第{}章装配内容为空（cleanup 后正文为空），拒绝落库",
+                chapter_number
+            )));
+        }
         let title_c = format!("第{}章", chapter_number);
+        // v0.30.46 fix: create 与 update 合成单事务，避免 update 失败残留空场景。
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
-            let repo = crate::db::repositories::SceneRepository::new(pool);
+            let repo = crate::db::repositories::SceneRepository::new(pool.clone());
+            let mut conn = pool
+                .get()
+                .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+            let tx = conn.transaction().map_err(AppError::from)?;
             let scene = repo
-                .create(&sid, chapter_number, Some(&title_c))
+                .create_in_tx(&tx, &sid, chapter_number, Some(&title_c))
                 .map_err(AppError::from)?;
-            repo.update(
+            repo.update_in_tx(
+                &tx,
                 &scene.id,
                 &crate::db::repositories::SceneUpdate {
                     content: Some(content),
@@ -3752,6 +3781,7 @@ impl AgencyCoordinator {
                 },
             )
             .map_err(AppError::from)?;
+            tx.commit().map_err(AppError::from)?;
             Ok(scene)
         })
         .await

@@ -3271,6 +3271,12 @@ const FrontstageApp: React.FC = () => {
                   // Phase 4 fix: 创世不自动加载内容，等 generatedText + Tab 确认
                   // 显式传 skipContent=true，避免 ChapterSwitch 事件已消耗 ref 后此处误加载 DB 正文
                   selectChapter(storyChapters[0], { skipContent: true });
+                  // v0.30.46 fix: sceneId 就绪后补一次 flushSceneSave，确保创世 auto-accept
+                  // 时因 sceneId 未就绪被跳过的即时落库能够完成。
+                  // 否则前端清洗后的版本与 DB 分叉，重启后用户看到未清洗版本或空白。
+                  setTimeout(() => {
+                    void flushSceneSaveRef.current();
+                  }, 0);
                 }
               }
             } catch (e) {
@@ -4461,6 +4467,11 @@ const FrontstageApp: React.FC = () => {
                     }
                   );
                   selectChapter(storyChapters[0], { skipContent: true });
+                  // v0.30.46 fix: sceneId 就绪后补一次 flushSceneSave，确保创世 auto-accept
+                  // 时因 sceneId 未就绪被跳过的即时落库能够完成。
+                  setTimeout(() => {
+                    void flushSceneSaveRef.current();
+                  }, 0);
                 }
               } else {
                 frontstageLogger.error('[SmartGeneration] New story not found in list_stories', {

@@ -326,6 +326,11 @@ pub struct AppConfig {
     /// "high"（保守，只自动改逻辑硬伤）。
     #[serde(default = "default_auto_rewrite_severity_threshold")]
     pub auto_rewrite_severity_threshold: String,
+    /// v0.30.46: Writer/续写生成时请求 LLM 的最大 token 数。
+    /// 推理模型（DeepSeek 等）的 CoT 可能很长，若正文返回为空可适当调大。
+    /// 默认 4096；可通过配置文件/前端设置调整，无需重新编译。
+    #[serde(default = "default_writer_max_tokens")]
+    pub writer_max_tokens: i32,
     /// v0.15.5: 超时配置（可从前端设置调整，无需重新编译）
     #[serde(default = "default_llm_connect_timeout")]
     pub llm_connect_timeout_secs: u64,
@@ -355,6 +360,13 @@ fn default_generation_mode() -> String {
 /// v0.23 TriShot BGP-2：后台自动改写严重度阈值默认值。
 fn default_auto_rewrite_severity_threshold() -> String {
     "high".to_string()
+}
+
+/// v0.30.46: Writer/续写生成默认最大 token 数。
+/// 推理模型（DeepSeek 等）CoT 可能消耗 1500-2500 token，
+/// 4096 为正文保留约 1500-2500 token 预算。
+fn default_writer_max_tokens() -> i32 {
+    4096
 }
 
 fn default_llm_connect_timeout() -> u64 {
@@ -1051,6 +1063,7 @@ impl Default for AppConfig {
             writing_strategy: WritingStrategy::default(),
             generation_mode: default_generation_mode(),
             auto_rewrite_severity_threshold: default_auto_rewrite_severity_threshold(),
+            writer_max_tokens: default_writer_max_tokens(),
             llm_connect_timeout_secs: default_llm_connect_timeout(),
             smart_execute_total_timeout_secs: default_smart_execute_timeout(),
             executor_step_timeout_secs: default_executor_step_timeout(),

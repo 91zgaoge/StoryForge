@@ -77,7 +77,9 @@ pub async fn create_scene(
         || confidence_score.is_some();
     let has_content = content.is_some(); // Phase 4: 记录后才 move
     if has_extra {
-        let _ = repo.update(
+        // v0.30.46 fix: create 时携带的 content 等字段若更新失败，必须显式报错，
+        // 避免首次粘贴的正文静默丢失。
+        repo.update(
             &scene.id,
             &SceneUpdate {
                 title: None,
@@ -95,7 +97,14 @@ pub async fn create_scene(
                 confidence_score,
                 ..Default::default()
             },
-        );
+        )
+        .map_err(|e| {
+            log::error!(
+                "[story_commands] create_scene extra fields update failed: {}",
+                e
+            );
+            AppError::from(e)
+        })?;
         // P1-9 修复: 额外字段更新后发射 scene_updated，确保前端缓存刷新
         let _ = crate::state_sync::StateSync::emit_scene_updated(
             &app_handle,
