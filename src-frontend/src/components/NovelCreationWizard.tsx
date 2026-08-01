@@ -107,6 +107,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   };
 
   const handleSelectWorld = async (index: number) => {
+    // 防重入：生成中忽略重复点击/双击，避免并发多个 invoke（issue #14 曾因此
+    // 出现 3 个并发角色谱请求，全部失败时难以排查）
+    if (isGenerating) return;
     setSelectedWorld(index);
     setStep('generating_characters');
     setIsGenerating(true);
@@ -125,6 +128,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   };
 
   const handleSelectCharacters = async (index: number) => {
+    if (isGenerating) return; // 防重入，同 handleSelectWorld
     setSelectedCharacters(index);
     setStep('generating_style');
     setIsGenerating(true);
@@ -144,6 +148,7 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   };
 
   const handleSelectStyle = async (index: number) => {
+    if (isGenerating) return; // 防重入，同 handleSelectWorld
     setSelectedStyle(index);
     setStep('generating_first_scene');
     setIsGenerating(true);

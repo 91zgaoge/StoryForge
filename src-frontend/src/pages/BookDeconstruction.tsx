@@ -19,6 +19,7 @@ import { BookDetailView } from '@/components/book-deconstruction/BookDetailView'
 import { AnalysisProgress } from '@/components/book-deconstruction/AnalysisProgress';
 import { GeneralSettings } from '@/pages/settings/GeneralSettings';
 import { cn } from '@/utils/cn';
+import { extractMessage } from '@/utils/errorHandler';
 
 export function BookDeconstruction() {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function BookDeconstruction() {
       setSelectedBookId(bookId);
       toast.success('上传成功，开始分析...');
     } catch (error) {
-      toast.error(`上传失败: ${error}`);
+      toast.error(`上传失败: ${extractMessage(error)}`);
     }
   };
 
@@ -65,7 +66,7 @@ export function BookDeconstruction() {
       }
       toast.success('删除成功');
     } catch (error) {
-      toast.error(`删除失败: ${error}`);
+      toast.error(`删除失败: ${extractMessage(error)}`);
     }
   };
 
@@ -82,7 +83,7 @@ export function BookDeconstruction() {
       setCurrentView('scenes');
       toast.success(story ? `已转为故事项目：${story.title}` : '已转为故事项目');
     } catch (error) {
-      toast.error(`转换失败: ${error}`);
+      toast.error(`转换失败: ${extractMessage(error)}`);
     }
   };
 
@@ -93,7 +94,7 @@ export function BookDeconstruction() {
       await cancelMutation.mutateAsync(selectedBookId);
       toast.success('分析已取消');
     } catch (error) {
-      toast.error(`取消失败: ${error}`);
+      toast.error(`取消失败: ${extractMessage(error)}`);
     }
   };
 

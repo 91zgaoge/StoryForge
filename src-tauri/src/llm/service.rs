@@ -1107,7 +1107,14 @@ impl<R: Runtime> LlmService<R> {
             // 获取连接池
             let pool = match app_handle.try_state::<crate::db::DbPool>() {
                 Some(p) => p.inner().clone(),
-                None => return, // 无连接池，静默跳过
+                None => {
+                    // 此前静默 return，llm_calls 永远为空时无任何线索（issue #14）
+                    log::warn!(
+                        "[LLM] record llm_call 跳过：DbPool 未就绪（purpose={}）",
+                        purpose
+                    );
+                    return;
+                }
             };
 
             use crate::db::{repositories_pipeline::LlmCallRepository, RecordLlmCallRequest};
@@ -1128,11 +1135,10 @@ impl<R: Runtime> LlmService<R> {
                 route_decision: None,
                 audit_feedback: None,
             };
-            let preview = if prompt.len() > 200 {
-                prompt[..200].to_string()
-            } else {
-                prompt
-            };
+            // 按字符截取而非字节：prompt[..200] 在长中文 prompt 下会落在 UTF-8
+            // 字符中间直接 panic，spawn_blocking 的 JoinHandle 被 fire-and-forget
+            // 丢弃，panic 无任何日志、llm_calls 永远写不进（issue #14 根因）。
+            let preview: String = prompt.chars().take(200).collect();
             let metadata = serde_json::json!({
                 "cached": cached,
             })

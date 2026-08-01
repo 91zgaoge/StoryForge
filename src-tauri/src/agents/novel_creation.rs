@@ -150,6 +150,35 @@ impl NovelCreationAgent {
             .collect()
     }
 
+    /// 解析角色谱选项响应为纯函数（issue #14 角色谱静默失败）：与世界观选项
+    /// 同款健壮提取（剥 markdown 围栏/修未转义换行），逐项 map_err 而非 unwrap
+    /// （旧实现 unwrap 会在 tokio task 内 panic，fire-and-forget
+    /// 下无任何日志）。
+    fn parse_character_roster_response(
+        content: &str,
+    ) -> Result<Vec<Vec<CharacterProfileOption>>, String> {
+        let sanitized = crate::narrative::extract_and_sanitize_json(content)
+            .unwrap_or_else(|_| content.to_string());
+        let parsed: serde_json::Value = serde_json::from_str(&sanitized)
+            .map_err(|e| format!("角色谱选项 JSON 解析失败: {}", e))?;
+        parsed["character_sets"]
+            .as_array()
+            .ok_or_else(|| "Invalid response format: 缺少 character_sets 数组".to_string())?
+            .iter()
+            .map(|arr| {
+                let set = arr.as_array().ok_or_else(|| {
+                    "Invalid response format: character_sets 元素非数组".to_string()
+                })?;
+                set.iter()
+                    .map(|v| {
+                        serde_json::from_value(v.clone())
+                            .map_err(|e| format!("角色项反序列化失败: {}", e))
+                    })
+                    .collect::<Result<Vec<CharacterProfileOption>, String>>()
+            })
+            .collect()
+    }
+
     /// 第二步：根据世界观生成角色谱选项
     pub async fn generate_character_profiles(
         &self,
@@ -230,22 +259,45 @@ impl NovelCreationAgent {
                 Some("角色谱选项"),
             )
             .await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
+        match Self::parse_character_roster_response(&response.content) {
+            Ok(sets) => Ok(sets),
+            Err(e) => {
+                let snippet: String = response.content.chars().take(200).collect();
+                log::warn!(
+                    "novel_creation: 角色谱选项解析失败 err={} raw_len={} snippet={:?}",
+                    e,
+                    response.content.len(),
+                    snippet
+                );
+                Err(e.into())
+            }
+        }
+    }
 
-        let sets: Vec<Vec<CharacterProfileOption>> = parsed["character_sets"]
+    /// 解析文字风格选项响应为纯函数（同 parse_world_options_response 模式）。
+    fn parse_writing_styles_response(content: &str) -> Result<Vec<WritingStyleOption>, String> {
+        let sanitized = crate::narrative::extract_and_sanitize_json(content)
+            .unwrap_or_else(|_| content.to_string());
+        let parsed: serde_json::Value = serde_json::from_str(&sanitized)
+            .map_err(|e| format!("文字风格选项 JSON 解析失败: {}", e))?;
+        parsed["writing_styles"]
             .as_array()
-            .ok_or("Invalid response format")?
+            .ok_or_else(|| "Invalid response format: 缺少 writing_styles 数组".to_string())?
             .iter()
-            .map(|arr| {
-                arr.as_array()
-                    .unwrap_or(&vec![])
-                    .iter()
-                    .map(|v| serde_json::from_value(v.clone()).unwrap())
-                    .collect()
+            .map(|v| {
+                serde_json::from_value(v.clone()).map_err(|e| format!("风格项反序列化失败: {}", e))
             })
-            .collect();
+            .collect()
+    }
 
-        Ok(sets)
+    /// 解析首场景响应为纯函数（同 parse_world_options_response 模式）。
+    fn parse_first_scene_response(content: &str) -> Result<SceneProposal, String> {
+        let sanitized = crate::narrative::extract_and_sanitize_json(content)
+            .unwrap_or_else(|_| content.to_string());
+        let parsed: serde_json::Value =
+            serde_json::from_str(&sanitized).map_err(|e| format!("首场景 JSON 解析失败: {}", e))?;
+        serde_json::from_value(parsed["scene"].clone())
+            .map_err(|e| format!("首场景反序列化失败: {}", e))
     }
 
     /// 第三步：生成文字风格选项
@@ -316,16 +368,19 @@ impl NovelCreationAgent {
                 Some("文字风格选项"),
             )
             .await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
-
-        let options: Vec<WritingStyleOption> = parsed["writing_styles"]
-            .as_array()
-            .ok_or("Invalid response format")?
-            .iter()
-            .map(|v| serde_json::from_value(v.clone()).unwrap())
-            .collect();
-
-        Ok(options)
+        match Self::parse_writing_styles_response(&response.content) {
+            Ok(options) => Ok(options),
+            Err(e) => {
+                let snippet: String = response.content.chars().take(200).collect();
+                log::warn!(
+                    "novel_creation: 文字风格选项解析失败 err={} raw_len={} snippet={:?}",
+                    e,
+                    response.content.len(),
+                    snippet
+                );
+                Err(e.into())
+            }
+        }
     }
 
     /// 生成首个场景建议
@@ -403,10 +458,19 @@ impl NovelCreationAgent {
                 Some("首场景"),
             )
             .await?;
-        let parsed: serde_json::Value = serde_json::from_str(&response.content)?;
-
-        let scene: SceneProposal = serde_json::from_value(parsed["scene"].clone())?;
-        Ok(scene)
+        match Self::parse_first_scene_response(&response.content) {
+            Ok(scene) => Ok(scene),
+            Err(e) => {
+                let snippet: String = response.content.chars().take(200).collect();
+                log::warn!(
+                    "novel_creation: 首场景解析失败 err={} raw_len={} snippet={:?}",
+                    e,
+                    response.content.len(),
+                    snippet
+                );
+                Err(e.into())
+            }
+        }
     }
 }
 
@@ -465,5 +529,54 @@ mod tests {
             "错误信息应指出缺少 world_buildings 数组: {}",
             err
         );
+    }
+
+    const VALID_ROSTER_JSON: &str = r#"{"character_sets":[[{"id":"char_1_1","name":"阿苔","personality":"坚韧沉默","background":"拾荒者出身","goals":"找到星环","voice_style":"简短直接"}]]}"#;
+
+    #[test]
+    fn test_parse_character_roster_markdown_fenced() {
+        // issue #14 角色谱静默失败：模型将 JSON 包裹在 ```json 围栏中，旧实现
+        // serde_json::from_str 全量解析失败且无任何日志。
+        let raw = format!("以下是角色谱：\n```json\n{}\n```", VALID_ROSTER_JSON);
+        let sets = NovelCreationAgent::parse_character_roster_response(&raw).unwrap();
+        assert_eq!(sets.len(), 1);
+        assert_eq!(sets[0].len(), 1);
+        assert_eq!(sets[0][0].name, "阿苔");
+    }
+
+    #[test]
+    fn test_parse_character_roster_bad_item_no_panic() {
+        // 旧实现 from_value(...).unwrap() 会在缺字段时 panic（tokio task 内被吞），
+        // 现应返回可诊断错误。
+        let raw = r#"{"character_sets":[[{"id":"char_1_1"}]]}"#;
+        let err = NovelCreationAgent::parse_character_roster_response(raw).unwrap_err();
+        assert!(err.contains("角色项反序列化失败"), "err={}", err);
+    }
+
+    #[test]
+    fn test_parse_character_roster_missing_key_errors() {
+        let raw = r#"{"characters":[]}"#;
+        let err = NovelCreationAgent::parse_character_roster_response(raw).unwrap_err();
+        assert!(err.contains("character_sets"), "err={}", err);
+    }
+
+    #[test]
+    fn test_parse_writing_styles_markdown_fenced() {
+        let raw = r#"```json
+{"writing_styles":[{"id":"ws_1","name":"冷峻纪实","description":"克制白描","tone":"冷","pacing":"缓","vocabulary_level":"中","sentence_structure":"短句为主","sample_text":"风刮过废土。"}]}
+```"#;
+        let styles = NovelCreationAgent::parse_writing_styles_response(raw).unwrap();
+        assert_eq!(styles.len(), 1);
+        assert_eq!(styles[0].name, "冷峻纪实");
+    }
+
+    #[test]
+    fn test_parse_first_scene_markdown_fenced() {
+        let raw = r#"```json
+{"scene":{"title":"星环坠落","dramatic_goal":"求生","external_pressure":"磁力风暴","conflict_type":"ManVsNature","setting_location":"废土","setting_time":"黄昏","setting_atmosphere":"压抑","content":"风刮过……"}}
+```"#;
+        let scene = NovelCreationAgent::parse_first_scene_response(raw).unwrap();
+        assert_eq!(scene.title, "星环坠落");
+        assert_eq!(scene.conflict_type, "ManVsNature");
     }
 }
