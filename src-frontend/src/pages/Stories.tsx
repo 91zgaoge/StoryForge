@@ -543,6 +543,14 @@ export function Stories() {
   const handleQuickCreate = async (story: Story, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setShowAiMenu(null);
+    // 未填写简介时仍会基于标题自由发挥（issue #15：用户困惑"没填东西为什么也能跑"）。
+    // 先显式确认，让用户知道 AI 会拿什么当输入，避免误以为是 bug 或空跑。
+    if (!story.description?.trim()) {
+      const proceed = confirm(
+        `「${story.title}」还没有填写故事简介，AI 将仅根据标题自由发挥。\n\n建议先点「编辑」补充简介，生成内容会更贴合预期。\n\n仍要继续吗？`
+      );
+      if (!proceed) return;
+    }
     setCreatingStoryId(story.id);
     startListening();
     try {

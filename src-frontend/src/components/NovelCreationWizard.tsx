@@ -271,7 +271,11 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
         <p className="text-gray-400">基于你的输入，模型选择了以下策略组合</p>
       </div>
 
-      {!selectedStrategy ? (
+      {isGenerating && !selectedStrategy ? (
+        // 策略推荐 LLM 调用进行中（慢代理下可达 60-90s）：此前此分支直接渲染
+        // 「策略加载失败，请返回重试」，加载期间全程误报失败（issue #15）
+        renderGenerating('正在推荐创作策略...')
+      ) : !selectedStrategy ? (
         <div className="text-center text-gray-400">策略加载失败，请返回重试</div>
       ) : (
         <div className="space-y-4">
