@@ -1,8 +1,16 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.45)
+# 🧪 StoryMoss 自动化测试环境 (v0.30.48)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.30.46-48 变更说明
+
+- 创世持久化链路审计修复（v0.30.46）：创世后补偿保存 / 场景装配原子化 + 空正文防护 / foreshadowing 落库 / item_type 别名归一化 / characters upsert。
+- 角色谱静默失败 + llm_calls 空表（v0.30.47，issue #13/#14）：角色谱/文风/首场景健壮 JSON 解析；`prompt[..200]` 字节切片 panic 修复；向导防重入；拆书 4 处 toast 改 `extractMessage`。
+- 向导策略加载误报 + 快速创作空输入确认（v0.30.48，issue #15）。
+- 测试调整：`novel_creation.rs` +5 回归测试（markdown 围栏解析 / 缺字段不 panic / 缺 key 报错）；`materialize.rs` +3 测试（伏笔落库 / 别名 / upsert）；角色去重语义测试更新。
+- 全量基线：`cargo test --lib` 1098 passed / 2 ignored；`npx vitest run` 352 passed / 3 skipped；`npx tsc --noEmit` ✅；`cargo +nightly fmt` 全绿。
 
 ### v0.30.45 变更说明
 
@@ -697,4 +705,4 @@ timeout: 60000, // 60秒
 
 ---
 
-_最后更新: 2026-07-31 - v0.30.45 文思活跃模式续写提示词泄露修复，测试基线 1091_
+_最后更新: 2026-07-31 - v0.30.48 创世持久化链路与 issue #13/#14/#15 批量修复，测试基线 1098_

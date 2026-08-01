@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-31（v0.30.45 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文））
+> 最后更新: 2026-07-31（v0.30.48 创世持久化链路审计修复 + issue #13/#14/#15 批量修复）
 
 ## ✅ v0.27.x–v0.30.x 已实施完成
+
+### ✨ v0.30.46-48 - 创世持久化链路审计修复 + issue #13/#14/#15 批量修复 ✅ (2026-07-31)
+
+- [x] v0.30.46 创世正文未即时保存与资产缺失：前端创世后补偿 flushSceneSave；场景装配 create+update 单事务 + 空正文校验；outline 写黑板身份 Producer→LeadWriter；创世成功臂回读校验；空串 content 防覆盖；materialize 新增 foreshadowing 落库 + item_type 别名归一化 + characters upsert
+- [x] v0.30.47 角色谱静默失败（issue #14）：角色谱/文风/首场景改 `extract_and_sanitize_json` 健壮解析 + 去 unwrap + warn 日志；`llm/service.rs` `prompt[..200]` 字节切 UTF-8 panic（llm_calls 永不落库根因）改 `chars().take(200)`；向导三卡片 `isGenerating` 防重入；拆书页 4 处 toast 改 `extractMessage`（issue #13）
+- [x] v0.30.48 向导策略加载误报失败 + 快速创作空输入无确认（issue #15）
+- [x] 验证：`cargo test --lib` 1098 passed / 2 ignored；`npx vitest run` 352 passed / 3 skipped；tsc/fmt 全绿
 
 ### ✨ v0.30.45 - 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）✅ (2026-07-31)
 

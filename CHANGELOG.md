@@ -2,6 +2,41 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.48（2026-07-31）
+
+### 修复创世向导策略加载误报失败与快速创作空输入无确认（issue #15）
+
+- **策略加载误报失败（`NovelCreationWizard.tsx`）**：点「开始创作」后，策略推荐 LLM 调用进行中（慢代理下可达 60-90s）页面就渲染「策略加载失败，请返回重试」——其实还在加载。修复：加载期间显示「正在推荐创作策略...」转圈动画，仅真正失败才显示失败文案。
+- **快速创作空输入无确认（`Stories.tsx`）**：AI 全自动/快速创作的输入取自故事简介，简介为空时静默退化为只用标题自由发挥，用户困惑"没填东西为什么也能跑"。修复：简介为空时先弹确认框说明 AI 将仅根据标题发挥、建议补充简介，由用户决定是否继续。
+- **验证**：`npx tsc --noEmit` ✅；`npx vitest run` 352 passed / 3 skipped。
+
+## v0.30.47（2026-07-31）
+
+### 修复角色谱生成静默失败与拆书上传错误显示 [object Object]（issue #13/#14）
+
+- **角色谱/文风/首场景解析静默失败（`agents/novel_creation.rs`）**：v0.30.42 只修了世界观选项的 JSON 解析，角色谱、文风选项、首场景三条路径仍用 `serde_json::from_str` 严格全量解析——模型将 JSON 包在 ```json 围栏中返回时解析直接失败，且其中有 `unwrap()` 会在 tokio task 内 panic（fire-and-forget 下无任何日志），前端静默回退到世界观选择界面。修复：三条路径全部抽为纯函数，先经 `extract_and_sanitize_json` 剥围栏/修未转义换行再解析，`unwrap` 改为可诊断的 `map_err`，失败记 `log::warn!`（含 err/raw_len/前 200 字片段）。
+- **`llm_calls` 表永远为空（`llm/service.rs`）**：`record_llm_call` 的 fire-and-forget 后台线程中 `prompt[..200]` 按字节切 UTF-8 字符串，长中文 prompt 下落在字符中间直接 panic，JoinHandle 被丢弃无任何日志——连成功的调用也从不落库（模型健康报告数据源随之失效）。修复：改为 `prompt.chars().take(200).collect()`；连接池未就绪的静默 return 补 warn 日志。
+- **创世向导卡片防重入（`NovelCreationWizard.tsx`）**：世界观/角色谱/文风三张卡片的 `onClick` 无 `isGenerating` 守卫，连点/双击发出多个并发 invoke（用户日志中的"3 个并发请求"），全部失败时难以排查。修复：三个 handler 均加 `if (isGenerating) return;`。
+- **拆书页错误显示 [object Object]（`BookDeconstruction.tsx`，issue #13）**：v0.30.37 的 `extractMessage` 改造漏了拆书页，上传/删除/转换/取消 4 处 toast 仍用模板字符串拼结构化错误对象。修复：4 处全部改用 `extractMessage`。
+- **测试**：`novel_creation.rs` +5 回归测试（角色谱/文风/首场景 markdown 围栏解析、缺字段不 panic、缺 key 报错）。
+- **验证**：`cargo test --lib` 1098 passed / 2 ignored；`npx tsc --noEmit` ✅；`npx vitest run` 352 passed / 3 skipped；`cargo +nightly fmt` 全绿。
+
+## v0.30.46（2026-07-31）
+
+### 修复创世流程正文未即时保存与内容资产缺失
+
+用户报告：创世流程生成第一章后未即时保存，重启后正文空白，前端后台也缺少该故事的内容资产（角色/世界观/大纲/伏笔）。全链路审计后修复七处：
+
+- **前端创世后补偿保存（`FrontstageApp.tsx`）**：创世 auto-accept 时 `appendAiContent` 同步执行但 `sceneId` 未就绪，`flushSceneSave` 被跳过且无补偿，前端与 DB 分叉。两条创世路径（`handleRequestGeneration`/`handleSmartGeneration`）在 `selectChapter(skipContent)` 后补 `setTimeout(flushSceneSave, 0)`。
+- **场景装配原子化（`agency/coordinator.rs`）**：`assemble_only` 与续写装配的 `create`+`update` 合成单事务（`create_in_tx`+`update_in_tx`+`commit`），新增空正文校验——装配出空内容直接报错而非落空库。
+- **章节大纲身份修复（`agency/coordinator.rs`）**：`generate_chapter_outline` 写黑板 Draft 区身份从 `Producer` 改为 `LeadWriter`，修复 `scenes.outline_content` 恒为 `None`。
+- **创世成功臂回读校验（`commands/orchestrator.rs`）**：装配后回读场景正文，为空即返回错误。
+- **空串覆盖防护（`scene_repository.rs`）**：`update_in_tx` 空字符串 `content` 归一为 `None`，避免 `COALESCE` 空串静默覆盖已有正文。
+- **吞错修复（`scene_commands.rs`）**：`create_scene` 中 `let _ = repo.update(...)` 改为错误上抛。
+- **资产落库补全（`agency/materialize.rs`）**：新增 `foreshadowing` 落库到 `foreshadowing_tracker`（兼容纯文本/JSON 数组/对象三种形态，按 story_id+content 去重）；item_type 别名归一化（`worldbuilding`/`world_building`→`world`，`story_outline`→`outline`）；`characters` 由只插不更新改为 story_id+name upsert（创世重跑刷新字段）。
+- **测试**：`materialize.rs` +3 测试（伏笔落库、别名归一化、角色 upsert），更新角色去重语义测试。
+- **验证**：`cargo test --lib` 1093 passed / 2 ignored；`npx tsc --noEmit` ✅。
+
 ## v0.30.45（2026-07-31）
 
 ### 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.45 项目完成状态
+# StoryMoss (草苔) v0.30.48 项目完成状态
 
-> 最后更新: 2026-07-31（v0.30.45 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文））
+> 最后更新: 2026-07-31（v0.30.48 创世持久化链路审计修复 + issue #13/#14/#15 批量修复）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.30.46-48 - 创世持久化链路审计修复 + issue #13/#14/#15 批量修复（2026-07-31）
+
+- **v0.30.46 创世正文未即时保存与资产缺失**：前端两条创世路径补 `setTimeout(flushSceneSave, 0)` 补偿保存；场景装配 create+update 合成单事务 + 空正文校验；`generate_chapter_outline` 写黑板身份 Producer→LeadWriter（修 `scenes.outline_content` 恒 None）；创世成功臂回读空正文即报错；空串 content 归一 None 防 COALESCE 覆盖；`create_scene` 吞错上抛；materialize 新增 foreshadowing 落库 + item_type 别名归一化 + characters upsert。
+- **v0.30.47 角色谱静默失败 + llm_calls 空表（issue #13/#14）**：角色谱/文风/首场景三路径改 `extract_and_sanitize_json` 健壮解析 + 去 unwrap + warn 日志；`llm/service.rs` `prompt[..200]` 字节切 UTF-8 panic（llm_calls 永不落库根因）改 `chars().take(200)`；向导三卡片防重入；拆书页 4 处 toast 改 `extractMessage`。
+- **v0.30.48 向导策略加载误报 + 快速创作空输入（issue #15）**：策略推荐加载中误显「策略加载失败」改转圈动画；快速创作简介为空先确认"仅根据标题自由发挥"。
+- **验证**：`cargo test --lib` 1098 passed / 2 ignored；`npx vitest run` 352 passed / 3 skipped；tsc/fmt 全绿。
 
 ### v0.30.45 - 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）（2026-07-31）
 

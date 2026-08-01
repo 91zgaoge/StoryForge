@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.30.45
+- **版本**: v0.30.48
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -94,6 +94,12 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.30.48 - 创世持久化链路审计修复 + issue #13/#14/#15 批量修复
+
+- **v0.30.46 创世正文未即时保存与资产缺失**：前端两条创世路径 `selectChapter(skipContent)` 后补 `setTimeout(flushSceneSave, 0)`（auto-accept 时 sceneId 未就绪导致 flush 被跳过）；`agency/coordinator.rs` 场景装配 create+update 合成单事务 + 空正文校验；`generate_chapter_outline` 写黑板身份 Producer→LeadWriter（修 `scenes.outline_content` 恒 None）；`orchestrator.rs` 创世成功臂回读空正文即报错；`scene_repository.rs` 空串 content 归一 None 防 COALESCE 覆盖；`scene_commands.rs` 吞错上抛；`agency/materialize.rs` 新增 foreshadowing 落库（纯文本/JSON 数组/对象三形态）+ item_type 别名归一化 + characters upsert。
+- **v0.30.47 角色谱静默失败 + llm_calls 空表（issue #13/#14）**：`agents/novel_creation.rs` 角色谱/文风/首场景三路径改 `extract_and_sanitize_json` 健壮解析 + 去 unwrap + warn 日志；`llm/service.rs` `prompt[..200]` 字节切 UTF-8 panic（llm_calls 永不落库根因）改 `chars().take(200)`；创世向导三卡片加 `isGenerating` 防重入；`BookDeconstruction.tsx` 4 处 toast 改 `extractMessage`。
+- **v0.30.48 向导策略加载误报 + 快速创作空输入（issue #15）**：策略推荐加载中误显「策略加载失败」改为转圈动画；快速创作简介为空时先确认"仅根据标题自由发挥"。
 
 ### v0.30.45 - 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）
 
@@ -775,7 +781,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-31 - v0.30.45_
+_最后更新: 2026-07-31 - v0.30.48_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

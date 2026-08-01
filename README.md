@@ -104,6 +104,14 @@ npm run build
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+### v0.30.46-48 · 创世持久化链路审计修复 + issue #13/#14/#15 批量修复
+
+- **创世正文未即时保存与资产缺失（v0.30.46）**：前端创世后补偿保存；场景装配原子化 + 空正文防护；伏笔落库 + 资产别名归一化 + 角色 upsert。
+- **角色谱静默失败 + llm_calls 空表（v0.30.47，issue #13/#14）**：角色谱/文风/首场景改健壮 JSON 解析 + 失败日志；修复 `prompt[..200]` 字节切片 panic 导致 llm_calls 永不落库；向导卡片防重入；拆书错误不再显示 `[object Object]`。
+- **向导策略加载误报 + 快速创作空输入确认（v0.30.48，issue #15）**：策略加载中不再误显失败文案；空简介快速创作先确认。
+
+测试：cargo test 1098 passed；vitest 352 passed；全绿。
+
 ### v0.30.45 · 修复文思活跃模式续写提示词泄露（LLM 思维链泄露到正文）
 
 用户报告文思活跃模式续写返回的是 LLM 思维链推理而非小说正文。根因四层：①`openai.rs` 的 `resolve_content` 在 `content` 为空时错误回退到 `reasoning_content`（CoT），把思维链当正文返回；②`max_tokens: 2048` 对推理模型过小，CoT 耗尽全部 token 预算导致 `content` 恒为空、整段被 CoT 占据；③`sanitize_novel_output` 仅清洗 markdown/元评论，无法识别裸 CoT 思维链；④writer 提示词从未显式禁止推理输出。修复：移除 `reasoning_content` 回退；`max_tokens` 提升至 4096；新增 `detect_and_strip_bare_cot`（≥3 条 CoT 信号行触发剥离）；writer 提示词新增反推理指令。测试：cargo test 1091 passed（+4）；vitest 352 passed；clippy 539（零新增）；全绿。
