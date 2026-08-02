@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.49（2026-08-02）
+
+### 修复代理工作室三代理状态不显示与意图图启动外键警告
+
+- **代理工作室角色卡恒显 "-"（`AgencyStudio.tsx`）**：三张角色卡（主创/管理/编辑审计）的"最近动作"只消费页面会话内的实时 `agency-agent-activity` 事件，页面后开时不做历史重建，永远显示 "-"；且页面无 loading/error UI，IPC 失败被 react-query 静默吞掉，用户无法区分"无数据"与"出错"。修复：角色卡按 实时事件 → 黑板（board items）历史重建 → 失败提示 的优先级显示；新增页面顶部错误条（含错误信息，10s 自动重试）；`runStatusLabel` 补 pending/running，卡片 run 状态文案本地化；run 选择器加载中显示"加载中…"。完整审计与修复记录见 `FIX_PLAN_AGENCY_STUDIO_STATUS.md`。
+- **意图图启动外键警告（`intention_graph/asset_sync.rs`）**：每次启动报 `[IntentionGraph] 资产同步失败: FOREIGN KEY constraint failed`——`sync_capability_intentions` 创建意图-资产边时 `asset_id` 误用 `cap.id`，而资产节点 id 由 `AssetNode::new` 按 `{asset_type}_{name}` 生成，二者不一致导致外键失败，`full_initialize` 在第一个带意图的能力处即中止，意图图表近乎全空（意图图路径长期降级到 PlanGenerator）。修复：边引用传入的资产节点 id。
+- **测试**：`AgencyStudio.test.tsx` +2 用例（页面后开时三角色卡从 board items 重建、listRuns 失败显示错误条）；`intention_graph/tests.rs` +1 回归测试（cap.id ≠ 资产节点 id 时边引用资产节点 id，已验证无修复时该测试失败）。
+- **验证**：`npx vitest run` AgencyStudio 6/6、Agency 相邻 2/2；`npx tsc --noEmit` ✅；`cargo test --lib intention_graph` 20 passed / 2 ignored。
+
 ## v0.30.48（2026-07-31）
 
 ### 修复创世向导策略加载误报失败与快速创作空输入无确认（issue #15）
