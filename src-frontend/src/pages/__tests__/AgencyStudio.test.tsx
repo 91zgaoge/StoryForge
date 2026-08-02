@@ -113,4 +113,42 @@ describe('AgencyStudio', () => {
     expect(await screen.findByText(/运行启动/)).toBeInTheDocument();
     expect(await screen.findByText(/运行完成/)).toBeInTheDocument();
   });
+
+  it('页面后开（无实时事件）时角色卡从 board items 重建三代理最近动作', async () => {
+    const BOARD_WRITER = {
+      ...BOARD_ITEM_1,
+      id: 'b2',
+      zone: 'draft' as const,
+      key: '首章',
+      producer: 'lead_writer',
+      created_at: '2026-07-29T10:02:00+08:00',
+    };
+    const BOARD_EDITOR = {
+      ...BOARD_ITEM_1,
+      id: 'b3',
+      zone: 'review' as const,
+      key: '质检结论',
+      producer: 'editor_auditor',
+      created_at: '2026-07-29T10:03:00+08:00',
+    };
+    vi.mocked(listRuns).mockResolvedValue([RUN_1]);
+    vi.mocked(listBoard).mockResolvedValue([BOARD_ITEM_1, BOARD_WRITER, BOARD_EDITOR]);
+    vi.mocked(getRun).mockResolvedValue(RUN_1);
+
+    renderStudio();
+    // 三张角色卡分别显示各自角色的历史最近动作
+    expect(await screen.findByText(/最近动作：创建 资产：世界观/)).toBeInTheDocument();
+    expect(await screen.findByText(/最近动作：创建 草稿：首章/)).toBeInTheDocument();
+    expect(await screen.findByText(/最近动作：创建 审查：质检结论/)).toBeInTheDocument();
+    // run 状态使用本地化文案（completed -> 完成）
+    expect((await screen.findAllByText(/run 状态：assembly · 完成/)).length).toBe(3);
+  });
+
+  it('listRuns 失败时显示错误提示而非静默空态', async () => {
+    vi.mocked(listRuns).mockRejectedValue(new Error('IPC boom'));
+
+    renderStudio();
+    expect(await screen.findByText(/代理状态获取失败/)).toBeInTheDocument();
+    expect(await screen.findByText(/IPC boom/)).toBeInTheDocument();
+  });
 });

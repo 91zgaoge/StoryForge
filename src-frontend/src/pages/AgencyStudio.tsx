@@ -65,6 +65,10 @@ function runStatusLabel(status: string): string {
       return '失败';
     case 'cancelled':
       return '取消';
+    case 'pending':
+      return '等待';
+    case 'running':
+      return '运行中';
     default:
       return status;
   }
@@ -104,12 +108,13 @@ export default function AgencyStudio() {
 
   // Run 发现：页面打开时从 DB 水合最新 run（不依赖实时事件）。
   // 此前 activeRunId 仅从事件捕获 -> 页面后开时恒 null -> 空白。
-  const { data: runs } = useQuery({
+  const runsQuery = useQuery({
     queryKey: ['agency-runs', currentStory?.id],
     queryFn: () => listRuns(currentStory!.id),
     enabled: !!currentStory,
     refetchInterval: 10_000,
   });
+  const runs = runsQuery.data;
 
   // 水合：runs 数据到达且当前无 activeRunId 时，取最新 run。
   // 实时事件仍可覆盖（新 run 启动时事件到达，切到新 run）。
@@ -119,30 +124,48 @@ export default function AgencyStudio() {
     }
   }, [runs, activeRunId]);
 
-  const { data: board } = useQuery({
+  const boardQuery = useQuery({
     queryKey: ['agency-board', activeRunId],
     queryFn: () => listBoard(activeRunId!),
     enabled: !!activeRunId,
     refetchInterval: 10_000,
   });
-  const { data: run } = useQuery({
+  const board = boardQuery.data;
+  const runQuery = useQuery({
     queryKey: ['agency-run', activeRunId],
     queryFn: () => getRun(activeRunId!),
     enabled: !!activeRunId,
     refetchInterval: 10_000,
   });
+  const run = runQuery.data;
 
   if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
 
+  // 查询失败时给出可见错误（此前 react-query 静默重试后失败，卡片恒为 "-"，
+  // 用户无法区分"无数据"与"出错"）。
+  const queryError = runsQuery.error ?? boardQuery.error ?? runQuery.error;
+
   const latestProgress = progress.length > 0 ? progress[progress.length - 1] : null;
   const runStatus = latestProgress
-    ? `${latestProgress.phase} · ${latestProgress.status}`
+    ? `${latestProgress.phase} · ${runStatusLabel(latestProgress.status)}`
     : run
-      ? `${run.phase} · ${run.status}`
-      : '-';
+      ? `${run.phase} · ${runStatusLabel(run.status)}`
+      : queryError
+        ? '状态获取失败'
+        : '-';
   const lastAction = (role: string) => {
+    // 1. 实时事件优先（页面打开后收到的 agency-agent-activity）
     const a = [...activities].reverse().find(x => x.role === role);
-    return a ? `${a.action} ${a.detail}` : '-';
+    if (a) return `${a.action} ${a.detail}`;
+    // 2. 历史重建：页面后开时从黑板条目推导该角色最近动作
+    //    （与时间线同一数据源；board.producer 实测仅有三个主角色）
+    const item = (board ?? [])
+      .filter(i => i.producer === role)
+      .sort((x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime())[0];
+    if (item) return `创建 ${ZONE_NAMES[item.zone] ?? item.zone}：${item.key}`;
+    // 3. 查询失败时明确提示，而非静默 "-"
+    if (boardQuery.isError) return '状态获取失败';
+    return '-';
   };
   const byZone = (zone: BoardItem['zone']) => (board ?? []).filter(i => i.zone === zone);
 
@@ -222,11 +245,23 @@ export default function AgencyStudio() {
             </select>
           ) : (
             <span className="text-xs text-gray-400">
-              {activeRunId ? `run ${activeRunId.slice(0, 8)}` : '等待事件'}
+              {runsQuery.isLoading
+                ? '加载中…'
+                : activeRunId
+                  ? `run ${activeRunId.slice(0, 8)}`
+                  : '等待事件'}
             </span>
           )}
         </div>
       </div>
+
+      {queryError && (
+        <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+          代理状态获取失败：
+          {queryError instanceof Error ? queryError.message : String(queryError)}
+          （每 10 秒自动重试）
+        </p>
+      )}
 
       <section className="grid grid-cols-3 gap-4">
         {ROLES.map(r => (
