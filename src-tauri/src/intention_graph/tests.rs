@@ -254,6 +254,56 @@ mod tests {
         eprintln!("[E2E] ✓ 全流程通过: AssetSync填充 → PPR发现 → writer资产排名靠前");
     }
 
+    /// 回归测试：capability 的 cap.id 与生成的资产节点 id 不一致时，
+    /// 意图-资产边必须引用资产节点 id，否则 FK 约束失败导致 full_initialize
+    /// 中止 （v0.30.48 之前每次启动的 "[IntentionGraph] 资产同步失败"
+    /// 警告根因）。
+    #[test]
+    fn test_capability_intention_edges_use_asset_node_id() {
+        use crate::db::connection::create_test_pool;
+
+        let pool = create_test_pool().expect("Failed to create test pool");
+        let repo = graph::IntentionGraphRepository::new(pool);
+        let sync_engine = asset_sync::AssetSyncEngine::new(repo.clone());
+
+        // cap.id (mcp.builtin.generate_outline) 与生成的资产节点 id
+        // (mcp_tool_generate_outline) 故意不一致
+        let mut registry = crate::capabilities::CapabilityRegistry::new();
+        registry.register(crate::capabilities::Capability {
+            id: "mcp.builtin.generate_outline".to_string(),
+            name: "generate_outline".to_string(),
+            description: "Generate story outline".to_string(),
+            when_to_use: "use this to generate outline and plan structure".to_string(),
+            input_description: String::new(),
+            output_description: String::new(),
+            parameters: vec![],
+            source_type: crate::capabilities::CapabilitySource::McpTool,
+            metadata: Default::default(),
+        });
+
+        // 修复前：此处因 FK constraint failed 返回 Err
+        let stats = sync_engine
+            .full_initialize(&registry, &[])
+            .expect("AssetSync should not fail on FK constraint");
+
+        assert_eq!(
+            stats.capabilities, 1,
+            "Should sync the registered capability"
+        );
+
+        // 边应引用资产节点 id，而非 cap.id
+        let edges = repo
+            .get_intention_edges("generate_prose", None)
+            .expect("query intention edges");
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.asset_id == "mcp_tool_generate_outline"),
+            "edge should reference asset node id, got: {:?}",
+            edges.iter().map(|e| &e.asset_id).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn test_e2e_execution_graph_persistence() {
         use crate::db::connection::create_test_pool;

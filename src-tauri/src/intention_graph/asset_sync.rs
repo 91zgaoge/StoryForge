@@ -32,7 +32,10 @@ impl AssetSyncEngine {
             count += 1;
 
             // 同步能力的 when_to_use 作为意图节点，并建立边
-            self.sync_capability_intentions(cap)?;
+            // 注意：边必须引用资产节点 id（asset.id，由 AssetNode::new 生成），
+            // 而非 cap.id —— 二者不一致时外键约束失败，整个 full_initialize 中止
+            // （v0.30.48 之前即因此每次启动报 FK constraint failed 警告）。
+            self.sync_capability_intentions(cap, &asset)?;
         }
         log::info!("[AssetSyncEngine] Synced {} capabilities", count);
         Ok(count)
@@ -178,7 +181,11 @@ impl AssetSyncEngine {
     // 内部辅助
     // ------------------------------------------------------------------
 
-    fn sync_capability_intentions(&self, cap: &Capability) -> Result<(), AppError> {
+    fn sync_capability_intentions(
+        &self,
+        cap: &Capability,
+        asset: &AssetNode,
+    ) -> Result<(), AppError> {
         // 将 capability 的 when_to_use 描述解析为意图关键词
         let intents = extract_intentions_from_description(&cap.when_to_use);
 
@@ -190,11 +197,11 @@ impl AssetSyncEngine {
                 intention.embedding = generate_embedding(&intention.description);
                 self.repo.create_intention(&intention)?;
 
-                // 建立意图 -> 资产边
+                // 建立意图 -> 资产边（asset_id 必须是资产节点 id，见调用处注释）
                 let edge = IntentionAssetEdge {
                     id: None,
                     intention_id: intention.id.clone(),
-                    asset_id: cap.id.clone(),
+                    asset_id: asset.id.clone(),
                     edge_type: IntentionAssetEdgeType::TriggeredBy,
                     weight: 0.8,
                     reason: Some(format!("Derived from capability '{}' when_to_use", cap.id)),
