@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.50（2026-08-02）
+
+### 修复续写正文重启丢失（三层防御）+ 策略选择解析兼容 + 新增「仅按需探测」（issue #14/#15）
+
+- **续写正文「看似保存成功实则丢失」（issue 用户反馈）**：主根因——幕前 `selectChapter` 在章节无关联 scene 时回退用 `chapter.id` 当 sceneId，此后保存全部打到不存在的 scene 上：后端 `UPDATE scenes` 静默 0 行不报错，前端丢弃返回值并显示「已保存」，正文从未落库，重启即丢失。三层修复：
+  - 后端 `SceneRepository::update` 命中 0 行时自愈：id 命中 `chapters` 则按章节补建 scene（沿用该 id、建立 `chapter_id` 关联、记 warn）并重放 update；id 既非 scene 也非 chapter 时返回明确错误，杜绝静默丢失。
+  - 前端 `persistSceneContent` 读取影响行数，0 行视为失败；失败时标记「未保存」并 2s 后原样重试一次（防无限循环），瞬时 DB 错误可自愈。
+  - `appendAiContent` 在 sceneId 未就绪时补两次延迟补偿 flush（对齐 v0.30.46 创世修复），续写路径不再静默跳过落库。
+  - 既有测试 `test_scene_repository_update_not_found_returns_zero` 固化的正是致 bug 旧语义，改为断言新行为；新增 `test_scene_update_heals_chapter_id_fallback` 回归测试。
+- **向导「策略选择失败」预防性修复（issue #15）**：`parse_strategy_response` 改用 `extract_and_sanitize_json` 健壮提取（剥思考链/markdown 围栏、修复字符串内未转义换行），与世界观/角色谱同款；失败后 toast 显示真实原因（超时/解析失败/HTTP 错误）而非「请重试」。+2 回归测试（围栏+裸换行、思考链前缀）。
+- **新增「后台健康探测」设置项（issue #14）**：设置 → 通用，新增 `health_probe_mode`：`持续探测`（默认，现状每 10s 保活）/ `仅按需探测`（闲置完全静默，仅生成时由网关内联探测，首次生成多花几秒）。保存即热生效无需重启；中转站限流敏感场景推荐后者。旧配置无字段自动回退 `always`。
+- **测试**：`cargo test` scene 42/42、repositories 43/43、config 35/35、model_gateway 36/36、strategy::selector 12/12；`npx tsc --noEmit` ✅。
+
 ## v0.30.49（2026-08-02）
 
 ### 修复代理工作室三代理状态不显示与意图图启动外键警告
