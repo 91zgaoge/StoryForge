@@ -1038,4 +1038,56 @@ mod tests {
         let fetched = repo.get_by_id("run-3").unwrap().unwrap();
         assert_eq!(fetched.steps_json, steps_json);
     }
+
+    /// v0.30.50（续写正文重启丢失根因）：幕前 selectChapter 在章节无关联
+    /// scene 时回退用 chapter.id 作为 sceneId，此后保存打到不存在的 scene
+    /// 上——修复前 UPDATE 静默 0 行，正文从未落库。修复后应按章节补建
+    /// scene（沿用该 id 并建立 chapter_id 关联）并重放 update。
+    #[test]
+    fn test_scene_update_heals_chapter_id_fallback() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "自愈测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+
+        // 直接插入一个无关联 scene 的章节（模拟旧数据/回退场景）
+        let chapter_id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO chapters (id, story_id, chapter_number, title, outline, \
+                 word_count, model_used, cost, created_at, updated_at)
+                 VALUES (?1, ?2, 1, '第一章', '', 0, '', 0.0, \
+                 '2026-08-02T00:00:00+08:00', '2026-08-02T00:00:00+08:00')",
+                rusqlite::params![&chapter_id, &story.id],
+            )
+            .unwrap();
+        }
+
+        let updates = SceneUpdate {
+            content: Some("<p>续写正文</p>".to_string()),
+            ..Default::default()
+        };
+        let updated = scene_repo.update(&chapter_id, &updates).unwrap();
+        assert_eq!(updated, 1, "heal 后重放 update 应影响 1 行");
+
+        let healed = scene_repo
+            .get_by_id(&chapter_id)
+            .unwrap()
+            .expect("scene 应已按章节补建");
+        assert_eq!(healed.content.as_deref(), Some("<p>续写正文</p>"));
+        assert_eq!(healed.chapter_id.as_deref(), Some(chapter_id.as_str()));
+        assert_eq!(healed.story_id, story.id);
+    }
 }

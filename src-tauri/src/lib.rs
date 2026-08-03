@@ -635,7 +635,7 @@ pub fn run() {
                             std::thread::sleep(std::time::Duration::from_secs(6));
                             if !SHUTDOWN_STARTED.load(Ordering::SeqCst) {
                                 log::warn!(
-                                    "[Shutdown] Flush timeout (3s), force shutting down"
+                                    "[Shutdown] Flush timeout (6s), force shutting down"
                                 );
                                 graceful_shutdown(&app_handle);
                             }
@@ -975,9 +975,19 @@ pub fn run() {
                 app.manage(creative_engine);
                 log::info!("[Setup] CreativeEnginePort 已注册为 Tauri managed state");
 
+                // v0.30.50（issue #14）: 健康探测模式共享开关——
+                // on_demand 时后台调度器闲置完全静默（见 scheduler.rs）。
+                // manage 为 Tauri state，save_settings 保存后热更新。
+                let probe_mode_flag: crate::model_gateway::scheduler::HealthProbeModeFlag =
+                    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                        app_config.health_probe_mode != "on_demand",
+                    ));
+                app.manage(probe_mode_flag.clone());
+
                 crate::model_gateway::scheduler::spawn_health_probe_scheduler(
                     app.handle().clone(),
                     gateway_executor,
+                    probe_mode_flag,
                 );
                 log::info!("[ModelGateway] 网关执行器与健康探测调度器已初始化");
             } else {

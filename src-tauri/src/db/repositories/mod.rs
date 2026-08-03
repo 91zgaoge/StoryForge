@@ -274,21 +274,23 @@ mod tests {
     }
 
     #[test]
-    fn test_scene_repository_update_not_found_returns_zero() {
+    fn test_scene_repository_update_not_found_errors() {
+        // v0.30.50: 行为变更——id 既非 scene 也非 chapter 时返回明确错误，
+        // 不再静默 0 行（旧行为导致幕前正文"看似保存成功实则丢失"）。
+        // chapter.id 回退场景由 update 自愈补建，见
+        // repositories_tests::test_scene_update_heals_chapter_id_fallback。
         let pool = create_test_pool().unwrap();
         let repo = SceneRepository::new(pool);
 
-        let count = repo
-            .update(
-                "non-existent-scene-id",
-                &SceneUpdate {
-                    title: Some("新标题".to_string()),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+        let result = repo.update(
+            "non-existent-scene-id",
+            &SceneUpdate {
+                title: Some("新标题".to_string()),
+                ..Default::default()
+            },
+        );
 
-        assert_eq!(count, 0);
+        assert!(result.is_err());
     }
 
     #[test]

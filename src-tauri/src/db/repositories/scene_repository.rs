@@ -141,8 +141,58 @@ impl SceneRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let tx = conn.transaction()?;
         let count = self.update_in_tx(&tx, id, updates)?;
+        let count = if count == 0 {
+            // v0.30.50: 自愈——幕前 selectChapter 在章节无关联 scene 时回退用
+            // chapter.id 作为 sceneId，此后保存全部打到不存在的 scene 上：
+            // UPDATE 静默 0 行、前端显示"已保存"，正文从未落库，重启即丢失。
+            // 若 id 命中 chapters，按章节信息补建 scene（沿用该 id 并建立
+            // chapter_id 关联）后重放 update；id 既非 scene 也非 chapter 时
+            // 返回明确错误，杜绝"看似保存成功实则丢失"。
+            self.heal_missing_scene_in_tx(&tx, id)?;
+            self.update_in_tx(&tx, id, updates)?
+        } else {
+            count
+        };
         tx.commit()?;
         Ok(count)
+    }
+
+    /// v0.30.50: update 命中 0 行时的自愈——id 实为 chapter.id 时补建关联
+    /// scene。
+    fn heal_missing_scene_in_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        id: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let chapter = tx
+            .query_row(
+                "SELECT story_id, chapter_number, title FROM chapters WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i32>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((story_id, chapter_number, title)) = chapter else {
+            // id 既不是 scene 也不是 chapter——明确报错而不是静默 0 行
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        };
+        let now = Local::now().to_rfc3339();
+        tx.execute(
+            "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, \
+             character_conflicts, execution_stage, chapter_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, '[]', '[]', 'drafting', ?5, ?6, ?7)",
+            params![id, story_id, chapter_number, title, id, now, now],
+        )?;
+        log::warn!(
+            "[SceneRepository] update 命中 0 行，已按章节补建 scene（id={}）——此前此类保存会静默丢失",
+            id
+        );
+        Ok(())
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {

@@ -1169,7 +1169,7 @@ const FrontstageApp: React.FC = () => {
 
   // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
   const persistSceneContent = useCallback(
-    async (sceneId: string, content: string, title?: string): Promise<void> => {
+    async (sceneId: string, content: string, title?: string, allowRetry = true): Promise<void> => {
       if (!sceneId || !content) return;
       const prev = saveChainRef.current;
       let release!: () => void;
@@ -1178,14 +1178,31 @@ const FrontstageApp: React.FC = () => {
       });
       await prev;
       try {
-        await loggedInvoke<unknown>(
+        // v0.30.50: 读取影响行数——此前丢弃返回值，scene 不存在时后端
+        // 静默 0 行更新，UI 显示"已保存"但正文从未落库，重启即丢失。
+        const updated = await loggedInvoke<number>(
           'update_scene',
           buildUpdateSceneIpcArgs({ sceneId, title, content })
         );
+        if (updated === 0) {
+          throw new Error(`update_scene 影响 0 行（scene ${sceneId.slice(0, 8)} 不存在）`);
+        }
         setIsSaved(true);
         justSavedRef.current = Date.now();
       } catch (e) {
-        frontstageLogger.error('Persist scene content failed', { error: e });
+        // v0.30.50: 失败不再仅记日志——标记未保存并 2s 后原样重试一次
+        // （allowRetry=false 防止无限循环），瞬时 DB 错误可自愈；
+        // 此前失败后只能靠用户再次编辑才有机会落库。
+        frontstageLogger.error('Persist scene content failed', {
+          error: e,
+          willRetry: allowRetry,
+        });
+        setIsSaved(false);
+        if (allowRetry) {
+          setTimeout(() => {
+            void persistSceneContent(sceneId, content, title, false);
+          }, 2000);
+        }
       } finally {
         release();
       }
@@ -3760,6 +3777,17 @@ const FrontstageApp: React.FC = () => {
             // 关闭/崩溃时内容丢失。AI 内容是离散完整块（非高频打字），立即落库合适。
             // wordCount 已在上方 setWordCount(newWordCount) 更新，无需重复。
             void flushSceneSave();
+          } else {
+            // v0.30.50: sceneId 未就绪（章节选中/setSceneInfo 完成前）时，
+            // 此前直接跳过落库且无任何补偿——内容只留在编辑器，重启即丢失。
+            // 对齐 v0.30.46 创世修复，延迟补偿两次覆盖就绪时序；
+            // flushSceneSave 在 sceneId 仍为空时静默 no-op，无副作用。
+            setTimeout(() => {
+              void flushSceneSaveRef.current();
+            }, 0);
+            setTimeout(() => {
+              void flushSceneSaveRef.current();
+            }, 1000);
           }
 
           logToBackend('frontstage:append_ai_store_sync', 'synced store content after append', {
