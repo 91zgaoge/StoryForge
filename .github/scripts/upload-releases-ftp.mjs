@@ -195,7 +195,11 @@ async function cleanupOldReleases(client, remoteDir) {
 }
 
 async function main() {
-  const sourceDir = resolve(process.argv[2] || 'src-tauri/target/release/bundle');
+  // --cleanup-only：只执行保留策略清理，不上传（用于磁盘满时手动救火，
+  // 见 .github/workflows/cleanup-releases.yml）
+  const cleanupOnly = process.argv.includes('--cleanup-only');
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const sourceDir = resolve(positional[0] || 'src-tauri/target/release/bundle');
   const { host, port } = parseFtpHost(process.env.FTP_HOST, process.env.FTP_PORT);
   const user = process.env.FTP_USER;
   const password = process.env.FTP_PASS;
@@ -206,28 +210,6 @@ async function main() {
     process.exit(1);
   }
 
-  const files = [];
-  for await (const file of walk(sourceDir)) {
-    files.push(file);
-  }
-
-  if (files.length === 0) {
-    console.warn('⚠️ No release artifacts found in', sourceDir);
-    process.exit(0);
-  }
-
-  // Upload latest.json last so clients never see a manifest before its binaries.
-  files.sort((a, b) => {
-    const aIsManifest = a.endsWith('latest.json') ? 1 : 0;
-    const bIsManifest = b.endsWith('latest.json') ? 1 : 0;
-    return aIsManifest - bIsManifest;
-  });
-
-  const latestPath = files.find((f) => f.endsWith('latest.json'));
-  if (latestPath) {
-    await rewriteLatestJsonForWebsite(latestPath);
-  }
-
   const client = new Client();
   client.ftp.verbose = process.env.FTP_VERBOSE === 'true';
 
@@ -236,6 +218,37 @@ async function main() {
     await client.access({ host, port, user, password, secure: false });
     await client.ensureDir(remoteDir);
 
+    // 上传前先按保留策略清理：磁盘满（552 Disk full）时自愈——
+    // 旧版仅在上传后清理，磁盘已满时上传先失败、清理永远轮不到。
+    await cleanupOldReleases(client, remoteDir);
+
+    if (cleanupOnly) {
+      console.log('✅ Cleanup-only run complete');
+      return;
+    }
+
+    const files = [];
+    for await (const file of walk(sourceDir)) {
+      files.push(file);
+    }
+
+    if (files.length === 0) {
+      console.warn('⚠️ No release artifacts found in', sourceDir);
+      process.exit(0);
+    }
+
+    // Upload latest.json last so clients never see a manifest before its binaries.
+    files.sort((a, b) => {
+      const aIsManifest = a.endsWith('latest.json') ? 1 : 0;
+      const bIsManifest = b.endsWith('latest.json') ? 1 : 0;
+      return aIsManifest - bIsManifest;
+    });
+
+    const latestPath = files.find((f) => f.endsWith('latest.json'));
+    if (latestPath) {
+      await rewriteLatestJsonForWebsite(latestPath);
+    }
+
     for (const localPath of files) {
       const fileName = localPath.split('/').pop().split('\\').pop();
       console.log(`  ⬆️  ${fileName}`);
@@ -243,9 +256,6 @@ async function main() {
     }
 
     console.log(`✅ Uploaded ${files.length} file(s) to ${host}${remoteDir}`);
-
-    // Keep only the most recent RETENTION_COUNT release versions on the server.
-    await cleanupOldReleases(client, remoteDir);
   } catch (err) {
     console.error('❌ FTP upload failed:', err.message);
     process.exit(1);

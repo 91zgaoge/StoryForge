@@ -1,0 +1,44 @@
+# 手动清理 storymoss.top /releases 空间
+#
+# 背景：upload-to-website 曾因 FTP 磁盘满（552 Disk full）失败，
+# 保留策略清理只在上传后运行，磁盘已满时永远轮不到——此工作流
+# 提供不依赖上传的独立清理入口（--cleanup-only）。
+name: Cleanup Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: '保留的最新版本数（默认 5，与 RELEASE_RETENTION_COUNT 策略一致）'
+        required: true
+        default: '5'
+        type: string
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            landing/package.json
+            landing/package-lock.json
+
+      - name: Install landing dependencies
+        working-directory: landing
+        run: npm ci
+
+      - name: Cleanup old releases on storymoss.top
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_REMOTE_DIR: /releases
+          RELEASE_RETENTION_COUNT: ${{ inputs.keep }}
+        run: node .github/scripts/upload-releases-ftp.mjs --cleanup-only
