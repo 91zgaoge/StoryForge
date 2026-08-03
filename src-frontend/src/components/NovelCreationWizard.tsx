@@ -28,6 +28,7 @@ import type {
 } from '@/types/v3';
 import type { SelectedStrategy } from '@/types/index';
 import { createLogger } from '@/utils/logger';
+import { extractMessage } from '@/utils/errorHandler';
 import toast from 'react-hot-toast';
 
 const novelWizardLogger = createLogger('ui:NovelCreationWizard');
@@ -83,7 +84,8 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
       setStep('selecting_strategy');
     } catch (error) {
       novelWizardLogger.error('Failed to select strategy', { error });
-      toast.error('策略选择失败，请重试');
+      // 显示真实原因（超时/解析失败/HTTP 错误），便于用户与 issue #15 排查
+      toast.error(`策略选择失败：${extractMessage(error)}`);
       setStep('genre_input');
     } finally {
       setIsGenerating(false);

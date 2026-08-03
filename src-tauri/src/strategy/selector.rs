@@ -442,7 +442,14 @@ fn build_selection_prompt(
 }
 
 fn parse_strategy_response(content: &str) -> Result<SelectedStrategy, AppError> {
-    let trimmed = content.trim();
+    // v0.30.50（issue #15）：先经 narrative 健壮提取器——剥离推理模型思考链
+    // 与 markdown 围栏、修复字符串内未转义换行，与世界观/角色谱解析对齐。
+    // 此前仅用 find('{')..rfind('}') 截取：思考链中的花括号会截错位置，
+    // 字符串内裸换行直接导致 serde 解析失败，前端只看到「策略选择失败」。
+    // 提取失败时回退原始内容（旧行为）。
+    let sanitized = crate::narrative::extract_and_sanitize_json(content)
+        .unwrap_or_else(|_| content.to_string());
+    let trimmed = sanitized.trim();
     let json_str = if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
         &trimmed[start..=end]
     } else {
@@ -865,5 +872,29 @@ mod parse_tests {
 
         let strategy = parse_strategy_response(json).unwrap();
         assert_eq!(strategy.rationale, "使用 reasoning 别名");
+    }
+
+    /// issue #15：模型将 JSON 包在 ```json 围栏中、且字符串值内含未转义
+    /// 换行时（慢代理/中转模型常见），旧的 find('{')..rfind('}') 截取 +
+    /// 严格 serde 解析会失败，前端只显示「策略选择失败」。
+    /// 修复后应经 extract_and_sanitize_json 剥围栏、修换行并成功解析。
+    #[test]
+    fn test_parse_strategy_response_fenced_with_raw_newlines() {
+        let json = "```json\n{\n  \"rationale\": \"适合末世题材，\n需要高密度世界观\",\n  \"genre_profile_id\": \"apocalyptic\",\n  \"methodology_id\": \"hero_journey\",\n  \"style_dna_ids\": [],\n  \"skill_ids\": [],\n  \"story_engine_ids\": [],\n  \"beat_card_ids\": [],\n  \"parameters\": {}\n}\n```";
+
+        let strategy = parse_strategy_response(json).unwrap();
+        assert_eq!(strategy.genre_profile_id, Some("apocalyptic".to_string()));
+        assert_eq!(strategy.methodology_id, Some("hero_journey".to_string()));
+    }
+
+    /// issue #15：推理模型在 JSON 前输出思考链（含花括号）时，
+    /// 旧的 find('{') 会截到思考链里的括号导致解析失败；
+    /// 修复后应先剥离思考链再提取 JSON。
+    #[test]
+    fn test_parse_strategy_response_strips_thinking_prefix() {
+        let json = "<thinking>让我分析一下 {genre: 末世} 应该怎么选……</thinking>\n{\"rationale\": \"末世题材\", \"genre_profile_id\": \"apocalyptic\", \"methodology_id\": \"hero_journey\", \"style_dna_ids\": [], \"skill_ids\": [], \"story_engine_ids\": [], \"beat_card_ids\": [], \"parameters\": {}}";
+
+        let strategy = parse_strategy_response(json).unwrap();
+        assert_eq!(strategy.genre_profile_id, Some("apocalyptic".to_string()));
     }
 }
