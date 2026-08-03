@@ -529,4 +529,13 @@ mod tests {
         assert_eq!(config.chapter_split_mode, "word_count");
         assert_eq!(config.chapter_split_max_chars, None);
     }
+
+    #[test]
+    fn test_health_probe_mode_legacy_json_missing_field() {
+        // issue #14: 旧配置无该字段时回退 "always"（保持既有行为）
+        let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+        value.as_object_mut().unwrap().remove("health_probe_mode");
+        let config: AppConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(config.health_probe_mode, "always");
+    }
 }

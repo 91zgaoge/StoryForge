@@ -256,6 +256,11 @@ pub struct AppConfig {
     /// [`DEFAULT_CHAPTER_SPLIT_MAX_CHARS`]。
     #[serde(default)]
     pub chapter_split_max_chars: Option<i32>,
+    /// v0.30.50（issue #14）: 健康探测模式 — `always`（后台每 10s 保活 +
+    /// 退避重试，默认）或 `on_demand`（闲置时完全静默，仅在真正生成时由网关
+    /// 内联探测）。
+    #[serde(default = "default_health_probe_mode")]
+    pub health_probe_mode: String,
     /// 创作工作流 Inspector 通过阈值（默认 0.75）
     #[serde(default = "default_creation_workflow_review_threshold")]
     pub creation_workflow_review_threshold: f32,
@@ -422,6 +427,10 @@ pub const DEFAULT_CHAPTER_SPLIT_MAX_CHARS: usize = 3000;
 
 fn default_chapter_split_mode() -> String {
     "word_count".to_string()
+}
+
+fn default_health_probe_mode() -> String {
+    "always".to_string()
 }
 
 fn default_creation_workflow_review_threshold() -> f32 {
@@ -1043,6 +1052,7 @@ impl Default for AppConfig {
             genesis_first_chapter_word_count_target: 2000,
             chapter_split_mode: default_chapter_split_mode(),
             chapter_split_max_chars: None,
+            health_probe_mode: default_health_probe_mode(),
             creation_workflow_review_threshold: 0.75,
             creation_workflow_max_iterations: 2,
             candidate_timeout_seconds: default_candidate_timeout_seconds(),

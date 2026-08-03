@@ -9,6 +9,10 @@
 
 use std::{
     collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -16,6 +20,13 @@ use tauri::AppHandle;
 use tokio::time::interval;
 
 use super::executor::GatewayExecutor;
+
+/// v0.30.50（issue #14）: 后台探测模式共享开关。
+/// true = `always`（每 10s 保活 + 退避重试，默认）；
+/// false = `on_demand`（闲置完全静默，仅在生成时由网关内联探测）。
+/// 由 lib.rs 启动时按 AppConfig.health_probe_mode 初始化并 manage，
+/// save_settings 保存后热更新，调度器每 tick 读取，无需重启生效。
+pub type HealthProbeModeFlag = Arc<AtomicBool>;
 
 /// 快速保活探测间隔
 const KEEPALIVE_INTERVAL_SECS: u64 = 10;
@@ -29,9 +40,15 @@ const RETRY_BASE_INTERVAL_SECS: u64 = 30;
 const RETRY_MAX_INTERVAL_SECS: u64 = 3600;
 
 /// 启动后台健康探测任务
-pub fn spawn_health_probe_scheduler(app_handle: AppHandle, executor: GatewayExecutor) {
+pub fn spawn_health_probe_scheduler(
+    app_handle: AppHandle,
+    executor: GatewayExecutor,
+    probe_mode: HealthProbeModeFlag,
+) {
     tauri::async_runtime::spawn(async move {
-        // 1. 启动时全量探测（顺序，每模型最多 30s）
+        // 1. 启动时全量探测（顺序，每模型最多 30s）。
+        // 两种模式下都保留：一次性探测为健康报告与首次生成提供基线，
+        // on_demand 模式跳过的只是后续的周期性探测。
         run_full_probe(&executor).await;
 
         // v0.15.0: 启动 30s 后运行流式基准
@@ -53,10 +70,17 @@ pub fn spawn_health_probe_scheduler(app_handle: AppHandle, executor: GatewayExec
         loop {
             tokio::select! {
                 _ = keepalive_interval.tick() => {
-                    run_keepalive_probe(&executor).await;
+                    // v0.30.50: on_demand 模式（flag=false）闲置完全静默。
+                    // 健康缓存过期后，网关 generate() 会自动内联探测——
+                    // 即 issue #14 承诺的「仅按需探测」。
+                    if probe_mode.load(Ordering::Relaxed) {
+                        run_keepalive_probe(&executor).await;
+                    }
                 }
                 _ = retry_interval.tick() => {
-                    run_retry_probe_with_backoff(&executor, &mut retry_backoffs).await;
+                    if probe_mode.load(Ordering::Relaxed) {
+                        run_retry_probe_with_backoff(&executor, &mut retry_backoffs).await;
+                    }
                 }
             }
         }

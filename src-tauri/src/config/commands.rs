@@ -297,6 +297,9 @@ pub struct AppSettingsData {
     /// 写入；`Some(0)` 清为 None（自动）；字段缺省保持原值。
     #[serde(default)]
     pub chapter_split_max_chars: Option<i32>,
+    /// v0.30.50（issue #14）: 健康探测模式 — `always` / `on_demand`
+    #[serde(default)]
+    pub health_probe_mode: Option<String>,
 }
 
 fn default_concurrency() -> usize {
@@ -501,6 +504,7 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         tool_temperature: config.tool_temperature,
         chapter_split_mode: Some(config.chapter_split_mode.clone()),
         chapter_split_max_chars: config.chapter_split_max_chars,
+        health_probe_mode: Some(config.health_probe_mode.clone()),
     })
 }
 
@@ -648,8 +652,24 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
     if let Some(v) = settings.chapter_split_max_chars {
         config.chapter_split_max_chars = if v > 0 { Some(v) } else { None };
     }
+    // v0.30.50（issue #14）: 健康探测模式，仅接受白名单值
+    if let Some(v) = settings.health_probe_mode {
+        if matches!(v.as_str(), "always" | "on_demand") {
+            config.health_probe_mode = v;
+        }
+    }
 
     config.save(&app_dir).map_err(AppError::from)?;
+
+    // v0.30.50: 保存后热更新调度器的探测模式开关（无需重启生效）
+    if let Some(flag) =
+        app_handle.try_state::<crate::model_gateway::scheduler::HealthProbeModeFlag>()
+    {
+        flag.store(
+            config.health_probe_mode != "on_demand",
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
 
     // v0.26.36: 设置保存后立即热重载 LLM 适配器缓存与网关注册表，
     // 并广播 app_settings，让幕前/幕后 TanStack Query 立刻失效旧超时等配置。

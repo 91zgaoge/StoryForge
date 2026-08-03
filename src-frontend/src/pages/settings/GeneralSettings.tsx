@@ -524,6 +524,27 @@ export function GeneralSettings({
                   </p>
                 </div>
 
+                {/* v0.30.50（issue #14）: 后台健康探测模式 */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">后台健康探测</label>
+                  <select
+                    value={settings?.health_probe_mode ?? 'always'}
+                    onChange={e => {
+                      const v = e.target.value as 'always' | 'on_demand';
+                      updateSettings({ health_probe_mode: v });
+                    }}
+                    disabled={isPending}
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                  >
+                    <option value="always">持续探测（默认）— 每 10 秒保活，生成时更快</option>
+                    <option value="on_demand">仅按需探测 — 闲置时完全静默</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    持续探测：后台每 10
+                    秒对已开启模型发一次轻量请求，保持连接与模型状态新鲜。仅按需探测：不使用时不发任何请求，首次生成前会多花几秒做一次前置探测；中转站限流敏感时推荐。
+                  </p>
+                </div>
+
                 {/* v0.26.57: 自动划分章节 */}
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">划分章节方式</label>

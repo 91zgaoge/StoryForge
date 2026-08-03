@@ -350,6 +350,12 @@ export interface AppSettings {
   /** v0.26.57: 自动划分章节方式 — word_count（按字数）/ plot（按情节） */
   chapter_split_mode?: 'word_count' | 'plot';
   /**
+   * v0.30.50（issue #14）: 健康探测模式。
+   * - 'always': 后台每 10s 保活已开启模型 + 退避重试（默认，生成更快）
+   * - 'on_demand': 闲置时完全静默，仅在真正生成时按需探测
+   */
+  health_probe_mode?: 'always' | 'on_demand';
+  /**
    * v0.26.57: 按字数划分时的上限（中文「字」）。
    * `null` / `0` / 未填 = 自动（后端默认 3000 字）。
    * 前端清空输入框时应传 `0` 以显式切回自动。
