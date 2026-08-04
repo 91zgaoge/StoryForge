@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.30.51（2026-08-04）
+
+### 修复推理模型返回空内容导致续写 Fatal 中止
+
+- **文思活跃模式续写报 `INTERNAL_ERROR / Fatal`「计划执行失败：Step sanitized_writer completed: writer」**：根因——推理模型（如 deepseek-v4）返回 HTTP 200 但 `content` 为空（token 全部耗在 `reasoning_content`/CoT 上），v0.30.45 起刻意不回退 CoT，但模型网关把空内容当作成功直接返回，不尝试候选链其余模型，writer 步骤"完成"却无正文，最终 smart_execute 抛 Fatal。
+  - 网关候选循环新增空内容守卫（`model_gateway/executor.rs`）：空 `content` 视为该候选失败，标记 Degraded 并自动尝试下一个候选模型，全部候选为空才报错。
+  - 失败诊断修正（`commands/orchestrator.rs`）：提取 `build_plan_failure_message`，只展示真正失败的步骤消息，不再把成功步骤（"Step X completed"）误报为失败原因；空内容场景明确提示「模型返回了空内容，未能生成正文，请重试或在设置中切换模型」。
+- **测试**：新增 4 个回归测试（空内容误报过滤、失败步骤优先、超时、空消息）；回归 model_gateway 36、commands::orchestrator 10、planner 59 全绿。
+
 ## v0.30.50（2026-08-02）
 
 ### 修复续写正文重启丢失（三层防御）+ 策略选择解析兼容 + 新增「仅按需探测」（issue #14/#15）
