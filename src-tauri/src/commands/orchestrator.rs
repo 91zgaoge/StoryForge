@@ -800,17 +800,7 @@ async fn smart_execute_inner(
         if let Some(ref err) = result.error {
             return Err(err.clone());
         }
-        let error_msg = if result
-            .messages
-            .iter()
-            .any(|m| m.contains("超时") || m.contains("timed out") || m.contains("timeout"))
-        {
-            "模型响应超时，请检查模型服务是否正常运行".to_string()
-        } else if result.messages.is_empty() {
-            "计划执行失败：未生成任何内容".to_string()
-        } else {
-            format!("计划执行失败：{}", result.messages.join("; "))
-        };
+        let error_msg = build_plan_failure_message(&result.messages, is_empty_content);
         return Err(AppError::internal(error_msg));
     }
 
@@ -1338,6 +1328,34 @@ fn build_selected_strategy(
     Some(strategy)
 }
 
+/// v0.30.51: 根据计划执行消息构造用户可读的失败原因。
+/// messages 混合了成功步骤（"Step X completed: ..."）与失败步骤
+/// （"Step X failed: ..."）。此前无条件 join 全部消息，导致底层模型
+/// 返回空内容时用户看到 "计划执行失败：Step sanitized_writer completed:
+/// writer" 这类把成功步骤误报为失败原因的诊断。只保留失败步骤的消息。
+fn build_plan_failure_message(messages: &[String], is_empty_content: bool) -> String {
+    if messages
+        .iter()
+        .any(|m| m.contains("超时") || m.contains("timed out") || m.contains("timeout"))
+    {
+        return "模型响应超时，请检查模型服务是否正常运行".to_string();
+    }
+    let failure_msgs: Vec<&str> = messages
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|m| m.contains(" failed: ") || m.contains("失败"))
+        .collect();
+    if !failure_msgs.is_empty() {
+        format!("计划执行失败：{}", failure_msgs.join("; "))
+    } else if is_empty_content {
+        "模型返回了空内容，未能生成正文，请重试或在设置中切换模型".to_string()
+    } else if messages.is_empty() {
+        "计划执行失败：未生成任何内容".to_string()
+    } else {
+        format!("计划执行失败：{}", messages.join("; "))
+    }
+}
+
 // ===== 模型驱动的智能编排命令 =====
 
 #[cfg(test)]
@@ -1514,5 +1532,43 @@ mod tests {
             "当一个退役特工发现妻子是间谍后必须阻止她引爆情报网络"
         ));
         assert!(is_valid_logline("abcdefghij")); // 10 字符
+    }
+
+    #[test]
+    fn test_build_plan_failure_message_filters_success_steps() {
+        // v0.30.51 回归：模型返回空内容时，messages 里只有成功步骤，
+        // 不能把 "Step sanitized_writer completed: writer" 当作失败原因展示。
+        let messages = vec!["Step sanitized_writer completed: writer".to_string()];
+        let msg = build_plan_failure_message(&messages, true);
+        assert!(
+            !msg.contains("completed"),
+            "成功步骤不应出现在失败诊断中: {}",
+            msg
+        );
+        assert!(msg.contains("空内容"), "应提示空内容: {}", msg);
+    }
+
+    #[test]
+    fn test_build_plan_failure_message_prefers_failure_steps() {
+        let messages = vec![
+            "Step outline completed: outline_planner".to_string(),
+            "Step sanitized_writer failed: 模型 deepseek-v4 返回了空内容".to_string(),
+        ];
+        let msg = build_plan_failure_message(&messages, true);
+        assert!(msg.contains("sanitized_writer failed"), "{}", msg);
+        assert!(!msg.contains("outline completed"), "{}", msg);
+    }
+
+    #[test]
+    fn test_build_plan_failure_message_timeout() {
+        let messages = vec!["Step writer failed: 步骤 写作助手 超时".to_string()];
+        let msg = build_plan_failure_message(&messages, false);
+        assert!(msg.contains("超时"), "{}", msg);
+    }
+
+    #[test]
+    fn test_build_plan_failure_message_empty_messages() {
+        let msg = build_plan_failure_message(&[], false);
+        assert!(msg.contains("未生成任何内容"), "{}", msg);
     }
 }

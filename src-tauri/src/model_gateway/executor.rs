@@ -1153,6 +1153,30 @@ impl<R: Runtime> GatewayExecutor<R> {
             )
             .await;
             match outcome.into_result() {
+                Ok(resp) if resp.content.trim().is_empty() => {
+                    // v0.30.51: 推理模型可能返回 200 但 content 为空（token 全部
+                    // 消耗在 reasoning_content/CoT 上，例如 max_tokens 在推理阶段
+                    // 耗尽）。空正文对调用方等同失败——此前它被当作成功一路透传到
+                    // writer 步骤，导致计划"完成"却无正文，最终报 Fatal。
+                    // 这里视为候选失败：标记 Degraded 并继续尝试下一个候选模型。
+                    let e = AppError::Internal {
+                        message: format!("模型 {} 返回了空内容", candidate.model_name),
+                    };
+                    log::warn!(
+                        "[Gateway] 模型 {} 返回空内容（第 {}/{} 候选），视为失败并尝试下一个候选",
+                        candidate.model_id,
+                        candidate_idx,
+                        decision.candidates.len()
+                    );
+                    self.record_gateway_failure(
+                        &candidate.model_id,
+                        &candidate.model_name,
+                        super::types::HealthStatus::Degraded,
+                        Some(e.to_string()),
+                    );
+                    last_error = Some(e);
+                    continue;
+                }
                 Ok(resp) => {
                     // v0.23.59: 真实调用成功，重置连续失败计数，恢复强制置顶资格
                     self.record_gateway_success(&candidate.model_id, &candidate.model_name);
