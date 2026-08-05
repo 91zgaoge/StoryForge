@@ -109,3 +109,10 @@
 - 不接回向导使用 Genesis 族提示词（已决策删除）。
 - 不恢复 beat_cards/story_engines/pressure_relationships 数据库表（V094 已 DROP，内容保持 Rust 内置常量 + strategy_json 存 ID）。
 - 不动模型网关与 LLM 适配层。
+
+## 实施期偏差记录（v0.31.0 收尾时回写）
+
+- **Task 9：删除 beat_planner 内联硬编码 prompt 兜底（用户裁决）**：计划原允许解析失败时内联兜底 prompt，实施中经用户裁决删除该兜底，解析失败统一走降级输出（单 writer 路径）。
+- **Task 11：serde legacy 解析回归修复（计划外）**：V119 `strategy_json` 的 serde(default) 导致 legacy 数据解析回归，特征键识别恢复至 v0.26.28 口径，评审确认正确。
+- **Task 7/9：新测试并入既有 `mod tests`**：因 Rust 同名片强制约束，新测试未独立成文件，并入既有测试模块，可接受。
+- **Task 12：CONTEXT.md 活文档顺手修正**：随提示词清理同步修正项目 CONTEXT.md 中的过时描述，评审认定合理。
