@@ -287,8 +287,8 @@ impl PlanGenerator {
 
         // 2. 续写：plan_mode=beat（默认）生成 beat_planner -> writer 两步链， 让
         //    planner 资产理解（understanding）注入 beat_planner（F2：经
-        //    writer_beat_plan 模板消费）并透传 writer，节拍规划注入 writer；
-        //    plan_mode=single_writer 保持旧塌缩行为（AppConfig 回退开关）。
+        //    writer_beat_plan 模板消费），节拍规划注入 writer； plan_mode=single_writer
+        //    保持旧塌缩行为（AppConfig 回退开关）。
         if cls.is_continuation {
             if plan_mode == "single_writer" {
                 if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
@@ -305,11 +305,14 @@ impl PlanGenerator {
                 }
                 return;
             }
-            // beat 模式：已是 [beat_planner, writer] 链则幂等跳过
+            // beat 模式：已是 [beat_planner, writer] 链则幂等跳过重建，但仍需
+            // 补齐 beat_planner 的 planner_understanding 注入（与重建路径一致）。
             let is_beat_chain = plan.steps.len() == 2
                 && plan.steps[0].capability_id == "beat_planner"
                 && plan.steps[1].capability_id == "writer";
-            if !is_beat_chain {
+            if is_beat_chain {
+                Self::inject_planner_understanding(&mut plan.steps[0], &plan.understanding);
+            } else {
                 log::warn!(
                     "[PlanGenerator] Sanitize: rebuilding continuation plan ({} steps) as beat_planner -> writer chain: {}",
                     plan.steps.len(),
@@ -321,17 +324,10 @@ impl PlanGenerator {
                     "beat_plan".to_string(),
                     serde_json::Value::String("{{beat_planner}}".to_string()),
                 );
-                writer_step.parameters.insert(
-                    "planner_understanding".to_string(),
-                    serde_json::Value::String(plan.understanding.clone()),
-                );
                 // final-review F2：beat_planner 直接消费 planner understanding
                 // （注入 writer_beat_plan 模板 {{planner_understanding}} 段）。
                 let mut beat_step = Self::make_beat_planner_step(context);
-                beat_step.parameters.insert(
-                    "planner_understanding".to_string(),
-                    serde_json::Value::String(plan.understanding.clone()),
-                );
+                Self::inject_planner_understanding(&mut beat_step, &plan.understanding);
                 plan.steps = vec![beat_step, writer_step];
                 plan.understanding = format!(
                     "{} [sanitized: continuation rebuilt as beat_planner -> writer]",
@@ -435,6 +431,19 @@ impl PlanGenerator {
             depends_on: vec![],
             long_running: false,
         }
+    }
+
+    /// 向 beat_planner 步骤注入 planner understanding（唯一消费方，经
+    /// writer_beat_plan 模板的 {{planner_understanding}} 段渲染）。
+    /// understanding 为空或步骤已携带该参数时跳过，保持幂等。
+    fn inject_planner_understanding(beat_step: &mut PlanStep, understanding: &str) {
+        if understanding.is_empty() || beat_step.parameters.contains_key("planner_understanding") {
+            return;
+        }
+        beat_step.parameters.insert(
+            "planner_understanding".to_string(),
+            serde_json::Value::String(understanding.to_string()),
+        );
     }
 
     /// 根据用户输入和系统状态生成执行计划
@@ -1242,7 +1251,8 @@ mod tests {
         assert_eq!(plan.steps[1].capability_id, "writer");
         assert_eq!(plan.steps[1].depends_on, vec!["beat_planner".to_string()]);
         assert!(plan.steps[1].long_running);
-        // writer 参数携带 beat_planner 输出引用与 planner understanding
+        // writer 参数携带 beat_planner 输出引用；planner_understanding 不再注入
+        // writer（死参数，writer 从不消费它）。
         assert_eq!(
             plan.steps[1]
                 .parameters
@@ -1250,12 +1260,9 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("{{beat_planner}}")
         );
-        assert!(plan.steps[1]
+        assert!(!plan.steps[1]
             .parameters
-            .get("planner_understanding")
-            .and_then(|v| v.as_str())
-            .map(|s| s.contains("test plan"))
-            .unwrap_or(false));
+            .contains_key("planner_understanding"));
         // final-review F2：beat_planner 步骤同样携带 planner_understanding（消费方）
         assert!(plan.steps[0]
             .parameters
@@ -1293,7 +1300,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_continuation_beat_chain_idempotent() {
-        // 已是 [beat_planner, writer] 链的 plan 不再重建（幂等）。
+        // 已是 [beat_planner, writer] 链的 plan 不再重建（幂等），但需补齐
+        // beat_planner 的 planner_understanding 注入（与重建路径一致）。
         let cls = WritingIntentClassification {
             is_continuation: true,
             is_prose_request: true,
@@ -1313,6 +1321,48 @@ mod tests {
         assert_eq!(plan.steps[0].step_id, "bp");
         assert_eq!(plan.steps[1].step_id, "w");
         assert!(!plan.understanding.contains("sanitized"));
+        // 幂等跳过路径：beat_planner 同步注入 planner_understanding
+        assert_eq!(
+            plan.steps[0]
+                .parameters
+                .get("planner_understanding")
+                .and_then(|v| v.as_str()),
+            Some("test plan")
+        );
+        // writer 不携带 planner_understanding（死参数，从不消费）
+        assert!(!plan.steps[1]
+            .parameters
+            .contains_key("planner_understanding"));
+    }
+
+    #[test]
+    fn test_sanitize_continuation_beat_chain_skip_keeps_existing_understanding() {
+        // 幂等跳过路径：beat_planner 已自带 planner_understanding 时不覆盖。
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut beat = make_step("bp", "beat_planner");
+        beat.parameters.insert(
+            "planner_understanding".to_string(),
+            serde_json::Value::String("llm 自带 understanding".to_string()),
+        );
+        let mut plan = make_plan(vec![beat, make_step("w", "writer")]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+            "beat",
+        );
+        assert_eq!(
+            plan.steps[0]
+                .parameters
+                .get("planner_understanding")
+                .and_then(|v| v.as_str()),
+            Some("llm 自带 understanding")
+        );
     }
 
     #[test]
