@@ -6,7 +6,7 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 ### 智能创作资产融合深度重构：续写链路资产贯通与扩张性写作合约、beat 驱动两步计划、推荐资产贯通与创世融合
 
-- **① 续写链路资产贯通与扩张性写作合约（`write_time_bundle.rs`、`writer` 提示词族）**：TimeSliced 注入补齐——WriteTimeBundle 新增活跃冲突/角色目标/追读力/体裁参考/风格混合字段与渲染段落，追读力死注入打通；冲突约束语义化（语义表述替代生硬禁则）并透传风格混合 blend；writer 提示词改阶段感知扩张-收敛准则；续写字数配置化（`continuation_target_words`，默认 1200-2500）；推进锚点去重——bundle 已渲染段落时不再重复注入大纲/世界观。
+- **① 续写链路资产贯通与扩张性写作合约（`write_time_bundle.rs`、`writer` 提示词族）**：TimeSliced 注入补齐——WriteTimeBundle 新增活跃冲突/角色目标/追读力/体裁参考/风格混合字段与渲染段落，追读力死注入打通；冲突约束语义化（语义表述替代生硬禁则）并透传风格混合 blend；writer 提示词改阶段感知扩张-收敛准则；续写字数配置化（`continuation_target_words`，默认 1400-2600）；推进锚点去重——bundle 已渲染段落时不再重复注入大纲/世界观。
 - **② beat 驱动两步计划（`planner`、`agents/orchestrator.rs`）**：续写默认计划改为 `beat_planner` → `writer`（depends_on beat_planner）两步链，新增 beat_planner capability 与 `writer_beat_plan.md` 提示词（输出戏剧目标/冲突升级点/新元素/伏笔操作/目标字数）；beat_planner 失败/超时自动降级回单 writer 路径；AppConfig 新增 `plan_mode: beat（默认）| single_writer` 回退开关。
 - **③ 推荐资产贯通与创世融合（`methodology`、`novel_creation.rs`、`stories` 表）**：推荐方法论/风格DNA/技能透传 writer 参数并在无显式值时写回 stories 表；方法论 load_sync 硬编码 5-ID 匹配改为 PromptRegistry 动态解析（未知 ID 告警跳过），章节完成自动推进 methodology_step（到该方法论最大步数停留）；**V119 迁移**——`stories` 表新增 `strategy_json`，向导四元组（beat_card_ids / story_engine_ids / pressure_relationship_id / emotional_payoff / conflict_arena）持久化，`build_selected_strategy` 优先读持久化值、缺失字段回退启发式；创世向导 prompt 融合体裁画像（core_tone/反模式/典型结构）、推荐方法论与四元组；清理 18 个死提示词（7 个空转 Genesis 生成族 + 11 个死注册提示词）及其 md 文件与 Registry 引用，`narrative/prompts.rs` 的 Generate 模式代码同步清理。
 - **测试**：`cargo test --lib` 1156 passed / 0 failed / 2 ignored；`npx tsc --noEmit` ✅；`npx vitest run` applyWizardToStory 2/2。

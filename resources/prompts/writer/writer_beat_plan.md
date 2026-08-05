@@ -9,6 +9,7 @@ variables:
   - methodology_step
   - strategy_quartet
   - instruction
+  - planner_understanding
 ---
 
 你是一位小说节拍规划师。基于故事上下文，为下一段续写规划一个节拍。
@@ -22,6 +23,11 @@ variables:
 【创作策略四元组】
 {{strategy_quartet}}
 
+{{#if planner_understanding}}
+【Planner 资产理解】
+{{planner_understanding}}
+
+{{/if}}
 【创作指令】
 {{instruction}}
 

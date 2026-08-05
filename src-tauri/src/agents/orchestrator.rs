@@ -1034,8 +1034,12 @@ impl AgentOrchestrator {
 
         // v0.23.59: 从用户配置读取写作策略，覆盖 load_sync 写入的默认策略约束，
         // 用户在后台设置调整的策略在 TimeSliced 续写路径生效。
-        // v0.31.0: 续写目标字数范围（默认 2000 → 1400-2600），供模板渲染
-        let mut target_words_range = "1400-2600".to_string();
+        // v0.31.0: 续写目标字数范围（默认 2000 → 1400-2600），供模板渲染。
+        // final-review F4：兜底值从 AppConfig::default() 派生，消除双事实源。
+        let mut target_words_range = {
+            let (lo, hi) = crate::config::AppConfig::default().continuation_target_words_range();
+            format!("{}-{}", lo, hi)
+        };
         match self.app_handle.path().app_data_dir() {
             Ok(app_dir) => match crate::config::AppConfig::load(&app_dir) {
                 Ok(cfg) => {

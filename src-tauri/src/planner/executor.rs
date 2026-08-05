@@ -743,9 +743,7 @@ impl PlanExecutor {
                             "Step {} completed: {}",
                             step.step_id, step.capability_id
                         ));
-                        if let Some(content) = output.get("content").and_then(|c| c.as_str()) {
-                            final_content = Some(content.to_string());
-                        }
+                        Self::apply_final_content(&mut final_content, &step.capability_id, &output);
                         steps_completed += 1;
                     }
                     Err(e) => {
@@ -819,6 +817,28 @@ impl PlanExecutor {
             final_content,
             messages,
             error: first_error,
+        }
+    }
+
+    /// final-review F1 修复：仅 `writer` 步骤的产出可成为
+    /// final_content（正文）。
+    ///
+    /// 修复前 execute_plan 把「最后一个产出 content 的步骤」当作正文，与步骤
+    /// 角色无关——beat 链中 beat_planner 先完成写入节拍规划文本，writer 随后
+    /// 失败时 success 仍为 true 且 is_empty_content=false，前端把节拍规划
+    /// 文本当作正文。与 sanitize「末步必为 writer」不变量对齐：Full/TriShot
+    /// 等其他计划类型的正文产出步骤 capability 同为 writer，不受影响。
+    /// writer 失败时 final_content 保持 None → smart_execute 走失败分支。
+    fn apply_final_content(
+        final_content: &mut Option<String>,
+        capability_id: &str,
+        output: &serde_json::Value,
+    ) {
+        if capability_id != "writer" {
+            return;
+        }
+        if let Some(content) = output.get("content").and_then(|c| c.as_str()) {
+            *final_content = Some(content.to_string());
         }
     }
 
@@ -1604,13 +1624,22 @@ impl PlanExecutor {
                     ));
                 }
             };
-        let mut vars = HashMap::new();
-        vars.insert("story_context".to_string(), story_context);
-        vars.insert("methodology_step".to_string(), methodology_text);
-        vars.insert("strategy_quartet".to_string(), quartet_text);
-        vars.insert("instruction".to_string(), instruction);
-        let prompt =
-            crate::prompts::engine::TemplateEngine::render_with_conditions(&template, &vars);
+        // final-review F2 修复：接入 planner_understanding（此前 sanitize 注入
+        // writer 步骤参数后无消费方）。beat_planner 直接消费，注入模板
+        // `{{planner_understanding}}` 段；空值时条件块省略。
+        let planner_understanding = params
+            .get("planner_understanding")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let prompt = Self::render_beat_plan_prompt(
+            &template,
+            &story_context,
+            &methodology_text,
+            &quartet_text,
+            &instruction,
+            &planner_understanding,
+        );
 
         // 3) 单次 LLM，60s 超时（execute_step 外层 90s 步超时兜底）
         let llm = crate::llm::LlmService::new(self.app_handle.clone());
@@ -1639,6 +1668,29 @@ impl PlanExecutor {
             }
             Err(e) => Ok(Self::degraded_beat_output(&format!("输出解析失败: {}", e))),
         }
+    }
+
+    /// beat_planner prompt 组装：渲染 writer_beat_plan 模板的全部变量。
+    /// 提取为纯函数以便单测（final-review F2：断言 planner_understanding
+    /// 进入 prompt 组装）。
+    fn render_beat_plan_prompt(
+        template: &str,
+        story_context: &str,
+        methodology_text: &str,
+        quartet_text: &str,
+        instruction: &str,
+        planner_understanding: &str,
+    ) -> String {
+        let mut vars = HashMap::new();
+        vars.insert("story_context".to_string(), story_context.to_string());
+        vars.insert("methodology_step".to_string(), methodology_text.to_string());
+        vars.insert("strategy_quartet".to_string(), quartet_text.to_string());
+        vars.insert("instruction".to_string(), instruction.to_string());
+        vars.insert(
+            "planner_understanding".to_string(),
+            planner_understanding.to_string(),
+        );
+        crate::prompts::engine::TemplateEngine::render_with_conditions(template, &vars)
     }
 
     /// 解析 beat_planner 的 LLM 输出为 BeatPlan。先经
@@ -2768,5 +2820,101 @@ mod tests {
             PlanExecutor::capability_display_name("beat_planner"),
             "节拍规划师"
         );
+    }
+
+    // ---- final-review F1 回归：final_content 仅 writer 步骤产出 ----
+
+    #[test]
+    fn test_final_content_ignores_beat_planner_output_when_writer_fails() {
+        // beat 链场景：beat_planner 成功（产出节拍规划文本），writer 随后失败
+        // （result 为 Err，不进入 Ok 分支）。修复前 final_content 会被节拍文本
+        // 占据，前端把节拍规划当作正文；修复后必须为 None。
+        let mut final_content: Option<String> = None;
+        let beat_output = serde_json::json!({
+            "content": "节拍规划：戏剧目标=主角潜入档案室，冲突升级……",
+            "beat_plan": {"goal": "潜入"},
+            "degraded": false,
+        });
+        PlanExecutor::apply_final_content(&mut final_content, "beat_planner", &beat_output);
+        // writer 失败路径不调用 apply_final_content，final_content 保持 None
+        assert!(
+            final_content.is_none(),
+            "beat_planner 的节拍规划文本不得成为 final_content"
+        );
+    }
+
+    #[test]
+    fn test_final_content_only_writer_output() {
+        let mut final_content: Option<String> = None;
+        // 非 writer 步骤产出即使带 content 也被忽略
+        PlanExecutor::apply_final_content(
+            &mut final_content,
+            "beat_planner",
+            &serde_json::json!({"content": "节拍文本"}),
+        );
+        PlanExecutor::apply_final_content(
+            &mut final_content,
+            "inspector",
+            &serde_json::json!({"content": "质检意见"}),
+        );
+        assert!(final_content.is_none());
+        // writer 产出成为 final_content
+        PlanExecutor::apply_final_content(
+            &mut final_content,
+            "writer",
+            &serde_json::json!({"content": "正文内容"}),
+        );
+        assert_eq!(final_content.as_deref(), Some("正文内容"));
+        // 后一个 writer 产出覆盖（与旧「末步」行为一致，但仅限 writer）
+        PlanExecutor::apply_final_content(
+            &mut final_content,
+            "writer",
+            &serde_json::json!({"content": "修订正文"}),
+        );
+        assert_eq!(final_content.as_deref(), Some("修订正文"));
+        // writer 无 content 字段不覆盖已有 final_content
+        PlanExecutor::apply_final_content(
+            &mut final_content,
+            "writer",
+            &serde_json::json!({"score": 0.8}),
+        );
+        assert_eq!(final_content.as_deref(), Some("修订正文"));
+    }
+
+    // ---- final-review F2 回归：planner_understanding 进入 beat_planner prompt
+    // ----
+
+    #[test]
+    fn test_beat_plan_prompt_includes_planner_understanding() {
+        let template = crate::prompts::registry::resolve_prompt_default("writer_beat_plan")
+            .expect("内置 writer_beat_plan 提示词应存在");
+        let prompt = PlanExecutor::render_beat_plan_prompt(
+            &template,
+            "故事上下文文本",
+            "三幕结构（当前第 1 步）",
+            "无",
+            "继续写下去",
+            "主题：复仇与救赎，主角动机是寻找真相",
+        );
+        assert!(prompt.contains("【Planner 资产理解】"));
+        assert!(prompt.contains("主题：复仇与救赎，主角动机是寻找真相"));
+        assert!(prompt.contains("继续写下去"));
+    }
+
+    #[test]
+    fn test_beat_plan_prompt_omits_empty_planner_understanding() {
+        let template = crate::prompts::registry::resolve_prompt_default("writer_beat_plan")
+            .expect("内置 writer_beat_plan 提示词应存在");
+        let prompt = PlanExecutor::render_beat_plan_prompt(
+            &template,
+            "故事上下文文本",
+            "未指定",
+            "无",
+            "续写",
+            "",
+        );
+        // 空值时条件块整段省略，不留空标题
+        assert!(!prompt.contains("【Planner 资产理解】"));
+        assert!(prompt.contains("续写"));
     }
 }

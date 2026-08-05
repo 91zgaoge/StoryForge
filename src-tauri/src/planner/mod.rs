@@ -286,7 +286,8 @@ impl PlanGenerator {
         }
 
         // 2. 续写：plan_mode=beat（默认）生成 beat_planner -> writer 两步链， 让
-        //    planner 资产理解（understanding）与节拍规划注入 writer；
+        //    planner 资产理解（understanding）注入 beat_planner（F2：经
+        //    writer_beat_plan 模板消费）并透传 writer，节拍规划注入 writer；
         //    plan_mode=single_writer 保持旧塌缩行为（AppConfig 回退开关）。
         if cls.is_continuation {
             if plan_mode == "single_writer" {
@@ -324,7 +325,14 @@ impl PlanGenerator {
                     "planner_understanding".to_string(),
                     serde_json::Value::String(plan.understanding.clone()),
                 );
-                plan.steps = vec![Self::make_beat_planner_step(context), writer_step];
+                // final-review F2：beat_planner 直接消费 planner understanding
+                // （注入 writer_beat_plan 模板 {{planner_understanding}} 段）。
+                let mut beat_step = Self::make_beat_planner_step(context);
+                beat_step.parameters.insert(
+                    "planner_understanding".to_string(),
+                    serde_json::Value::String(plan.understanding.clone()),
+                );
+                plan.steps = vec![beat_step, writer_step];
                 plan.understanding = format!(
                     "{} [sanitized: continuation rebuilt as beat_planner -> writer]",
                     plan.understanding
@@ -1243,6 +1251,13 @@ mod tests {
             Some("{{beat_planner}}")
         );
         assert!(plan.steps[1]
+            .parameters
+            .get("planner_understanding")
+            .and_then(|v| v.as_str())
+            .map(|s| s.contains("test plan"))
+            .unwrap_or(false));
+        // final-review F2：beat_planner 步骤同样携带 planner_understanding（消费方）
+        assert!(plan.steps[0]
             .parameters
             .get("planner_understanding")
             .and_then(|v| v.as_str())

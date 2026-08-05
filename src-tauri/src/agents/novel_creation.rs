@@ -354,7 +354,8 @@ impl NovelCreationAgent {
                         Some(pool),
                     );
                 if !ext.trim().is_empty() {
-                    sections.push_str(&format!("\n【推荐方法论：{}】\n{}\n", mid, ext));
+                    // final-review F5：头部显示归一化后的方法论 ID
+                    sections.push_str(&format!("\n【推荐方法论：{}】\n{}\n", normalized, ext));
                 }
             }
         }

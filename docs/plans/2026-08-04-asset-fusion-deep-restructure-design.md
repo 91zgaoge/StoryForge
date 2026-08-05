@@ -71,7 +71,7 @@
   - 收尾期：收敛收束。
   - 底线保留：新角色必须有叙事功能、不与 MASTER_SETTING 冲突。
 - `write_time_bundle.rs:600`「禁止自创新角色」改为同款阶段感知文案。
-- 字数上限改为配置项 `continuation_target_words`（默认 1200-2500），模板动态渲染。
+- 字数上限改为配置项 `continuation_target_words`（默认 2000 → 1400-2600），模板动态渲染。
 
 ### 四、计划结构重构（beat 驱动多步计划）
 
@@ -116,3 +116,4 @@
 - **Task 11：serde legacy 解析回归修复（计划外）**：V119 `strategy_json` 的 serde(default) 导致 legacy 数据解析回归，特征键识别恢复至 v0.26.28 口径，评审确认正确。
 - **Task 7/9：新测试并入既有 `mod tests`**：因 Rust 同名片强制约束，新测试未独立成文件，并入既有测试模块，可接受。
 - **Task 12：CONTEXT.md 活文档顺手修正**：随提示词清理同步修正项目 CONTEXT.md 中的过时描述，评审认定合理。
+- **final-review 收尾修正**：§三/CHANGELOG 默认字数文案原写「1200-2500」，实际实现为 `continuation_target_words=2000 × 0.7-1.3 = 1400-2600`，已统一修正为 1400-2600。
