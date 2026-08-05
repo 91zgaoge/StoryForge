@@ -328,10 +328,24 @@ impl WriteTimeBundle {
 
         // 设计第一节：续写链路资产贯通——活跃冲突与角色目标复用 Task 1 共享函数，
         // 补齐 TimeSliced 死注入（预算 ~600 字 / 每角色 ~200 字）。
-        let active_conflicts =
-            crate::agents::writer_assets::format_active_conflicts(pool, story_id, 600);
-        let character_goals =
-            crate::agents::writer_assets::format_character_goals(pool, story_id, 200);
+        // 规范状态快照在此一次性加载并传入，避免两段各自重复聚合；加载失败时
+        // 两段一并跳过（与原每段各自返回 None 的行为一致）。
+        let cs_snapshot = crate::canonical_state::CanonicalStateManager::new(pool.clone())
+            .get_snapshot_sync(story_id)
+            .map_err(|e| {
+                log::warn!(
+                    "[write_time_bundle] 规范状态快照加载失败({}): {}",
+                    story_id,
+                    e
+                )
+            })
+            .ok();
+        let active_conflicts = cs_snapshot
+            .as_ref()
+            .and_then(|s| crate::agents::writer_assets::format_active_conflicts(s, 600));
+        let character_goals = cs_snapshot
+            .as_ref()
+            .and_then(|s| crate::agents::writer_assets::format_character_goals(s, 200));
 
         // v0.30.15: 加载完整故事大纲，让 writer 围绕大纲展开（TimeSliced/TriShot 此前
         // 看不到故事大纲，导致续写偏离大纲自创情节/角色）。

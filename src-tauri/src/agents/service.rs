@@ -2320,32 +2320,24 @@ impl AgentService {
             .await
             .map_err(|e| log::warn!("[build_writer_prompt] Canonical state task failed: {}", e))
             .ok()
-            .and_then(|res| res.ok())
+            .and_then(|res| {
+                res.map_err(|e| log::warn!("[build_writer_prompt] 规范状态快照加载失败: {}", e))
+                    .ok()
+            })
         };
         emit_and_yield("正在读取故事与场景数据...", 0.187);
         tokio::task::yield_now().await;
 
         // 活跃冲突与角色状态段落复用共享函数（TimeSliced bundle 双路复用）；
-        // usize::MAX = 不截断，与原内联行为一致。同步 SQLite 聚合移入 spawn_blocking。
-        let pool_for_assets = self.pool.clone();
-        let story_id_for_assets = ctx.story.story_id.clone();
-        let (active_conflicts_text, character_goals_text) =
-            tokio::task::spawn_blocking(move || {
-                (
-                    crate::agents::writer_assets::format_active_conflicts(
-                        &pool_for_assets,
-                        &story_id_for_assets,
-                        usize::MAX,
-                    ),
-                    crate::agents::writer_assets::format_character_goals(
-                        &pool_for_assets,
-                        &story_id_for_assets,
-                        usize::MAX,
-                    ),
-                )
-            })
-            .await
-            .unwrap_or((None, None));
+        // 直接复用上方一次性加载的快照，消除重复快照聚合；快照加载失败时两段
+        // 一并跳过。usize::MAX = 不截断，与原内联行为一致。
+        let (active_conflicts_text, character_goals_text) = match &snapshot {
+            Some(snap) => (
+                crate::agents::writer_assets::format_active_conflicts(snap, usize::MAX),
+                crate::agents::writer_assets::format_character_goals(snap, usize::MAX),
+            ),
+            None => (None, None),
+        };
 
         let mut snapshot_parts = Vec::new();
         if let Some(snapshot) = snapshot {

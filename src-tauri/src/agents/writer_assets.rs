@@ -2,8 +2,10 @@
 //!
 //! 从 Full 路径（`agents/service.rs` 的 `build_writer_prompt`）下沉的段落组装
 //! 逻辑，供 Full 路径与 TimeSliced（WriteTimeBundle）双路复用。
-//! 全部为同步函数：内部只做本地 SQLite 聚合，异步调用方须用
-//! `tokio::task::spawn_blocking` 包裹。
+//! `format_active_conflicts` / `format_character_goals`
+//! 为纯格式化函数：规范状态
+//! 快照由调用方一次性加载（`CanonicalStateManager::get_snapshot_sync`）后传入，
+//! 避免同一次 prompt 构建内重复聚合快照。
 
 /// 按字符数截断；`usize::MAX` 等价不截断（保持 Full 路径原行为）。
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -16,22 +18,11 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 }
 
 /// 当前活跃冲突段落（原 service.rs:2345-2357 内联逻辑下沉）。
-/// 无活跃冲突或快照加载失败返回 None。
+/// 快照由调用方一次性加载传入；无活跃冲突返回 None。
 pub(crate) fn format_active_conflicts(
-    pool: &crate::db::DbPool,
-    story_id: &str,
+    snapshot: &crate::canonical_state::CanonicalStateSnapshot,
     budget_chars: usize,
 ) -> Option<String> {
-    let snapshot = crate::canonical_state::CanonicalStateManager::new(pool.clone())
-        .get_snapshot_sync(story_id)
-        .map_err(|e| {
-            log::warn!(
-                "[writer_assets] 快照加载失败(active_conflicts, {}): {}",
-                story_id,
-                e
-            )
-        })
-        .ok()?;
     let conflicts = &snapshot.story_context.active_conflicts;
     if conflicts.is_empty() {
         return None;
@@ -49,22 +40,12 @@ pub(crate) fn format_active_conflicts(
 }
 
 /// 角色当前状态（目标/弧光/秘密）段落（原 service.rs:2386-2411 内联逻辑下沉）。
-/// 每个角色行按 per_char_budget 截断；无角色状态返回 None。
+/// 快照由调用方一次性加载传入；每个角色行按 per_char_budget
+/// 截断；无角色状态返回 None。
 pub(crate) fn format_character_goals(
-    pool: &crate::db::DbPool,
-    story_id: &str,
+    snapshot: &crate::canonical_state::CanonicalStateSnapshot,
     per_char_budget: usize,
 ) -> Option<String> {
-    let snapshot = crate::canonical_state::CanonicalStateManager::new(pool.clone())
-        .get_snapshot_sync(story_id)
-        .map_err(|e| {
-            log::warn!(
-                "[writer_assets] 快照加载失败(character_goals, {}): {}",
-                story_id,
-                e
-            )
-        })
-        .ok()?;
     if snapshot.character_states.is_empty() {
         return None;
     }
@@ -282,6 +263,16 @@ mod tests {
             .unwrap()
     }
 
+    /// 测试辅助：调用方一次性加载快照的等价操作。
+    fn load_snapshot(
+        pool: &crate::db::DbPool,
+        story_id: &str,
+    ) -> crate::canonical_state::CanonicalStateSnapshot {
+        crate::canonical_state::CanonicalStateManager::new(pool.clone())
+            .get_snapshot_sync(story_id)
+            .expect("测试快照应加载成功")
+    }
+
     // ---- format_active_conflicts ----
 
     #[test]
@@ -304,7 +295,8 @@ mod tests {
                 },
             )
             .unwrap();
-        let text = format_active_conflicts(&pool, &story.id, 600).expect("有资产应输出段落");
+        let snapshot = load_snapshot(&pool, &story.id);
+        let text = format_active_conflicts(&snapshot, 600).expect("有资产应输出段落");
         assert!(text.contains("【当前活跃冲突】"));
         assert!(text.contains("杀父之仇"));
         assert!(text.contains("家族存亡"));
@@ -315,9 +307,14 @@ mod tests {
     fn format_active_conflicts_empty_returns_none() {
         let pool = create_test_pool().unwrap();
         let story = seed_story(&pool);
-        assert!(format_active_conflicts(&pool, &story.id, 600).is_none());
-        // 故事不存在（快照聚合失败）同样返回 None，不 panic
-        assert!(format_active_conflicts(&pool, "no-such-story", 600).is_none());
+        let snapshot = load_snapshot(&pool, &story.id);
+        assert!(format_active_conflicts(&snapshot, 600).is_none());
+        // 故事不存在时快照聚合失败——加载失败语义已上移到调用方
+        assert!(
+            crate::canonical_state::CanonicalStateManager::new(pool.clone())
+                .get_snapshot_sync("no-such-story")
+                .is_err()
+        );
     }
 
     // ---- format_character_goals ----
@@ -357,7 +354,8 @@ mod tests {
             },
         ))
         .unwrap();
-        let text = format_character_goals(&pool, &story.id, 200).expect("有资产应输出段落");
+        let snapshot = load_snapshot(&pool, &story.id);
+        let text = format_character_goals(&snapshot, 200).expect("有资产应输出段落");
         assert!(text.contains("【角色当前状态】"));
         assert!(text.contains("目标: 复仇"));
         assert!(text.contains("未知秘密: 身世之谜"));
@@ -369,7 +367,8 @@ mod tests {
         let pool = create_test_pool().unwrap();
         let story = seed_story(&pool);
         // 故事无角色 → character_states 为空 → None
-        assert!(format_character_goals(&pool, &story.id, 200).is_none());
+        let snapshot = load_snapshot(&pool, &story.id);
+        assert!(format_character_goals(&snapshot, 200).is_none());
     }
 
     // ---- format_genre_reference_tables ----
