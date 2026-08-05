@@ -77,34 +77,6 @@ impl BeatPlan {
     }
 }
 
-/// writer_beat_plan.md 缺失时的内联兜底模板（与 md 文件内容保持一致）。
-const DEFAULT_WRITER_BEAT_PLAN_TEMPLATE: &str = r#"你是一位小说节拍规划师。基于故事上下文，为下一段续写规划一个节拍。
-
-【故事上下文】
-{{story_context}}
-
-【当前方法论进度】
-{{methodology_step}}
-
-【创作策略四元组】
-{{strategy_quartet}}
-
-【创作指令】
-{{instruction}}
-
-请用 JSON 输出本节拍规划（总字数不超过300字）：
-{
-  "goal": "本节拍的戏剧目标（一句话）",
-  "conflict_escalation": "冲突如何升级（一句话）",
-  "new_elements": "引入的新元素：有叙事功能的新角色/新场景/新道具（一句话，可为无）",
-  "foreshadowing_ops": "伏笔操作：埋设/推进/兑现哪条伏笔（一句话，可为无）",
-  "target_words": 1500
-}
-
-要求：
-1. 新元素必须有叙事功能，不与世界观冲突
-2. 只输出 JSON，不要其他内容"#;
-
 impl PlanExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
         let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
@@ -1605,11 +1577,20 @@ impl PlanExecutor {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "无".to_string());
 
-        // 2) 渲染 prompt（PromptRegistry 覆盖优先，回退内置 md，再回退内联模板）
-        let template = crate::prompts::registry::resolve_prompt(&self.pool, "writer_beat_plan")
-            .ok()
-            .or_else(|| crate::prompts::registry::resolve_prompt_default("writer_beat_plan"))
-            .unwrap_or_else(|| DEFAULT_WRITER_BEAT_PLAN_TEMPLATE.to_string());
+        // 2) 渲染 prompt（PromptRegistry 覆盖优先，回退内置 md；均失败则降级——
+        //    禁止内联硬编码 prompt，所有 prompt 走 PromptRegistry）
+        let template =
+            match crate::prompts::registry::resolve_prompt(&self.pool, "writer_beat_plan")
+                .ok()
+                .or_else(|| crate::prompts::registry::resolve_prompt_default("writer_beat_plan"))
+            {
+                Some(t) => t,
+                None => {
+                    return Ok(Self::degraded_beat_output(
+                        "writer_beat_plan 提示词未注册（PromptRegistry 与内置 md 均缺失）",
+                    ));
+                }
+            };
         let mut vars = HashMap::new();
         vars.insert("story_context".to_string(), story_context);
         vars.insert("methodology_step".to_string(), methodology_text);
