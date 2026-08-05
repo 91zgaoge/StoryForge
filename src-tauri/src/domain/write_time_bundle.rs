@@ -61,6 +61,19 @@ pub struct WriteTimeBundle {
     pub reference_scene_fewshots: Vec<ReferenceSceneFewShot>,
     /// P1b: 知识图谱相关设定摘要（top-N，每条一行：名称（类型）: 描述）
     pub related_entity_summaries: Vec<String>,
+    /// 活跃冲突清单（writer_assets::format_active_conflicts，预算 ~600 字）
+    pub active_conflicts: Option<String>,
+    /// 角色目标/弧光/秘密（writer_assets::format_character_goals，每角色 ~200
+    /// 字）
+    pub character_goals: Option<String>,
+    /// 追读力债务 + 本章追读力目标渲染文本（由 orchestrator 从 task.parameters
+    /// 设置）
+    pub chase_debt_text: Option<String>,
+    /// 体裁元素参考表 + 典型结构（writer_assets::format_genre_reference_tables，预算 ~800 字）
+    pub genre_reference: Option<String>,
+    /// 风格混合 blend 文本（由 orchestrator 从 task.parameters
+    /// 设置；渲染优先于单 DNA）
+    pub style_blend_text: Option<String>,
 }
 
 #[derive(Debug, Clone)]

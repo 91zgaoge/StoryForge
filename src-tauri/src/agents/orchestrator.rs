@@ -4988,6 +4988,11 @@ mod tests {
             runtime_contract: None,
             reference_scene_fewshots: vec![],
             related_entity_summaries: vec![],
+            active_conflicts: None,
+            character_goals: None,
+            chase_debt_text: None,
+            genre_reference: None,
+            style_blend_text: None,
         }
     }
 

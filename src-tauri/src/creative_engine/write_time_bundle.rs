@@ -249,36 +249,42 @@ impl WriteTimeBundle {
             _ => None,
         };
 
-        // v0.22.0: 加载 GenreProfile 完整策略
-        let genre_profile_strategy = {
+        // v0.22.0: 加载 GenreProfile 完整策略（profile 取出后同时供 genre_reference
+        // 复用）
+        let primary_genre_profile = {
             let genre_name = story.genre.as_deref().unwrap_or("");
             if genre_name.is_empty() {
                 None
             } else {
                 let genre_repo2 = GenreProfileRepository::new(pool.clone());
-                match genre_repo2.get_by_name(genre_name) {
-                    Ok(Some(profile)) => {
-                        let mut parts = vec![];
-                        if let Some(ref tone) = profile.core_tone {
-                            parts.push(format!("基调：{}", tone));
-                        }
-                        if let Some(ref pacing) = profile.pacing_strategy {
-                            parts.push(format!("节奏策略：{}", pacing));
-                        }
-                        if !parts.is_empty() {
-                            Some(format!(
-                                "【体裁画像策略（{}）】\n{}",
-                                genre_name,
-                                parts.join("\n")
-                            ))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }
+                genre_repo2.get_by_name(genre_name).ok().flatten()
             }
         };
+        let genre_profile_strategy = {
+            let genre_name = story.genre.as_deref().unwrap_or("");
+            primary_genre_profile.as_ref().and_then(|profile| {
+                let mut parts = vec![];
+                if let Some(ref tone) = profile.core_tone {
+                    parts.push(format!("基调：{}", tone));
+                }
+                if let Some(ref pacing) = profile.pacing_strategy {
+                    parts.push(format!("节奏策略：{}", pacing));
+                }
+                if !parts.is_empty() {
+                    Some(format!(
+                        "【体裁画像策略（{}）】\n{}",
+                        genre_name,
+                        parts.join("\n")
+                    ))
+                } else {
+                    None
+                }
+            })
+        };
+        // 设计第一节：体裁元素参考表 + 典型结构（复用 Task 1 共享函数，预算 ~800 字）
+        let genre_reference = primary_genre_profile
+            .as_ref()
+            .and_then(|p| crate::agents::writer_assets::format_genre_reference_tables(p, 800));
 
         // Phase 4: 加载次要题材画像策略（复合题材资产补强）
         let secondary_genre_profile_strategy = {
@@ -358,6 +364,13 @@ impl WriteTimeBundle {
             story_id,
             crate::memory::DEFAULT_RELATED_ENTITY_LIMIT,
         );
+
+        // 设计第一节：续写链路资产贯通——活跃冲突与角色目标复用 Task 1 共享函数，
+        // 补齐 TimeSliced 死注入（预算 ~600 字 / 每角色 ~200 字）。
+        let active_conflicts =
+            crate::agents::writer_assets::format_active_conflicts(pool, story_id, 600);
+        let character_goals =
+            crate::agents::writer_assets::format_character_goals(pool, story_id, 200);
 
         // v0.30.15: 加载完整故事大纲，让 writer 围绕大纲展开（TimeSliced/TriShot 此前
         // 看不到故事大纲，导致续写偏离大纲自创情节/角色）。
@@ -453,6 +466,11 @@ impl WriteTimeBundle {
             runtime_contract,
             reference_scene_fewshots,
             related_entity_summaries,
+            active_conflicts,
+            character_goals,
+            chase_debt_text: None, // 由调用方（orchestrator）从 task.parameters 设置
+            genre_reference,
+            style_blend_text: None, // 由调用方（orchestrator）从 task.parameters 设置
         })
     }
 
@@ -734,6 +752,21 @@ impl WriteTimeBundle {
             ));
         }
 
+        // ⑧b 活跃冲突清单（设计第一节：TimeSliced 补齐死注入）
+        if let Some(ref conflicts) = self.active_conflicts {
+            sections.push(conflicts.clone());
+        }
+
+        // ⑧c 角色目标/弧光/秘密
+        if let Some(ref goals) = self.character_goals {
+            sections.push(goals.clone());
+        }
+
+        // ⑧d 追读力债务 + 本章追读力目标（由 orchestrator 渲染后设置）
+        if let Some(ref chase) = self.chase_debt_text {
+            sections.push(chase.clone());
+        }
+
         // ⑨ 主导风格一句话摘要（全题材，非完整六维 DNA）
         if let Some(ref summary) = self.style_dna_summary {
             sections.push(format!("【主导风格】{}", summary));
@@ -745,8 +778,13 @@ impl WriteTimeBundle {
         }
 
         // v0.22.0: 解决 TimeSliced "资产黑洞"——注入与 Full 路径对等的完整资产
-        // ⑪ 风格 DNA 六维量化指标（完整，替代之前的"一句话摘要"）
-        if let Some(ref dna) = self.style_dna_extension {
+        // ⑪ 风格：优先风格混合 blend（多 DNA 融合），缺省回退单 DNA 六维指标
+        if let Some(ref blend) = self.style_blend_text {
+            sections.push(format!(
+                "【风格混合（多风格融合，须兼顾各成分风格）】\n{}",
+                blend
+            ));
+        } else if let Some(ref dna) = self.style_dna_extension {
             sections.push(format!("【风格 DNA 六维指标】\n{}", dna));
         }
 
@@ -758,6 +796,11 @@ impl WriteTimeBundle {
         // ⑬ 题材画像策略（core_tone + pacing + reference + structure）
         if let Some(ref genre) = self.genre_profile_strategy {
             sections.push(genre.clone());
+        }
+
+        // ⑬b 体裁元素参考表 + 典型结构（~800 字预算）
+        if let Some(ref reference) = self.genre_reference {
+            sections.push(format!("【体裁元素参考】\n{}", reference));
         }
 
         // ⑬-2 次要题材画像策略（复合题材资产补强）
@@ -1087,6 +1130,11 @@ mod tests {
             runtime_contract: None,
             reference_scene_fewshots: vec![],
             related_entity_summaries: vec![],
+            active_conflicts: None,
+            character_goals: None,
+            chase_debt_text: None,
+            genre_reference: None,
+            style_blend_text: None,
         };
         let prompt = bundle.to_prompt();
         assert!(prompt.contains("次要题材画像补充"));
@@ -1127,6 +1175,11 @@ mod tests {
                 "玄铁剑（Item）: 传说中的神兵".into(),
                 "北境（Location）: 苦寒之地".into(),
             ],
+            active_conflicts: None,
+            character_goals: None,
+            chase_debt_text: None,
+            genre_reference: None,
+            style_blend_text: None,
         };
         let prompt = bundle.to_prompt();
         assert!(prompt.contains("【相关设定】"));
@@ -1172,6 +1225,11 @@ mod tests {
             runtime_contract: None,
             reference_scene_fewshots: vec![],
             related_entity_summaries: vec![],
+            active_conflicts: None,
+            character_goals: None,
+            chase_debt_text: None,
+            genre_reference: None,
+            style_blend_text: None,
         };
         let prompt = bundle.to_prompt();
         let redline_pos = prompt.find("绝对红线内容").unwrap_or(usize::MAX);
@@ -1245,6 +1303,11 @@ mod tests {
             runtime_contract: None,
             reference_scene_fewshots: vec![],
             related_entity_summaries: vec![],
+            active_conflicts: None,
+            character_goals: None,
+            chase_debt_text: None,
+            genre_reference: None,
+            style_blend_text: None,
         }
     }
 
@@ -1283,5 +1346,60 @@ mod tests {
         let bundle = bundle_with_outline(None, None);
         let prompt = bundle.to_prompt();
         assert!(!prompt.contains("本场景必须围绕此大纲展开"));
+    }
+
+    // ---- 设计第一节：续写链路资产贯通，新段落注入 ----
+
+    #[test]
+    fn to_prompt_new_asset_sections_rendered() {
+        let mut bundle = bundle_with_outline(None, None);
+        bundle.active_conflicts =
+            Some("【当前活跃冲突】\n- 角色冲突: 涉及 张三, 李四, 赌注: 家族存亡".to_string());
+        bundle.character_goals = Some("【角色当前状态】\n- 张三: 目标: 复仇".to_string());
+        bundle.chase_debt_text =
+            Some("【追读力债务】\n当前有 1 条待偿还的追读力债务，需在后续章节中兑现：".to_string());
+        bundle.genre_reference = Some("元素参考表：\n境界体系表".to_string());
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("【当前活跃冲突】"));
+        assert!(prompt.contains("家族存亡"));
+        assert!(prompt.contains("【角色当前状态】"));
+        assert!(prompt.contains("目标: 复仇"));
+        assert!(prompt.contains("【追读力债务】"));
+        assert!(prompt.contains("【体裁元素参考】"));
+        assert!(prompt.contains("境界体系表"));
+    }
+
+    #[test]
+    fn to_prompt_new_asset_sections_skipped_when_none() {
+        let bundle = bundle_with_outline(None, None);
+        let prompt = bundle.to_prompt();
+        assert!(!prompt.contains("【当前活跃冲突】"));
+        assert!(!prompt.contains("【角色当前状态】"));
+        assert!(!prompt.contains("【追读力债务】"));
+        assert!(!prompt.contains("【体裁元素参考】"));
+        assert!(!prompt.contains("【风格混合"));
+    }
+
+    #[test]
+    fn to_prompt_style_blend_takes_precedence_over_single_dna() {
+        let mut bundle = bundle_with_outline(None, None);
+        bundle.style_blend_text = Some("风格混合 [燃爽融合]: 热血:70%, 冷峻:30%".to_string());
+        bundle.style_dna_extension = Some("单DNA六维内容".to_string());
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("【风格混合"));
+        assert!(prompt.contains("热血:70%"));
+        assert!(
+            !prompt.contains("【风格 DNA 六维指标】"),
+            "blend 存在时不再渲染单 DNA 段"
+        );
+    }
+
+    #[test]
+    fn to_prompt_single_dna_rendered_when_no_blend() {
+        let mut bundle = bundle_with_outline(None, None);
+        bundle.style_dna_extension = Some("单DNA六维内容".to_string());
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("【风格 DNA 六维指标】"));
+        assert!(!prompt.contains("【风格混合"));
     }
 }
