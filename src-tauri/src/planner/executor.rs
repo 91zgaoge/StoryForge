@@ -39,6 +39,72 @@ pub struct PlanExecutor {
     intention_graph_planner: Option<IntentionGraphPlanner>,
 }
 
+/// beat_planner 产出的单节拍规划（≤300 字 JSON）。
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BeatPlan {
+    /// 戏剧目标
+    #[serde(default)]
+    pub goal: String,
+    /// 冲突升级点
+    #[serde(default)]
+    pub conflict_escalation: String,
+    /// 引入新元素（新角色/新场景/新道具）
+    #[serde(default)]
+    pub new_elements: String,
+    /// 伏笔操作（埋设/推进/兑现）
+    #[serde(default)]
+    pub foreshadowing_ops: String,
+    /// 本节拍目标字数
+    #[serde(default = "default_beat_target_words")]
+    pub target_words: u32,
+}
+
+fn default_beat_target_words() -> u32 {
+    1200
+}
+
+impl BeatPlan {
+    /// 渲染为注入 writer prompt 的文本段。
+    pub fn to_prompt_text(&self) -> String {
+        format!(
+            "【本节拍规划】\n戏剧目标：{}\n冲突升级：{}\n新元素：{}\n伏笔操作：{}\n目标字数：{}",
+            self.goal,
+            self.conflict_escalation,
+            self.new_elements,
+            self.foreshadowing_ops,
+            self.target_words
+        )
+    }
+}
+
+/// writer_beat_plan.md 缺失时的内联兜底模板（与 md 文件内容保持一致）。
+const DEFAULT_WRITER_BEAT_PLAN_TEMPLATE: &str = r#"你是一位小说节拍规划师。基于故事上下文，为下一段续写规划一个节拍。
+
+【故事上下文】
+{{story_context}}
+
+【当前方法论进度】
+{{methodology_step}}
+
+【创作策略四元组】
+{{strategy_quartet}}
+
+【创作指令】
+{{instruction}}
+
+请用 JSON 输出本节拍规划（总字数不超过300字）：
+{
+  "goal": "本节拍的戏剧目标（一句话）",
+  "conflict_escalation": "冲突如何升级（一句话）",
+  "new_elements": "引入的新元素：有叙事功能的新角色/新场景/新道具（一句话，可为无）",
+  "foreshadowing_ops": "伏笔操作：埋设/推进/兑现哪条伏笔（一句话，可为无）",
+  "target_words": 1500
+}
+
+要求：
+1. 新元素必须有叙事功能，不与世界观冲突
+2. 只输出 JSON，不要其他内容"#;
+
 impl PlanExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
         let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
@@ -775,6 +841,7 @@ impl PlanExecutor {
     fn capability_display_name(capability_id: &str) -> String {
         match capability_id {
             "writer" => "写作助手".to_string(),
+            "beat_planner" => "节拍规划师".to_string(),
             "inspector" => "质检员".to_string(),
             "outline_planner" => "大纲规划师".to_string(),
             "style_mimic" => "风格模仿师".to_string(),
@@ -813,6 +880,7 @@ impl PlanExecutor {
             "create_chapter" => self.execute_create_chapter(params).await,
             "create_character" => self.execute_create_character(params).await,
             "writer" => self.execute_writer(params, plan_context).await,
+            "beat_planner" => self.execute_beat_planner(params, plan_context).await,
             "inspector" => self.execute_inspector(params, plan_context).await,
             "outline_planner" => self.execute_outline_planner(params, plan_context).await,
             "style_mimic" => self.execute_style_mimic(params, plan_context).await,
@@ -1448,6 +1516,159 @@ impl PlanExecutor {
             "score": Some(workflow_result.final_score as f64),
             "request_id": workflow_result.request_id,
         }))
+    }
+
+    /// v0.31 资产融合重构（Task 9）：beat_planner 节拍规划师。
+    ///
+    /// 单次 LLM（max_tokens 600、60s 超时）产出 ≤300 字节拍 JSON
+    /// （戏剧目标/冲突升级点/引入新元素/伏笔操作/目标字数），注入后续
+    /// writer 步骤参数。失败/超时/解析失败**不返回 Err**——execute_plan
+    /// 的依赖检查（:437-473）会因依赖步骤无输出而跳过 writer，故降级
+    /// 为 `degraded` 输出，writer 拿到空 beat_plan 走单 writer 路径。
+    async fn execute_beat_planner(
+        &self,
+        params: &HashMap<String, serde_json::Value>,
+        plan_context: &PlanContext,
+    ) -> Result<serde_json::Value, AppError> {
+        let story_id = params
+            .get("story_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let instruction = params
+            .get("instruction")
+            .and_then(|v| v.as_str())
+            .unwrap_or("续写")
+            .to_string();
+
+        // 1) 组装上下文变量：故事上下文摘要 + 当前方法论 step + 策略节拍卡
+        let methodology_text = {
+            let repo = crate::db::StoryRepository::new(self.pool.clone());
+            match repo.get_by_id(&story_id) {
+                Ok(Some(story)) => match story.methodology_id {
+                    Some(id) => format!(
+                        "{}（当前第 {} 步）",
+                        id,
+                        story.methodology_step.unwrap_or(1)
+                    ),
+                    None => "未指定".to_string(),
+                },
+                _ => "未指定".to_string(),
+            }
+        };
+        let mut ctx_lines = vec![format!("故事进度：{}", plan_context.story_progress)];
+        if let Some(ref wb) = plan_context.world_building_summary {
+            let truncated: String = wb.chars().take(200).collect();
+            ctx_lines.push(format!("世界观：{}", truncated));
+        }
+        if !plan_context.character_list.is_empty() {
+            ctx_lines.push(format!(
+                "角色：{}",
+                plan_context
+                    .character_list
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("、")
+            ));
+        }
+        if !plan_context.foreshadowing_status.is_empty() {
+            ctx_lines.push(format!(
+                "活跃伏笔：{}",
+                plan_context
+                    .foreshadowing_status
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("；")
+            ));
+        }
+        if let Some(ref preview) = plan_context.current_content_preview {
+            let tail: String = preview
+                .chars()
+                .rev()
+                .take(300)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            ctx_lines.push(format!("当前正文末尾：{}", tail));
+        }
+        let story_context = ctx_lines.join("\n");
+        let quartet_text = plan_context
+            .selected_strategy
+            .as_ref()
+            .and_then(|s| crate::strategy::quartet_inference::serialize_quartet_for_prompt(s).ok())
+            .filter(|v| !v.is_null())
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "无".to_string());
+
+        // 2) 渲染 prompt（PromptRegistry 覆盖优先，回退内置 md，再回退内联模板）
+        let template = crate::prompts::registry::resolve_prompt(&self.pool, "writer_beat_plan")
+            .ok()
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("writer_beat_plan"))
+            .unwrap_or_else(|| DEFAULT_WRITER_BEAT_PLAN_TEMPLATE.to_string());
+        let mut vars = HashMap::new();
+        vars.insert("story_context".to_string(), story_context);
+        vars.insert("methodology_step".to_string(), methodology_text);
+        vars.insert("strategy_quartet".to_string(), quartet_text);
+        vars.insert("instruction".to_string(), instruction);
+        let prompt =
+            crate::prompts::engine::TemplateEngine::render_with_conditions(&template, &vars);
+
+        // 3) 单次 LLM，60s 超时（execute_step 外层 90s 步超时兜底）
+        let llm = crate::llm::LlmService::new(self.app_handle.clone());
+        let call = llm.generate_for_task(
+            TaskType::Analysis,
+            prompt,
+            Some(600),
+            Some(0.3),
+            Some("beat_plan"),
+        );
+        let response = match tokio::time::timeout(std::time::Duration::from_secs(60), call).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return Ok(Self::degraded_beat_output(&format!("LLM 调用失败: {}", e))),
+            Err(_) => return Ok(Self::degraded_beat_output("beat_planner 超时（60s）")),
+        };
+
+        // 4) 解析输出；失败同样降级
+        match Self::parse_beat_plan_output(&response.content) {
+            Ok(plan) => {
+                let text = plan.to_prompt_text();
+                Ok(serde_json::json!({
+                    "content": text,
+                    "beat_plan": plan,
+                    "degraded": false,
+                }))
+            }
+            Err(e) => Ok(Self::degraded_beat_output(&format!("输出解析失败: {}", e))),
+        }
+    }
+
+    /// 解析 beat_planner 的 LLM 输出为 BeatPlan。先经
+    /// `extract_and_sanitize_json` 剥离 markdown 围栏并修复未转义换行
+    /// （与 novel_creation.rs:138 同款容错），再反序列化。
+    fn parse_beat_plan_output(content: &str) -> Result<BeatPlan, String> {
+        let sanitized = crate::narrative::extract_and_sanitize_json(content)
+            .unwrap_or_else(|_| content.to_string());
+        serde_json::from_str(&sanitized).map_err(|e| format!("beat_plan JSON 解析失败: {}", e))
+    }
+
+    /// beat_planner 降级输出：content 为空串，writer 依赖检查通过、
+    /// `{{beat_planner}}` 占位符替换为空，TimeSliced 跳过空 beat_plan。
+    fn degraded_beat_output(reason: &str) -> serde_json::Value {
+        log::warn!(
+            "[PlanExecutor::execute_beat_planner] 降级为单 writer 路径: {}",
+            reason
+        );
+        serde_json::json!({
+            "content": "",
+            "beat_plan": null,
+            "degraded": true,
+            "reason": reason,
+        })
     }
 
     async fn execute_inspector(
@@ -2497,5 +2718,61 @@ mod tests {
         assert!(params.get("recommended_methodology_id").is_none());
         assert!(params.get("recommended_style_dna_ids").is_none());
         assert!(params.get("recommended_skill_ids").is_none());
+    }
+
+    const VALID_BEAT_JSON: &str = r#"{"goal":"主角潜入档案室窃取名单","conflict_escalation":"守卫临时换岗，时间窗缩短","new_elements":"引入线人角色「灰雀」","foreshadowing_ops":"兑现第3章埋下的钥匙伏笔","target_words":1500}"#;
+
+    #[test]
+    fn test_parse_beat_plan_clean_json() {
+        let plan = PlanExecutor::parse_beat_plan_output(VALID_BEAT_JSON).unwrap();
+        assert_eq!(plan.goal, "主角潜入档案室窃取名单");
+        assert_eq!(plan.conflict_escalation, "守卫临时换岗，时间窗缩短");
+        assert_eq!(plan.new_elements, "引入线人角色「灰雀」");
+        assert_eq!(plan.foreshadowing_ops, "兑现第3章埋下的钥匙伏笔");
+        assert_eq!(plan.target_words, 1500);
+    }
+
+    #[test]
+    fn test_parse_beat_plan_markdown_fenced() {
+        // 模型常把 JSON 包在 ```json ... ``` 围栏中，必须先剥离再解析
+        let raw = format!(
+            "好的，以下是节拍规划：\n```json\n{}\n```\n希望对你有帮助。",
+            VALID_BEAT_JSON
+        );
+        let plan = PlanExecutor::parse_beat_plan_output(&raw).unwrap();
+        assert_eq!(plan.goal, "主角潜入档案室窃取名单");
+        assert_eq!(plan.target_words, 1500);
+    }
+
+    #[test]
+    fn test_parse_beat_plan_missing_fields_use_defaults() {
+        // 模型漏字段不应失败：字符串默认空、target_words 默认 1200
+        let plan = PlanExecutor::parse_beat_plan_output(r#"{"goal":"推进主线"}"#).unwrap();
+        assert_eq!(plan.goal, "推进主线");
+        assert_eq!(plan.target_words, 1200);
+        assert!(plan.new_elements.is_empty());
+    }
+
+    #[test]
+    fn test_parse_beat_plan_invalid_json_errs() {
+        assert!(PlanExecutor::parse_beat_plan_output("这不是JSON输出").is_err());
+    }
+
+    #[test]
+    fn test_degraded_beat_output_shape() {
+        // 降级输出必须含 content 键（空串），让 writer 依赖检查通过、
+        // {{beat_planner}} 占位符替换为空（TimeSliced 跳过空 beat_plan）
+        let out = PlanExecutor::degraded_beat_output("测试降级");
+        assert_eq!(out.get("content").and_then(|v| v.as_str()), Some(""));
+        assert_eq!(out.get("degraded").and_then(|v| v.as_bool()), Some(true));
+        assert!(out.get("beat_plan").map(|v| v.is_null()).unwrap_or(false));
+    }
+
+    #[test]
+    fn test_beat_planner_display_name() {
+        assert_eq!(
+            PlanExecutor::capability_display_name("beat_planner"),
+            "节拍规划师"
+        );
     }
 }
