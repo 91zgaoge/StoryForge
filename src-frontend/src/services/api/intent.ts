@@ -45,6 +45,8 @@ export interface SmartExecuteResult {
   steps_completed: number;
   final_content?: string;
   messages: string[];
+  /** v0.31.x: 'audit_report' 时 final_content 为审计报告，渲染为报告消息而非追加手稿 */
+  result_kind?: string;
 }
 
 export interface PreflightResult {

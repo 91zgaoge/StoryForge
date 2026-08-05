@@ -4493,6 +4493,7 @@ impl AgencyCoordinator {
                 "novel_bootstrap_first_chapter_ready".to_string(),
             ],
             error: None,
+            result_kind: None,
         }
     }
 }

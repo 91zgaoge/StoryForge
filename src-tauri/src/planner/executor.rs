@@ -29,6 +29,10 @@ pub struct PlanExecutionResult {
     /// 若计划执行过程中产生可恢复的结构化错误（如 LLM_TIMEOUT），透传给前端。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AppError>,
+    /// v0.31.x: 结果种类判别器。None=正文（默认，前端追加手稿）；
+    /// Some("audit_report")=审计报告（前端渲染为报告消息，不追加手稿）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_kind: Option<String>,
 }
 
 pub struct PlanExecutor {
@@ -817,6 +821,7 @@ impl PlanExecutor {
             final_content,
             messages,
             error: first_error,
+            result_kind: None,
         }
     }
 
@@ -1717,6 +1722,56 @@ impl PlanExecutor {
         })
     }
 
+    /// v0.31.x: 智能输入审计意图直达路径。
+    ///
+    /// 非散文审计意图（`crate::planner::is_non_prose_audit_intent`）不走 plan
+    /// pipeline——inspector-only 计划成功但 final_content=None，smart_execute
+    /// 会误报"创作计划未能生成有效内容"。此处直接复用 inspector 能力审查当前
+    /// 内容，报告放入 final_content 并以 `result_kind="audit_report"` 标记，
+    /// 前端据此渲染为报告消息而非追加正文。
+    pub async fn execute_audit_report(
+        &self,
+        plan_context: &PlanContext,
+    ) -> Result<PlanExecutionResult, AppError> {
+        let draft = plan_context
+            .current_content_preview
+            .clone()
+            .filter(|c| !c.trim().is_empty())
+            .ok_or_else(|| {
+                AppError::validation_failed(
+                    "当前没有可审计的内容，请先写入正文再审计",
+                    Some("audit_no_content"),
+                )
+            })?;
+
+        let mut params = HashMap::new();
+        params.insert(
+            "story_id".to_string(),
+            serde_json::Value::String(plan_context.current_story_id.clone().unwrap_or_default()),
+        );
+        params.insert("draft".to_string(), serde_json::Value::String(draft));
+
+        let output = self.execute_inspector(&params, plan_context).await?;
+        let report = output
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if report.is_empty() {
+            return Err(AppError::internal("审计未产出报告内容，请重试"));
+        }
+
+        Ok(PlanExecutionResult {
+            success: true,
+            steps_completed: 1,
+            final_content: Some(report),
+            messages: vec!["审计完成".to_string()],
+            error: None,
+            result_kind: Some("audit_report".to_string()),
+        })
+    }
+
     async fn execute_inspector(
         &self,
         params: &HashMap<String, serde_json::Value>,
@@ -2479,6 +2534,32 @@ pub(crate) fn inject_recommended_strategy_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_result_kind_serialization_contract() {
+        // v0.31.x 前端契约：正文结果不序列化 result_kind（前端按追加手稿处理），
+        // 审计报告序列化 result_kind="audit_report"（前端渲染为报告消息）。
+        let prose = PlanExecutionResult {
+            success: true,
+            steps_completed: 1,
+            final_content: Some("正文".to_string()),
+            messages: vec![],
+            error: None,
+            result_kind: None,
+        };
+        let json = serde_json::to_value(&prose).unwrap();
+        assert!(json.get("result_kind").is_none());
+
+        let audit = PlanExecutionResult {
+            result_kind: Some("audit_report".to_string()),
+            ..prose
+        };
+        let json = serde_json::to_value(&audit).unwrap();
+        assert_eq!(
+            json.get("result_kind").and_then(|v| v.as_str()),
+            Some("audit_report")
+        );
+    }
 
     #[test]
     fn test_resolve_parameters_simple() {

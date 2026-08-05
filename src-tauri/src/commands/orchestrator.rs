@@ -781,6 +781,49 @@ async fn smart_execute_inner(
         intent_classification: Some(classification.clone()),
     };
 
+    // v0.31.x: 非散文审计意图自动路由——绕过 plan pipeline，直达 inspector 审计。
+    // 此前 inspector-only 审计计划成功但 final_content=None，被误报
+    // "创作计划未能生成有效内容"；更早版本则把审查报告当正文返回、
+    // 被前端追加进手稿。现在报告以 result_kind="audit_report" 返回，
+    // 前端渲染为报告消息而非正文。专用审计 UI（audit_story / SceneAuditPanel）
+    // 不受影响。
+    if crate::planner::is_non_prose_audit_intent(Some(&classification)) {
+        log::info!("[smart_execute] 检测到非散文审计意图，路由到专用审计路径");
+        emit_progress("executing", "正在审计当前内容...", 3, 5);
+        let executor = crate::planner::PlanExecutor::new(app_handle.clone());
+        let result = executor
+            .execute_audit_report(&plan_context)
+            .await
+            .map_err(|e| {
+                emit_progress("error", &format!("审计失败: {}", e), 5, 5);
+                e
+            })?;
+        emit_progress("completed", "审计完成", 5, 5);
+        if let Some(ref story_id) = story_id_for_record {
+            record_ai_operation(
+                &pool,
+                crate::db::CreateAiOperationRequest {
+                    story_id: story_id.clone(),
+                    scene_id: scene_id_for_record,
+                    chapter_id: chapter_id_for_record,
+                    operation_type: "smart_execute_audit".to_string(),
+                    operation_name: "智能审计".to_string(),
+                    input_summary: Some(input_for_record),
+                    output_summary: result
+                        .final_content
+                        .as_ref()
+                        .map(|c| c.chars().take(200).collect()),
+                    previous_content: prev_content_for_record,
+                    // 报告不是正文，不作为 new_content 落库，
+                    // 避免撤销/恢复通道把手稿替换为审计报告
+                    new_content: None,
+                    metadata: Some(serde_json::json!({"result_kind": "audit_report"}).to_string()),
+                },
+            );
+        }
+        return Ok(result);
+    }
+
     // 执行计划（内部会自动检查模板库并生成计划）
     emit_progress("executing", "开始执行创作计划...", 3, 5);
     log::info!("[smart_execute] STEP 5/5 calling PlanExecutor::execute_with_context...");

@@ -115,6 +115,29 @@ pub(crate) fn style_blend_text_for_writer(ctx: &PlanContext) -> Option<String> {
         .cloned()
 }
 
+/// v0.31.x: 非散文审计意图判别——智能输入自动路由决策的纯函数。
+///
+/// 与 `should_force_correct_to_writer`（显式 Audit 保留 inspector）和
+/// `sanitize_plan_for_prose_request`（非 prose 不净化）的"合法用途"判定对齐：
+/// 仅当 LLM 分类为显式审计（`task_type=Audit`）且非散文/非续写/非创世时返回
+/// true，smart_execute 据此将请求路由到专用审计路径（inspector 直达），
+/// 报告以 `result_kind="audit_report"` 返回，而非进入 plan pipeline
+/// （inspector-only 计划成功但 final_content=None，会被误报
+/// "创作计划未能生成有效内容"）。
+/// 分类缺失（None）时不路由——保守默认走 plan pipeline（与防线 2
+/// None=>writer 的安全默认同理）。
+pub fn is_non_prose_audit_intent(classification: Option<&WritingIntentClassification>) -> bool {
+    match classification {
+        Some(c) => {
+            c.task_type == AssetTaskType::Audit
+                && !c.is_prose_request
+                && !c.is_continuation
+                && !c.is_new_novel
+        }
+        None => false,
+    }
+}
+
 /// 计划生成器
 pub struct PlanGenerator {
     llm_service: LlmService,
@@ -1066,6 +1089,80 @@ mod tests {
             "inspector",
             None
         ));
+    }
+
+    #[test]
+    fn test_audit_intent_routed() {
+        // v0.31.x：显式非散文审计意图（task_type=Audit、非 prose/续写/创世）
+        // 应被路由到专用审计路径，不再进入 plan pipeline。
+        let cls = WritingIntentClassification {
+            is_new_novel: false,
+            is_continuation: false,
+            task_type: AssetTaskType::Audit,
+            is_prose_request: false,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(crate::planner::is_non_prose_audit_intent(Some(&cls)));
+    }
+
+    #[test]
+    fn test_audit_intent_with_prose_not_routed() {
+        // 分类矛盾（Audit 但 is_prose_request=true，如本地模型误判"继续写"）
+        // 不路由——与防线 2 的 force-to-writer 决策一致，走 plan pipeline 产正文。
+        let cls = WritingIntentClassification {
+            is_new_novel: false,
+            is_continuation: false,
+            task_type: AssetTaskType::Audit,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!crate::planner::is_non_prose_audit_intent(Some(&cls)));
+    }
+
+    #[test]
+    fn test_audit_intent_with_continuation_not_routed() {
+        // 续写优先于 Audit（防线 2 中 is_continuation 先判），不路由。
+        let cls = WritingIntentClassification {
+            is_new_novel: false,
+            is_continuation: true,
+            task_type: AssetTaskType::Audit,
+            is_prose_request: false,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!crate::planner::is_non_prose_audit_intent(Some(&cls)));
+    }
+
+    #[test]
+    fn test_prose_intent_not_routed() {
+        // 散文意图（续写/改写/创世）不受影响，走正常 plan pipeline。
+        let continuation = WritingIntentClassification::conservative_fallback();
+        assert!(!crate::planner::is_non_prose_audit_intent(Some(
+            &continuation
+        )));
+
+        let rewrite = WritingIntentClassification {
+            is_new_novel: false,
+            is_continuation: false,
+            task_type: AssetTaskType::Rewrite,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!crate::planner::is_non_prose_audit_intent(Some(&rewrite)));
+
+        let genesis = WritingIntentClassification {
+            is_new_novel: true,
+            is_continuation: false,
+            task_type: AssetTaskType::Genesis,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!crate::planner::is_non_prose_audit_intent(Some(&genesis)));
+    }
+
+    #[test]
+    fn test_no_classification_not_routed() {
+        // 无分类保守默认：不路由，走 plan pipeline。
+        assert!(!crate::planner::is_non_prose_audit_intent(None));
     }
 
     #[test]

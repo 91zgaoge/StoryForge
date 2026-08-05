@@ -28,6 +28,7 @@ import { scheduleAutoSave, cancelAutoSave } from './autoSave';
 import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
+import AuditReportModal from './components/AuditReportModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -1281,6 +1282,8 @@ const FrontstageApp: React.FC = () => {
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
   const [showInterruptionModal, setShowInterruptionModal] = useState(false);
   const [interruptionError, setInterruptionError] = useState<StructuredError | null>(null);
+  // v0.31.x: 智能输入审计意图的报告内容（result_kind='audit_report'），弹窗展示而非追加手稿
+  const [auditReport, setAuditReport] = useState<string | null>(null);
 
   // A4-1.7: 根据生成开始时间计算已用秒数
   const getElapsedSeconds = useCallback(() => {
@@ -3245,6 +3248,19 @@ const FrontstageApp: React.FC = () => {
           timeoutPromise,
         ]);
         if (timeoutId) clearTimeout(timeoutId);
+
+        // v0.31.x: 审计意图自动路由结果——报告弹窗展示，不进入正文处理管线
+        if (result.result_kind === 'audit_report') {
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          setOrchestratorStatus(null);
+          setAuditReport(result.final_content ?? '');
+          return;
+        }
+
         // v0.30.44: 不在此处清除 smartExecuteInFlightRef -- 续写路径的打字机动画
         // 通过 requestAnimationFrame 异步运行，此处清除会让 backend activity sync
         // (100ms 防抖) 在打字机仍在运行时把 isGenerating 置 false，触发安全网误报
@@ -4236,6 +4252,15 @@ const FrontstageApp: React.FC = () => {
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
+          return;
+        }
+
+        // v0.31.x: 审计意图自动路由结果——报告弹窗展示，不追加手稿、不走幽灵文本。
+        // finally 块负责 stopElapsedTimer / setIsGenerating(false) / 状态栏清理。
+        if (result.result_kind === 'audit_report') {
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          setAuditReport(result.final_content ?? '');
           return;
         }
 
@@ -5242,6 +5267,13 @@ const FrontstageApp: React.FC = () => {
         onClose={() => setShowInterruptionModal(false)}
         error={interruptionError}
         onOpenBackstage={openBackstage}
+      />
+
+      {/* v0.31.x: 智能输入审计意图的报告弹窗（不追加手稿） */}
+      <AuditReportModal
+        isOpen={auditReport !== null}
+        report={auditReport ?? ''}
+        onClose={() => setAuditReport(null)}
       />
     </>
   );
