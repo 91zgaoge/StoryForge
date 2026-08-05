@@ -195,6 +195,52 @@ pub async fn get_scene(
     repo.get_by_id(&scene_id).map_err(AppError::from)
 }
 
+/// v0.31.0: 章节完成后推进 methodology_step（到该方法论最大步数停留）。
+/// 返回是否发生了推进。story 无方法论或已到顶时为 noop。
+fn advance_methodology_step(pool: &crate::db::DbPool, story_id: &str) -> bool {
+    let story_repo = crate::db::StoryRepository::new(pool.clone());
+    let story = match story_repo.get_by_id(story_id) {
+        Ok(Some(s)) => s,
+        _ => return false,
+    };
+    let mid = match story.methodology_id.as_deref() {
+        Some(m) if !m.trim().is_empty() => m,
+        _ => return false,
+    };
+    let current = story.methodology_step.unwrap_or(1);
+    let next = crate::domain::methodology::next_methodology_step(mid, current);
+    if next == current {
+        return false;
+    }
+    let req = crate::db::UpdateStoryRequest {
+        title: None,
+        description: None,
+        genre: None,
+        tone: None,
+        pacing: None,
+        style_dna_id: None,
+        genre_profile_id: None,
+        methodology_id: None,
+        methodology_step: Some(next),
+        reference_book_id: None,
+    };
+    match story_repo.update(story_id, &req) {
+        Ok(_) => {
+            log::info!(
+                "[update_scene] 章节完成，方法论 {} step {} -> {}",
+                mid,
+                current,
+                next
+            );
+            true
+        }
+        Err(e) => {
+            log::warn!("[update_scene] 推进 methodology_step 失败: {}", e);
+            false
+        }
+    }
+}
+
 #[command(rename_all = "snake_case")]
 pub async fn update_scene(
     scene_id: String,
@@ -213,20 +259,22 @@ pub async fn update_scene(
     let pool_clone = pool.inner().clone();
     let scene_id_clone = scene_id.clone();
     let updates_clone = updates.clone();
-    let (result, story_id_opt) =
-        tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>), AppError> {
+    let (result, story_id_opt, had_content_before) =
+        tokio::task::spawn_blocking(move || -> Result<(usize, Option<String>, bool), AppError> {
             let repo = SceneRepository::new(pool_clone);
             // 获取 story_id 用于同步事件（P0-3 修复: 避免 unwrap_or_default 导致空字符串）
-            let story_id_opt = repo
-                .get_by_id(&scene_id_clone)
-                .ok()
-                .flatten()
-                .map(|s| s.story_id);
+            let prior_scene = repo.get_by_id(&scene_id_clone).ok().flatten();
+            let story_id_opt = prior_scene.as_ref().map(|s| s.story_id.clone());
+            // v0.31.0: 章节完成检测——正文（或草稿）从无到有视为本章完成
+            let had_content_before = prior_scene
+                .as_ref()
+                .map(|s| s.content.is_some() || s.draft_content.is_some())
+                .unwrap_or(true);
             let result = repo.update(&scene_id_clone, &updates_clone).map_err(|e| {
                 log::error!("[story_commands] {} failed: {}", "update_scene", e);
                 AppError::from(e)
             })?;
-            Ok((result, story_id_opt))
+            Ok((result, story_id_opt, had_content_before))
         })
         .await
         .map_err(|e| {
@@ -297,6 +345,17 @@ pub async fn update_scene(
                 },
             )
             .await;
+    }
+    // v0.31.0: 章节完成（正文从无到有）→ methodology_step +1（到顶停留）
+    if updates.content.is_some() && !had_content_before {
+        if let Some(ref story_id) = story_id_opt {
+            let pool_step = pool.inner().clone();
+            let story_id_step = story_id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                advance_methodology_step(&pool_step, &story_id_step);
+            })
+            .await;
+        }
     }
     Ok(result)
 }
@@ -1061,5 +1120,75 @@ mod tests {
         let mock = MockSceneRepo { scenes: vec![] };
         let result = get_story_scenes_core(&mock, "story-empty").unwrap();
         assert!(result.is_empty());
+    }
+
+    fn create_story(pool: &crate::db::DbPool, methodology_id: Option<&str>) -> crate::db::Story {
+        crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "步进测试故事".to_string(),
+                description: None,
+                genre: Some("玄幻".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: methodology_id.map(|s| s.to_string()),
+                reference_book_id: None,
+            })
+            .expect("create story")
+    }
+
+    fn update_step_req(step: i32) -> crate::db::UpdateStoryRequest {
+        crate::db::UpdateStoryRequest {
+            title: None,
+            description: None,
+            genre: None,
+            tone: None,
+            pacing: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            methodology_step: Some(step),
+            reference_book_id: None,
+        }
+    }
+
+    #[test]
+    fn test_advance_methodology_step_on_chapter_complete() {
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let story = create_story(&pool, Some("snowflake"));
+
+        assert!(advance_methodology_step(&pool, &story.id));
+        let reloaded = crate::db::StoryRepository::new(pool.clone())
+            .get_by_id(&story.id)
+            .expect("get")
+            .expect("story exists");
+        assert_eq!(reloaded.methodology_step, Some(2));
+    }
+
+    #[test]
+    fn test_advance_methodology_step_stays_at_max() {
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let story = create_story(&pool, Some("snowflake"));
+        crate::db::StoryRepository::new(pool.clone())
+            .update(&story.id, &update_step_req(10))
+            .expect("set step 10");
+
+        assert!(!advance_methodology_step(&pool, &story.id), "到顶应停留");
+        let reloaded = crate::db::StoryRepository::new(pool.clone())
+            .get_by_id(&story.id)
+            .expect("get")
+            .expect("story exists");
+        assert_eq!(reloaded.methodology_step, Some(10));
+    }
+
+    #[test]
+    fn test_advance_methodology_step_noop_without_methodology() {
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let story = create_story(&pool, None);
+        assert!(!advance_methodology_step(&pool, &story.id));
+        let reloaded = crate::db::StoryRepository::new(pool.clone())
+            .get_by_id(&story.id)
+            .expect("get")
+            .expect("story exists");
+        assert_eq!(reloaded.methodology_step, None);
     }
 }

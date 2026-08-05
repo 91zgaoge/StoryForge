@@ -70,6 +70,26 @@ pub fn normalize_methodology_id(id: &str) -> &str {
     }
 }
 
+/// 各方法论的最大步数（章节完成自动推进到顶后停留）。
+///
+/// 与 `resources/prompts/methodology/` 下已注册的阶段文件数保持一致：
+/// - snowflake：methodology_snowflake_step1..step10 → 10
+/// - high_density_world_building：seed/expansion/convergence/iteration → 4
+/// - 其余单文件方法论无步骤概念 → 1（永不推进）
+pub fn methodology_max_steps(id: &str) -> i32 {
+    match normalize_methodology_id(id) {
+        "snowflake" => 10,
+        "high_density_world_building" => 4,
+        _ => 1,
+    }
+}
+
+/// 章节完成后的下一步号：+1，到 `methodology_max_steps` 停留。
+pub fn next_methodology_step(id: &str, current: i32) -> i32 {
+    let max = methodology_max_steps(id);
+    (current.max(1) + 1).min(max)
+}
+
 #[cfg(test)]
 mod methodology_id_tests {
     use super::*;
@@ -89,5 +109,20 @@ mod methodology_id_tests {
             "high_density_world_building"
         );
         assert_eq!(normalize_methodology_id("snowflake"), "snowflake");
+    }
+
+    #[test]
+    fn methodology_step_advances_and_caps() {
+        assert_eq!(next_methodology_step("snowflake", 1), 2);
+        assert_eq!(next_methodology_step("snowflake", 9), 10);
+        // 到顶停留
+        assert_eq!(next_methodology_step("snowflake", 10), 10);
+        // hdwb 别名归一化后 cap=4
+        assert_eq!(next_methodology_step("hdwb", 3), 4);
+        assert_eq!(next_methodology_step("high_density_world_building", 4), 4);
+        // 单文件方法论无步骤概念，永不推进
+        assert_eq!(next_methodology_step("hero_journey", 1), 1);
+        // NULL/非法当前值按 1 处理
+        assert_eq!(next_methodology_step("snowflake", 0), 2);
     }
 }
