@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getModelProviders, getProviderDefaultModels, setActiveModel } from '../settings';
+import {
+  getModelProviders,
+  getProviderDefaultModels,
+  setActiveModel,
+  getSettings,
+  saveSettings,
+} from '../settings';
 
 // Mock Tauri invoke
 vi.mock('@tauri-apps/api/core', () => ({
@@ -99,5 +105,41 @@ describe('setActiveModel', () => {
     vi.mocked(invoke).mockRejectedValue(new Error('Backend error'));
 
     await expect(setActiveModel('chat', 'model-1')).rejects.toThrow('Backend error');
+  });
+});
+
+// v0.31.0: 续写参数（plan_mode / continuation_target_words）设置链路
+describe('续写参数字段', () => {
+  it('saveSettings 应将 plan_mode 与 continuation_target_words 透传到 save_settings 载荷', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    await saveSettings({
+      plan_mode: 'single_writer',
+      continuation_target_words: 3000,
+    });
+
+    expect(invoke).toHaveBeenCalledWith('save_settings', {
+      settings: {
+        plan_mode: 'single_writer',
+        continuation_target_words: 3000,
+      },
+    });
+  });
+
+  it('getSettings 应返回后端下发的续写参数字段', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockResolvedValue({
+      plan_mode: 'beat',
+      continuation_target_words: 2000,
+    });
+    // 强制走 Tauri 路径，避免浏览器 fallback
+    (window as unknown as { __TAURI__?: unknown }).__TAURI__ = {};
+
+    const settings = await getSettings();
+
+    expect(invoke).toHaveBeenCalledWith('get_settings', undefined);
+    expect(settings.plan_mode).toBe('beat');
+    expect(settings.continuation_target_words).toBe(2000);
   });
 });

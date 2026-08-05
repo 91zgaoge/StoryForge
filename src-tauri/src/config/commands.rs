@@ -300,6 +300,13 @@ pub struct AppSettingsData {
     /// v0.30.50（issue #14）: 健康探测模式 — `always` / `on_demand`
     #[serde(default)]
     pub health_probe_mode: Option<String>,
+    /// v0.31.0: 续写计划模式 — `beat`（默认，beat 驱动多步计划）/
+    /// `single_writer`（旧单 writer 步回退）
+    #[serde(default)]
+    pub plan_mode: Option<String>,
+    /// v0.31.0: 续写单次目标字数（默认 2000，模板按 0.7x-1.3x 渲染范围）
+    #[serde(default)]
+    pub continuation_target_words: Option<u32>,
 }
 
 fn default_concurrency() -> usize {
@@ -505,6 +512,8 @@ pub fn get_settings(app_handle: AppHandle) -> Result<AppSettingsData, AppError> 
         chapter_split_mode: Some(config.chapter_split_mode.clone()),
         chapter_split_max_chars: config.chapter_split_max_chars,
         health_probe_mode: Some(config.health_probe_mode.clone()),
+        plan_mode: Some(config.plan_mode.clone()),
+        continuation_target_words: Some(config.continuation_target_words),
     })
 }
 
@@ -657,6 +666,16 @@ pub fn save_settings(settings: AppSettingsData, app_handle: AppHandle) -> Result
         if matches!(v.as_str(), "always" | "on_demand") {
             config.health_probe_mode = v;
         }
+    }
+    // v0.31.0: 续写计划模式，仅接受白名单值（与 generation_mode 策略一致）
+    if let Some(v) = settings.plan_mode {
+        if matches!(v.as_str(), "beat" | "single_writer") {
+            config.plan_mode = v;
+        }
+    }
+    // v0.31.0: 续写目标字数，钳制在建议范围内（UI 提示 500-5000）
+    if let Some(v) = settings.continuation_target_words {
+        config.continuation_target_words = v.clamp(500, 5000);
     }
 
     config.save(&app_dir).map_err(AppError::from)?;

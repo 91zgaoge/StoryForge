@@ -61,6 +61,20 @@ export function UnifiedModelManager() {
     [settings, queryClient]
   );
 
+  // v0.31.0: 续写参数（计划模式 / 目标字数）保存 — 复用温度的 patch 保存路径
+  const handleSaveContinuationSetting = useCallback(
+    async (
+      field: 'plan_mode' | 'continuation_target_words',
+      value: string | number | undefined
+    ) => {
+      if (!settings) return;
+      const updated: AppSettings = { ...settings, [field]: value };
+      await saveSettings(updated);
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+    [settings, queryClient]
+  );
+
   // 模型连接状态管理
   const { states, checkModels, checkModel } = useModelConnectionStore();
 
@@ -203,6 +217,9 @@ export function UnifiedModelManager() {
           continuationTemp={settings?.continuation_temperature}
           toolTemp={settings?.tool_temperature}
           onSetTemperature={handleSetTemperature}
+          planMode={settings?.plan_mode}
+          continuationTargetWords={settings?.continuation_target_words}
+          onSaveContinuationSetting={handleSaveContinuationSetting}
         />
       )}
 
@@ -360,6 +377,9 @@ function ModelRoleCard({
   continuationTemp,
   toolTemp,
   onSetTemperature,
+  planMode,
+  continuationTargetWords,
+  onSaveContinuationSetting,
 }: {
   models: ModelConfig[];
   activeModels: Record<string, string | undefined>;
@@ -368,6 +388,12 @@ function ModelRoleCard({
   continuationTemp?: number;
   toolTemp?: number;
   onSetTemperature: (field: string, value: number | undefined) => void;
+  planMode?: 'beat' | 'single_writer';
+  continuationTargetWords?: number;
+  onSaveContinuationSetting: (
+    field: 'plan_mode' | 'continuation_target_words',
+    value: string | number | undefined
+  ) => void;
 }) {
   // 创作/工具/后台角色：chat 和 multimodal 模型都可以用于文本生成
   const eligibleModels = models.filter(m => m.type === 'chat' || m.type === 'multimodal');
@@ -451,6 +477,49 @@ function ModelRoleCard({
               );
             }
           )}
+        </div>
+
+        {/* v0.31.0: 续写参数（计划模式 / 目标字数） */}
+        <div className="mt-3 pt-3 border-t border-cinema-800 space-y-3">
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
+            <span className="text-sm font-medium text-gray-300 min-w-[120px]">续写计划模式</span>
+            <span className="text-xs text-gray-600 hidden sm:block flex-1">
+              智能模式由节拍规划 + 写作双步链生成；兼容模式回退旧单步写作
+            </span>
+            <select
+              className="bg-cinema-800 border border-cinema-700 rounded-md text-sm text-white px-2 py-1.5 min-w-[160px] focus:border-cinema-gold focus:outline-none"
+              value={planMode ?? 'beat'}
+              onChange={e =>
+                onSaveContinuationSetting('plan_mode', e.target.value as 'beat' | 'single_writer')
+              }
+            >
+              <option value="beat">智能：节拍规划+写作双步</option>
+              <option value="single_writer">兼容：单步写作</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
+            <span className="text-sm font-medium text-gray-300 min-w-[120px]">续写目标字数</span>
+            <span className="text-xs text-gray-600 hidden sm:block flex-1">
+              建议范围 500-5000，默认 2000；实际目标区间 = 字数 × 0.7 ~ × 1.3
+            </span>
+            <input
+              type="number"
+              className="bg-cinema-800 border border-cinema-700 rounded-md text-xs text-white px-1.5 py-1 w-20 text-center focus:border-cinema-gold focus:outline-none"
+              min={500}
+              max={5000}
+              step={100}
+              placeholder="2000"
+              value={continuationTargetWords ?? ''}
+              onChange={e => {
+                const v = e.target.value;
+                onSaveContinuationSetting(
+                  'continuation_target_words',
+                  v === '' ? undefined : parseInt(v, 10)
+                );
+              }}
+            />
+            <span className="text-xs text-gray-500">字</span>
+          </div>
         </div>
       </CardContent>
     </Card>

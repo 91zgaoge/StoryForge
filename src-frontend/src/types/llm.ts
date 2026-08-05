@@ -361,6 +361,17 @@ export interface AppSettings {
    * 前端清空输入框时应传 `0` 以显式切回自动。
    */
   chapter_split_max_chars?: number | null;
+  /**
+   * v0.31.0: 续写计划模式。
+   * - 'beat': 智能模式（默认）— 节拍规划 + 写作双步链
+   * - 'single_writer': 兼容模式 — 回退旧单 writer 步
+   */
+  plan_mode?: 'beat' | 'single_writer';
+  /**
+   * v0.31.0: 续写单次目标字数（中文「字」，默认 2000，建议 500-5000）。
+   * 实际目标区间 = 字数 × 0.7 ~ × 1.3。
+   */
+  continuation_target_words?: number;
 }
 
 export interface WritingStrategy {
