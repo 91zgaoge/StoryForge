@@ -961,10 +961,26 @@ impl AgentOrchestrator {
             }
         }
 
-        // v0.23.59: 从用户配置读取写作策略，替换 WriteTimeBundle 中的硬编码默认值。
-        // 此前 `load_sync` 写死"运行模式：标准\n冲突强度：0.5\n叙事节奏：正常\nAI
-        // 自由度：0.5"， 用户在后台设置调整的策略从未在 TimeSliced
-        // 续写路径生效。
+        // 设计第一节：打通 executor 死注入——追读力债务/钩子类型/微兑现经共享渲染
+        // 函数进 bundle.chase_debt_text（复用 writer_chase_debt /
+        // writer_reading_power_goal 模板）；风格混合 blend 文本透传到
+        // bundle.style_blend_text（to_prompt 渲染时优先 blend、回退单 DNA）。
+        if let Some(text) = crate::agents::writer_assets::render_chase_debt_and_reading_goal(
+            pool.inner(),
+            &task.parameters,
+        ) {
+            bundle.chase_debt_text = Some(text);
+        }
+        if let Some(blend) = task
+            .parameters
+            .get("style_blend_text")
+            .and_then(|v| v.as_str())
+        {
+            bundle.style_blend_text = Some(blend.to_string());
+        }
+
+        // v0.23.59: 从用户配置读取写作策略，覆盖 load_sync 写入的默认策略约束，
+        // 用户在后台设置调整的策略在 TimeSliced 续写路径生效。
         match self.app_handle.path().app_data_dir() {
             Ok(app_dir) => match crate::config::AppConfig::load(&app_dir) {
                 Ok(cfg) => {

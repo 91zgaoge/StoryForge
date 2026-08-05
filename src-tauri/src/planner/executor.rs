@@ -1197,6 +1197,14 @@ impl PlanExecutor {
             "story_progress".to_string(),
             serde_json::Value::String(plan_context.story_progress.clone()),
         );
+        // 设计第一节：风格混合 blend 文本经 writer 参数透传到 TimeSliced bundle
+        // （commands/orchestrator.rs:612-651 已拼好 blend 文本进 PlanContext）。
+        if let Some(blend) = crate::planner::style_blend_text_for_writer(plan_context) {
+            enriched_params.insert(
+                "style_blend_text".to_string(),
+                serde_json::Value::String(blend),
+            );
+        }
         if let Some(ref stage) = plan_context.current_scene_stage {
             enriched_params.insert(
                 "current_scene_stage".to_string(),

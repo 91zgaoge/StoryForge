@@ -103,6 +103,18 @@ pub struct PlanContext {
     pub intent_classification: Option<WritingIntentClassification>,
 }
 
+/// 从 PlanContext 提取风格混合 blend 文本，供 executor 透传给 writer 参数。
+/// 仅当 style_dna_info 为 blend 形式（"风格混合"
+/// 前缀，commands/orchestrator.rs:631 拼装）时返回；单 DNA 回退文本（"风格DNA
+/// ID: ..."）返回 None——bundle 已从 story.style_dna_id 自行加载单 DNA
+/// 六维指标。
+pub(crate) fn style_blend_text_for_writer(ctx: &PlanContext) -> Option<String> {
+    ctx.style_dna_info
+        .as_ref()
+        .filter(|info| info.starts_with("风格混合"))
+        .cloned()
+}
+
 /// 计划生成器
 pub struct PlanGenerator {
     llm_service: LlmService,
@@ -850,6 +862,49 @@ mod tests {
         };
         assert!(!ctx.has_story);
         assert_eq!(ctx.story_progress, "just_started");
+    }
+
+    #[test]
+    fn test_style_blend_text_for_writer() {
+        let base = PlanContext {
+            current_story_id: None,
+            has_story: false,
+            has_chapters: false,
+            chapter_count: 0,
+            current_content_preview: None,
+            user_input: "test".to_string(),
+            scene_count: 0,
+            scenes_summary: vec![],
+            current_scene_id: None,
+            current_scene_stage: None,
+            total_word_count: 0,
+            latest_chapter_word_count: 0,
+            story_progress: "just_started".to_string(),
+            selected_text: None,
+            world_building_summary: None,
+            character_list: vec![],
+            foreshadowing_status: vec![],
+            style_dna_info: None,
+            mcp_tools_available: vec![],
+            deep_insight_summary: None,
+            style_weight: 50,
+            chapter_number: 1,
+            selected_strategy: None,
+            intent_classification: None,
+        };
+        // blend 文本透传
+        let mut ctx = base.clone();
+        ctx.style_dna_info = Some("风格混合 [燃爽融合]: 热血:70%, 冷峻:30%".to_string());
+        assert_eq!(
+            style_blend_text_for_writer(&ctx),
+            Some("风格混合 [燃爽融合]: 热血:70%, 冷峻:30%".to_string())
+        );
+        // 单 DNA 回退文本不透传（bundle 已从 story.style_dna_id 自载）
+        let mut ctx2 = base.clone();
+        ctx2.style_dna_info = Some("风格DNA ID: abc123".to_string());
+        assert!(style_blend_text_for_writer(&ctx2).is_none());
+        // 无风格信息
+        assert!(style_blend_text_for_writer(&base).is_none());
     }
 
     #[test]

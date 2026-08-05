@@ -324,14 +324,10 @@ impl WriteTimeBundle {
             }
         };
 
-        // v0.22.0: 加载写作策略约束
-        let writing_strategy_constraints = {
-            // 使用默认策略（后续可通过参数传入覆盖）
-            Some(
-                "【写作策略约束】\n运行模式：标准\n冲突强度：0.5\n叙事节奏：正常\nAI 自由度：0.5"
-                    .to_string(),
-            )
-        };
+        // v0.22.0: 加载写作策略约束（默认值；execute_time_sliced 会用 AppConfig 覆盖）
+        let writing_strategy_constraints = Some(format_writing_strategy_constraints(
+            &crate::config::settings::WritingStrategy::default(),
+        ));
 
         // P1-1: 精选资产子集——解决 TimeSliced "资产黑洞"
         // P3-3: 使用统一资产注入网关 CreativeAssetSnapshot，消除重复加载逻辑。
@@ -971,14 +967,19 @@ fn tokenize_text(s: &str) -> std::collections::HashSet<String> {
 
 /// v0.23.59: 将 `WritingStrategy` 格式化为写作策略约束提示文本。
 ///
-/// 与 Full 模式的详细翻译不同（service.rs:1840），TimeSliced 模式使用
-/// 紧凑格式，与现有负载均衡逻辑一致。值从 `AppConfig` 读取，不再是硬编码。
+/// 冲突强度与叙事节奏复用 Full 路径的分档语义文案（writer_assets 共享函数，
+/// 原 service.rs:1888-1908），替代此前的裸数字（"冲突强度：0.5"）。
 pub fn format_writing_strategy_constraints(
     strategy: &crate::config::settings::WritingStrategy,
 ) -> String {
     format!(
-        "【写作策略约束】\n运行模式：{}\n冲突强度：{}\n叙事节奏：{}\nAI 自由度：{}",
-        strategy.run_mode, strategy.conflict_level, strategy.pace, strategy.ai_freedom,
+        "【写作策略约束】\n运行模式：{}\n{}\nAI 自由度：{}",
+        strategy.run_mode,
+        crate::agents::writer_assets::writing_constraints_semantic_text(
+            strategy.conflict_level as f64,
+            crate::agents::writer_assets::pace_to_factor(&strategy.pace),
+        ),
+        strategy.ai_freedom,
     )
 }
 
@@ -1401,5 +1402,22 @@ mod tests {
         let prompt = bundle.to_prompt();
         assert!(prompt.contains("【风格 DNA 六维指标】"));
         assert!(!prompt.contains("【风格混合"));
+    }
+
+    #[test]
+    fn format_writing_strategy_constraints_semantic() {
+        let strategy = crate::config::settings::WritingStrategy {
+            run_mode: "standard".to_string(),
+            conflict_level: 85,
+            pace: "fast".to_string(),
+            ai_freedom: "medium".to_string(),
+        };
+        let text = format_writing_strategy_constraints(&strategy);
+        assert!(text.contains("【写作策略约束】"));
+        assert!(text.contains("运行模式：standard"));
+        assert!(text.contains("冲突强度：极高"));
+        assert!(text.contains("叙事节奏：快"));
+        assert!(text.contains("AI 自由度：medium"));
+        assert!(!text.contains("冲突强度：85"), "不再输出裸数字冲突强度");
     }
 }

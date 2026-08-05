@@ -158,6 +158,100 @@ pub(crate) fn writing_constraints_semantic_text(
     format!("{}\n{}", conflict_line, pacing_line)
 }
 
+/// 渲染追读力债务 + 本章追读力目标段落，供 TimeSliced 路径消费 executor
+/// 注入的追读力参数（原仅 Full 路径消费，service.rs:2041-2111）。
+///
+/// 有资产才渲染：`chase_debt_count` 解析为 0 或缺失时跳过债务段；
+/// `reading_power_hook_type` 缺失时跳过目标段；两段皆跳过返回 None。
+pub(crate) fn render_chase_debt_and_reading_goal(
+    pool: &crate::db::DbPool,
+    params: &std::collections::HashMap<String, serde_json::Value>,
+) -> Option<String> {
+    let mut sections = Vec::new();
+
+    // 追读力债务（模板 writer_chase_debt，对齐 Full 路径 service.rs:2041-2067
+    // 的变量）
+    let debt_count = params
+        .get("chase_debt_count")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+    if debt_count > 0 {
+        let mut debt_vars = std::collections::HashMap::new();
+        debt_vars.insert("debt_count".to_string(), debt_count.to_string());
+        debt_vars.insert(
+            "debts".to_string(),
+            params
+                .get("chase_debts")
+                .and_then(|v| v.as_str())
+                .unwrap_or("无")
+                .to_string(),
+        );
+        let tpl = crate::prompts::registry::resolve_prompt(pool, "writer_chase_debt")
+            .ok()
+            .or_else(|| crate::prompts::registry::resolve_prompt_default("writer_chase_debt"));
+        if let Some(tpl) = tpl {
+            let rendered =
+                crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &debt_vars);
+            if !rendered.trim().is_empty() {
+                sections.push(rendered);
+            }
+        }
+    }
+
+    // 本章追读力目标（模板 writer_reading_power_goal，对齐 service.rs:2069-2111
+    // 的变量）
+    if let Some(hook_type) = params
+        .get("reading_power_hook_type")
+        .and_then(|v| v.as_str())
+    {
+        let mut goal_vars = std::collections::HashMap::new();
+        goal_vars.insert("hook_type".to_string(), hook_type.to_string());
+        goal_vars.insert(
+            "hook_strength".to_string(),
+            params
+                .get("reading_power_hook_strength")
+                .and_then(|v| v.as_str())
+                .unwrap_or("medium")
+                .to_string(),
+        );
+        goal_vars.insert(
+            "foreshadowing_list".to_string(),
+            params
+                .get("reading_power_foreshadowing_list")
+                .and_then(|v| v.as_str())
+                .unwrap_or("无")
+                .to_string(),
+        );
+        goal_vars.insert(
+            "micropayoff_count".to_string(),
+            params
+                .get("reading_power_micropayoff_count")
+                .and_then(|v| v.as_str())
+                .unwrap_or("1-2")
+                .to_string(),
+        );
+        let tpl = crate::prompts::registry::resolve_prompt(pool, "writer_reading_power_goal")
+            .ok()
+            .or_else(|| {
+                crate::prompts::registry::resolve_prompt_default("writer_reading_power_goal")
+            });
+        if let Some(tpl) = tpl {
+            let rendered =
+                crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &goal_vars);
+            if !rendered.trim().is_empty() {
+                sections.push(rendered);
+            }
+        }
+    }
+
+    if sections.is_empty() {
+        None
+    } else {
+        Some(sections.join("\n\n"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,5 +442,75 @@ mod tests {
         assert_eq!(pace_to_factor("fast"), 1.5);
         assert_eq!(pace_to_factor("slow"), 0.5);
         assert_eq!(pace_to_factor("normal"), 1.0);
+    }
+
+    // ---- render_chase_debt_and_reading_goal ----
+
+    #[test]
+    fn render_chase_debt_and_goal_with_assets() {
+        let pool = create_test_pool().unwrap();
+        let mut params = std::collections::HashMap::new();
+        params.insert(
+            "chase_debt_count".to_string(),
+            serde_json::Value::String("2".to_string()),
+        );
+        params.insert(
+            "chase_debts".to_string(),
+            serde_json::Value::String(
+                "1. 类型：钩子，当前金额：3.0，到期章节：5，来源章节：2".to_string(),
+            ),
+        );
+        params.insert(
+            "reading_power_hook_type".to_string(),
+            serde_json::Value::String("身份悬念".to_string()),
+        );
+        params.insert(
+            "reading_power_hook_strength".to_string(),
+            serde_json::Value::String("high".to_string()),
+        );
+        params.insert(
+            "reading_power_foreshadowing_list".to_string(),
+            serde_json::Value::String("身世之谜".to_string()),
+        );
+        params.insert(
+            "reading_power_micropayoff_count".to_string(),
+            serde_json::Value::String("2".to_string()),
+        );
+        let text = render_chase_debt_and_reading_goal(&pool, &params).expect("有资产应渲染");
+        assert!(text.contains("【追读力债务】"));
+        assert!(text.contains("当前有 2 条待偿还的追读力债务"));
+        assert!(text.contains("到期章节：5"));
+        assert!(text.contains("【本章追读力目标】"));
+        assert!(text.contains("身份悬念"));
+        assert!(text.contains("身世之谜"));
+    }
+
+    #[test]
+    fn render_chase_debt_and_goal_empty_params_returns_none() {
+        let pool = create_test_pool().unwrap();
+        let params = std::collections::HashMap::new();
+        assert!(render_chase_debt_and_reading_goal(&pool, &params).is_none());
+        // debt_count 为 "0"（executor 缺省注入值）时跳过债务段
+        let mut zero = std::collections::HashMap::new();
+        zero.insert(
+            "chase_debt_count".to_string(),
+            serde_json::Value::String("0".to_string()),
+        );
+        assert!(render_chase_debt_and_reading_goal(&pool, &zero).is_none());
+    }
+
+    #[test]
+    fn render_chase_debt_and_goal_only_hook_type() {
+        // 仅 hook_type 无债务：只渲染目标段
+        let pool = create_test_pool().unwrap();
+        let mut params = std::collections::HashMap::new();
+        params.insert(
+            "reading_power_hook_type".to_string(),
+            serde_json::Value::String("（延续）".to_string()),
+        );
+        let text = render_chase_debt_and_reading_goal(&pool, &params).expect("应有目标段");
+        assert!(!text.contains("【追读力债务】"));
+        assert!(text.contains("【本章追读力目标】"));
+        assert!(text.contains("（延续）"));
     }
 }
