@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.32.0（2026-08-05）
+
+### 续写链路稳定性与可配置性修复：planner 幂等跳过同步、快照一次加载、writer_max_tokens 自动推导、续写计划模式与目标字数设置入口、审计意图专用路由
+
+- **① planner sanitize 幂等跳过同步（`planner`）**：LLM 直出 `[beat_planner, writer]` 链命中 sanitize 幂等跳过路径时同步注入 `planner_understanding`，保证 writer 步骤能拿到计划理解；移除 writer 步骤的同名死参数。
+- **② writer 资产快照一次加载（`writer-assets`）**：规范状态快照改为调用方一次加载传入，消除 Full 与 TimeSliced 双路径每次 prompt 构建的重复快照聚合。
+- **③ writer_max_tokens 自动推导（`config`）**：默认值改为按续写目标字数自动推导 `max(4096, 续写目标字数上限×2)`（默认 2000 字 → 5200）；显式配置 >0 仍为覆盖，旧配置中显式存储的 4096 保持生效。
+- **④ 设置页续写参数入口（`settings`）**：「模型角色分配」卡新增续写计划模式（beat 智能双步 / single_writer 兼容单步）与续写目标字数（500-5000）入口。
+- **⑤ 审计意图专用路由（`orchestrator`）**：智能输入框的非散文审计意图自动路由到专用审计路径，报告以弹窗展示、不追加进手稿；审计操作记录不携带 `new_content`，回滚不会污染手稿。
+- **已知问题（既有问题，非本次引入）**：AI 操作记录中的 `previous_content` 是截断到末尾 6000 字的内容预览，手稿超过 6000 字时执行回滚会把整章替换为截断预览；将在后续版本修复。
+- **测试**：`cargo test --lib` 1168 passed / 0 failed / 2 ignored。
+
 ## v0.31.0（2026-08-04）
 
 ### 智能创作资产融合深度重构：续写链路资产贯通与扩张性写作合约、beat 驱动两步计划、推荐资产贯通与创世融合
