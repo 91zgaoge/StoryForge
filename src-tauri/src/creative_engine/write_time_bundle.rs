@@ -202,49 +202,14 @@ impl WriteTimeBundle {
             _ => None,
         };
 
-        // v0.22.0: 加载方法论扩展
+        // v0.31.0: 加载方法论扩展——动态解析（Task 6）。
+        // 先试 methodology_{id}_step{N}，再试 methodology_{id}，hdwb 旧命名
+        // 走兼容映射；未知 ID 在 resolve_methodology_extension 内 log::warn! 并返回
+        // None。
         let methodology_extension = match story.methodology_id.as_deref() {
             Some(mid) if !mid.is_empty() => {
-                let mid = crate::domain::methodology::normalize_methodology_id(mid);
                 let step = story.methodology_step.unwrap_or(1);
-                // v0.22.1: 按 methodology_id 动态选择 prompt ID
-                let (prompt_id, label) = match mid {
-                    "snowflake" => (
-                        format!("methodology_snowflake_step{}", step),
-                        format!("雪花法 第{}步", step),
-                    ),
-                    "hero_journey" => (
-                        "methodology_hero_journey".to_string(),
-                        "英雄之旅".to_string(),
-                    ),
-                    "scene_structure" => (
-                        "methodology_scene_structure".to_string(),
-                        "场景结构".to_string(),
-                    ),
-                    "character_depth" => (
-                        "methodology_character_depth".to_string(),
-                        "人物深度".to_string(),
-                    ),
-                    "high_density_world_building" => {
-                        let (prompt_id, label) = match step {
-                            2 => ("methodology_hdwb_expansion", "高密度世界构建-状态网扩张"),
-                            3 => ("methodology_hdwb_convergence", "高密度世界构建-多线交织"),
-                            4 => ("methodology_hdwb_iteration", "高密度世界构建-密度迭代"),
-                            _ => ("methodology_hdwb_seed", "高密度世界构建-最小世界种子"),
-                        };
-                        (prompt_id.to_string(), label.to_string())
-                    }
-                    _ => (String::new(), String::new()),
-                };
-                if prompt_id.is_empty() {
-                    None
-                } else if let Some(content) =
-                    crate::prompts::registry::resolve_prompt_default(&prompt_id)
-                {
-                    Some(format!("【创作方法论（{}）】\n{}", label, content))
-                } else {
-                    None
-                }
+                resolve_methodology_extension(mid, step)
             }
             _ => None,
         };
@@ -1497,5 +1462,82 @@ mod tests {
     #[test]
     fn test_resolve_methodology_extension_unknown_returns_none() {
         assert!(resolve_methodology_extension("nonexistent_methodology_xyz", 1).is_none());
+    }
+
+    #[test]
+    fn test_resolve_methodology_base_file_fallback() {
+        // hero_journey 无 step 变体文件，应回退 methodology_hero_journey 单文件
+        let ext = resolve_methodology_extension("hero_journey", 5)
+            .expect("hero_journey 应回退到无 step 后缀的单文件");
+        assert!(ext.contains("英雄之旅"));
+    }
+
+    #[test]
+    fn test_load_sync_dynamic_methodology_resolution() {
+        // 集成断言：load_sync 走动态解析后，snowflake step2 的扩展来自 md 文件
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let story = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "动态解析测试".to_string(),
+                description: None,
+                genre: Some("玄幻".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: Some("snowflake".to_string()),
+                reference_book_id: None,
+            })
+            .expect("create story");
+        crate::db::StoryRepository::new(pool.clone())
+            .update(
+                &story.id,
+                &crate::db::UpdateStoryRequest {
+                    title: None,
+                    description: None,
+                    genre: None,
+                    tone: None,
+                    pacing: None,
+                    style_dna_id: None,
+                    genre_profile_id: None,
+                    methodology_id: None,
+                    methodology_step: Some(2),
+                    reference_book_id: None,
+                },
+            )
+            .expect("set step 2");
+
+        let bundle = WriteTimeBundle::load_sync(&pool, &story.id, 1, None, None, None)
+            .expect("load_sync 应成功（各资产缺失均为软降级）");
+        let ext = bundle
+            .methodology_extension
+            .expect("snowflake step2 应解析出方法论扩展");
+        assert!(
+            ext.contains("雪花法第2步"),
+            "标签应来自 md frontmatter name: {}",
+            ext
+        );
+    }
+
+    #[test]
+    fn test_load_sync_unknown_methodology_warns_and_skips() {
+        // 未知 ID：log::warn! 记录（测试无法直接断言日志），行为断言为跳过注入返回 None
+        let pool = crate::db::create_test_pool().expect("test pool");
+        let story = crate::db::StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "未知方法论测试".to_string(),
+                description: None,
+                genre: Some("玄幻".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: Some("totally_unknown_methodology".to_string()),
+                reference_book_id: None,
+            })
+            .expect("create story");
+
+        let bundle = WriteTimeBundle::load_sync(&pool, &story.id, 1, None, None, None)
+            .expect("未知方法论不应导致加载失败");
+        assert!(
+            bundle.methodology_extension.is_none(),
+            "未知方法论 ID 应跳过注入"
+        );
     }
 }
