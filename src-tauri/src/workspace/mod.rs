@@ -669,6 +669,7 @@ mod tests {
             methodology_step: None,
             reference_book_id: None,
             logline: None,
+            strategy_json: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         }

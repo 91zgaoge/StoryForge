@@ -1106,6 +1106,10 @@ pub struct Story {
     pub reference_book_id: Option<String>,
     /// PROBLEM 框架生成的 logline（v0.30.22）
     pub logline: Option<String>,
+    /// v0.31: 向导持久化的创作策略四元组 JSON（SelectedStrategy 部分序列化）。
+    /// NULL = 旧数据，build_selected_strategy 走启发式推断。
+    #[serde(default)]
+    pub strategy_json: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }

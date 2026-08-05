@@ -1319,6 +1319,47 @@ fn build_selected_strategy(
         rationale_parts.push(format!("风格 DNA：{}", dna_id));
     }
 
+    // v0.31: 优先读取向导持久化的策略四元组（stories.strategy_json）。
+    // 放在 infer_narrative_quartet 之前：持久化字段先占位，启发式只补
+    // 缺失字段（infer 对已是 Some 的字段不覆盖）。NULL / 解析失败
+    // （旧数据）跳过本段，行为与现状完全一致。
+    if let Some(ref json) = story.strategy_json {
+        match serde_json::from_str::<crate::domain::strategy::SelectedStrategy>(json) {
+            Ok(persisted) => {
+                let mut loaded = false;
+                if persisted.emotional_payoff.is_some() {
+                    strategy.emotional_payoff = persisted.emotional_payoff;
+                    loaded = true;
+                }
+                if persisted.pressure_relationship_id.is_some() {
+                    strategy.pressure_relationship_id = persisted.pressure_relationship_id;
+                    loaded = true;
+                }
+                if persisted.conflict_arena.is_some() {
+                    strategy.conflict_arena = persisted.conflict_arena;
+                    loaded = true;
+                }
+                if !persisted.story_engine_ids.is_empty() {
+                    strategy.story_engine_ids = persisted.story_engine_ids;
+                    loaded = true;
+                }
+                if !persisted.beat_card_ids.is_empty() {
+                    strategy.beat_card_ids = persisted.beat_card_ids;
+                    loaded = true;
+                }
+                if loaded {
+                    rationale_parts.push("策略四元组（向导持久化）".to_string());
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "[build_selected_strategy] strategy_json 解析失败，回退启发式: {}",
+                    e
+                );
+            }
+        }
+    }
+
     // v0.17.1: 模糊或半确定输入时透明补全中文叙事四元组
     crate::strategy::infer_narrative_quartet(
         &mut strategy,
@@ -1377,6 +1418,7 @@ fn persist_recommended_methodology(
         methodology_id: Some(recommended.to_string()),
         methodology_step: None,
         reference_book_id: None,
+        strategy_json: None,
     };
     match crate::db::StoryRepository::new(pool.clone()).update(&story.id, &req) {
         Ok(_) => {
@@ -1448,6 +1490,7 @@ mod tests {
             methodology_step: None,
             reference_book_id: None,
             logline: None,
+            strategy_json: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         }
@@ -1684,5 +1727,103 @@ mod tests {
             .expect("get")
             .expect("story exists");
         assert_eq!(reloaded.methodology_id.as_deref(), Some("hero_journey"));
+    }
+
+    // ===== v0.31: strategy_json 持久化 =====
+
+    #[test]
+    fn test_strategy_json_round_trip_via_repository() {
+        let pool = create_test_pool().expect("test pool");
+        let repo = crate::db::StoryRepository::new(pool.clone());
+        let story = repo
+            .create(crate::db::CreateStoryRequest {
+                title: "回环测试".to_string(),
+                description: None,
+                genre: Some("末世".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .expect("create story");
+        // 新故事 strategy_json 为 NULL（与旧数据一致）
+        assert!(story.strategy_json.is_none());
+
+        let json = r#"{"beat_card_ids":["beat_mentor_fallback"],"story_engine_ids":["engine_underdog"],"pressure_relationship_id":"rel_debt","emotional_payoff":"爽","conflict_arena":"公开审查"}"#;
+        repo.update_strategy_json(&story.id, json)
+            .expect("update strategy_json");
+        let loaded = repo
+            .get_by_id(&story.id)
+            .expect("get_by_id")
+            .expect("story exists");
+        assert_eq!(loaded.strategy_json.as_deref(), Some(json));
+        // 部分 JSON（只含四元组字段）可反序列化为 SelectedStrategy
+        let parsed: crate::domain::strategy::SelectedStrategy =
+            serde_json::from_str(loaded.strategy_json.as_deref().unwrap())
+                .expect("deserialize partial strategy");
+        assert_eq!(
+            parsed.beat_card_ids,
+            vec!["beat_mentor_fallback".to_string()]
+        );
+        assert_eq!(parsed.story_engine_ids, vec!["engine_underdog".to_string()]);
+        assert_eq!(parsed.pressure_relationship_id.as_deref(), Some("rel_debt"));
+        assert_eq!(parsed.emotional_payoff.as_deref(), Some("爽"));
+        assert_eq!(parsed.conflict_arena.as_deref(), Some("公开审查"));
+    }
+
+    #[test]
+    fn test_build_selected_strategy_null_strategy_json_unchanged() {
+        // NULL（旧数据）回退：行为与现状一致——GenreResolver 自动匹配 +
+        // infer_narrative_quartet 启发式补齐四元组。
+        let pool = create_test_pool().expect("test pool");
+        ensure_genre_profiles_table(&pool);
+        let repo = GenreProfileRepository::new(pool.clone());
+        repo.create(
+            "末世流",
+            "Post-apocalyptic",
+            Some("[\"末世\", \"末世生存\"]"),
+            Some("文明崩溃后的世界"),
+            Some("快节奏"),
+            Some("[]"),
+            None,
+            None,
+            true,
+        )
+        .expect("create profile");
+        let story = story_with_genre("末世"); // strategy_json = None
+        let strategy = build_selected_strategy(&Some(story), &pool, InputClarity::Vague)
+            .expect("应匹配到题材画像");
+        assert!(strategy.genre_profile_id.is_some());
+        // 启发式四元组仍生效（infer_narrative_quartet 从 reader_promise 等补齐）
+        assert!(strategy.rationale.contains("体裁画像"));
+    }
+
+    #[test]
+    fn test_build_selected_strategy_prefers_persisted_quartet() {
+        // 持久化四元组优先于启发式：beat_card_ids/emotional_payoff 来自
+        // strategy_json，未被 infer_narrative_quartet 覆盖。
+        let pool = create_test_pool().expect("test pool");
+        ensure_genre_profiles_table(&pool);
+        let repo = GenreProfileRepository::new(pool.clone());
+        repo.create(
+            "末世流",
+            "Post-apocalyptic",
+            Some("[\"末世\", \"末世生存\"]"),
+            Some("文明崩溃后的世界"),
+            Some("快节奏"),
+            Some("[]"),
+            None,
+            None,
+            true,
+        )
+        .expect("create profile");
+        let mut story = story_with_genre("末世");
+        story.strategy_json =
+            Some(r#"{"beat_card_ids":["beat_wizard_pick"],"emotional_payoff":"燃"}"#.to_string());
+        let strategy = build_selected_strategy(&Some(story), &pool, InputClarity::Vague)
+            .expect("应匹配到题材画像");
+        assert_eq!(strategy.beat_card_ids, vec!["beat_wizard_pick".to_string()]);
+        assert_eq!(strategy.emotional_payoff.as_deref(), Some("燃"));
+        assert!(strategy.rationale.contains("向导持久化"));
     }
 }

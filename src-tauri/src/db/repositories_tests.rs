@@ -91,6 +91,7 @@ mod tests {
             methodology_id: None,
             methodology_step: None,
             reference_book_id: None,
+            strategy_json: None,
         };
 
         let count = repo.update(&story.id, &update_req).unwrap();

@@ -94,6 +94,7 @@ pub fn update_story(
         methodology_id,
         methodology_step,
         reference_book_id: None,
+        strategy_json: None,
     };
     StoryRepository::new(pool.inner().clone())
         .update(&id, &req)

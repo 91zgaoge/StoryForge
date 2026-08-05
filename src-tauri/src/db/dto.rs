@@ -149,6 +149,7 @@ pub struct UpdateStoryRequest {
     pub methodology_id: Option<String>,
     pub methodology_step: Option<i32>,
     pub reference_book_id: Option<String>,
+    pub strategy_json: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

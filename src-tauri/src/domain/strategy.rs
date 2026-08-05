@@ -18,12 +18,16 @@ pub struct SelectedStrategy {
     /// 选中的方法论 ID（不带前缀）
     pub methodology_id: Option<String>,
     /// 选中的 Style DNA ID 列表
+    #[serde(default)]
     pub style_dna_ids: Vec<String>,
     /// 建议激活的技能 ID 列表
+    #[serde(default)]
     pub skill_ids: Vec<String>,
     /// 建议使用的 Workflow ID
+    #[serde(default)]
     pub workflow_id: Option<String>,
     /// 对其他创作参数的覆盖建议
+    #[serde(default)]
     pub parameters: HashMap<String, serde_json::Value>,
 
     // ==================== v0.17.0 中文叙事增强 ====================

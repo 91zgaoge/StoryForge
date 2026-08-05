@@ -385,6 +385,12 @@ pub async fn apply_wizard_to_story(
     style_dna_id: Option<String>,
     genre_profile_id: Option<String>,
     methodology_id: Option<String>,
+    // v0.31: 向导选中的策略四元组，持久化到 stories.strategy_json
+    beat_card_ids: Option<Vec<String>>,
+    story_engine_ids: Option<Vec<String>>,
+    pressure_relationship_id: Option<String>,
+    emotional_payoff: Option<String>,
+    conflict_arena: Option<String>,
     world_building: WorldBuildingOption,
     characters: Vec<CharacterProfileOption>,
     writing_style: WritingStyleOption,
@@ -412,6 +418,29 @@ pub async fn apply_wizard_to_story(
     let style_dna_c = style_dna_id.clone();
     let genre_profile_c = genre_profile_id.clone();
     let methodology_c = methodology_id.clone();
+    let has_quartet = beat_card_ids
+        .as_ref()
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+        || story_engine_ids
+            .as_ref()
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+        || pressure_relationship_id.is_some()
+        || emotional_payoff.is_some()
+        || conflict_arena.is_some();
+    let strategy_json_c = if has_quartet {
+        serde_json::to_string(&serde_json::json!({
+            "beat_card_ids": beat_card_ids.unwrap_or_default(),
+            "story_engine_ids": story_engine_ids.unwrap_or_default(),
+            "pressure_relationship_id": pressure_relationship_id,
+            "emotional_payoff": emotional_payoff,
+            "conflict_arena": conflict_arena,
+        }))
+        .ok()
+    } else {
+        None
+    };
     let (story, created_chars, scene) = tokio::task::spawn_blocking(
         move || -> Result<(Story, Vec<Character>, Scene), AppError> {
             let story_repo = StoryRepository::new(pool_ref.clone());
@@ -429,9 +458,16 @@ pub async fn apply_wizard_to_story(
                         methodology_id: methodology_c,
                         methodology_step: None,
                         reference_book_id: None,
+                        strategy_json: None,
                     },
                 )
                 .map_err(AppError::from)?;
+            // v0.31: 向导四元组落库（仅当选中过任一四元组字段）
+            if let Some(ref json) = strategy_json_c {
+                story_repo
+                    .update_strategy_json(&story_id_clone, json)
+                    .map_err(AppError::from)?;
+            }
             let story = story_repo
                 .get_by_id(&story_id_clone)
                 .map_err(AppError::from)?
@@ -1022,6 +1058,7 @@ pub async fn set_story_style_dna(
         methodology_id: None,
         methodology_step: None,
         reference_book_id: None,
+        strategy_json: None,
     };
     match repo.update(&story_id, &req) {
         Ok(_) => {

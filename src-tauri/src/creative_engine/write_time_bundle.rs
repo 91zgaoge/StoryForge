@@ -1517,6 +1517,7 @@ mod tests {
                     methodology_id: None,
                     methodology_step: Some(2),
                     reference_book_id: None,
+                    strategy_json: None,
                 },
             )
             .expect("set step 2");

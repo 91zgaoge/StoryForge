@@ -1,5 +1,5 @@
 import { loggedInvoke } from '@/services/tauri';
-import type { Story, Character } from '@/types/index';
+import type { Story, Character, SelectedStrategy } from '@/types/index';
 import type {
   WorldBuildingOption,
   CharacterProfileOption,
@@ -16,11 +16,7 @@ export interface WizardData {
   writingStyle: WritingStyleOption;
   firstScene: SceneProposal;
   genreInput: string;
-  selectedStrategy?: {
-    style_dna_ids?: string[];
-    genre_profile_id?: string;
-    methodology_id?: string;
-  };
+  selectedStrategy?: SelectedStrategy;
 }
 
 export interface WizardApplyResult {
@@ -55,6 +51,11 @@ export async function applyWizardToStory(
     style_dna_id: data.selectedStrategy?.style_dna_ids?.[0] ?? story.style_dna_id ?? null,
     genre_profile_id: data.selectedStrategy?.genre_profile_id ?? story.genre_profile_id ?? null,
     methodology_id: data.selectedStrategy?.methodology_id ?? story.methodology_id ?? null,
+    beat_card_ids: data.selectedStrategy?.beat_card_ids ?? null,
+    story_engine_ids: data.selectedStrategy?.story_engine_ids ?? null,
+    pressure_relationship_id: data.selectedStrategy?.pressure_relationship_id ?? null,
+    emotional_payoff: data.selectedStrategy?.emotional_payoff ?? null,
+    conflict_arena: data.selectedStrategy?.conflict_arena ?? null,
     world_building: data.worldBuilding,
     characters: data.characters,
     writing_style: data.writingStyle,

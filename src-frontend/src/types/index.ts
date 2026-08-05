@@ -218,6 +218,11 @@ export interface SelectedStrategy {
   skill_ids: string[];
   workflow_id?: string;
   parameters: Record<string, unknown>;
+  emotional_payoff?: string;
+  pressure_relationship_id?: string;
+  conflict_arena?: string;
+  story_engine_ids?: string[];
+  beat_card_ids?: string[];
 }
 
 export interface StrategySelectionRequest {
