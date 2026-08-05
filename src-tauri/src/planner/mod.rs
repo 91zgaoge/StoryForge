@@ -247,8 +247,10 @@ impl PlanGenerator {
     /// 本方法在咽喉点对所有 `is_prose_request` plan 统一净化：
     /// 1. 移除 `builtin.style_enhancer`/`text_formatter`/`character_voice`/
     ///    `emotion_pacing` 等绝不产出可用正文的技能步骤（产出模板/元文本）。
-    /// 2. 续写（`is_continuation`）塌缩为单 writer
-    ///    步（续写本质单步，多步必为误路由）。
+    /// 2. 续写（`is_continuation`）：`plan_mode=beat`（默认）重建为
+    ///    `beat_planner -> writer` 两步链（planner 资产理解与节拍规划注入
+    ///    writer），`plan_mode=single_writer` 时塌缩为单 writer 步（AppConfig
+    ///    回退开关，保持旧行为）。
     /// 3. 其余 prose 请求（改写/增强等）：弹出尾部非 writer 步骤，保证末步为
     ///    writer （`final_content` = 正文）。保留 `[inspector, writer]` 等 Rule
     ///    9 合法流。
@@ -260,6 +262,7 @@ impl PlanGenerator {
         plan: &mut ExecutionPlan,
         classification: Option<&WritingIntentClassification>,
         context: &PlanContext,
+        plan_mode: &str,
     ) {
         // v0.30.38: 门控扩展--is_continuation 也触发净化（纵深防御）。
         // 此前门控仅检查 is_prose_request，但 LLM 可能省略 is_prose 字段
@@ -282,17 +285,48 @@ impl PlanGenerator {
             );
         }
 
-        // 2. 续写塌缩为单 writer
+        // 2. 续写：plan_mode=beat（默认）生成 beat_planner -> writer 两步链， 让
+        //    planner 资产理解（understanding）与节拍规划注入 writer；
+        //    plan_mode=single_writer 保持旧塌缩行为（AppConfig 回退开关）。
         if cls.is_continuation {
-            if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
+            if plan_mode == "single_writer" {
+                if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
+                    log::warn!(
+                        "[PlanGenerator] Sanitize: collapsing continuation plan ({} steps) to single writer: {}",
+                        plan.steps.len(),
+                        context.user_input
+                    );
+                    plan.steps = vec![Self::make_sanitized_writer_step(context)];
+                    plan.understanding = format!(
+                        "{} [sanitized: continuation collapsed to single writer]",
+                        plan.understanding
+                    );
+                }
+                return;
+            }
+            // beat 模式：已是 [beat_planner, writer] 链则幂等跳过
+            let is_beat_chain = plan.steps.len() == 2
+                && plan.steps[0].capability_id == "beat_planner"
+                && plan.steps[1].capability_id == "writer";
+            if !is_beat_chain {
                 log::warn!(
-                    "[PlanGenerator] Sanitize: collapsing continuation plan ({} steps) to single writer: {}",
+                    "[PlanGenerator] Sanitize: rebuilding continuation plan ({} steps) as beat_planner -> writer chain: {}",
                     plan.steps.len(),
                     context.user_input
                 );
-                plan.steps = vec![Self::make_sanitized_writer_step(context)];
+                let mut writer_step = Self::make_sanitized_writer_step(context);
+                writer_step.depends_on = vec!["beat_planner".to_string()];
+                writer_step.parameters.insert(
+                    "beat_plan".to_string(),
+                    serde_json::Value::String("{{beat_planner}}".to_string()),
+                );
+                writer_step.parameters.insert(
+                    "planner_understanding".to_string(),
+                    serde_json::Value::String(plan.understanding.clone()),
+                );
+                plan.steps = vec![Self::make_beat_planner_step(context), writer_step];
                 plan.understanding = format!(
-                    "{} [sanitized: continuation collapsed to single writer]",
+                    "{} [sanitized: continuation rebuilt as beat_planner -> writer]",
                     plan.understanding
                 );
             }
@@ -361,6 +395,37 @@ impl PlanGenerator {
             parameters: params,
             depends_on: vec![],
             long_running: true,
+        }
+    }
+
+    /// 构造 beat 链首步：beat_planner（单次 LLM 节拍规划，内部可降级，
+    /// 见 PlanExecutor::execute_beat_planner）。long_running=false 使其受
+    /// 90s 步超时约束（execute_beat_planner 内部另有 60s LLM 超时）。
+    fn make_beat_planner_step(context: &PlanContext) -> PlanStep {
+        let mut params = HashMap::new();
+        if let Some(ref story_id) = context.current_story_id {
+            params.insert(
+                "story_id".to_string(),
+                serde_json::Value::String(story_id.clone()),
+            );
+        }
+        params.insert(
+            "instruction".to_string(),
+            serde_json::Value::String(context.user_input.clone()),
+        );
+        if let Some(ref preview) = context.current_content_preview {
+            params.insert(
+                "current_content".to_string(),
+                serde_json::Value::String(preview.clone()),
+            );
+        }
+        PlanStep {
+            step_id: "beat_planner".to_string(),
+            capability_id: "beat_planner".to_string(),
+            purpose: "Beat planner: 规划本节拍的戏剧目标/冲突升级/新元素/伏笔操作".to_string(),
+            parameters: params,
+            depends_on: vec![],
+            long_running: false,
         }
     }
 
@@ -1139,6 +1204,102 @@ mod tests {
         }
     }
 
+    // ---- v0.31 资产融合：beat 链计划结构 ----
+
+    #[test]
+    fn test_sanitize_continuation_rebuilds_beat_chain() {
+        // 续写（is_continuation=true）且 plan_mode=beat：无论 LLM 产出几步，
+        // 净化后必须是 [beat_planner, writer(depends_on beat_planner)] 两步链。
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("继续写当前这部小说", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "writer"),
+            make_step("s2", "inspector"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+            "beat",
+        );
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].step_id, "beat_planner");
+        assert_eq!(plan.steps[0].capability_id, "beat_planner");
+        assert!(plan.steps[0].depends_on.is_empty());
+        assert!(!plan.steps[0].long_running);
+        assert_eq!(plan.steps[1].capability_id, "writer");
+        assert_eq!(plan.steps[1].depends_on, vec!["beat_planner".to_string()]);
+        assert!(plan.steps[1].long_running);
+        // writer 参数携带 beat_planner 输出引用与 planner understanding
+        assert_eq!(
+            plan.steps[1]
+                .parameters
+                .get("beat_plan")
+                .and_then(|v| v.as_str()),
+            Some("{{beat_planner}}")
+        );
+        assert!(plan.steps[1]
+            .parameters
+            .get("planner_understanding")
+            .and_then(|v| v.as_str())
+            .map(|s| s.contains("test plan"))
+            .unwrap_or(false));
+        assert!(plan.understanding.contains("beat_planner -> writer"));
+    }
+
+    #[test]
+    fn test_sanitize_continuation_single_writer_mode_collapses() {
+        // plan_mode=single_writer 回退开关：保持旧塌缩单 writer 行为。
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut plan = make_plan(vec![
+            make_step("s1", "writer"),
+            make_step("s2", "inspector"),
+        ]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+            "single_writer",
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+        assert!(plan.steps[0].depends_on.is_empty());
+        assert!(plan.understanding.contains("collapsed to single writer"));
+    }
+
+    #[test]
+    fn test_sanitize_continuation_beat_chain_idempotent() {
+        // 已是 [beat_planner, writer] 链的 plan 不再重建（幂等）。
+        let cls = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        let ctx = make_sanitize_ctx("继续写", cls);
+        let mut writer = make_step("w", "writer");
+        writer.depends_on = vec!["bp".to_string()];
+        let mut plan = make_plan(vec![make_step("bp", "beat_planner"), writer]);
+        PlanGenerator::sanitize_plan_for_prose_request(
+            &mut plan,
+            ctx.intent_classification.as_ref(),
+            &ctx,
+            "beat",
+        );
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].step_id, "bp");
+        assert_eq!(plan.steps[1].step_id, "w");
+        assert!(!plan.understanding.contains("sanitized"));
+    }
+
     #[test]
     fn test_sanitize_inspector_then_style_enhancer_prose() {
         // v0.30.14 核心回归：用户报告"增强第二章"得到 [inspector, style_enhancer]
@@ -1159,6 +1320,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "beat",
         );
         assert!(!plan.steps.is_empty());
         assert_eq!(plan.steps.last().unwrap().capability_id, "writer");
@@ -1178,6 +1340,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "single_writer",
         );
         // 续写 -> 塌缩单 writer
         assert_eq!(plan.steps.len(), 1);
@@ -1202,6 +1365,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "beat",
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "writer");
@@ -1225,6 +1389,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "beat",
         );
         assert_eq!(plan.steps.len(), 2);
         assert_eq!(plan.steps[0].capability_id, "inspector");
@@ -1244,6 +1409,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "single_writer",
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "writer");
@@ -1259,6 +1425,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "single_writer",
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "writer");
@@ -1287,6 +1454,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "single_writer",
         );
         assert_eq!(plan.steps.len(), 1, "续写多步计划应塌缩为单 writer");
         assert_eq!(plan.steps[0].capability_id, "writer");
@@ -1308,6 +1476,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "beat",
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "inspector");
@@ -1331,6 +1500,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "beat",
         );
         assert_eq!(plan.steps.len(), 2);
         assert_eq!(plan.steps[1].capability_id, "writer");
@@ -1351,6 +1521,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "beat",
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "writer");
@@ -1365,6 +1536,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "single_writer",
         );
         assert_eq!(plan.steps.len(), 1);
         assert_eq!(plan.steps[0].capability_id, "writer");
@@ -1381,7 +1553,7 @@ mod tests {
             "继续写",
             WritingIntentClassification::conservative_fallback(),
         );
-        PlanGenerator::sanitize_plan_for_prose_request(&mut plan, None, &ctx);
+        PlanGenerator::sanitize_plan_for_prose_request(&mut plan, None, &ctx, "beat");
         assert_eq!(plan.steps.len(), 2);
         assert_eq!(plan.steps[1].capability_id, "builtin.style_enhancer");
     }
@@ -1396,6 +1568,7 @@ mod tests {
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
+            "single_writer",
         );
         let w = &plan.steps[0];
         assert_eq!(w.capability_id, "writer");

@@ -1124,6 +1124,15 @@ impl AgentOrchestrator {
         if !progression.is_empty() {
             prompt.push_str(&progression);
         }
+        // v0.31 资产融合：注入 beat_planner 的节拍规划文本（beat 链首步产出，
+        // 经 writer 步骤参数 "beat_plan" -> AgentTask.parameters 透传）。
+        // single_writer 模式或 beat_planner 降级（content 为空）时跳过。
+        if let Some(beat_plan) = task.parameters.get("beat_plan").and_then(|v| v.as_str()) {
+            if !beat_plan.trim().is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(beat_plan);
+            }
+        }
         if !ending_anchor.is_empty() {
             prompt.push_str(&ending_anchor);
         }

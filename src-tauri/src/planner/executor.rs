@@ -346,10 +346,23 @@ impl PlanExecutor {
         // 无法拦截多步 plan 尾部的 style_enhancer/inspector 等非 writer 步骤--而
         // execute_plan 用最后产出 content 的步骤作为 final_content，尾部非 writer
         // 会用模板/报告覆盖 writer 正文（第 5 次复发根因）。净化保证末步为 writer。
+        // v0.31: plan_mode 开关（"beat" 默认 / "single_writer" 回退），
+        // 加载失败回退 "beat" 保持新默认。
+        let plan_mode = {
+            let app_dir = self
+                .app_handle
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            crate::config::AppConfig::load(&app_dir)
+                .map(|c| c.plan_mode)
+                .unwrap_or_else(|_| "beat".to_string())
+        };
         PlanGenerator::sanitize_plan_for_prose_request(
             &mut plan,
             context.intent_classification.as_ref(),
             context,
+            &plan_mode,
         );
 
         // Inject PlanContext information into every step so agents get full context
