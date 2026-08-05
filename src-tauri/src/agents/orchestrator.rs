@@ -1053,18 +1053,15 @@ impl AgentOrchestrator {
                  请直接输出正文，不要写说明、标题或分章标记。"
             )
         };
-        // v0.30.39: 确定性注入剧情推进方向锚点（与 TriShot 路径 execute_trishot
-        // line ~1617 对齐）。根因：build_progression_anchor 此前只在 TriShot 调用，
-        // TimeSliced（默认续写路径）从未调用 -> writer 得到完整大纲但无"已推进进度"
-        // 指针，无法判断当前在故事大纲的哪个节点 -> 续写偏离大纲、不按节点推进。
-        // 本锚点注入：本次创作指令 + 故事大纲(硬约束) + 本章场景大纲(硬约束) +
-        // 已推进进度(最近3章 outline_content) + 世界观规则(硬约束) + 显式调和指令。
+        // 设计第一节：bundle_already_rendered=true——bundle.to_prompt() 已含
+        // 大纲/世界观，锚点只补进度指针与调和指令
         let progression = build_progression_anchor(
             &bundle,
             pool.inner(),
             &task.context.story.story_id,
             chapter_number,
             &user_instruction,
+            true,
         );
         if !progression.is_empty() {
             prompt.push_str(&progression);
@@ -1681,6 +1678,7 @@ impl AgentOrchestrator {
                 &task.context.story.story_id,
                 chapter_number,
                 &task.input,
+                false,
             );
             if !progression.is_empty() {
                 final_prompt.push_str(&progression);
@@ -3765,8 +3763,11 @@ fn build_continuation_context(
 }
 
 /// v0.30.31: 剧情推进方向锚点--确定性注入故事大纲/场景大纲/世界观/已推进进度
-/// 到 TriShot Call3 writer prompt。v0.30.32: 纳入用户本次创作指令并显式调和
-/// 指令与资产（资产=硬约束，指令=创作方向）。
+/// 到 writer prompt。v0.30.32: 纳入用户本次创作指令并显式调和。
+/// 设计第一节（去重）：`bundle_already_rendered = true` 时（TimeSliced 路径，
+/// bundle.to_prompt() 已含 ①b 故事大纲 / ①c 世界观 / ③ 场景大纲同款段落）
+/// 跳过三段硬约束注入，只保留「本次创作指令 + 已推进进度 + 调和指令」；
+/// TriShot 正常路径（synthesized_prompt 不含 bundle 段落）必须传 false。
 ///
 /// 根因：TriShot 正常路径 `final_prompt = Call1 LLM 合成的
 /// synthesized_prompt`， 而 manifest 不含 story_outline、synthesizer 不透传
@@ -3784,6 +3785,7 @@ fn build_progression_anchor(
     story_id: &str,
     chapter_number: i32,
     user_instruction: &str,
+    bundle_already_rendered: bool,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
     let mut has_assets = false;
@@ -3797,28 +3799,32 @@ fn build_progression_anchor(
         ));
     }
 
-    // 故事大纲（前 1200 字）--硬约束
-    if let Some(ref outline) = bundle.story_outline {
-        if !outline.trim().is_empty() {
-            let truncated: String = outline.chars().take(1200).collect();
-            sections.push(format!(
-                "【故事大纲（硬约束：必须围绕展开，禁止偏离）】\n{}",
-                truncated
-            ));
-            has_assets = true;
-        }
-    }
-
-    // 本章场景大纲 outline_content（前 800 字）--硬约束
-    if let Some(ref scene) = bundle.scene_outline {
-        if let Some(ref oc) = scene.outline_content {
-            if !oc.trim().is_empty() {
-                let truncated: String = oc.chars().take(800).collect();
+    // 故事大纲（前 1200 字）--硬约束；bundle 已渲染同款段落时跳过（去重）
+    if !bundle_already_rendered {
+        if let Some(ref outline) = bundle.story_outline {
+            if !outline.trim().is_empty() {
+                let truncated: String = outline.chars().take(1200).collect();
                 sections.push(format!(
-                    "【本章场景大纲（硬约束：必须遵循的章节方向）】\n{}",
+                    "【故事大纲（硬约束：必须围绕展开，禁止偏离）】\n{}",
                     truncated
                 ));
                 has_assets = true;
+            }
+        }
+    }
+
+    // 本章场景大纲 outline_content（前 800 字）--硬约束；同上跳过
+    if !bundle_already_rendered {
+        if let Some(ref scene) = bundle.scene_outline {
+            if let Some(ref oc) = scene.outline_content {
+                if !oc.trim().is_empty() {
+                    let truncated: String = oc.chars().take(800).collect();
+                    sections.push(format!(
+                        "【本章场景大纲（硬约束：必须遵循的章节方向）】\n{}",
+                        truncated
+                    ));
+                    has_assets = true;
+                }
             }
         }
     }
@@ -3834,15 +3840,17 @@ fn build_progression_anchor(
         has_assets = true;
     }
 
-    // 世界观核心规则（前 600 字）--硬约束
-    if let Some(ref world) = bundle.world_setting {
-        if !world.trim().is_empty() {
-            let truncated: String = world.chars().take(600).collect();
-            sections.push(format!(
-                "【世界观核心规则（硬约束：须遵循，违反即严重错误）】\n{}",
-                truncated
-            ));
-            has_assets = true;
+    // 世界观核心规则（前 600 字）--硬约束；同上跳过
+    if !bundle_already_rendered {
+        if let Some(ref world) = bundle.world_setting {
+            if !world.trim().is_empty() {
+                let truncated: String = world.chars().take(600).collect();
+                sections.push(format!(
+                    "【世界观核心规则（硬约束：须遵循，违反即严重错误）】\n{}",
+                    truncated
+                ));
+                has_assets = true;
+            }
         }
     }
 
@@ -3853,7 +3861,11 @@ fn build_progression_anchor(
     // v0.30.32: 显式调和指令与资产。资产=硬约束，指令=创作方向；
     // 在硬约束内落实指令核心意图，冲突时调整指令具体表现以符合约束但保留核心意图。
     let closing = if !directive.is_empty() && has_assets {
-        "\n- 本次创作指令是你的创作方向；故事大纲/场景大纲/世界观/已推进进度是硬约束。须在硬约束内落实指令核心意图--推进到故事大纲下一节点、遵循世界观规则、承接已推进进度。若指令与某硬约束冲突，调整指令的具体表现以符合约束，但保留指令核心意图；不得因约束丢弃指令，也不得因指令违反约束。"
+        if bundle_already_rendered {
+            "\n- 本次创作指令是你的创作方向；上方已注入的故事大纲/场景大纲/世界观是硬约束，已推进进度是承接指针。须在硬约束内落实指令核心意图--推进到故事大纲下一节点、承接已推进进度。若指令与某硬约束冲突，调整指令的具体表现以符合约束，但保留指令核心意图；不得因约束丢弃指令，也不得因指令违反约束。"
+        } else {
+            "\n- 本次创作指令是你的创作方向；故事大纲/场景大纲/世界观/已推进进度是硬约束。须在硬约束内落实指令核心意图--推进到故事大纲下一节点、遵循世界观规则、承接已推进进度。若指令与某硬约束冲突，调整指令的具体表现以符合约束，但保留指令核心意图；不得因约束丢弃指令，也不得因指令违反约束。"
+        }
     } else if !directive.is_empty() {
         "\n- 推进剧情向前发展，不得原地踏步、不得仅复述设定或复述前文。"
     } else {
@@ -5061,7 +5073,7 @@ mod tests {
             Some("本章：主角对峙反派".to_string()),
         );
         let directive = "续写主角揭穿核电站阴谋，但反派设下陷阱";
-        let anchor = build_progression_anchor(&bundle, &pool, &story.id, 3, directive);
+        let anchor = build_progression_anchor(&bundle, &pool, &story.id, 3, directive, false);
         assert!(anchor.contains("剧情推进方向"), "应含推进方向总段");
         assert!(anchor.contains("本次创作指令"), "应含用户指令段");
         assert!(anchor.contains("揭穿核电站阴谋"), "指令段应含用户指令原文");
@@ -5089,7 +5101,7 @@ mod tests {
         // 空 bundle + 无前序场景 + 无指令：无任何可注入段，返回空串（调用方不追加）
         let pool = crate::db::create_test_pool().unwrap();
         let bundle = progression_bundle(None, None, None);
-        let anchor = build_progression_anchor(&bundle, &pool, "no-such-story", 1, "");
+        let anchor = build_progression_anchor(&bundle, &pool, "no-such-story", 1, "", false);
         assert!(anchor.is_empty(), "空 bundle 无 scenes 无指令应返回空串");
     }
 
@@ -5099,8 +5111,14 @@ mod tests {
         // 边界：无资产时不出现"硬约束调和"语句，仅推进剧情约束。
         let pool = crate::db::create_test_pool().unwrap();
         let bundle = progression_bundle(None, None, None);
-        let anchor =
-            build_progression_anchor(&bundle, &pool, "no-such-story", 1, "续写主角逃离险境");
+        let anchor = build_progression_anchor(
+            &bundle,
+            &pool,
+            "no-such-story",
+            1,
+            "续写主角逃离险境",
+            false,
+        );
         assert!(!anchor.is_empty(), "仅有指令无资产应注入指令段");
         assert!(anchor.contains("本次创作指令"), "应含用户指令段");
         assert!(anchor.contains("逃离险境"), "指令段应含原文");
@@ -5111,6 +5129,71 @@ mod tests {
         assert!(
             !anchor.contains("在硬约束内落实指令核心意图"),
             "无资产时不应含硬约束调和语句"
+        );
+    }
+
+    #[test]
+    fn test_build_progression_anchor_dedup_when_bundle_rendered() {
+        // 设计第一节：TimeSliced 路径 bundle.to_prompt() 已含故事大纲/场景大纲/
+        // 世界观段落，锚点不再重复注入，只保留指令 + 已推进进度 + 调和指令。
+        let pool = crate::db::create_test_pool().unwrap();
+        use crate::db::{
+            dto::CreateStoryRequest,
+            repositories::{SceneRepository, SceneUpdate, StoryRepository},
+        };
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "测试书".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let s1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &s1.id,
+                &SceneUpdate {
+                    outline_content: Some("主角抵达首尔，遭遇伏击".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let bundle = progression_bundle(
+            Some("1. 首尔暗战\n2. 核电站阴谋\n3. 真相对决".to_string()),
+            Some("世界规则：核能受严格管控".to_string()),
+            Some("本章：主角对峙反派".to_string()),
+        );
+        let anchor = build_progression_anchor(
+            &bundle,
+            &pool,
+            &story.id,
+            2,
+            "续写主角揭穿核电站阴谋，但反派设下陷阱",
+            true,
+        );
+        assert!(anchor.contains("剧情推进方向"), "应含推进方向总段");
+        assert!(anchor.contains("本次创作指令"), "应含用户指令段");
+        assert!(anchor.contains("已推进进度"), "应保留已推进进度段");
+        assert!(
+            anchor.contains("遭遇伏击"),
+            "进度应含第一章 outline_content"
+        );
+        assert!(
+            !anchor.contains("故事大纲（硬约束"),
+            "bundle 已渲染时不再重复注入故事大纲"
+        );
+        assert!(
+            !anchor.contains("本章场景大纲（硬约束"),
+            "bundle 已渲染时不再重复注入场景大纲"
+        );
+        assert!(
+            !anchor.contains("世界观核心规则（硬约束"),
+            "bundle 已渲染时不再重复注入世界观"
         );
     }
 }
