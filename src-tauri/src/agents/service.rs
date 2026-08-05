@@ -1876,55 +1876,47 @@ impl AgentService {
         // 注入写作策略约束
         emit_and_yield("正在注入写作策略约束...", 0.165);
         if let Some(ref ws) = strategy {
-            let mut strategy_lines = Vec::new();
+            let mut strategy_lines: Vec<String> = Vec::new();
 
             if ws.run_mode == "fast" {
-                strategy_lines.push("运行模式：快速生成。允许较快的叙事推进，注重效率。");
+                strategy_lines
+                    .push("运行模式：快速生成。允许较快的叙事推进，注重效率。".to_string());
             } else if ws.run_mode == "polish" {
-                strategy_lines
-                    .push("运行模式：精修生成。注重文字质量，每句都需斟酌，允许较慢的推进速度。");
+                strategy_lines.push(
+                    "运行模式：精修生成。注重文字质量，每句都需斟酌，允许较慢的推进速度。"
+                        .to_string(),
+                );
             }
 
-            if ws.conflict_level >= 80 {
-                strategy_lines
-                    .push("冲突强度：极高。每 500 字至少设置一次冲突或张力，保持高度紧张感。");
-            } else if ws.conflict_level >= 60 {
-                strategy_lines.push("冲突强度：高。保持频繁的冲突和对抗，推动情节快速展开。");
-            } else if ws.conflict_level >= 40 {
-                strategy_lines.push("冲突强度：中等。适度安排冲突，兼顾人物发展和情节推进。");
-            } else if ws.conflict_level >= 20 {
-                strategy_lines.push("冲突强度：低。以人物内心和情感为主，减少外部冲突。");
-            } else {
-                strategy_lines.push("冲突强度：极低。以平和、抒情、描写为主，避免剧烈冲突。");
-            }
-
-            if ws.pace == "fast" {
-                strategy_lines
-                    .push("叙事节奏：快。减少环境描写和冗余叙述，增加动作和对话，快速推进情节。");
-            } else if ws.pace == "slow" {
-                strategy_lines.push("叙事节奏：慢。允许细腻的环境描写和心理刻画，注重氛围营造。");
-            } else {
-                strategy_lines.push("叙事节奏：均衡。动作与描写交替，保持适度的推进速度。");
-            }
+            // 冲突强度 + 叙事节奏分档文案下沉为共享函数（TimeSliced 双路复用）
+            strategy_lines.push(
+                crate::agents::writer_assets::writing_constraints_semantic_text(
+                    ws.conflict_level as f64,
+                    crate::agents::writer_assets::pace_to_factor(&ws.pace),
+                ),
+            );
 
             if ws.ai_freedom == "low" {
                 strategy_lines.push(
                     "AI 自由度：低。严格遵循已有设定和大纲，不得偏离世界观或人物设定，\
-                     不得擅自引入新元素。",
+                     不得擅自引入新元素。"
+                        .to_string(),
                 );
             } else if ws.ai_freedom == "high" {
                 strategy_lines.push(
-                    "AI 自由度：高。在保持整体方向一致的前提下，允许创新情节发展和意外转折。",
+                    "AI 自由度：高。在保持整体方向一致的前提下，允许创新情节发展和意外转折。"
+                        .to_string(),
                 );
             } else {
-                strategy_lines
-                    .push("AI 自由度：中。遵循核心设定，但在细节和情节展开上有一定发挥空间。");
+                strategy_lines.push(
+                    "AI 自由度：中。遵循核心设定，但在细节和情节展开上有一定发挥空间。".to_string(),
+                );
             }
 
             if !strategy_lines.is_empty() {
                 let mut section = "【写作策略约束】\n".to_string();
                 for line in strategy_lines {
-                    section.push_str(line);
+                    section.push_str(&line);
                     section.push('\n');
                 }
                 system_chunks.push(ContextChunk::new(
@@ -1963,11 +1955,11 @@ impl AgentService {
                         }
                     }
                 }
-                if let Some(reference_tables) = &profile.reference_tables_json {
-                    lines.push(format!("元素参考表：\n{}", reference_tables));
-                }
-                if let Some(typical_structure) = &profile.typical_structure_json {
-                    lines.push(format!("典型结构参考：\n{}", typical_structure));
+                if let Some(tables) = crate::agents::writer_assets::format_genre_reference_tables(
+                    &profile,
+                    usize::MAX,
+                ) {
+                    lines.push(tables);
                 }
                 if !lines.is_empty() {
                     system_chunks.push(ContextChunk::new(
@@ -2333,6 +2325,28 @@ impl AgentService {
         emit_and_yield("正在读取故事与场景数据...", 0.187);
         tokio::task::yield_now().await;
 
+        // 活跃冲突与角色状态段落复用共享函数（TimeSliced bundle 双路复用）；
+        // usize::MAX = 不截断，与原内联行为一致。同步 SQLite 聚合移入 spawn_blocking。
+        let pool_for_assets = self.pool.clone();
+        let story_id_for_assets = ctx.story.story_id.clone();
+        let (active_conflicts_text, character_goals_text) =
+            tokio::task::spawn_blocking(move || {
+                (
+                    crate::agents::writer_assets::format_active_conflicts(
+                        &pool_for_assets,
+                        &story_id_for_assets,
+                        usize::MAX,
+                    ),
+                    crate::agents::writer_assets::format_character_goals(
+                        &pool_for_assets,
+                        &story_id_for_assets,
+                        usize::MAX,
+                    ),
+                )
+            })
+            .await
+            .unwrap_or((None, None));
+
         let mut snapshot_parts = Vec::new();
         if let Some(snapshot) = snapshot {
             emit_and_yield("正在注入叙事阶段指导...", 0.188);
@@ -2342,18 +2356,9 @@ impl AgentService {
             ));
             tokio::task::yield_now().await;
 
-            if !snapshot.story_context.active_conflicts.is_empty() {
+            if let Some(ref text) = active_conflicts_text {
                 emit_and_yield("正在注入活跃冲突信息...", 0.189);
-                let mut lines = vec!["【当前活跃冲突】".to_string()];
-                for conflict in &snapshot.story_context.active_conflicts {
-                    lines.push(format!(
-                        "- {}: 涉及 {}, 赌注: {}",
-                        conflict.conflict_type,
-                        conflict.parties.join(", "),
-                        conflict.stakes
-                    ));
-                }
-                snapshot_parts.push(lines.join("\n"));
+                snapshot_parts.push(text.clone());
                 tokio::task::yield_now().await;
             }
 
@@ -2383,30 +2388,9 @@ impl AgentService {
                 tokio::task::yield_now().await;
             }
 
-            if !snapshot.character_states.is_empty() {
+            if let Some(ref text) = character_goals_text {
                 emit_and_yield("正在注入角色当前状态...", 0.192);
-                let mut lines = vec!["【角色当前状态】".to_string()];
-                for cs in &snapshot.character_states {
-                    let mut parts = vec![format!("{}:", cs.name)];
-                    if let Some(ref loc) = cs.current_location {
-                        parts.push(format!("位置: {}", loc));
-                    }
-                    if let Some(ref emo) = cs.current_emotion {
-                        parts.push(format!("情绪: {}", emo));
-                    }
-                    if let Some(ref goal) = cs.active_goal {
-                        parts.push(format!("目标: {}", goal));
-                    }
-                    if !cs.secrets_known.is_empty() {
-                        parts.push(format!("已知秘密: {}", cs.secrets_known.join(", ")));
-                    }
-                    if !cs.secrets_unknown.is_empty() {
-                        parts.push(format!("未知秘密: {}", cs.secrets_unknown.join(", ")));
-                    }
-                    parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
-                    lines.push(format!("- {}", parts.join(" ")));
-                }
-                snapshot_parts.push(lines.join("\n"));
+                snapshot_parts.push(text.clone());
                 tokio::task::yield_now().await;
             }
         }

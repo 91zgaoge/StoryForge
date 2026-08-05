@@ -1,0 +1,352 @@
+//! Writer 资产段落组装共享函数
+//!
+//! 从 Full 路径（`agents/service.rs` 的 `build_writer_prompt`）下沉的段落组装
+//! 逻辑，供 Full 路径与 TimeSliced（WriteTimeBundle）双路复用。
+//! 全部为同步函数：内部只做本地 SQLite 聚合，异步调用方须用
+//! `tokio::task::spawn_blocking` 包裹。
+
+/// 按字符数截断；`usize::MAX` 等价不截断（保持 Full 路径原行为）。
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}…（已截断）", truncated)
+    }
+}
+
+/// 当前活跃冲突段落（原 service.rs:2345-2357 内联逻辑下沉）。
+/// 无活跃冲突或快照加载失败返回 None。
+pub(crate) fn format_active_conflicts(
+    pool: &crate::db::DbPool,
+    story_id: &str,
+    budget_chars: usize,
+) -> Option<String> {
+    let snapshot = crate::canonical_state::CanonicalStateManager::new(pool.clone())
+        .get_snapshot_sync(story_id)
+        .map_err(|e| {
+            log::warn!(
+                "[writer_assets] 快照加载失败(active_conflicts, {}): {}",
+                story_id,
+                e
+            )
+        })
+        .ok()?;
+    let conflicts = &snapshot.story_context.active_conflicts;
+    if conflicts.is_empty() {
+        return None;
+    }
+    let mut lines = vec!["【当前活跃冲突】".to_string()];
+    for conflict in conflicts {
+        lines.push(format!(
+            "- {}: 涉及 {}, 赌注: {}",
+            conflict.conflict_type,
+            conflict.parties.join(", "),
+            conflict.stakes
+        ));
+    }
+    Some(truncate_chars(&lines.join("\n"), budget_chars))
+}
+
+/// 角色当前状态（目标/弧光/秘密）段落（原 service.rs:2386-2411 内联逻辑下沉）。
+/// 每个角色行按 per_char_budget 截断；无角色状态返回 None。
+pub(crate) fn format_character_goals(
+    pool: &crate::db::DbPool,
+    story_id: &str,
+    per_char_budget: usize,
+) -> Option<String> {
+    let snapshot = crate::canonical_state::CanonicalStateManager::new(pool.clone())
+        .get_snapshot_sync(story_id)
+        .map_err(|e| {
+            log::warn!(
+                "[writer_assets] 快照加载失败(character_goals, {}): {}",
+                story_id,
+                e
+            )
+        })
+        .ok()?;
+    if snapshot.character_states.is_empty() {
+        return None;
+    }
+    let mut lines = vec!["【角色当前状态】".to_string()];
+    for cs in &snapshot.character_states {
+        let mut parts = vec![format!("{}:", cs.name)];
+        if let Some(ref loc) = cs.current_location {
+            parts.push(format!("位置: {}", loc));
+        }
+        if let Some(ref emo) = cs.current_emotion {
+            parts.push(format!("情绪: {}", emo));
+        }
+        if let Some(ref goal) = cs.active_goal {
+            parts.push(format!("目标: {}", goal));
+        }
+        if !cs.secrets_known.is_empty() {
+            parts.push(format!("已知秘密: {}", cs.secrets_known.join(", ")));
+        }
+        if !cs.secrets_unknown.is_empty() {
+            parts.push(format!("未知秘密: {}", cs.secrets_unknown.join(", ")));
+        }
+        parts.push(format!("弧光进度: {:.0}%", cs.arc_progress * 100.0));
+        lines.push(format!(
+            "- {}",
+            truncate_chars(&parts.join(" "), per_char_budget)
+        ));
+    }
+    Some(lines.join("\n"))
+}
+
+/// 体裁元素参考表 + 典型结构段落（原 service.rs:1966-1971 内联逻辑下沉）。
+/// 两者皆空返回 None。
+pub(crate) fn format_genre_reference_tables(
+    profile: &crate::db::GenreProfile,
+    budget_chars: usize,
+) -> Option<String> {
+    let mut lines = Vec::new();
+    if let Some(reference_tables) = &profile.reference_tables_json {
+        if !reference_tables.trim().is_empty() {
+            lines.push(format!("元素参考表：\n{}", reference_tables));
+        }
+    }
+    if let Some(typical_structure) = &profile.typical_structure_json {
+        if !typical_structure.trim().is_empty() {
+            lines.push(format!("典型结构参考：\n{}", typical_structure));
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(truncate_chars(&lines.join("\n"), budget_chars))
+    }
+}
+
+/// `WritingStrategy.pace` 字符串 → 节奏因子（fast=1.5 / slow=0.5 / 其他=1.0）。
+pub(crate) fn pace_to_factor(pace: &str) -> f64 {
+    match pace {
+        "fast" => 1.5,
+        "slow" => 0.5,
+        _ => 1.0,
+    }
+}
+
+/// 冲突强度 + 叙事节奏的分档语义文案
+/// （原 service.rs:1888-1899 冲突五档 + 1901-1908 节奏三档下沉）。
+///
+/// `conflict_intensity` 沿用 `WritingStrategy.conflict_level` 的 0-100 刻度；
+/// `pacing_factor` 由 `pace_to_factor` 映射，>=1.2 判快、<=0.8 判慢。
+pub(crate) fn writing_constraints_semantic_text(
+    conflict_intensity: f64,
+    pacing_factor: f64,
+) -> String {
+    let conflict_line = if conflict_intensity >= 80.0 {
+        "冲突强度：极高。每 500 字至少设置一次冲突或张力，保持高度紧张感。"
+    } else if conflict_intensity >= 60.0 {
+        "冲突强度：高。保持频繁的冲突和对抗，推动情节快速展开。"
+    } else if conflict_intensity >= 40.0 {
+        "冲突强度：中等。适度安排冲突，兼顾人物发展和情节推进。"
+    } else if conflict_intensity >= 20.0 {
+        "冲突强度：低。以人物内心和情感为主，减少外部冲突。"
+    } else {
+        "冲突强度：极低。以平和、抒情、描写为主，避免剧烈冲突。"
+    };
+    let pacing_line = if pacing_factor >= 1.2 {
+        "叙事节奏：快。减少环境描写和冗余叙述，增加动作和对话，快速推进情节。"
+    } else if pacing_factor <= 0.8 {
+        "叙事节奏：慢。允许细腻的环境描写和心理刻画，注重氛围营造。"
+    } else {
+        "叙事节奏：均衡。动作与描写交替，保持适度的推进速度。"
+    };
+    format!("{}\n{}", conflict_line, pacing_line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        connection::create_test_pool,
+        repositories::{CharacterRepository, SceneRepository, SceneUpdate, StoryRepository},
+        CharacterConflict, CreateCharacterRequest, CreateStoryRequest,
+    };
+
+    fn block_on<F>(f: F) -> F::Output
+    where
+        F: std::future::Future,
+    {
+        tokio::runtime::Runtime::new().unwrap().block_on(f)
+    }
+
+    fn seed_story(pool: &crate::db::DbPool) -> crate::db::Story {
+        StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "测试故事".to_string(),
+                description: None,
+                genre: Some("奇幻".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+    }
+
+    // ---- format_active_conflicts ----
+
+    #[test]
+    fn format_active_conflicts_with_conflicts() {
+        let pool = create_test_pool().unwrap();
+        let story = seed_story(&pool);
+        let scene_repo = SceneRepository::new(pool.clone());
+        let scene = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+        scene_repo
+            .update(
+                &scene.id,
+                &SceneUpdate {
+                    character_conflicts: Some(vec![CharacterConflict {
+                        character_a_id: "张三".to_string(),
+                        character_b_id: "李四".to_string(),
+                        conflict_nature: "杀父之仇".to_string(),
+                        stakes: "家族存亡".to_string(),
+                    }]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let text = format_active_conflicts(&pool, &story.id, 600).expect("有资产应输出段落");
+        assert!(text.contains("【当前活跃冲突】"));
+        assert!(text.contains("杀父之仇"));
+        assert!(text.contains("家族存亡"));
+        assert!(text.contains("张三"));
+    }
+
+    #[test]
+    fn format_active_conflicts_empty_returns_none() {
+        let pool = create_test_pool().unwrap();
+        let story = seed_story(&pool);
+        assert!(format_active_conflicts(&pool, &story.id, 600).is_none());
+        // 故事不存在（快照聚合失败）同样返回 None，不 panic
+        assert!(format_active_conflicts(&pool, "no-such-story", 600).is_none());
+    }
+
+    // ---- format_character_goals ----
+
+    #[test]
+    fn format_character_goals_with_states() {
+        let pool = create_test_pool().unwrap();
+        let story = seed_story(&pool);
+        let char_repo = CharacterRepository::new(pool.clone());
+        let character = char_repo
+            .create(CreateCharacterRequest {
+                story_id: story.id.clone(),
+                name: "张三".to_string(),
+                background: Some("主角".to_string()),
+                personality: None,
+                goals: None,
+                appearance: None,
+                gender: None,
+                age: None,
+                source: None,
+                is_auto_generated: None,
+            })
+            .unwrap();
+        let manager = crate::canonical_state::CanonicalStateManager::new(pool.clone());
+        block_on(manager.update_character_state(
+            &story.id,
+            &character.id,
+            crate::canonical_state::CharacterStateSnapshot {
+                character_id: character.id.clone(),
+                name: "张三".to_string(),
+                current_location: Some("京城".to_string()),
+                current_emotion: None,
+                active_goal: Some("复仇".to_string()),
+                secrets_known: vec![],
+                secrets_unknown: vec!["身世之谜".to_string()],
+                arc_progress: 0.5,
+            },
+        ))
+        .unwrap();
+        let text = format_character_goals(&pool, &story.id, 200).expect("有资产应输出段落");
+        assert!(text.contains("【角色当前状态】"));
+        assert!(text.contains("目标: 复仇"));
+        assert!(text.contains("未知秘密: 身世之谜"));
+        assert!(text.contains("弧光进度: 50%"));
+    }
+
+    #[test]
+    fn format_character_goals_empty_returns_none() {
+        let pool = create_test_pool().unwrap();
+        let story = seed_story(&pool);
+        // 故事无角色 → character_states 为空 → None
+        assert!(format_character_goals(&pool, &story.id, 200).is_none());
+    }
+
+    // ---- format_genre_reference_tables ----
+
+    fn test_profile(
+        reference_tables: Option<String>,
+        typical_structure: Option<String>,
+    ) -> crate::db::GenreProfile {
+        crate::db::GenreProfile {
+            id: "gp1".to_string(),
+            genre_name: "玄幻".to_string(),
+            canonical_name: "Fantasy".to_string(),
+            aliases_json: None,
+            core_tone: None,
+            pacing_strategy: None,
+            anti_patterns_json: None,
+            reference_tables_json: reference_tables,
+            typical_structure_json: typical_structure,
+            reader_promise: None,
+            recommended_style_dna_ids: None,
+            recommended_methodology_id: None,
+            recommended_skill_ids: None,
+            min_quality_tier: None,
+            is_builtin: true,
+            created_at: chrono::Local::now(),
+        }
+    }
+
+    #[test]
+    fn format_genre_reference_tables_with_assets() {
+        let profile = test_profile(
+            Some("境界体系：炼气-筑基-金丹".to_string()),
+            Some("起承转合四幕".to_string()),
+        );
+        let text = format_genre_reference_tables(&profile, 800).expect("有资产应输出段落");
+        assert!(text.contains("元素参考表："));
+        assert!(text.contains("炼气-筑基-金丹"));
+        assert!(text.contains("典型结构参考："));
+        assert!(text.contains("起承转合四幕"));
+    }
+
+    #[test]
+    fn format_genre_reference_tables_empty_returns_none() {
+        let profile = test_profile(None, None);
+        assert!(format_genre_reference_tables(&profile, 800).is_none());
+        let blank = test_profile(Some("  ".to_string()), None);
+        assert!(format_genre_reference_tables(&blank, 800).is_none());
+    }
+
+    // ---- writing_constraints_semantic_text ----
+
+    #[test]
+    fn writing_constraints_semantic_conflict_tiers() {
+        assert!(writing_constraints_semantic_text(90.0, 1.0).contains("冲突强度：极高"));
+        assert!(writing_constraints_semantic_text(70.0, 1.0).contains("冲突强度：高。"));
+        assert!(writing_constraints_semantic_text(50.0, 1.0).contains("冲突强度：中等"));
+        assert!(writing_constraints_semantic_text(30.0, 1.0).contains("冲突强度：低。"));
+        assert!(writing_constraints_semantic_text(10.0, 1.0).contains("冲突强度：极低"));
+    }
+
+    #[test]
+    fn writing_constraints_semantic_pacing_tiers() {
+        assert!(writing_constraints_semantic_text(50.0, 1.5).contains("叙事节奏：快"));
+        assert!(writing_constraints_semantic_text(50.0, 0.5).contains("叙事节奏：慢"));
+        assert!(writing_constraints_semantic_text(50.0, 1.0).contains("叙事节奏：均衡"));
+    }
+
+    #[test]
+    fn pace_to_factor_mapping() {
+        assert_eq!(pace_to_factor("fast"), 1.5);
+        assert_eq!(pace_to_factor("slow"), 0.5);
+        assert_eq!(pace_to_factor("normal"), 1.0);
+    }
+}
