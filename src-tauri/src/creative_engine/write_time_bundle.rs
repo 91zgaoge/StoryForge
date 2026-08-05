@@ -576,8 +576,9 @@ impl WriteTimeBundle {
         // 醒目且不破坏 红线第一的不变量。
         if let Some(ref outline) = self.story_outline {
             sections.push(format!(
-                "【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】\n{}\n（若下方「本场景任务」与此大纲冲突，以本故事大纲为准，并使用已登场角色，禁止自创新角色。）",
-                outline
+                "【故事大纲（本场景必须围绕此大纲展开，禁止偏离）】\n{}\n（若下方「本场景任务」与此大纲冲突，以本故事大纲为准。{}）",
+                outline,
+                new_character_policy_text(self.narrative_phase_guidance.as_deref())
             ));
         }
 
@@ -979,6 +980,21 @@ pub fn resolve_methodology_extension(methodology_id: &str, step: i32) -> Option<
         step
     );
     None
+}
+
+/// v0.31.0: 阶段感知的新角色策略（替代旧「禁止自创新角色」一刀切文案）。
+///
+/// 依据【叙事阶段】指导文本判定扩张/收敛取向；底线恒定：新角色必须有
+/// 明确叙事功能、不得违反世界观红线（MASTER_SETTING）。
+pub(crate) fn new_character_policy_text(narrative_phase_guidance: Option<&str>) -> &'static str {
+    const EXPANSION: &str = "若当前处于开篇/发展期，允许引入具有明确叙事功能的新角色（推动冲突、揭示世界观或制造转折），允许合理切换场景、推动冲突升级；新角色必须服务于本场景戏剧目标，不得违反上述世界观红线与故事大纲。";
+    const CONVERGENCE: &str = "当前处于高潮/收尾期：聚焦既有角色与既有冲突的爆发与收束，不引入新的重要角色，优先回收伏笔、推进故事大纲的下一节点。";
+    match narrative_phase_guidance {
+        Some(g) if g.contains("高潮期") || g.contains("收尾期") || g.contains("冲突激化期") => {
+            CONVERGENCE
+        }
+        _ => EXPANSION,
+    }
 }
 
 /// v0.23.59: 将 `WritingStrategy` 格式化为写作策略约束提示文本。
@@ -1515,6 +1531,23 @@ mod tests {
             "标签应来自 md frontmatter name: {}",
             ext
         );
+    }
+
+    #[test]
+    fn test_new_character_policy_phase_aware() {
+        // 发展期：允许有叙事功能的新角色
+        let dev = new_character_policy_text(Some("当前叙事阶段：上升期。请逐步升级冲突……"));
+        assert!(dev.contains("允许引入具有明确叙事功能的新角色"));
+        // 高潮期：收敛
+        let climax = new_character_policy_text(Some("当前叙事阶段：高潮期。请保持紧张节奏……"));
+        assert!(climax.contains("不引入新的重要角色"));
+        // 冲突激化期同样收敛
+        assert!(
+            new_character_policy_text(Some("当前叙事阶段：冲突激化期。"))
+                .contains("不引入新的重要角色")
+        );
+        // 无阶段信息：默认发展期（扩张取向，替代旧「禁止自创新角色」一刀切）
+        assert!(new_character_policy_text(None).contains("允许引入"));
     }
 
     #[test]

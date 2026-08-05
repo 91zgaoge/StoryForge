@@ -1034,6 +1034,8 @@ impl AgentOrchestrator {
 
         // v0.23.59: 从用户配置读取写作策略，覆盖 load_sync 写入的默认策略约束，
         // 用户在后台设置调整的策略在 TimeSliced 续写路径生效。
+        // v0.31.0: 续写目标字数范围（默认 2000 → 1400-2600），供模板渲染
+        let mut target_words_range = "1400-2600".to_string();
         match self.app_handle.path().app_data_dir() {
             Ok(app_dir) => match crate::config::AppConfig::load(&app_dir) {
                 Ok(cfg) => {
@@ -1042,6 +1044,8 @@ impl AgentOrchestrator {
                                 &cfg.writing_strategy,
                             ),
                         );
+                    let (lo, hi) = cfg.continuation_target_words_range();
+                    target_words_range = format!("{}-{}", lo, hi);
                 }
                 Err(e) => {
                     log::warn!(
@@ -1095,10 +1099,11 @@ impl AgentOrchestrator {
             vars.insert("context".to_string(), bundle_prompt.clone());
             vars.insert("instruction".to_string(), user_instruction.clone());
             vars.insert("continuation".to_string(), continuation_ctx.clone());
+            vars.insert("target_words_range".to_string(), target_words_range.clone());
             crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars)
         } else {
             format!(
-                "你是一名专业的小说作者。请根据以下设定写一段正文（800-1500字）。\n\n\
+                "你是一名专业的小说作者。请根据以下设定写一段正文（{target_words_range}字）。\n\n\
                  {bundle_prompt}\n\n\
                  {continuation_ctx}\n\n\
                  【创作指令】\n{user_instruction}\n\n\
@@ -5265,5 +5270,24 @@ mod tests {
             !anchor.contains("世界观核心规则（硬约束"),
             "bundle 已渲染时不再重复注入世界观"
         );
+    }
+
+    #[test]
+    fn test_timesliced_writer_template_renders_target_words_range() {
+        let tpl =
+            crate::prompts::registry::resolve_prompt_default("orchestrator_timesliced_writer")
+                .expect("timesliced writer template");
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("context".to_string(), "CTX".to_string());
+        vars.insert("instruction".to_string(), "INS".to_string());
+        vars.insert("continuation".to_string(), "CONT".to_string());
+        vars.insert("target_words_range".to_string(), "1400-2600".to_string());
+        let rendered = crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
+        assert!(
+            rendered.contains("1400-2600字"),
+            "字数范围应渲染进模板: {}",
+            rendered
+        );
+        assert!(!rendered.contains("800-1500"), "旧硬编码字数应已移除");
     }
 }

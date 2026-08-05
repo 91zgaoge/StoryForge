@@ -336,6 +336,14 @@ pub struct AppConfig {
     /// 默认 4096；可通过配置文件/前端设置调整，无需重新编译。
     #[serde(default = "default_writer_max_tokens")]
     pub writer_max_tokens: i32,
+    /// v0.31.0: 续写单次目标字数（中文「字」，默认 2000）。
+    /// `orchestrator_timesliced_writer` 模板按 0.7x-1.3x 渲染目标字数范围。
+    #[serde(default = "default_continuation_target_words")]
+    pub continuation_target_words: u32,
+    /// v0.31.0: 续写计划模式 — `beat`（默认，beat 驱动多步计划）或
+    /// `single_writer`（旧单 writer 步回退开关）。后续计划结构重构任务消费。
+    #[serde(default = "default_plan_mode")]
+    pub plan_mode: String,
     /// v0.15.5: 超时配置（可从前端设置调整，无需重新编译）
     #[serde(default = "default_llm_connect_timeout")]
     pub llm_connect_timeout_secs: u64,
@@ -360,6 +368,14 @@ pub struct AppConfig {
 
 fn default_generation_mode() -> String {
     "auto".to_string()
+}
+
+fn default_continuation_target_words() -> u32 {
+    2000
+}
+
+fn default_plan_mode() -> String {
+    "beat".to_string()
 }
 
 /// v0.23 TriShot BGP-2：后台自动改写严重度阈值默认值。
@@ -1074,6 +1090,8 @@ impl Default for AppConfig {
             generation_mode: default_generation_mode(),
             auto_rewrite_severity_threshold: default_auto_rewrite_severity_threshold(),
             writer_max_tokens: default_writer_max_tokens(),
+            continuation_target_words: default_continuation_target_words(),
+            plan_mode: default_plan_mode(),
             llm_connect_timeout_secs: default_llm_connect_timeout(),
             smart_execute_total_timeout_secs: default_smart_execute_timeout(),
             executor_step_timeout_secs: default_executor_step_timeout(),
@@ -1447,6 +1465,15 @@ impl AppConfig {
         self.continuation_temperature
     }
 
+    /// v0.31.0: 续写目标字数范围（0.7x-1.3x），供 writer 模板渲染。
+    pub fn continuation_target_words_range(&self) -> (u32, u32) {
+        let t = self.continuation_target_words.max(100);
+        (
+            (t as f32 * 0.7).round() as u32,
+            (t as f32 * 1.3).round() as u32,
+        )
+    }
+
     /// v0.23.66: 获取工具任务（路由/JSON提取）温度覆盖值
     pub fn tool_temperature(&self) -> Option<f32> {
         self.tool_temperature
@@ -1606,3 +1633,37 @@ impl AppConfig {
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod settings_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// v0.31.0: 旧配置（无新字段）反序列化时 serde default 兜底。
+    /// 注意：AppConfig.llm 无 serde default，测试 JSON 必须带完整 llm 对象。
+    #[test]
+    fn test_continuation_target_words_and_plan_mode_defaults() {
+        let json = r#"{
+            "llm": {"provider": "openai", "api_key": "", "model": "gpt-4",
+                    "api_base": null, "max_tokens": 2500, "temperature": 0.8}
+        }"#;
+        let cfg: AppConfig = serde_json::from_str(json).expect("旧配置应可反序列化");
+        assert_eq!(cfg.continuation_target_words, 2000);
+        assert_eq!(cfg.plan_mode, "beat");
+    }
+
+    #[test]
+    fn test_continuation_target_words_range_render() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.continuation_target_words_range(), (1400, 2600));
+
+        let json = r#"{
+            "llm": {"provider": "openai", "api_key": "", "model": "gpt-4",
+                    "api_base": null, "max_tokens": 2500, "temperature": 0.8},
+            "continuation_target_words": 1000,
+            "plan_mode": "single_writer"
+        }"#;
+        let cfg: AppConfig = serde_json::from_str(json).expect("新字段应可配置");
+        assert_eq!(cfg.continuation_target_words_range(), (700, 1300));
+        assert_eq!(cfg.plan_mode, "single_writer");
+    }
+}
