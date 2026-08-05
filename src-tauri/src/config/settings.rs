@@ -332,8 +332,10 @@ pub struct AppConfig {
     #[serde(default = "default_auto_rewrite_severity_threshold")]
     pub auto_rewrite_severity_threshold: String,
     /// v0.30.46: Writer/续写生成时请求 LLM 的最大 token 数。
-    /// 推理模型（DeepSeek 等）的 CoT 可能很长，若正文返回为空可适当调大。
-    /// 默认 4096；可通过配置文件/前端设置调整，无需重新编译。
+    /// `<= 0`（默认 0）表示自动推导：按续写目标字数范围上限（1.3x）×2 计算，
+    /// 并以 4096 为下限——推理模型（DeepSeek 等）的 CoT 可能消耗
+    /// 1500-2500 token，需为正文保留足够预算。`> 0` 为用户显式覆盖，原样使用。
+    /// 可通过配置文件/前端设置调整，无需重新编译。
     #[serde(default = "default_writer_max_tokens")]
     pub writer_max_tokens: i32,
     /// v0.31.0: 续写单次目标字数（中文「字」，默认 2000）。
@@ -384,10 +386,25 @@ fn default_auto_rewrite_severity_threshold() -> String {
 }
 
 /// v0.30.46: Writer/续写生成默认最大 token 数。
-/// 推理模型（DeepSeek 等）CoT 可能消耗 1500-2500 token，
-/// 4096 为正文保留约 1500-2500 token 预算。
+/// 0 表示自动推导（见 `effective_writer_max_tokens`）：按续写目标字数
+/// 动态计算，避免固定值截断长章节。
 fn default_writer_max_tokens() -> i32 {
-    4096
+    0
+}
+
+/// Writer/续写生成的有效 max_tokens。
+/// - `configured > 0`：用户显式覆盖，原样返回；
+/// - `configured <= 0`：自动推导为 `max(4096, 目标字数范围上限 × 2)`， 其中上限
+///   = `target_words.max(100) × 1.3`（与 `continuation_target_words_range`
+///   一致）；4096 下限为推理模型 （DeepSeek 等）CoT 可能消耗的 1500-2500 token
+///   保留正文预算。
+pub fn effective_writer_max_tokens(configured: i32, target_words: u32) -> i32 {
+    if configured > 0 {
+        return configured;
+    }
+    let t = target_words.max(100);
+    let upper = (t as f32 * 1.3).round() as i64;
+    (upper * 2).max(4096) as i32
 }
 
 fn default_llm_connect_timeout() -> u64 {
@@ -1649,6 +1666,21 @@ mod tests {
         let cfg: AppConfig = serde_json::from_str(json).expect("旧配置应可反序列化");
         assert_eq!(cfg.continuation_target_words, 2000);
         assert_eq!(cfg.plan_mode, "beat");
+        // writer_max_tokens 默认 0 = 自动推导（按续写目标字数动态计算）
+        assert_eq!(cfg.writer_max_tokens, 0);
+    }
+
+    /// writer_max_tokens 自动推导/覆盖语义。
+    #[test]
+    fn test_effective_writer_max_tokens() {
+        // 自动推导：默认目标 2000 → 上限 2600 ×2 = 5200
+        assert_eq!(effective_writer_max_tokens(0, 2000), 5200);
+        // 负数同样视为自动
+        assert_eq!(effective_writer_max_tokens(-1, 2000), 5200);
+        // 显式覆盖：>0 原样使用
+        assert_eq!(effective_writer_max_tokens(8192, 2000), 8192);
+        // 下限保护：目标 1000 → 上限 1300 ×2 = 2600 → 抬到 4096（CoT 预算）
+        assert_eq!(effective_writer_max_tokens(0, 1000), 4096);
     }
 
     #[test]

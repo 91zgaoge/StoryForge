@@ -355,25 +355,22 @@ impl AgentOrchestrator {
     }
 
     /// v0.30.46: 读取用户配置的 Writer 最大 token 数，避免硬编码。
-    /// 默认 4096；配置为 0 或负数时回退到 4096，防止请求异常。
+    /// 配置 writer_max_tokens <= 0（默认）时按续写目标字数自动推导：
+    /// 目标字数范围上限（1.3x）×2，下限 4096（推理模型 CoT 可能消耗
+    /// 1500-2500 token，需为正文保留预算）；> 0 为用户显式覆盖。
+    /// 配置读取失败时回退 4096。
     fn writer_max_tokens(&self) -> i32 {
         let app_dir = self.app_handle.path().app_data_dir().unwrap_or_default();
         crate::config::AppConfig::load(&app_dir)
             .map(|c| {
-                let v = c.writer_max_tokens;
-                if v <= 0 {
-                    log::warn!(
-                        "[AgentOrchestrator] writer_max_tokens 配置为 {}，非法，使用默认 4096",
-                        v
-                    );
-                    4096
-                } else {
-                    v
-                }
+                crate::config::effective_writer_max_tokens(
+                    c.writer_max_tokens,
+                    c.continuation_target_words,
+                )
             })
             .unwrap_or_else(|e| {
                 log::warn!(
-                    "[AgentOrchestrator] 读取 writer_max_tokens 失败，使用默认 4096: {}",
+                    "[AgentOrchestrator] 读取配置失败，writer_max_tokens 使用默认 4096: {}",
                     e
                 );
                 4096
@@ -1190,7 +1187,8 @@ impl AgentOrchestrator {
                 prompt,
                 // v0.30.45: 2048 -> 4096。推理模型（DeepSeek 等）CoT 消耗 1500-2500
                 // token，2048 留给正文的预算为 0 -> content 返回空 -> 触发回退。
-                // v0.30.46: 改为从 AppConfig 读取，避免硬编码。
+                // v0.30.46: 改为从 AppConfig 读取，避免硬编码；配置 <=0 时按
+                // 续写目标字数范围上限 ×2 自动推导（下限 4096），>0 为显式覆盖。
                 Some(self.writer_max_tokens()),
                 {
                     // v0.23.66: 续写温度——优先用 continuation_temperature 覆盖，
@@ -1904,7 +1902,8 @@ impl AgentOrchestrator {
                 crate::router::TaskType::CreativeWriting,
                 final_prompt,
                 // v0.30.45: 2048 -> 4096（推理模型 CoT 预算 + 正文预算）
-                // v0.30.46: 改为从 AppConfig 读取，避免硬编码。
+                // v0.30.46: 改为从 AppConfig 读取，避免硬编码；配置 <=0 时按
+                // 续写目标字数范围上限 ×2 自动推导（下限 4096），>0 为显式覆盖。
                 Some(self.writer_max_tokens()),
                 {
                     // v0.23.66: 续写/生成温度——优先用 creative_temperature（创世首章）
@@ -2022,7 +2021,8 @@ impl AgentOrchestrator {
                             crate::router::TaskType::CreativeWriting,
                             retry_prompt,
                             // v0.30.45: 2048 -> 4096（推理模型 CoT 预算 + 正文预算）
-                            // v0.30.46: 改为从 AppConfig 读取，避免硬编码。
+                            // v0.30.46: 改为从 AppConfig 读取，避免硬编码；配置 <=0 时按
+                            // 续写目标字数范围上限 ×2 自动推导（下限 4096），>0 为显式覆盖。
                             Some(self.writer_max_tokens()),
                             {
                                 let app_dir =
