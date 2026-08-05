@@ -198,6 +198,13 @@ pub fn prompt_display_name(prompt_id: &str) -> String {
         .unwrap_or_else(|| prompt_id.to_string())
 }
 
+/// 按 id 取内置提示词描述（未知 id 返回 None）。
+pub fn prompt_description(prompt_id: &str) -> Option<String> {
+    get_builtin_prompts()
+        .get(prompt_id)
+        .map(|e| e.description.clone())
+}
+
 /// 场景组合预览中的一层提示词。
 #[derive(Debug, Clone, Serialize)]
 pub struct PromptCompositionLayer {

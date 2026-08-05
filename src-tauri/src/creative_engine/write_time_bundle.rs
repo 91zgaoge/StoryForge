@@ -965,6 +965,57 @@ fn tokenize_text(s: &str) -> std::collections::HashSet<String> {
 
 // ==================== 工具函数 ====================
 
+/// v0.31.0: 方法论扩展动态解析（推荐资产贯通 + 方法论动态化）。
+///
+/// 解析顺序：
+/// 1. `methodology_{id}_step{N}`（step 变体，如雪花法 10 步）
+/// 2. `methodology_{id}`（无 step 后缀的单文件，如英雄之旅）
+/// 3. 兼容旧命名：hdwb 系列 4
+///    个阶段文件（seed/expansion/convergence/iteration） 未按 step
+///    规范命名，按步数映射到既有文件
+///
+/// 均未命中：记 `log::warn!`（不再静默丢弃）并返回 None。
+/// 新增方法论 = 向 `resources/prompts/methodology/` 丢一个
+/// `methodology_{id}.md`（可选 `methodology_{id}_step{N}.md`），无需改代码。
+pub fn resolve_methodology_extension(methodology_id: &str, step: i32) -> Option<String> {
+    let mid = crate::domain::methodology::normalize_methodology_id(methodology_id);
+    let step = step.max(1);
+
+    let step_id = format!("methodology_{}_step{}", mid, step);
+    if let Some(content) = crate::prompts::registry::resolve_prompt_default(&step_id) {
+        let label = crate::prompts::registry::prompt_display_name(&step_id);
+        return Some(format!("【创作方法论（{}）】\n{}", label, content));
+    }
+
+    let base_id = format!("methodology_{}", mid);
+    if let Some(content) = crate::prompts::registry::resolve_prompt_default(&base_id) {
+        let label = crate::prompts::registry::prompt_display_name(&base_id);
+        return Some(format!("【创作方法论（{}）】\n{}", label, content));
+    }
+
+    // 兼容旧命名：hdwb 的 4 个阶段文件（step 1=seed / 2=expansion / 3=convergence /
+    // 4=iteration）
+    if mid == "high_density_world_building" {
+        let legacy_id = match step {
+            2 => "methodology_hdwb_expansion",
+            3 => "methodology_hdwb_convergence",
+            4 => "methodology_hdwb_iteration",
+            _ => "methodology_hdwb_seed",
+        };
+        if let Some(content) = crate::prompts::registry::resolve_prompt_default(legacy_id) {
+            let label = crate::prompts::registry::prompt_display_name(legacy_id);
+            return Some(format!("【创作方法论（{}）】\n{}", label, content));
+        }
+    }
+
+    log::warn!(
+        "[WriteTimeBundle] 未知方法论 ID '{}'（step {}），跳过方法论注入",
+        mid,
+        step
+    );
+    None
+}
+
 /// v0.23.59: 将 `WritingStrategy` 格式化为写作策略约束提示文本。
 ///
 /// 冲突强度与叙事节奏复用 Full 路径的分档语义文案（writer_assets 共享函数，
@@ -1419,5 +1470,32 @@ mod tests {
         assert!(text.contains("叙事节奏：快"));
         assert!(text.contains("AI 自由度：medium"));
         assert!(!text.contains("冲突强度：85"), "不再输出裸数字冲突强度");
+    }
+
+    #[test]
+    fn test_resolve_methodology_extension_step_variant_hit() {
+        // snowflake step3 有独立 md 文件，应命中 step 变体
+        let ext = resolve_methodology_extension("snowflake", 3).expect("snowflake step3 应命中");
+        assert!(
+            ext.contains("雪花法第3步：角色概要"),
+            "应使用 md frontmatter 的 name 作为标签: {}",
+            ext
+        );
+        assert!(ext.contains("为每个主要角色写一页概要"));
+    }
+
+    #[test]
+    fn test_resolve_methodology_extension_hdwb_legacy_alias() {
+        // hdwb 文件未按 step 规范命名，走兼容映射；id 别名 hdwb 同样归一化
+        let ext = resolve_methodology_extension("high_density_world_building", 2)
+            .expect("hdwb step2 应命中旧命名 alias");
+        assert!(ext.contains("状态网扩张"));
+        let ext_alias = resolve_methodology_extension("hdwb", 1).expect("hdwb 别名应命中");
+        assert!(ext_alias.contains("最小世界种子"));
+    }
+
+    #[test]
+    fn test_resolve_methodology_extension_unknown_returns_none() {
+        assert!(resolve_methodology_extension("nonexistent_methodology_xyz", 1).is_none());
     }
 }

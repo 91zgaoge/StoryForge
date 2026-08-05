@@ -743,6 +743,17 @@ async fn smart_execute_inner(
     .await
     .unwrap_or(None);
 
+    // v0.31.0: 推荐方法论写回（story 无显式值才落库，显式值不覆盖）
+    {
+        let wb_pool = pool.clone();
+        let wb_story = current_story.clone();
+        let wb_strategy = selected_strategy.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            persist_recommended_methodology(&wb_pool, &wb_story, &wb_strategy);
+        })
+        .await;
+    }
+
     let plan_context = crate::planner::PlanContext {
         current_story_id,
         has_story: !stories.is_empty(),
@@ -1328,6 +1339,61 @@ fn build_selected_strategy(
     Some(strategy)
 }
 
+/// v0.31.0: 推荐方法论写回——story 无显式 methodology_id 且推荐存在时落库，
+/// 后续续写与 WriteTimeBundle 加载可直接读取。有显式值（用户选择或此前写回）
+/// 不覆盖。返回是否发生了写回。
+fn persist_recommended_methodology(
+    pool: &crate::db::DbPool,
+    current_story: &Option<crate::db::Story>,
+    selected_strategy: &Option<crate::domain::strategy::SelectedStrategy>,
+) -> bool {
+    let story = match current_story {
+        Some(s) => s,
+        None => return false,
+    };
+    if story
+        .methodology_id
+        .as_deref()
+        .map(|m| !m.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return false; // 显式值不覆盖
+    }
+    let recommended = match selected_strategy
+        .as_ref()
+        .and_then(|s| s.methodology_id.as_deref())
+    {
+        Some(m) if !m.trim().is_empty() => m,
+        _ => return false,
+    };
+    let req = crate::db::UpdateStoryRequest {
+        title: None,
+        description: None,
+        genre: None,
+        tone: None,
+        pacing: None,
+        style_dna_id: None,
+        genre_profile_id: None,
+        methodology_id: Some(recommended.to_string()),
+        methodology_step: None,
+        reference_book_id: None,
+    };
+    match crate::db::StoryRepository::new(pool.clone()).update(&story.id, &req) {
+        Ok(_) => {
+            log::info!(
+                "[smart_execute] 推荐方法论写回: story={} methodology={}",
+                story.id,
+                recommended
+            );
+            true
+        }
+        Err(e) => {
+            log::warn!("[smart_execute] 推荐方法论写回失败: {}", e);
+            false
+        }
+    }
+}
+
 /// v0.30.51: 根据计划执行消息构造用户可读的失败原因。
 /// messages 混合了成功步骤（"Step X completed: ..."）与失败步骤
 /// （"Step X failed: ..."）。此前无条件 join 全部消息，导致底层模型
@@ -1570,5 +1636,53 @@ mod tests {
     fn test_build_plan_failure_message_empty_messages() {
         let msg = build_plan_failure_message(&[], false);
         assert!(msg.contains("未生成任何内容"), "{}", msg);
+    }
+
+    fn create_story_with_methodology(pool: &crate::db::DbPool, mid: Option<&str>) -> Story {
+        StoryRepository::new(pool.clone())
+            .create(crate::db::CreateStoryRequest {
+                title: "写回测试故事".to_string(),
+                description: None,
+                genre: Some("玄幻".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: mid.map(|s| s.to_string()),
+                reference_book_id: None,
+            })
+            .expect("create story")
+    }
+
+    #[test]
+    fn test_persist_recommended_methodology_writes_back_when_story_has_none() {
+        let pool = create_test_pool().expect("test pool");
+        let story = create_story_with_methodology(&pool, None);
+        let mut strategy = crate::domain::strategy::SelectedStrategy::default();
+        strategy.methodology_id = Some("snowflake".to_string());
+
+        let written = persist_recommended_methodology(&pool, &Some(story.clone()), &Some(strategy));
+        assert!(written, "story 无显式方法论且推荐存在时应写回");
+
+        let reloaded = StoryRepository::new(pool.clone())
+            .get_by_id(&story.id)
+            .expect("get")
+            .expect("story exists");
+        assert_eq!(reloaded.methodology_id.as_deref(), Some("snowflake"));
+    }
+
+    #[test]
+    fn test_persist_recommended_methodology_never_overrides_explicit() {
+        let pool = create_test_pool().expect("test pool");
+        let story = create_story_with_methodology(&pool, Some("hero_journey"));
+        let mut strategy = crate::domain::strategy::SelectedStrategy::default();
+        strategy.methodology_id = Some("snowflake".to_string());
+
+        let written = persist_recommended_methodology(&pool, &Some(story.clone()), &Some(strategy));
+        assert!(!written, "story 有显式方法论时不得覆盖");
+
+        let reloaded = StoryRepository::new(pool.clone())
+            .get_by_id(&story.id)
+            .expect("get")
+            .expect("story exists");
+        assert_eq!(reloaded.methodology_id.as_deref(), Some("hero_journey"));
     }
 }

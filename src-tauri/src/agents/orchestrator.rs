@@ -961,6 +961,59 @@ impl AgentOrchestrator {
             }
         }
 
+        // v0.31.0: 推荐资产贯通——任务参数中的推荐方法论/风格 DNA 优先于
+        // story 字段的加载结果（build_selected_strategy 保证 story 有显式值时
+        // 推荐值即显式值，不覆盖用户选择）。
+        if let Some(mid) = task
+            .parameters
+            .get("recommended_methodology_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        {
+            let step = task
+                .context
+                .world
+                .methodology_step
+                .as_deref()
+                .and_then(|s| s.parse::<i32>().ok())
+                .unwrap_or(1);
+            if let Some(ext) =
+                crate::creative_engine::write_time_bundle::resolve_methodology_extension(&mid, step)
+            {
+                bundle.methodology_extension = Some(ext);
+            }
+        }
+        // 推荐风格 DNA 兜底：story 未配置 style_dna_id（bundle 未加载出六维扩展）时，
+        // 用推荐的第一个 DNA 加载扩展。
+        if bundle.style_dna_extension.is_none() {
+            let recommended_dna: Option<String> = task
+                .parameters
+                .get("recommended_style_dna_ids")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            if let Some(dna_id) = recommended_dna {
+                let dna_repo = crate::db::StyleDnaRepository::new(pool.inner().clone());
+                match dna_repo.get_by_id(&dna_id) {
+                    Ok(Some(dna)) => {
+                        match serde_json::from_str::<crate::domain::style::StyleDNA>(&dna.dna_json)
+                        {
+                            Ok(dna_obj) => {
+                                bundle.style_dna_extension = Some(dna_obj.to_prompt_extension());
+                            }
+                            Err(e) => {
+                                log::warn!("[TimeSliced] 推荐 StyleDNA 解析失败: {}", e);
+                            }
+                        }
+                    }
+                    _ => {
+                        log::debug!("[TimeSliced] 推荐 StyleDNA {} 不存在，跳过", dna_id);
+                    }
+                }
+            }
+        }
+
         // 设计第一节：打通 executor 死注入——追读力债务/钩子类型/微兑现经共享渲染
         // 函数进 bundle.chase_debt_text（复用 writer_chase_debt /
         // writer_reading_power_goal 模板）；风格混合 blend 文本透传到
@@ -1089,11 +1142,28 @@ impl AgentOrchestrator {
         // v0.23.65: 渲染 writer_system 作为 system_prompt——让 7 条写作准则
         // 在默认续写路径生效（此前 TimeSliced 绕过 build_writer_prompt，
         // writer_system 完全缺席）。
-        let writer_system_prompt = crate::agents::service::render_writer_system_from_bundle(
+        let mut writer_system_prompt = crate::agents::service::render_writer_system_from_bundle(
             pool.inner(),
             &bundle,
             &user_instruction,
         );
+        // v0.31.0: 推荐技能摘要注入 writer system prompt（文本注入第一阶段）
+        let recommended_skills: Vec<String> = task
+            .parameters
+            .get("recommended_skill_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(guidance) = crate::agents::service::render_skill_guidance(&recommended_skills) {
+            writer_system_prompt = Some(match writer_system_prompt {
+                Some(p) => format!("{}\n\n{}", p, guidance),
+                None => guidance,
+            });
+        }
         let (request_id, gen_response) = self
             .service
             .llm_service_ref()

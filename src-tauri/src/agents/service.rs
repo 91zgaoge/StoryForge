@@ -3362,6 +3362,33 @@ pub fn render_writer_system_from_bundle(
     Some(result)
 }
 
+/// v0.31.0: 推荐技能提示词摘要——注入 writer system_prompt。
+///
+/// 第一阶段为纯文本注入：按 skill id（兼容 `builtin.` 前缀）解析
+/// `skill_{id}` 提示词的名称与描述，生成「激活写作技能」段落。
+/// 未知 id 跳过（记 debug）；全部未知返回 None。
+pub fn render_skill_guidance(skill_ids: &[String]) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for raw in skill_ids.iter().take(3) {
+        let id = raw.strip_prefix("builtin.").unwrap_or(raw.as_str());
+        let prompt_id = format!("skill_{}", id);
+        if let Some(description) = crate::prompts::registry::prompt_description(&prompt_id) {
+            let name = crate::prompts::registry::prompt_display_name(&prompt_id);
+            lines.push(format!("- {}：{}", name, description));
+        } else {
+            log::debug!("[render_skill_guidance] 未找到技能提示词 {}", prompt_id);
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "【激活写作技能（本次写作请主动运用以下技能手法）】\n{}",
+            lines.join("\n")
+        ))
+    }
+}
+
 /// v0.23.65 P0-3 / v0.26.38: 把 Call 1 选中的资产正文与框架选择解析为创作指导。
 ///
 /// Call 1（PromptSynthesizer）返回 `selected_asset_ids`（如 beat_card.*、
@@ -3777,6 +3804,21 @@ mod framework_guidance_tests {
             );
             assert!(text.contains("snowflake") || text.contains("writer_chase_debt"));
         }
+    }
+
+    #[test]
+    fn test_render_skill_guidance_known_and_unknown() {
+        let g = render_skill_guidance(&[
+            "emotion_pacing".to_string(),
+            "builtin.style_enhancer".to_string(),
+        ])
+        .expect("已知技能应生成指导段落");
+        assert!(g.contains("激活写作技能"));
+        assert!(g.contains("情感节奏优化提示词"));
+        assert!(g.contains("分析并优化文本的情感曲线和叙事节奏"));
+
+        // 全部未知 → None
+        assert!(render_skill_guidance(&["no_such_skill_xyz".to_string()]).is_none());
     }
 }
 

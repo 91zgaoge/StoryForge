@@ -1227,6 +1227,8 @@ impl PlanExecutor {
         // v0.17.1: 把智能后台预访谈推断出的中文叙事四元组注入 task.parameters，
         // 让 build_writer_prompt 在末尾追加 prompt 片段。
         if let Some(ref selected) = plan_context.selected_strategy {
+            // v0.31.0: 推荐方法论/风格 DNA/技能 ID 透传 writer 参数
+            inject_recommended_strategy_params(&mut enriched_params, selected);
             if let Ok(quartet) =
                 crate::strategy::quartet_inference::serialize_quartet_for_prompt(selected)
             {
@@ -2177,6 +2179,36 @@ impl PlanExecutor {
     }
 }
 
+/// v0.31.0: 把 SelectedStrategy 推荐的方法论/风格 DNA/技能 ID 注入 writer
+/// 步骤参数，供 TimeSliced 路径优先于 story 字段消费（推荐资产贯通）。
+/// 注意：build_selected_strategy 仅当 story 无显式 methodology_id
+/// 时才填推荐值， 因此「推荐优先」不会覆盖用户显式选择。
+pub(crate) fn inject_recommended_strategy_params(
+    enriched_params: &mut HashMap<String, serde_json::Value>,
+    selected: &crate::domain::strategy::SelectedStrategy,
+) {
+    if let Some(ref mid) = selected.methodology_id {
+        if !mid.trim().is_empty() {
+            enriched_params.insert(
+                "recommended_methodology_id".to_string(),
+                serde_json::Value::String(mid.clone()),
+            );
+        }
+    }
+    if !selected.style_dna_ids.is_empty() {
+        enriched_params.insert(
+            "recommended_style_dna_ids".to_string(),
+            serde_json::to_value(&selected.style_dna_ids).unwrap_or_default(),
+        );
+    }
+    if !selected.skill_ids.is_empty() {
+        enriched_params.insert(
+            "recommended_skill_ids".to_string(),
+            serde_json::to_value(&selected.skill_ids).unwrap_or_default(),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2422,5 +2454,48 @@ mod tests {
         assert!(injected);
         // 优先用 step_outputs 的 content，不用 current_content
         assert_eq!(rp.get("content").unwrap().as_str().unwrap(), "writer输出");
+    }
+
+    #[test]
+    fn test_inject_recommended_strategy_params() {
+        let mut params = HashMap::new();
+        let mut selected = crate::domain::strategy::SelectedStrategy::default();
+        selected.methodology_id = Some("snowflake".to_string());
+        selected.style_dna_ids = vec!["dna_a".to_string(), "dna_b".to_string()];
+        selected.skill_ids = vec!["emotion_pacing".to_string()];
+
+        inject_recommended_strategy_params(&mut params, &selected);
+
+        assert_eq!(
+            params
+                .get("recommended_methodology_id")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "snowflake"
+        );
+        let dna = params
+            .get("recommended_style_dna_ids")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(dna.len(), 2);
+        assert_eq!(dna[0].as_str().unwrap(), "dna_a");
+        let skills = params
+            .get("recommended_skill_ids")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(skills[0].as_str().unwrap(), "emotion_pacing");
+    }
+
+    #[test]
+    fn test_inject_recommended_strategy_params_empty_strategy_noop() {
+        let mut params = HashMap::new();
+        let selected = crate::domain::strategy::SelectedStrategy::default();
+        inject_recommended_strategy_params(&mut params, &selected);
+        assert!(params.get("recommended_methodology_id").is_none());
+        assert!(params.get("recommended_style_dna_ids").is_none());
+        assert!(params.get("recommended_skill_ids").is_none());
     }
 }
