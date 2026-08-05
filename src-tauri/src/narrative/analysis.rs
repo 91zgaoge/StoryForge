@@ -24,12 +24,7 @@ use tokio::sync::Semaphore;
 // use tauri::AppHandle;
 use uuid::Uuid;
 
-use super::{
-    elements::*,
-    pipeline::*,
-    progress::*,
-    prompts::{PromptMode, *},
-};
+use super::{elements::*, pipeline::*, progress::*, prompts::*};
 use crate::{
     llm::{service::PipelineContext as LlmPipelineContext, LlmService},
     router::TaskType,
@@ -199,7 +194,7 @@ impl PipelineStep<AnalysisContext> for MetadataExtractionStep {
                 metadata: None,
             });
 
-            let prompt = story_concept_prompt(PromptMode::Extract, &sample, None, Some(&ctx.pool));
+            let prompt = story_concept_prompt(&sample, Some(&ctx.pool));
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取元信息");
             let _pipeline_ctx = pipeline_ctx.clone();
@@ -309,15 +304,7 @@ impl PipelineStep<AnalysisContext> for WorldBuildingExtractionStep {
                 metadata: None,
             });
 
-            let prompt = world_building_prompt(
-                PromptMode::Extract,
-                title,
-                genre,
-                &sample,
-                None,
-                None,
-                Some(&ctx.pool),
-            );
+            let prompt = world_building_prompt(title, genre, &sample, Some(&ctx.pool));
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取世界观");
             let _pipeline_ctx = pipeline_ctx.clone();
@@ -448,16 +435,7 @@ impl PipelineStep<AnalysisContext> for CharacterExtractionStep {
                     let step_name = step_name.clone();
                     let book_id = book_id.clone();
                     async move {
-                        let prompt = character_prompt(
-                            PromptMode::Extract,
-                            &title,
-                            &genre,
-                            "",
-                            &sample,
-                            None,
-                            None,
-                            Some(&pool),
-                        );
+                        let prompt = character_prompt(&title, &genre, &sample, Some(&pool));
                         let _permit = match semaphore.acquire().await {
                             Ok(p) => p,
                             Err(e) => {
@@ -657,16 +635,7 @@ impl PipelineStep<AnalysisContext> for SceneExtractionStep {
                     let book_id = book_id.clone();
                     let story_id = story_id.clone();
                     async move {
-                        let prompt = scene_prompt(
-                            PromptMode::Extract,
-                            &title,
-                            &genre,
-                            "",
-                            &sample,
-                            None,
-                            None,
-                            Some(&pool),
-                        );
+                        let prompt = scene_prompt(&title, &genre, &sample, Some(&pool));
                         let _permit = match semaphore.acquire().await {
                             Ok(p) => p,
                             Err(e) => {
@@ -830,7 +799,7 @@ impl PipelineStep<AnalysisContext> for StoryArcExtractionStep {
                 metadata: None,
             });
 
-            let prompt = story_arc_prompt(PromptMode::Extract, title, &sample, Some(&ctx.pool));
+            let prompt = story_arc_prompt(title, &sample, Some(&ctx.pool));
             let pipeline_ctx =
                 ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取故事线");
             let _pipeline_ctx = pipeline_ctx.clone();
@@ -920,16 +889,7 @@ impl PipelineStep<AnalysisContext> for ForeshadowingExtractionStep {
                 metadata: None,
             });
 
-            let prompt = foreshadowing_prompt(
-                PromptMode::Extract,
-                title,
-                genre,
-                "",
-                &sample,
-                None,
-                None,
-                Some(&ctx.pool),
-            );
+            let prompt = foreshadowing_prompt(title, genre, &sample, Some(&ctx.pool));
             let pipeline_ctx = ctx.llm_pipeline_ctx(self.name(), self.step_number(), 7, "提取伏笔");
             let _pipeline_ctx = pipeline_ctx.clone();
             let response = llm

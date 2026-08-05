@@ -644,9 +644,6 @@ mod tests {
 
         // 验证 v0.21.0 新增的提示词全部注册
         let new_keys = [
-            "narrative_story_concept_generate",
-            "narrative_genre_profile_generate",
-            "narrative_world_building_generate",
             "pipeline_review",
             "pipeline_refine",
             "intent_analyzer",
@@ -654,7 +651,6 @@ mod tests {
             "strategy_selector",
             "planner_generator",
             "planner_edit_character",
-            "commentator_paragraph",
             "orchestrator_timesliced_writer",
             "novel_creation_world_options",
             "memory_content_analysis",

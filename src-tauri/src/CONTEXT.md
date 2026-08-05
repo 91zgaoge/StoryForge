@@ -8,7 +8,7 @@ Glossary for the Rust core layer.
 |------|------------|------------------------|
 | **Scene** | Drama-conflict-driven narrative unit. The primary logical storytelling unit. Carries dramatic goal, external pressure, conflict type. | "chapter" (see distinction below) |
 | **Chapter** | Physical storage/publishing unit. An aggregation of one or more Scenes. Holds the final rendered text for export. | "scene" (see distinction below) |
-| **Bootstrap / Genesis** | One-click novel world creation pipeline. 7-step process: concept → first scene (with dramatic goal, conflict, characters) → world-building → outline → characters → scenes → foreshadowing → knowledge graph. v0.23.74: scene-first prompts via `narrative_first_scene_generate`. Synonymous terms. | "creation", "wizard" |
+| **Bootstrap / Genesis** | One-click novel world creation pipeline. 7-step process: concept → first scene (with dramatic goal, conflict, characters) → world-building → outline → characters → scenes → foreshadowing → knowledge graph. v0.31: Genesis generation prompts removed; wizard steps inject genre profile/methodology/quartet assets via `build_creation_asset_context`. Synonymous terms. | "creation", "wizard" |
 | **Book Deconstruction** | Reverse pipeline: analyze an existing novel (txt/pdf/epub) and convert it into a story project with extracted narrative elements. | "import", "parse" |
 | **Ingest Pipeline** | Two-step chain: analyze raw content (chapter text) → generate knowledge → save to knowledge graph + vector store. Triggered after chapter save/update. | "index", "import" |
 | **Query Pipeline** | 5-stage memory retrieval: token search → semantic search → fusion → graph expansion → budget control → context assembly. Produces a `MemoryPack`. | "search", "retrieval" |
