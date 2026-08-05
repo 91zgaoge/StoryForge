@@ -57,7 +57,7 @@ impl NovelCreationAgent {
         options: &GenerationOptions,
     ) -> Result<Vec<WorldBuildingOption>, Box<dyn std::error::Error>> {
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) =
+        let mut prompt = if let Some(tpl) =
             crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_world_options")
                 .ok()
                 .or_else(|| {
@@ -104,6 +104,12 @@ impl NovelCreationAgent {
                 options.count, user_input
             )
         };
+
+        // v0.31 资产融合：注入体裁画像/方法论/四元组（有则注入、无则跳过）
+        let asset_ctx = Self::build_creation_asset_context(&self.pool, user_input);
+        if !asset_ctx.is_empty() {
+            prompt.push_str(&asset_ctx);
+        }
 
         let response = self
             .llm_service
@@ -198,7 +204,7 @@ impl NovelCreationAgent {
         );
 
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) =
+        let mut prompt = if let Some(tpl) =
             crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_character_roster")
                 .ok()
                 .or_else(|| {
@@ -248,6 +254,12 @@ impl NovelCreationAgent {
                 options.count, world_info
             )
         };
+
+        // v0.31 资产融合：注入体裁画像/方法论/四元组（有则注入、无则跳过）
+        let asset_ctx = Self::build_creation_asset_context(&self.pool, &world_building.concept);
+        if !asset_ctx.is_empty() {
+            prompt.push_str(&asset_ctx);
+        }
 
         let response = self
             .llm_service
@@ -300,6 +312,90 @@ impl NovelCreationAgent {
             .map_err(|e| format!("首场景反序列化失败: {}", e))
     }
 
+    /// v0.31 资产融合：为向导 prompt 组装创作资产上下文——体裁画像内容
+    /// （core_tone/反模式/典型结构）+ 推荐方法论 system_prompt_extension +
+    /// 四元组推荐。画像解析失败返回空串（调用方跳过注入，记 debug）。
+    fn build_creation_asset_context(pool: &DbPool, genre_text: &str) -> String {
+        let repo = crate::db::GenreProfileRepository::new(pool.clone());
+        let resolver = crate::strategy::GenreResolver::new();
+        let profile = resolver
+            .resolve_from_text(genre_text, &repo)
+            .ok()
+            .and_then(|matches| matches.first().map(|m| m.profile_id.clone()))
+            .and_then(|id| repo.get_by_id(&id).ok().flatten());
+        let profile = match profile {
+            Some(p) => p,
+            None => {
+                log::debug!(
+                    "[novel_creation] 未能从输入解析体裁画像，跳过资产注入: {}",
+                    genre_text
+                );
+                return String::new();
+            }
+        };
+
+        let mut sections = Self::render_genre_profile_section(&profile);
+
+        // 推荐方法论的 system_prompt_extension
+        if let Some(ref mid) = profile.recommended_methodology_id {
+            let normalized = crate::domain::methodology::normalize_methodology_id(mid);
+            if let Ok(mtype) = serde_json::from_value::<crate::domain::methodology::MethodologyType>(
+                serde_json::Value::String(normalized.to_string()),
+            ) {
+                let config = crate::domain::methodology::MethodologyConfig {
+                    methodology_type: mtype,
+                    is_active: true,
+                    current_step: None,
+                    custom_params: serde_json::json!({}),
+                };
+                let ext =
+                    crate::creative_engine::methodology::MethodologyEngine::build_prompt_extension(
+                        &config,
+                        Some(pool),
+                    );
+                if !ext.trim().is_empty() {
+                    sections.push_str(&format!("\n【推荐方法论：{}】\n{}\n", mid, ext));
+                }
+            }
+        }
+
+        // 四元组推荐（纯启发式，不调 LLM）
+        let mut strategy = crate::domain::strategy::SelectedStrategy::default();
+        crate::strategy::infer_narrative_quartet(
+            &mut strategy,
+            Some(&profile.canonical_name),
+            profile.reader_promise.as_deref(),
+            crate::intent::InputClarity::Vague,
+        );
+        if let Ok(quartet) =
+            crate::strategy::quartet_inference::serialize_quartet_for_prompt(&strategy)
+        {
+            if !quartet.is_null() {
+                sections.push_str(&format!("\n【中文叙事四元组推荐】\n{}\n", quartet));
+            }
+        }
+        sections
+    }
+
+    /// 渲染体裁画像段落（纯函数，便于单测）。三个内容字段全空返回空串。
+    fn render_genre_profile_section(profile: &crate::db::GenreProfile) -> String {
+        let mut body = String::new();
+        if let Some(ref tone) = profile.core_tone {
+            body.push_str(&format!("核心基调：{}\n", tone));
+        }
+        if let Some(ref anti) = profile.anti_patterns_json {
+            body.push_str(&format!("反模式（必须避免）：{}\n", anti));
+        }
+        if let Some(ref structure) = profile.typical_structure_json {
+            body.push_str(&format!("典型结构：{}\n", structure));
+        }
+        if body.is_empty() {
+            String::new()
+        } else {
+            format!("\n【体裁画像：{}】\n{}", profile.genre_name, body)
+        }
+    }
+
     /// 第三步：生成文字风格选项
     pub async fn generate_writing_styles(
         &self,
@@ -308,7 +404,7 @@ impl NovelCreationAgent {
         options: &GenerationOptions,
     ) -> Result<Vec<WritingStyleOption>, Box<dyn std::error::Error>> {
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) =
+        let mut prompt = if let Some(tpl) =
             crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_writing_style")
                 .ok()
                 .or_else(|| {
@@ -358,6 +454,12 @@ impl NovelCreationAgent {
             )
         };
 
+        // v0.31 资产融合：注入体裁画像/方法论/四元组（有则注入、无则跳过）
+        let asset_ctx = Self::build_creation_asset_context(&self.pool, genre);
+        if !asset_ctx.is_empty() {
+            prompt.push_str(&asset_ctx);
+        }
+
         let response = self
             .llm_service
             .generate_for_task(
@@ -397,7 +499,7 @@ impl NovelCreationAgent {
             .join("\n");
 
         // v0.21.0: 优先从 PromptRegistry 读取
-        let prompt = if let Some(tpl) =
+        let mut prompt = if let Some(tpl) =
             crate::prompts::registry::resolve_prompt(&self.pool, "novel_creation_opening_scene")
                 .ok()
                 .or_else(|| {
@@ -447,6 +549,12 @@ impl NovelCreationAgent {
                 world_building.concept, char_info, writing_style.name
             )
         };
+
+        // v0.31 资产融合：注入体裁画像/方法论/四元组（有则注入、无则跳过）
+        let asset_ctx = Self::build_creation_asset_context(&self.pool, &world_building.concept);
+        if !asset_ctx.is_empty() {
+            prompt.push_str(&asset_ctx);
+        }
 
         let response = self
             .llm_service
@@ -578,5 +686,49 @@ mod tests {
         let scene = NovelCreationAgent::parse_first_scene_response(raw).unwrap();
         assert_eq!(scene.title, "星环坠落");
         assert_eq!(scene.conflict_type, "ManVsNature");
+    }
+
+    fn sample_genre_profile() -> crate::db::GenreProfile {
+        crate::db::GenreProfile {
+            id: "apoc-id".into(),
+            genre_name: "末世流".into(),
+            canonical_name: "Post-apocalyptic".into(),
+            aliases_json: None,
+            core_tone: Some("压抑中见温情".into()),
+            pacing_strategy: None,
+            anti_patterns_json: Some(r#"["圣母主角","无敌开局"]"#.into()),
+            reference_tables_json: None,
+            typical_structure_json: Some(r#"["崩塌-流浪-聚落-抉择"]"#.into()),
+            reader_promise: Some("爽,燃".into()),
+            recommended_style_dna_ids: None,
+            recommended_methodology_id: Some("hero_journey".into()),
+            recommended_skill_ids: None,
+            min_quality_tier: None,
+            is_builtin: true,
+            created_at: chrono::Local::now(),
+        }
+    }
+
+    #[test]
+    fn test_render_genre_profile_section_includes_assets() {
+        // 向导 prompt 必须含体裁画像的 core_tone / anti_patterns / typical_structure
+        let section = NovelCreationAgent::render_genre_profile_section(&sample_genre_profile());
+        assert!(section.contains("末世流"));
+        assert!(section.contains("压抑中见温情"), "应含 core_tone");
+        assert!(section.contains("圣母主角"), "应含 anti_patterns");
+        assert!(
+            section.contains("崩塌-流浪-聚落-抉择"),
+            "应含 typical_structure"
+        );
+    }
+
+    #[test]
+    fn test_render_genre_profile_section_empty_when_no_assets() {
+        // 画像无内容字段时返回空串（调用方跳过注入，不污染 prompt）
+        let mut p = sample_genre_profile();
+        p.core_tone = None;
+        p.anti_patterns_json = None;
+        p.typical_structure_json = None;
+        assert!(NovelCreationAgent::render_genre_profile_section(&p).is_empty());
     }
 }
