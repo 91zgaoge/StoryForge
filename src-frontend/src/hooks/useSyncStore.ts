@@ -38,8 +38,13 @@ export interface SyncStoreOptions {
   onSceneDeleted?: (storyId: string, sceneId: string) => void;
   /** 场景选择回调 */
   onSceneSelected?: (storyId: string, sceneId: string, title?: string) => void;
-  /** 章节创建回调 */
-  onChapterCreated?: (storyId: string, chapterId: string, title?: string) => void;
+  /** 章节创建回调；splitFromChapterId 仅自动分章创建时存在（来源章 id） */
+  onChapterCreated?: (
+    storyId: string,
+    chapterId: string,
+    title?: string,
+    splitFromChapterId?: string
+  ) => void;
   /** 章节更新回调 */
   onChapterUpdated?: (chapterId: string, title?: string) => void;
   /** 章节删除回调 */
@@ -241,7 +246,8 @@ export function useSyncStore(options: SyncStoreOptions = {}) {
             optionsRef.current.onChapterCreated?.(
               payload.story_id,
               payload.chapter_id,
-              payload.title ?? undefined
+              payload.title ?? undefined,
+              payload.split_from_chapter_id
             );
             break;
           }

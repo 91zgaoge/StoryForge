@@ -244,6 +244,9 @@ const FrontstageApp: React.FC = () => {
   const chapterSwitchCountRef = useRef(0);
   // v0.23.62: 追踪 ChapterSwitch 时间戳，用于 post-ChapterSwitch 5s 静默期
   const chapterSwitchTimestampRef = useRef(0);
+  // v0.33.0: 自动分章命中当前编辑章时，抑制 selectChapter 内的 flushSceneSave——
+  // 编辑器仍持有分章前的旧全文，flush 会把它回写到已被截断的旧 scene，造成重复。
+  const suppressChapterSwitchFlushRef = useRef(false);
   // Phase 4 fix: Genesis 发 ChapterSwitch(auto_accept=false) 时，
   // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
   const skipChapterContentRef = useRef(false);
@@ -533,10 +536,49 @@ const FrontstageApp: React.FC = () => {
       }
     },
     // v5.4.0: 监听 chapter 创建/删除（幕后增删章节后同步幕前列表）
-    onChapterCreated: storyId => {
-      if (currentStory && storyId === currentStory.id) {
-        loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
+    onChapterCreated: (storyId, chapterId, title, splitFromChapterId) => {
+      if (!currentStory || storyId !== currentStory.id) {
+        return;
       }
+      // v0.33.0: 自动分章（split_from_chapter_id）命中当前编辑章 → 编辑器自动
+      // 切换到含溢出内容的新章。否则编辑器仍持有分章前旧全文，下一次 flushSceneSave
+      // 会把它写回已截断的旧 scene，造成"旧全文 + 新章溢出副本"重复。
+      // 分章仅在 30s 无输入后触发，此刻编辑器内容 == DB 内容，无未保存文本损失；
+      // 幽灵文本为瞬态未保存内容，selectChapter 本就丢弃（setGeneratedText('')），
+      // 故即使生成中/幽灵文本待确认也直接切换，不做延迟。
+      if (splitFromChapterId && splitFromChapterId === currentChapterRef.current?.id) {
+        // 取消待执行的防抖保存，重置保存基准——旧全文永不可能被 flush 回旧 scene
+        cancelAutoSave();
+        latestContentRef.current = '';
+        suppressChapterSwitchFlushRef.current = true;
+        // 5s 静默期，挡住分章伴随的 chapterUpdated 覆盖刚切换的正文
+        chapterSwitchTimestampRef.current = Date.now();
+        logToBackend(
+          'frontstage:split_auto_switch',
+          'auto chapter split: switching editor to new chapter',
+          {
+            storyId,
+            oldChapterId: splitFromChapterId,
+            newChapterId: chapterId,
+          }
+        );
+        loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
+        // 新章未必在已加载分页内（无 content），交由 selectChapter 懒加载完整章节后切换
+        selectChapter({
+          id: chapterId,
+          story_id: storyId,
+          title: title ?? '',
+          chapter_number: 0,
+        });
+        setGenerationStatus('📑 已自动分章，编辑器已切换到新章');
+        setTimeout(() => {
+          setGenerationStatus(current =>
+            current === '📑 已自动分章，编辑器已切换到新章' ? '' : current
+          );
+        }, 3000);
+        return;
+      }
+      loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
     },
     onChapterDeleted: () => {
       if (currentStory) {
@@ -2548,7 +2590,12 @@ const FrontstageApp: React.FC = () => {
 
       // v0.30.33: 切换章节前 flush 当前场景未保存内容，避免 cancelAutoSave 丢弃
       // 防抖窗口内的续写/编辑内容。flush 内部已 cancelAutoSave，无需重复调用。
-      void flushSceneSaveRef.current();
+      // v0.33.0: 自动分章触发的切换例外——此时编辑器持有的是分章前旧全文，
+      // 旧 scene 已被截断，flush 会回写全文造成重复，由调用方置位抑制。
+      if (!suppressChapterSwitchFlushRef.current) {
+        void flushSceneSaveRef.current();
+      }
+      suppressChapterSwitchFlushRef.current = false;
       setCurrentChapter(chapter);
       let formattedContent = '';
       try {
