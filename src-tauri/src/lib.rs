@@ -665,7 +665,13 @@ pub fn run() {
             }
 
             // 初始化结构化日志系统（必须在其他操作之前，包括迁移日志）
-            let _log_guard = logging::init_logger(&app_dir);
+            // v0.33.x fix: WorkerGuard 必须存活至应用退出——此前 `let _log_guard` 仅在
+            // setup 闭包作用域内有效，闭包返回后 guard 被 drop，tracing-appender 的
+            // non-blocking writer 工作线程随之终止，运行期所有 tracing 记录被静默
+            // 丢弃（daily 文件只剩启动期日志）。改为托管进 Tauri State，应用退出时
+            // 随 state 析构并 flush 剩余缓冲。
+            let log_guard = logging::init_logger(&app_dir);
+            app.manage(log_guard);
 
             log::info!("App directory: {:?}", app_dir);
 

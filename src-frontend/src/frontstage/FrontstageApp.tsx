@@ -73,6 +73,9 @@ const logToBackend = (phase: string, message: string, details?: Record<string, u
   }
 };
 
+// v0.33.x: persistSceneContent 失败重试退避（2s/10s/30s），重试耗尽后置 saveError 可见态
+const SAVE_RETRY_DELAYS_MS = [2000, 10000, 30000];
+
 // v0.23.89: 最近接受的生成内容指纹，用于屏蔽后台事件重复写入同一内容
 const useRecentAcceptGuard = () => {
   const acceptedRef = useRef<{ fingerprint: string; acceptedAt: number } | null>(null);
@@ -238,6 +241,9 @@ const FrontstageApp: React.FC = () => {
   const currentStoryRef = useRef(currentStory);
   const chaptersRef = useRef(chapters);
   const currentChapterRef = useRef(currentChapter);
+  // v0.33.x: scenes 同步快照 ref——selectStory 中 setScenes 后同步调用 selectChapter
+  // 会读到 stale 空 scenes，导致 sceneId 错误回落 chapter.id（走后端 heal 建空 scene）。
+  const scenesRef = useRef(scenes);
   // v0.26.51: 粘贴/输入正文时自动建「未命名」故事；防并发 + 挡住 story_created→loadStories 误选
   const ensuringStoryRef = useRef(false);
   // [DEBUG-dup] 统计创世过程中 ChapterSwitch 事件触发次数
@@ -294,6 +300,9 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => {
     chaptersRef.current = chapters;
   }, [chapters]);
+  useEffect(() => {
+    scenesRef.current = scenes;
+  }, [scenes]);
   useEffect(() => {
     currentChapterRef.current = currentChapter;
   }, [currentChapter]);
@@ -1210,9 +1219,17 @@ const FrontstageApp: React.FC = () => {
   // 较早的 flush（小内容）可能在较晚的 flush（大内容）之后提交，静默覆写。
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
+  // v0.33.x: 保存失败可见态——重试耗尽后顶栏显示「保存失败，点击重试」，
+  // 此前失败后 isSaved=false 永远停在「保存中...」，用户无从感知正文未落库。
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // 记录本轮是否发生过失败，用于成功后的恢复日志与 saveError 清理
+  const saveFailedRef = useRef(false);
+  // flushSceneSave 入口日志仅在 sceneId 变化时记录一次，避免每次 flush 刷量
+  const lastFlushLoggedSceneIdRef = useRef<string | null>(null);
+
   // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
   const persistSceneContent = useCallback(
-    async (sceneId: string, content: string, title?: string, allowRetry = true): Promise<void> => {
+    async (sceneId: string, content: string, title?: string, retryCount = 0): Promise<void> => {
       if (!sceneId || !content) return;
       const prev = saveChainRef.current;
       let release!: () => void;
@@ -1232,19 +1249,43 @@ const FrontstageApp: React.FC = () => {
         }
         setIsSaved(true);
         justSavedRef.current = Date.now();
+        // v0.33.x: 失败后的成功写一次恢复日志并清除可见错误态
+        if (saveFailedRef.current) {
+          saveFailedRef.current = false;
+          setSaveError(null);
+          logToBackend('frontstage:persist_recovered', 'scene persist recovered after failure', {
+            sceneId,
+            contentLen: content.length,
+            retryCount,
+          });
+        }
       } catch (e) {
-        // v0.30.50: 失败不再仅记日志——标记未保存并 2s 后原样重试一次
-        // （allowRetry=false 防止无限循环），瞬时 DB 错误可自愈；
-        // 此前失败后只能靠用户再次编辑才有机会落库。
+        // v0.33.x: 重试策略由"2s 后仅重试一次"改为封顶退避（2s/10s/30s，经
+        //   SAVE_RETRY_DELAYS_MS 配置，retryCount 防无限循环），瞬时 DB 错误可自愈；
+        //   重试耗尽后置 saveError 可见态（顶栏可点击重试）。
+        // v0.33.x: 失败必须走 log_frontend_event 通道——frontstageLogger 的
+        //   warn/error 历史版本从未落盘（见 src-tauri/src/logging.rs），仅 console 可见。
         frontstageLogger.error('Persist scene content failed', {
           error: e,
-          willRetry: allowRetry,
+          willRetry: retryCount < SAVE_RETRY_DELAYS_MS.length,
+          retryCount,
         });
+        logToBackend('frontstage:persist_failed', 'persist scene content failed', {
+          sceneId,
+          contentLen: content.length,
+          error: String(e),
+          willRetry: retryCount < SAVE_RETRY_DELAYS_MS.length,
+          retryCount,
+        });
+        saveFailedRef.current = true;
         setIsSaved(false);
-        if (allowRetry) {
+        if (retryCount < SAVE_RETRY_DELAYS_MS.length) {
+          const delay = SAVE_RETRY_DELAYS_MS[retryCount];
           setTimeout(() => {
-            void persistSceneContent(sceneId, content, title, false);
-          }, 2000);
+            void persistSceneContent(sceneId, content, title, retryCount + 1);
+          }, delay);
+        } else {
+          setSaveError(String(e));
         }
       } finally {
         release();
@@ -1263,10 +1304,31 @@ const FrontstageApp: React.FC = () => {
   const flushSceneSave = useCallback(async (): Promise<void> => {
     cancelAutoSave();
     const sceneId = useFrontstageStore.getState().sceneId;
-    if (!sceneId) return;
+    // v0.33.x: 静默早退插桩——此前 sceneId 缺失/内容为空时无任何痕迹，
+    // 保存链路"假死"（正文不进库、日志为零）完全无法定位。
+    if (!sceneId) {
+      logToBackend('frontstage:flush_skip', 'flushSceneSave skipped: no scene id', {
+        reason: 'no_scene_id',
+      });
+      return;
+    }
     const editorHtml = editorRef.current?.getHTML();
     const content = editorHtml || latestContentRef.current;
-    if (!content) return;
+    if (!content) {
+      logToBackend('frontstage:flush_skip', 'flushSceneSave skipped: empty content', {
+        reason: 'empty_content',
+        sceneId,
+      });
+      return;
+    }
+    // 入口日志仅在 sceneId 变化时记录，避免每次 flush 刷量（文思活跃时 flush 约 90s 一次）
+    if (lastFlushLoggedSceneIdRef.current !== sceneId) {
+      lastFlushLoggedSceneIdRef.current = sceneId;
+      logToBackend('frontstage:flush_scene_save', 'flushSceneSave entered', {
+        sceneId,
+        contentLen: content.length,
+      });
+    }
     // 同步 latestContentRef，使后续保存基准与编辑器一致
     latestContentRef.current = content;
     await persistSceneContent(
@@ -1279,6 +1341,11 @@ const FrontstageApp: React.FC = () => {
   useEffect(() => {
     flushSceneSaveRef.current = flushSceneSave;
   }, [flushSceneSave]);
+  // v0.33.x: 顶栏「保存失败，点击重试」入口——清除错误态并立即重新 flush
+  const handleRetrySave = useCallback(() => {
+    setSaveError(null);
+    void flushSceneSaveRef.current();
+  }, []);
   // A4-1.7/1.9: 生成任务计时器（仅记录开始时间，不启用 1s setInterval 心跳）
   const generationStartTimeRef = useRef<number | null>(null);
   // A4-1.8: notify_backstage_content_changed 节流定时器
@@ -2506,7 +2573,10 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   const selectChapter = useCallback(
-    (chapter: Chapter, opts?: { skipContent?: boolean; markDeliveredOnLoad?: boolean }) => {
+    (
+      chapter: Chapter,
+      opts?: { skipContent?: boolean; markDeliveredOnLoad?: boolean; scenes?: Scene[] }
+    ) => {
       // v0.26.16: skipContent 由调用方按场景传入——不同调用方有不同意图：
       //   story_created → skipContent=true（创世期间不加载 DB 正文）
       //   ChapterSwitch(auto_accept=true) → skipContent=false（事件自带正文，需要加载）
@@ -2692,17 +2762,37 @@ const FrontstageApp: React.FC = () => {
       }
       // Phase 2: 设置场景信息为主键，chapterId 为辅助
       // 优先使用 chapter.scene_id，若无可直接从 scenes 列表匹配
-      const linkedSceneId = chapter.scene_id || scenes?.find(s => s.chapter_id === chapter.id)?.id;
+      // v0.33.x fix: 解析来源改为 opts.scenes（调用方刚 fetch 的新鲜列表，
+      //   如 selectStory 的 scenesResult）→ scenesRef 快照 → scenes state，
+      //   消除 setScenes 后同步调用 selectChapter 读到 stale 空数组、
+      //   错误回落 chapter.id 的冷启动竞态。
+      const scenesForResolve = opts?.scenes ?? scenesRef.current ?? scenes;
+      const sceneFromList = scenesForResolve?.find(s => s.chapter_id === chapter.id)?.id;
+      const linkedSceneId = chapter.scene_id || sceneFromList;
+      const sceneIdSource = chapter.scene_id
+        ? 'chapter.scene_id'
+        : sceneFromList
+          ? 'scenes_find'
+          : 'chapter_id_fallback';
       setSceneInfo(
         linkedSceneId || chapter.id, // fallback to chapter.id for backward compat
         chapter.title || '',
         chapter.id,
         currentStory?.title
       );
+      // v0.33.x: 关键诊断——sceneId 解析来源。chapter_id_fallback 意味着后续
+      // update_scene 将以 chapter.id 触发后端"不存在则创建"的 heal 路径，
+      // 提示 chapter↔scene 关联缺失或 scenes 列表未加载。
+      logToBackend('frontstage:scene_id_resolved', 'scene id resolved for chapter', {
+        chapterId: chapter.id,
+        resolvedSceneId: linkedSceneId || chapter.id,
+        source: sceneIdSource,
+        scenesCount: scenesForResolve?.length ?? 0,
+      });
 
       // Sync currentScene if chapter has associated scene
       if (chapter.scene_id) {
-        const associatedScene = scenes?.find(s => s.id === chapter.scene_id);
+        const associatedScene = scenesForResolve?.find(s => s.id === chapter.scene_id);
         if (!associatedScene) {
           (async () => {
             try {
@@ -2773,7 +2863,9 @@ const FrontstageApp: React.FC = () => {
         setScenes(scenesResult);
         loadStoryWordCount(story.id);
         if (result.length > 0) {
-          selectChapter(result[0]);
+          // v0.33.x fix: 传入刚 fetch 的 scenesResult，避免 selectChapter 读到
+          // setScenes 之前的 stale scenes（冷启动 scenes=[] 时 sceneId 错误回落 chapter.id）
+          selectChapter(result[0], { scenes: scenesResult });
         } else {
           setCurrentChapter(null);
           setCurrentScene(null);
@@ -4986,6 +5078,8 @@ const FrontstageApp: React.FC = () => {
           totalWordCount={totalWordCount}
           fontSize={fontSize}
           isSaved={isSaved}
+          saveError={saveError}
+          onRetrySave={handleRetrySave}
           isZenMode={isZenMode}
           wensiMode={wensiMode}
           orchestratorStatus={orchestratorStatus}

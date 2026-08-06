@@ -553,6 +553,17 @@ body {
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+/* v0.33.x: 保存失败可见态（顶栏红色，可点击重试） */
+.status-item.error {
+  color: #c0392b;
+  font-weight: 500;
+}
+
+.status-item.error:hover {
+  color: #a93226;
+  text-decoration: underline;
+}
+
 @keyframes pulse {
   0%,
   100% {

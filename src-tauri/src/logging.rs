@@ -105,10 +105,16 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
         registry.init();
     }
 
-    // 将 log crate 的日志桥接到 tracing
+    // 将 log crate 的日志桥接到 tracing。
+    // 注意：tracing-subscriber 启用 tracing-log feature 时（Cargo.lock
+    // 已确认启用）， 上面的 registry.
+    // init()（SubscriberInitExt::init）会自动初始化 LogTracer，
+    // 此处的显式调用必然以 "already initialized" 失败——这是预期行为，仅记 debug，
+    // 不再输出误导性的 WARN。保留显式调用作为兜底：若未来该 feature 被移除，
+    // 此处仍能保证 log:: 记录被桥接，而不是静默丢失。
     if let Err(e) = tracing_log::LogTracer::init() {
-        tracing::warn!(
-            "[logging] LogTracer::init() failed (log crate logger may already be set): {}",
+        tracing::debug!(
+            "[logging] LogTracer::init() skipped (already initialized by subscriber): {}",
             e
         );
     }
@@ -125,13 +131,18 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
 
 /// 写入前端日志条目到后端日志文件
 ///
-/// 通过 IPC 由前端调用，将前端错误/警告统一收集到后端日志
+/// 通过 IPC 由前端调用，将前端错误/警告统一收集到后端日志。
+/// v0.33.x fix: warn/error 除 tracing daily 文件外，同步写入
+/// creative_workflow.log—— 此前仅走 tracing 通道，而 tracing 的 non-blocking
+/// writer 在运行期静默丢弃记录 （WorkerGuard 随 setup 闭包结束被
+/// drop），导致前端 warn/error 完全不可见。
 #[tauri::command]
 pub fn write_frontend_log(
+    app_handle: tauri::AppHandle,
     level: String,
     target: String,
     message: String,
-    #[allow(unused_variables)] metadata: Option<serde_json::Value>,
+    metadata: Option<serde_json::Value>,
 ) {
     match level.as_str() {
         "error" => {
@@ -178,6 +189,18 @@ pub fn write_frontend_log(
                 "[FE] {}",
                 message
             );
+        }
+    }
+
+    // warn/error 同步落入 creative_workflow.log（前端关键事件的已验证主通道）。
+    // WorkflowLogger 初始化失败时 try_state 返回 None，静默降级为仅 tracing。
+    if let Some(logger) =
+        app_handle.try_state::<std::sync::Arc<crate::workflow_logger::WorkflowLogger>>()
+    {
+        match level.as_str() {
+            "error" => logger.error(target, message, metadata),
+            "warn" => logger.warn(target, message, metadata),
+            _ => {}
         }
     }
 }

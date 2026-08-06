@@ -38,6 +38,10 @@ interface FrontstageHeaderProps {
   totalWordCount: number;
   fontSize: number;
   isSaved: boolean;
+  /** v0.33.x: 保存重试耗尽后的可见错误（非 null 时顶栏显示可点击的重试入口） */
+  saveError?: string | null;
+  /** v0.33.x: 点击「保存失败，点击重试」时触发重新 flush */
+  onRetrySave?: () => void;
   isZenMode: boolean;
   wensiMode: 'off' | 'passive' | 'active';
   orchestratorStatus: { message: string } | null;
@@ -68,6 +72,8 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   totalWordCount,
   fontSize,
   isSaved,
+  saveError,
+  onRetrySave,
   isZenMode,
   wensiMode,
   orchestratorStatus,
@@ -219,11 +225,24 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
           >
             {fontSize}px
           </span>
-          {!isSaved && (
+          {saveError ? (
             <>
               <span className="status-separator">·</span>
-              <span className="status-item saving">保存中...</span>
+              <span
+                className="status-item error cursor-pointer"
+                title={`保存失败：${saveError}（点击重试）`}
+                onClick={onRetrySave}
+              >
+                保存失败，点击重试
+              </span>
             </>
+          ) : (
+            !isSaved && (
+              <>
+                <span className="status-separator">·</span>
+                <span className="status-item saving">保存中...</span>
+              </>
+            )
           )}
           {dbPoolStatus &&
             (() => {
