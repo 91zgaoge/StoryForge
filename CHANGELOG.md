@@ -2,6 +2,16 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.33.0（2026-08-06）
+
+### 智能分章修通：超 3000 字按字数与情节自动划分章节，编辑器自动切换到新章
+
+- **① 分章触发链路接线（`scene`）**：自动分章器（v0.26.57 引入）的唯一调度入口 `SceneService::on_scene_updated` 此前零调用，分章功能从未真正生效。现将防抖调度抽为 `schedule_commit_and_split`，由编辑器实际保存路径 `update_scene` 命令接入——场景内容保存后 30 秒空闲即对最新章尝试自动分章（与 auto_commit 同窗口）。
+- **② 编辑器自动切换到新章（`frontstage`）**：分章事件（`chapterCreated` 新增 `split_from_chapter_id` 字段）命中正在编辑的章时，前端自动取消待保存、重置保存基准并切换到包含溢出内容的新章，后续续写自然流入新章；从机制上杜绝旧全文回写造成的内容重复。
+- **③ 合约目标命名新章（`chapter-splitter`）**：新章标题优先取该故事最新章节合约的 `chapter_directive.goal`（截断 30 字），无合约时回退「第N章」。
+- **④ 默认分章模式改为情节模式（`config`）**：`chapter_split_mode` 默认由 `word_count` 改为 `plot`——过半阈值后优先在情节边界（连续空行/时间地点转换标记）切章，找不到边界自动回退字数切；设置页可随时切回纯字数模式。
+- **测试**：新增 3 个 Rust 单测（合约命名/截断/回退）+ 3 个前端测试（分章切换、零 stale 写回、非分章建章不受影响）；`cargo test --lib` 1175 项、`vitest` 363 项全部通过。
+
 ## v0.32.1（2026-08-05）
 
 ### 数据安全修复：超长手稿回滚不再丢失内容
