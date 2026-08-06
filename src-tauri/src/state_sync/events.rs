@@ -79,6 +79,11 @@ pub enum SyncEvent {
         story_id: String,
         chapter_id: String,
         title: Option<String>,
+        /// 若本章由自动分章（v0.26.57）切出，记录来源章 id；
+        /// 非分章创建时该字段缺省（不序列化）。
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        #[ts(optional)]
+        split_from_chapter_id: Option<String>,
     },
     ChapterUpdated {
         story_id: String,

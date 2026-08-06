@@ -335,6 +335,7 @@ impl ChapterService {
             &chapter.story_id,
             &chapter.id,
             title.as_deref(),
+            None, // 手工创建，非自动分章
         );
 
         // 3. 关联 Scene 更新同步事件（chapter 创建会自动创建/关联 scene）

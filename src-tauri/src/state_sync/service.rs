@@ -233,6 +233,7 @@ impl StateSync {
         story_id: &str,
         chapter_id: &str,
         title: Option<&str>,
+        split_from_chapter_id: Option<&str>,
     ) {
         Self::emit_event(
             app,
@@ -240,6 +241,7 @@ impl StateSync {
                 story_id: story_id.to_string(),
                 chapter_id: chapter_id.to_string(),
                 title: title.map(|s| s.to_string()),
+                split_from_chapter_id: split_from_chapter_id.map(|s| s.to_string()),
             },
         );
     }

@@ -416,6 +416,16 @@ impl SceneService {
 
         // 5. Phase 3: Scene-level debounced auto_commit (30s idle)
         //    + v0.26.57: 同窗口尝试自动划分章节（仅最新章、超阈值时）
+        self.schedule_commit_and_split(scene_id, story_id, content_changed);
+    }
+
+    /// Phase 3: 场景保存后 30s 空闲触发防抖 auto_commit；
+    /// 内容变更时在同一窗口先尝试自动划分章节（仅最新章、超阈值时，
+    /// 见 `chapter_splitter::maybe_split_latest_chapter`）。
+    ///
+    /// 任何「场景已持久化」的路径（`on_scene_updated`、`update_scene` 命令）
+    /// 都应调用本函数，保证防抖语义一致。
+    pub fn schedule_commit_and_split(&self, scene_id: &str, story_id: &str, content_changed: bool) {
         let scene_id_for_commit = scene_id.to_string();
         let story_id_for_commit = story_id.to_string();
         let pool = self.pool.clone();

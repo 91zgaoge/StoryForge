@@ -346,6 +346,15 @@ pub async fn update_scene(
                 },
             )
             .await;
+        // v0.26.57 修复接线：编辑器保存路径此前未调度防抖
+        // auto_commit + 自动分章（step 5 曾只在无人调用的
+        // SceneService::on_scene_updated 中），此处补上，语义与领域服务一致。
+        crate::story_system::scene_service::SceneService::new(
+            pool.inner().clone(),
+            app_handle.clone(),
+            vector_store.inner().clone(),
+        )
+        .schedule_commit_and_split(&scene_id, story_id, content_changed);
     }
     // v0.31.0: 章节完成（正文从无到有）→ methodology_step +1（到顶停留）
     if updates.content.is_some() && !had_content_before {

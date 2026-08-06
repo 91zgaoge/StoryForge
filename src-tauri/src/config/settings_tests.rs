@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn test_chapter_split_defaults() {
         let config = AppConfig::default();
-        assert_eq!(config.chapter_split_mode, "word_count");
+        assert_eq!(config.chapter_split_mode, "plot");
         assert_eq!(config.chapter_split_max_chars, None);
     }
 
@@ -526,7 +526,7 @@ mod tests {
         obj.remove("chapter_split_mode");
         obj.remove("chapter_split_max_chars");
         let config: AppConfig = serde_json::from_value(value).unwrap();
-        assert_eq!(config.chapter_split_mode, "word_count");
+        assert_eq!(config.chapter_split_mode, "plot");
         assert_eq!(config.chapter_split_max_chars, None);
     }
 

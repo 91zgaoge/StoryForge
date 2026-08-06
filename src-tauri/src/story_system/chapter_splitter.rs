@@ -15,7 +15,11 @@ use tauri::AppHandle;
 
 use crate::{
     config::{AppConfig, DEFAULT_CHAPTER_SPLIT_MAX_CHARS},
-    db::{ChapterRepository, CreateChapterRequest, DbPool, SceneRepository, SceneUpdate},
+    db::{
+        ChapterRepository, CreateChapterRequest, DbPool, SceneRepository, SceneUpdate,
+        StoryContractRepository,
+    },
+    domain::contracts::ChapterContract,
     state_sync::StateSync,
     utils::text::TextUtils,
 };
@@ -284,6 +288,43 @@ pub fn plan_split(
     })
 }
 
+/// 新章标题：优先取故事最新章节合约（CHAPTER）的 `goal`
+/// （截断至 30 个字符、按字符边界切），无合约 / 空 goal 时回退 `第{N}章`。
+fn resolve_new_chapter_title(pool: &DbPool, story_id: &str, chapter_number: i32) -> String {
+    title_from_goal(
+        latest_chapter_contract_goal(pool, story_id).as_deref(),
+        chapter_number,
+    )
+}
+
+/// 纯函数：由合约 goal 推导章节标题（可单测）。
+fn title_from_goal(goal: Option<&str>, chapter_number: i32) -> String {
+    const MAX_TITLE_CHARS: usize = 30;
+    match goal.map(str::trim).filter(|g| !g.is_empty()) {
+        Some(g) => g.chars().take(MAX_TITLE_CHARS).collect(),
+        None => format!("第{}章", chapter_number),
+    }
+}
+
+/// 查询故事最新（chapter_number 最大）章节合约的 goal；查询失败时告警并返回
+/// None。
+fn latest_chapter_contract_goal(pool: &DbPool, story_id: &str) -> Option<String> {
+    let repo = StoryContractRepository::new(pool.clone());
+    let contracts = match repo.get_by_story(story_id) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("[ChapterSplitter] 查询章节合约失败，回退默认命名: {}", e);
+            return None;
+        }
+    };
+    contracts
+        .iter()
+        .filter(|c| c.contract_type == "CHAPTER")
+        .filter_map(|c| serde_json::from_str::<ChapterContract>(&c.contract_json).ok())
+        .max_by_key(|c| c.chapter_number)
+        .map(|c| c.chapter_directive.goal)
+}
+
 /// 对故事最新一章执行一次自动划分（若需要）。
 ///
 /// 返回 `Ok(Some(new_chapter_id))` 表示已切出新章；`Ok(None)` 表示无需切分。
@@ -350,11 +391,12 @@ pub fn maybe_split_latest_chapter(
         return Ok(None);
     }
 
+    let new_title = resolve_new_chapter_title(pool, story_id, next_number);
     let new_chapter = chapter_repo
         .create(CreateChapterRequest {
             story_id: story_id.to_string(),
             chapter_number: next_number,
-            title: Some(format!("第{}章", next_number)),
+            title: Some(new_title),
             outline: None,
             content: Some(plan.overflow),
         })
@@ -367,6 +409,7 @@ pub fn maybe_split_latest_chapter(
         story_id,
         &new_chapter.id,
         new_chapter.title.as_deref(),
+        Some(chapter_id),
     );
 
     log::info!(
@@ -458,5 +501,26 @@ mod tests {
     fn word_count_mode_ignores_plot_markers_when_under_threshold() {
         let text = format!("开头\n\n第二天\n{}", chinese_repeat('续', 50));
         assert!(plan_split(&text, ChapterSplitMode::WordCount, 3000).is_none());
+    }
+
+    #[test]
+    fn title_from_goal_uses_goal_when_present() {
+        assert_eq!(
+            title_from_goal(Some("潜入敌营救出同伴"), 3),
+            "潜入敌营救出同伴"
+        );
+    }
+
+    #[test]
+    fn title_from_goal_truncates_at_char_boundary() {
+        let long_goal = chinese_repeat('长', 40);
+        let title = title_from_goal(Some(&long_goal), 3);
+        assert_eq!(title.chars().count(), 30);
+    }
+
+    #[test]
+    fn title_from_goal_falls_back_when_missing_or_blank() {
+        assert_eq!(title_from_goal(None, 7), "第7章");
+        assert_eq!(title_from_goal(Some("   "), 7), "第7章");
     }
 }

@@ -249,7 +249,8 @@ pub struct AppConfig {
     /// Genesis 向导第一章目标字数（默认 2000）
     #[serde(default = "default_genesis_first_chapter_word_count_target")]
     pub genesis_first_chapter_word_count_target: i32,
-    /// v0.26.57: 自动划分章节方式 — `word_count`（按字数）或 `plot`（按情节）
+    /// v0.26.57: 自动划分章节方式 — `word_count`（按字数）或 `plot`（按情节，
+    /// 默认；找不到情节边界时自动回退为按字数切分）。
     #[serde(default = "default_chapter_split_mode")]
     pub chapter_split_mode: String,
     /// v0.26.57: 按字数划分时的上限（中文「字」）。`None` / 未填 = 自动默认
@@ -459,7 +460,7 @@ fn default_genesis_first_chapter_word_count_target() -> i32 {
 pub const DEFAULT_CHAPTER_SPLIT_MAX_CHARS: usize = 3000;
 
 fn default_chapter_split_mode() -> String {
-    "word_count".to_string()
+    "plot".to_string()
 }
 
 fn default_health_probe_mode() -> String {
