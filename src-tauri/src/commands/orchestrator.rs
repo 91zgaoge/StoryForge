@@ -217,25 +217,28 @@ async fn smart_execute_inner(
     };
 
     // 优先使用前端传来的实时编辑器内容，其次回退到数据库中最后一章的 Scene 聚合内容
-    let current_content_preview = current_content
+    let current_content_full = current_content
         .filter(|c| !c.trim().is_empty())
         .or_else(|| {
             chapters
                 .last()
                 .and_then(|c| ChapterRepository::new(pool.clone()).get_content(&c.id).ok())
-        })
-        .map(|content| {
-            let max_chars = 6000;
-            let total = content.chars().count();
-            if total > max_chars {
-                // 从尾部截断：保留最后 max_chars 个字符，前面加省略号
-                let skip = total - max_chars;
-                let preview: String = content.chars().skip(skip).collect();
-                format!("...(前{}字已省略)\n{}", skip, preview)
-            } else {
-                content
-            }
         });
+    // 预览仅用于 prompt 上下文 / has_current_content，超长时从尾部截断；
+    // previous_content 落库必须用上面的 current_content_full 全文（见下方
+    // prev_content_for_record），rollback 会将其原样写回，存截断预览会丢内容。
+    let current_content_preview = current_content_full.clone().map(|content| {
+        let max_chars = 6000;
+        let total = content.chars().count();
+        if total > max_chars {
+            // 从尾部截断：保留最后 max_chars 个字符，前面加省略号
+            let skip = total - max_chars;
+            let preview: String = content.chars().skip(skip).collect();
+            format!("...(前{}字已省略)\n{}", skip, preview)
+        } else {
+            content
+        }
+    });
 
     // v0.30.11: 用 LLM 写作意图分类替代 is_novel_creation_intent 朴素子串匹配
     // （"讲一个 bookstore 的故事"会命中 "story" 误触发创世）。前端在 smart_execute
@@ -727,7 +730,9 @@ async fn smart_execute_inner(
     let scene_id_for_record = current_scene_id.clone();
     let chapter_id_for_record = chapters.last().map(|c| c.id.clone());
     let input_for_record = user_input.clone();
-    let prev_content_for_record = current_content_preview.clone();
+    // previous_content 必须存全文而非截断预览：rollback 会把它原样写回
+    // Scene 作为章节全部内容，存截断预览会导致超长手稿回滚丢内容。
+    let prev_content_for_record = current_content_full;
 
     // v0.10.0: 构建当前故事的创作策略上下文
     // v0.14.0: spawn_blocking 包裹同步 DB 查询
