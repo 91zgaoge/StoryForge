@@ -1213,6 +1213,11 @@ impl GenreProfileRepository {
         Self { pool }
     }
 
+    /// 访问底层连接池（供资产目录等需要同时查多张表的场景复用）
+    pub fn pool(&self) -> &DbPool {
+        &self.pool
+    }
+
     /// 创建题材画像。`is_builtin=true` 仅用于启动种子；用户/创世动态创建须传
     /// `false`。
     pub fn create(

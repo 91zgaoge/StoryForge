@@ -61,6 +61,25 @@ impl Default for MethodologyConfig {
     }
 }
 
+/// 自定义（指导书提炼）方法论的 id 前缀
+pub const CUSTOM_METHODOLOGY_PREFIX: &str = "custom_";
+
+/// 是否为自定义方法论 id
+pub fn is_custom_methodology_id(id: &str) -> bool {
+    id.starts_with(CUSTOM_METHODOLOGY_PREFIX)
+}
+
+/// MethodologyType 枚举 → canonical 字符串 id
+pub fn methodology_type_id(mt: &MethodologyType) -> &'static str {
+    match mt {
+        MethodologyType::Snowflake => "snowflake",
+        MethodologyType::SceneStructure => "scene_structure",
+        MethodologyType::HeroJourney => "hero_journey",
+        MethodologyType::CharacterDepth => "character_depth",
+        MethodologyType::HighDensityWorldBuilding => "high_density_world_building",
+    }
+}
+
 /// 将别名规范为 Strategy / Genesis / WriteTimeBundle 使用的 canonical id。
 /// `world_building` / `hdwb` → `high_density_world_building`。
 pub fn normalize_methodology_id(id: &str) -> &str {
@@ -124,5 +143,28 @@ mod methodology_id_tests {
         assert_eq!(next_methodology_step("hero_journey", 1), 1);
         // NULL/非法当前值按 1 处理
         assert_eq!(next_methodology_step("snowflake", 0), 2);
+    }
+
+    #[test]
+    fn custom_methodology_id_predicate() {
+        assert!(is_custom_methodology_id("custom_abc123"));
+        assert!(!is_custom_methodology_id("snowflake"));
+        assert_eq!(CUSTOM_METHODOLOGY_PREFIX, "custom_");
+    }
+
+    #[test]
+    fn methodology_type_id_roundtrip() {
+        assert_eq!(
+            methodology_type_id(&MethodologyType::Snowflake),
+            "snowflake"
+        );
+        assert_eq!(
+            methodology_type_id(&MethodologyType::HighDensityWorldBuilding),
+            "high_density_world_building"
+        );
+        assert_eq!(
+            methodology_type_id(&MethodologyType::HeroJourney),
+            "hero_journey"
+        );
     }
 }

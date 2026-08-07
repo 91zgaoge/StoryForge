@@ -380,3 +380,60 @@ pub fn render_custom_methodology_extension(
         checklist
     ))
 }
+
+#[cfg(test)]
+mod extension_tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    fn seed_cm(pool: &DbPool, enabled: bool) {
+        CustomMethodologyRepository::new(pool.clone())
+            .create(&CustomMethodology {
+                id: "custom_t1".into(),
+                guidebook_id: None,
+                name: "冲突驱动法".into(),
+                description: None,
+                steps: vec![
+                    MethodologyStep {
+                        title: "立冲突".into(),
+                        instruction: "确立核心冲突".into(),
+                        checklist: vec!["冲突明确吗？".into()],
+                    },
+                    MethodologyStep {
+                        title: "升级".into(),
+                        instruction: "升级冲突".into(),
+                        checklist: vec![],
+                    },
+                ],
+                enabled,
+                created_at: chrono::Local::now(),
+                updated_at: chrono::Local::now(),
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_extension_picks_step_and_formats() {
+        let pool = create_test_pool().unwrap();
+        seed_cm(&pool, true);
+        let text = render_custom_methodology_extension(&pool, "custom_t1", 2).unwrap();
+        assert!(text.contains("冲突驱动法"));
+        assert!(text.contains("第2步：升级"));
+        assert!(text.contains("升级冲突"));
+        // 越界 step 钳到最后一步
+        let clamped = render_custom_methodology_extension(&pool, "custom_t1", 99).unwrap();
+        assert!(clamped.contains("第2步"));
+        // 第 1 步带检查清单
+        let step1 = render_custom_methodology_extension(&pool, "custom_t1", 1).unwrap();
+        assert!(step1.contains("检查清单"));
+        assert!(step1.contains("冲突明确吗？"));
+    }
+
+    #[test]
+    fn render_extension_none_when_disabled_or_unknown() {
+        let pool = create_test_pool().unwrap();
+        seed_cm(&pool, false);
+        assert!(render_custom_methodology_extension(&pool, "custom_t1", 1).is_none());
+        assert!(render_custom_methodology_extension(&pool, "custom_unknown", 1).is_none());
+    }
+}

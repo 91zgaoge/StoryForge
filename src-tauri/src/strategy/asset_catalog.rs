@@ -17,9 +17,9 @@ use crate::{
     workflow::Workflow,
 };
 
-/// 把创作方法论转换为可选择资产
-pub fn methodology_assets() -> Vec<SelectableAsset> {
-    MethodologyEngine::list_available()
+/// 把创作方法论转换为可选择资产（含指导书提炼的自定义方法论）
+pub fn methodology_assets(pool: Option<&crate::db::DbPool>) -> Vec<SelectableAsset> {
+    let mut assets = MethodologyEngine::list_available()
         .into_iter()
         .map(|mt| {
             let id = format!("methodology.{}", methodology_id(mt));
@@ -40,7 +40,39 @@ pub fn methodology_assets() -> Vec<SelectableAsset> {
                 metadata: Default::default(),
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    if let Some(pool) = pool {
+        if let Ok(customs) =
+            crate::guidebook_distillation::CustomMethodologyRepository::new(pool.clone())
+                .list_enabled()
+        {
+            for cm in customs {
+                assets.push(SelectableAsset {
+                    id: format!("methodology.{}", cm.id),
+                    kind: AssetKind::Methodology,
+                    name: cm.name.clone(),
+                    description: cm.description.clone().unwrap_or_default(),
+                    when_to_use: format!(
+                        "由指导书提炼的自定义方法论（{} 个步骤）。{}",
+                        cm.steps.len(),
+                        cm.description.clone().unwrap_or_default()
+                    ),
+                    input_description: Some(
+                        "故事概念、目标字数、当前创作阶段（世界观/大纲/场景/正文）".to_string(),
+                    ),
+                    output_description: Some("该方法论的步骤指引与检查清单".to_string()),
+                    payload: serde_json::json!({
+                        "id": cm.id,
+                        "custom": true,
+                    }),
+                    metadata: Default::default(),
+                });
+            }
+        }
+    }
+
+    assets
 }
 
 fn methodology_id(mt: MethodologyType) -> &'static str {
@@ -349,7 +381,8 @@ pub fn load_assets_with_genre_profiles(
 ) -> Result<Vec<SelectableAsset>, crate::error::AppError> {
     let profiles = repo.get_all().map_err(crate::error::AppError::from)?;
     let mut assets = Vec::new();
-    assets.extend(methodology_assets());
+    // 通过 repo 的连接池同时加载指导书提炼的自定义方法论
+    assets.extend(methodology_assets(Some(repo.pool())));
     assets.extend(genre_profile_assets(&profiles));
     assets.extend(style_dna_assets());
     // v0.17.0 中文叙事增强资产
@@ -375,7 +408,8 @@ mod tests {
 
     #[test]
     fn test_methodology_assets_count() {
-        let assets = methodology_assets();
+        // 传 None：仅断言 5 个内置方法论，自定义方法论另由 integration 测试覆盖
+        let assets = methodology_assets(None);
         assert_eq!(assets.len(), 5);
         assert!(assets.iter().any(|a| a.id == "methodology.snowflake"));
         assert!(assets

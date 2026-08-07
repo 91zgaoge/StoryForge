@@ -576,7 +576,8 @@ mod tests {
             created_at: chrono::Local::now(),
         };
 
-        let mut assets = methodology_assets();
+        // 传 None：选择器测试只关心内置方法论与题材画像，无需 DB
+        let mut assets = methodology_assets(None);
         assets.extend(genre_profile_assets(&[profile]));
         assets
     }

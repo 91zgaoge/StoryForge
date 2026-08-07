@@ -205,11 +205,18 @@ impl WriteTimeBundle {
         // v0.31.0: 加载方法论扩展——动态解析（Task 6）。
         // 先试 methodology_{id}_step{N}，再试 methodology_{id}，hdwb 旧命名
         // 走兼容映射；未知 ID 在 resolve_methodology_extension 内 log::warn! 并返回
-        // None。
+        // None。自定义（指导书提炼）方法论从 DB 渲染当前步骤。
         let methodology_extension = match story.methodology_id.as_deref() {
             Some(mid) if !mid.is_empty() => {
                 let step = story.methodology_step.unwrap_or(1);
-                resolve_methodology_extension(mid, step)
+                if crate::domain::methodology::is_custom_methodology_id(mid) {
+                    // 自定义（指导书提炼）方法论：从 DB 渲染当前步骤
+                    crate::guidebook_distillation::render_custom_methodology_extension(
+                        &pool, mid, step,
+                    )
+                } else {
+                    resolve_methodology_extension(mid, step)
+                }
             }
             _ => None,
         };

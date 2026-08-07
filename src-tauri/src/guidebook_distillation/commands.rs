@@ -9,10 +9,7 @@ use super::{
     repository::CustomMethodologyRepository,
     service::{GuidebookDistillationService, GuidebookStatusResponse},
 };
-use crate::{
-    creative_engine::methodology::MethodologyType, db::DbPool, error::AppError, llm::LlmService,
-    subscription::SubscriptionService,
-};
+use crate::{db::DbPool, error::AppError, llm::LlmService, subscription::SubscriptionService};
 
 fn new_service(app_handle: &AppHandle) -> Result<GuidebookDistillationService, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
@@ -111,16 +108,8 @@ pub struct MethodologyInfo {
     pub enabled: bool,
 }
 
-/// 内置方法论 id（与 strategy/asset_catalog.rs 的 methodology_id 保持一致）
-fn methodology_type_id(mt: &MethodologyType) -> &'static str {
-    match mt {
-        MethodologyType::Snowflake => "snowflake",
-        MethodologyType::SceneStructure => "scene_structure",
-        MethodologyType::HeroJourney => "hero_journey",
-        MethodologyType::CharacterDepth => "character_depth",
-        MethodologyType::HighDensityWorldBuilding => "high_density_world_building",
-    }
-}
+/// 内置方法论 id 统一由 `crate::domain::methodology::methodology_type_id`
+/// 提供。
 
 /// 全量方法论清单：无 + 5 内置 + 自定义（含禁用，前端标记）
 #[command(rename_all = "snake_case")]
@@ -138,7 +127,7 @@ pub async fn list_all_methodologies(
         enabled: true,
     }];
     for mt in crate::creative_engine::methodology::MethodologyEngine::list_available() {
-        let id = methodology_type_id(&mt);
+        let id = crate::domain::methodology::methodology_type_id(&mt);
         out.push(MethodologyInfo {
             id: id.to_string(),
             name: mt.name().to_string(),

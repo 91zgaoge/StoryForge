@@ -208,7 +208,18 @@ fn advance_methodology_step(pool: &crate::db::DbPool, story_id: &str) -> bool {
         _ => return false,
     };
     let current = story.methodology_step.unwrap_or(1);
-    let next = crate::domain::methodology::next_methodology_step(mid, current);
+    let next = if crate::domain::methodology::is_custom_methodology_id(mid) {
+        // 自定义方法论：最大步数 = 步骤数，到顶停留
+        let max = crate::guidebook_distillation::CustomMethodologyRepository::new(pool.clone())
+            .get_by_id(mid)
+            .ok()
+            .flatten()
+            .map(|cm| cm.max_steps())
+            .unwrap_or(1);
+        (current.max(1) + 1).min(max)
+    } else {
+        crate::domain::methodology::next_methodology_step(mid, current)
+    };
     if next == current {
         return false;
     }
