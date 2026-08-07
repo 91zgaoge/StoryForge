@@ -52,6 +52,8 @@ pub enum PromptCategory {
     Deconstruction, // 拆书分析
     Creation,       // 创世流程（Genesis）
     Strategy,       // 创作策略选择
+    // v0.33.2: 指导书提炼
+    Distillation, // 指导书提炼（元信息/要点/方法论生成）
     // 其他
     Other,
 }
@@ -79,6 +81,7 @@ impl PromptCategory {
             Self::Deconstruction => "拆书分析",
             Self::Creation => "创世流程",
             Self::Strategy => "策略选择",
+            Self::Distillation => "指导书提炼",
             Self::Other => "其他",
         }
     }
@@ -105,6 +108,7 @@ impl PromptCategory {
             Self::Deconstruction => "小说拆书分析（元数据/角色/章节/故事线提取）",
             Self::Creation => "创世流程（Genesis）提示词——故事概念/世界观/角色/场景/大纲/伏笔",
             Self::Strategy => "创作策略选择、资产选择",
+            Self::Distillation => "指导书提炼（元信息识别、要点提炼、合并去重、方法论生成）",
             Self::Other => "其他辅助提示词",
         }
     }
@@ -131,7 +135,8 @@ impl PromptCategory {
             Self::Deconstruction => 17,
             Self::Creation => 18,
             Self::Strategy => 19,
-            Self::Other => 20,
+            Self::Distillation => 20,
+            Self::Other => 21,
         }
     }
 }
@@ -392,6 +397,7 @@ fn category_from_str(s: &str) -> Option<PromptCategory> {
         "deconstruction" => Some(PromptCategory::Deconstruction),
         "creation" => Some(PromptCategory::Creation),
         "strategy" => Some(PromptCategory::Strategy),
+        "distillation" => Some(PromptCategory::Distillation),
         "other" => Some(PromptCategory::Other),
         _ => None,
     }
@@ -849,5 +855,22 @@ mod tests {
         assert!(content.contains("禁止发明新角色"));
         assert!(content.contains("{{story_outline}}"));
         assert!(content.contains("围绕"));
+    }
+
+    // v0.33.2: 指导书提炼提示词注册验证
+    #[test]
+    fn distillation_prompts_registered() {
+        for id in [
+            "distill_metadata",
+            "distill_chunk",
+            "distill_merge",
+            "distill_methodology",
+        ] {
+            assert!(
+                resolve_prompt_default(id).is_some(),
+                "内置 prompt {} 未注册",
+                id
+            );
+        }
     }
 }
