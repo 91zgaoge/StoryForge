@@ -10,6 +10,11 @@
 //!
 //! 触发：场景内容保存后 30s 空闲（与 auto_commit
 //! 同窗口），且仅处理故事最新一章， 避免改写中间章节时重排后续章号。
+//!
+//! 单次触发循环切分：一次触发内反复切分最新章（切出的新章随即成为最新章），
+//! 直到最新章字数 ≤ 阈值或找不到切分点为止——粘贴恢复的大段正文（如
+//! 9 万字）可在一次触发内分章完成。安全上限 `MAX_SPLIT_ITERATIONS`（50），
+//! 且单轮无进展（新最新章字数不小于上一轮）时中断并告警。
 
 use tauri::AppHandle;
 
@@ -325,19 +330,31 @@ fn latest_chapter_contract_goal(pool: &DbPool, story_id: &str) -> Option<String>
         .map(|c| c.chapter_directive.goal)
 }
 
-/// 对故事最新一章执行一次自动划分（若需要）。
+/// 单次触发内循环切分的安全上限。
+const MAX_SPLIT_ITERATIONS: usize = 50;
+
+/// 一次切分的结果（供事件发射与返回值使用）。
+struct SplitOutcome {
+    /// 被截断的原章 id（切分前的最新章）
+    old_chapter_id: String,
+    /// 原章第一个场景 id（用于 sceneUpdated 事件）
+    scene_id: String,
+    /// 新切出的章 id
+    new_chapter_id: String,
+    /// 新章标题
+    new_chapter_title: Option<String>,
+}
+
+/// 对指定章（须为故事最新章）执行一次切分；无需/不可切分时返回 `Ok(None)`。
 ///
-/// 返回 `Ok(Some(new_chapter_id))` 表示已切出新章；`Ok(None)` 表示无需切分。
-pub fn maybe_split_latest_chapter(
+/// 不发射事件（便于单测）；事件由调用方按 `SplitOutcome` 补发。
+fn split_latest_chapter_once(
     pool: &DbPool,
-    app_handle: &AppHandle,
     story_id: &str,
     chapter_id: &str,
-    config: &AppConfig,
-) -> Result<Option<String>, String> {
-    let mode = ChapterSplitMode::parse(&config.chapter_split_mode);
-    let max_chars = resolve_max_chars(config.chapter_split_max_chars);
-
+    mode: ChapterSplitMode,
+    max_chars: usize,
+) -> Result<Option<SplitOutcome>, String> {
     let chapter_repo = ChapterRepository::new(pool.clone());
     let scene_repo = SceneRepository::new(pool.clone());
 
@@ -402,16 +419,6 @@ pub fn maybe_split_latest_chapter(
         })
         .map_err(|e| e.to_string())?;
 
-    let _ = StateSync::emit_chapter_updated(app_handle, chapter_id, None, story_id);
-    let _ = StateSync::emit_scene_updated(app_handle, story_id, &scene.id, None, true);
-    let _ = StateSync::emit_chapter_created(
-        app_handle,
-        story_id,
-        &new_chapter.id,
-        new_chapter.title.as_deref(),
-        Some(chapter_id),
-    );
-
     log::info!(
         "[ChapterSplitter] split chapter {} → new {} (mode={:?}, max_chars={})",
         chapter_id,
@@ -420,7 +427,109 @@ pub fn maybe_split_latest_chapter(
         max_chars
     );
 
-    Ok(Some(new_chapter.id))
+    Ok(Some(SplitOutcome {
+        old_chapter_id: chapter_id.to_string(),
+        scene_id: scene.id.clone(),
+        new_chapter_id: new_chapter.id,
+        new_chapter_title: new_chapter.title,
+    }))
+}
+
+/// 循环切分故事最新章，直到其字数 ≤ 阈值或找不到切分点。
+///
+/// 每轮重新读取最新章（切分后新章成为最新章）。安全上限
+/// `MAX_SPLIT_ITERATIONS`；单轮无进展（新最新章字数不小于上一轮）时中断并告警。
+/// 返回各次切分结果（按切分顺序）。
+fn split_latest_until_within_threshold(
+    pool: &DbPool,
+    story_id: &str,
+    chapter_id: &str,
+    mode: ChapterSplitMode,
+    max_chars: usize,
+) -> Result<Vec<SplitOutcome>, String> {
+    let chapter_repo = ChapterRepository::new(pool.clone());
+    let mut outcomes = Vec::new();
+    let mut current_id = chapter_id.to_string();
+    let mut prev_len: Option<usize> = None;
+
+    for _ in 0..MAX_SPLIT_ITERATIONS {
+        let content = chapter_repo
+            .get_content(&current_id)
+            .map_err(|e| e.to_string())?;
+        let len = TextUtils::chinese_word_count(&content);
+
+        // 安全网：新最新章字数不小于上一轮 → 无进展，防死循环
+        if let Some(prev) = prev_len {
+            if len >= prev {
+                log::warn!(
+                    "[ChapterSplitter] split loop made no progress (latest chapter {} len {} >= prev {}), stop",
+                    current_id,
+                    len,
+                    prev
+                );
+                break;
+            }
+        }
+        if len <= max_chars {
+            break;
+        }
+        prev_len = Some(len);
+
+        let Some(outcome) =
+            split_latest_chapter_once(pool, story_id, &current_id, mode, max_chars)?
+        else {
+            break;
+        };
+        current_id = outcome.new_chapter_id.clone();
+        outcomes.push(outcome);
+    }
+
+    if outcomes.len() >= MAX_SPLIT_ITERATIONS {
+        log::warn!(
+            "[ChapterSplitter] split loop reached max iterations ({}), stop",
+            MAX_SPLIT_ITERATIONS
+        );
+    }
+
+    Ok(outcomes)
+}
+
+/// 对故事最新一章执行自动划分（若需要）。
+///
+/// 单次触发内循环切分：每次切出新章后新章随即成为最新章，继续检查并切分，
+/// 直到最新章字数 ≤ 阈值或找不到切分点（安全上限 `MAX_SPLIT_ITERATIONS`，
+/// 单轮无进展时中断）。每次切分各自发射
+/// chapterUpdated/sceneUpdated/chapterCreated 事件。
+///
+/// 返回 `Ok(Some(last_new_chapter_id))`：多次切分时返回**最后一次**切出的章
+/// id（当前唯一调用方 scene_service 仅用于日志）；`Ok(None)` 表示无需切分。
+pub fn maybe_split_latest_chapter(
+    pool: &DbPool,
+    app_handle: &AppHandle,
+    story_id: &str,
+    chapter_id: &str,
+    config: &AppConfig,
+) -> Result<Option<String>, String> {
+    let mode = ChapterSplitMode::parse(&config.chapter_split_mode);
+    let max_chars = resolve_max_chars(config.chapter_split_max_chars);
+
+    let outcomes =
+        split_latest_until_within_threshold(pool, story_id, chapter_id, mode, max_chars)?;
+
+    for outcome in &outcomes {
+        let _ =
+            StateSync::emit_chapter_updated(app_handle, &outcome.old_chapter_id, None, story_id);
+        let _ = StateSync::emit_scene_updated(app_handle, story_id, &outcome.scene_id, None, true);
+        let _ = StateSync::emit_chapter_created(
+            app_handle,
+            story_id,
+            &outcome.new_chapter_id,
+            outcome.new_chapter_title.as_deref(),
+            Some(outcome.old_chapter_id.as_str()),
+        );
+    }
+
+    Ok(outcomes.last().map(|o| o.new_chapter_id.clone()))
 }
 
 #[cfg(test)]
@@ -522,5 +631,150 @@ mod tests {
     fn title_from_goal_falls_back_when_missing_or_blank() {
         assert_eq!(title_from_goal(None, 7), "第7章");
         assert_eq!(title_from_goal(Some("   "), 7), "第7章");
+    }
+
+    // ==================== 循环切分（DB 集成） ====================
+
+    use crate::db::{create_test_pool, CreateStoryRequest, StoryRepository};
+
+    /// 种一个故事 + 第一章（内容写入其场景），返回 (story_id, chapter_id)。
+    fn seed_story_with_chapter(pool: &DbPool, content: &str) -> (String, String) {
+        let story_repo = StoryRepository::new(pool.clone());
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "循环分章测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        let chapter = chapter_repo
+            .create(CreateChapterRequest {
+                story_id: story.id.clone(),
+                chapter_number: 1,
+                title: Some("第一章".to_string()),
+                outline: None,
+                content: Some(content.to_string()),
+            })
+            .unwrap();
+        (story.id, chapter.id)
+    }
+
+    #[test]
+    fn bulk_content_splits_repeatedly_in_one_trigger() {
+        let pool = create_test_pool().unwrap();
+        // 5 段 × 1800 字 = 9000 字，段落边界保证 word_count 模式每轮可切
+        let para = chinese_repeat('文', 1800);
+        let content = [para.as_str(); 5].join("\n\n");
+        let (story_id, chapter_id) = seed_story_with_chapter(&pool, &content);
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &chapter_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+
+        assert!(
+            outcomes.len() >= 2,
+            "9000 字应一次触发切出多章, got {}",
+            outcomes.len()
+        );
+
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        let chapters = chapter_repo.get_by_story(&story_id).unwrap();
+        assert_eq!(chapters.len(), 1 + outcomes.len());
+
+        // 每章字数都在阈值内（最后一章是剩余部分）
+        for ch in &chapters {
+            let c = chapter_repo.get_content(&ch.id).unwrap();
+            assert!(
+                TextUtils::chinese_word_count(&c) <= 3000,
+                "chapter {} exceeds threshold: {}",
+                ch.chapter_number,
+                TextUtils::chinese_word_count(&c)
+            );
+        }
+
+        // 章号连续 1..=N
+        let mut numbers: Vec<i32> = chapters.iter().map(|c| c.chapter_number).collect();
+        numbers.sort_unstable();
+        assert_eq!(numbers, (1..=chapters.len() as i32).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn boundary_less_content_terminates_without_runaway() {
+        let pool = create_test_pool().unwrap();
+        // 无段落 / 句末边界：word_count 回退到阈值处硬切，每轮新章必缩短，
+        // 循环必然终止且章数有界
+        let content = chinese_repeat('密', 9000);
+        let (story_id, chapter_id) = seed_story_with_chapter(&pool, &content);
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &chapter_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+
+        // 9000 / 3000 → 2 次切分、3 章，远小于安全上限
+        assert!(
+            outcomes.len() <= 3,
+            "boundary-less content should terminate quickly, got {}",
+            outcomes.len()
+        );
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        let chapters = chapter_repo.get_by_story(&story_id).unwrap();
+        assert_eq!(chapters.len(), 1 + outcomes.len());
+        assert!((chapters.len() as usize) < MAX_SPLIT_ITERATIONS);
+    }
+
+    #[test]
+    fn unsplittable_content_exits_loop_without_new_chapter() {
+        let pool = create_test_pool().unwrap();
+        // 开头即段落边界 → keep 为 0 字，plan_split 拒绝 → 无切分、循环退出
+        let content = format!("\n\n{}", chinese_repeat('孤', 4000));
+        let (story_id, chapter_id) = seed_story_with_chapter(&pool, &content);
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &chapter_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+
+        assert!(outcomes.is_empty());
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        assert_eq!(chapter_repo.get_by_story(&story_id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn within_threshold_content_loop_is_noop() {
+        let pool = create_test_pool().unwrap();
+        let content = chinese_repeat('短', 1000);
+        let (story_id, chapter_id) = seed_story_with_chapter(&pool, &content);
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &chapter_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+
+        assert!(outcomes.is_empty());
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        assert_eq!(chapter_repo.get_by_story(&story_id).unwrap().len(), 1);
     }
 }
