@@ -31,6 +31,7 @@ mod error;
 mod error_recovery;
 mod events;
 mod export;
+pub mod guidebook_distillation;
 mod intent;
 mod intention_graph;
 mod knowledge_base;

@@ -1,0 +1,414 @@
+//! 指导书与自定义方法论 Repository
+
+use chrono::{DateTime, Local};
+use rusqlite::params;
+
+use super::models::*;
+use crate::db::DbPool;
+
+type RepoResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+// ==================== 指导书 ====================
+
+pub struct GuidebookRepository {
+    pool: DbPool,
+}
+
+impl GuidebookRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(&self, book: &Guidebook) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO guidebooks (id, title, author, subject, word_count, file_format, \
+             file_hash, file_path, methodology_id, status, progress, error, task_id, \
+             created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+            params![
+                book.id,
+                book.title,
+                book.author,
+                book.subject,
+                book.word_count,
+                book.file_format,
+                book.file_hash,
+                book.file_path,
+                book.methodology_id,
+                book.status.to_string(),
+                book.progress,
+                book.error,
+                book.task_id,
+                book.created_at.to_rfc3339(),
+                book.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn row_to_guidebook(row: &rusqlite::Row) -> rusqlite::Result<Guidebook> {
+        let status_str: String = row.get("status")?;
+        let created: String = row.get("created_at")?;
+        let updated: String = row.get("updated_at")?;
+        Ok(Guidebook {
+            id: row.get("id")?,
+            title: row.get("title")?,
+            author: row.get("author")?,
+            subject: row.get("subject")?,
+            word_count: row.get("word_count")?,
+            file_format: row.get("file_format")?,
+            file_hash: row.get("file_hash")?,
+            file_path: row.get("file_path")?,
+            methodology_id: row.get("methodology_id")?,
+            status: status_str.parse().unwrap_or(DistillationStatus::Pending),
+            progress: row.get("progress")?,
+            error: row.get("error")?,
+            task_id: row.get("task_id")?,
+            created_at: DateTime::parse_from_rfc3339(&created)
+                .map(|d| d.with_timezone(&Local))
+                .unwrap_or_else(|_| Local::now()),
+            updated_at: DateTime::parse_from_rfc3339(&updated)
+                .map(|d| d.with_timezone(&Local))
+                .unwrap_or_else(|_| Local::now()),
+        })
+    }
+
+    pub fn get_by_id(&self, id: &str) -> RepoResult<Option<Guidebook>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT * FROM guidebooks WHERE id = ?1")?;
+        let mut rows = stmt.query_map(params![id], Self::row_to_guidebook)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn get_by_hash(&self, hash: &str) -> RepoResult<Option<Guidebook>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT * FROM guidebooks WHERE file_hash = ?1")?;
+        let mut rows = stmt.query_map(params![hash], Self::row_to_guidebook)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn list_all(&self) -> RepoResult<Vec<GuidebookListItem>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, title, author, subject, word_count, file_format, methodology_id, \
+             status, progress, created_at FROM guidebooks ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(GuidebookListItem {
+                id: row.get("id")?,
+                title: row.get("title")?,
+                author: row.get("author")?,
+                subject: row.get("subject")?,
+                word_count: row.get("word_count")?,
+                file_format: row.get("file_format")?,
+                methodology_id: row.get("methodology_id")?,
+                status: row.get("status")?,
+                progress: row.get("progress")?,
+                created_at: row.get("created_at")?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn update_status(
+        &self,
+        id: &str,
+        status: DistillationStatus,
+        progress: i32,
+    ) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE guidebooks SET status = ?1, progress = ?2, updated_at = ?3 WHERE id = ?4",
+            params![status.to_string(), progress, Local::now().to_rfc3339(), id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_task_id(&self, id: &str, task_id: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE guidebooks SET task_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![task_id, Local::now().to_rfc3339(), id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_error(&self, id: &str, error: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE guidebooks SET status = 'failed', error = ?1, updated_at = ?2 WHERE id = ?3",
+            params![error, Local::now().to_rfc3339(), id],
+        )?;
+        Ok(())
+    }
+
+    /// 提炼完成后回写元信息与产物关联
+    pub fn update_distilled(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        author: Option<&str>,
+        subject: Option<&str>,
+        methodology_id: &str,
+    ) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE guidebooks SET title = COALESCE(?1, title), author = COALESCE(?2, author), \
+             subject = COALESCE(?3, subject), methodology_id = ?4, updated_at = ?5 WHERE id = ?6",
+            params![
+                title,
+                author,
+                subject,
+                methodology_id,
+                Local::now().to_rfc3339(),
+                id
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete(&self, id: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute("DELETE FROM guidebooks WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+}
+
+// ==================== 自定义方法论 ====================
+
+pub struct CustomMethodologyRepository {
+    pool: DbPool,
+}
+
+impl CustomMethodologyRepository {
+    pub fn new(pool: DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn create(&self, cm: &CustomMethodology) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "INSERT INTO custom_methodologies (id, guidebook_id, name, description, steps_json, \
+             enabled, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                cm.id,
+                cm.guidebook_id,
+                cm.name,
+                cm.description,
+                serde_json::to_string(&cm.steps)?,
+                cm.enabled as i32,
+                cm.created_at.to_rfc3339(),
+                cm.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn row_to_cm(row: &rusqlite::Row) -> rusqlite::Result<CustomMethodology> {
+        let steps_json: String = row.get("steps_json")?;
+        let created: String = row.get("created_at")?;
+        let updated: String = row.get("updated_at")?;
+        let enabled: i32 = row.get("enabled")?;
+        Ok(CustomMethodology {
+            id: row.get("id")?,
+            guidebook_id: row.get("guidebook_id")?,
+            name: row.get("name")?,
+            description: row.get("description")?,
+            steps: parse_steps(&steps_json),
+            enabled: enabled != 0,
+            created_at: DateTime::parse_from_rfc3339(&created)
+                .map(|d| d.with_timezone(&Local))
+                .unwrap_or_else(|_| Local::now()),
+            updated_at: DateTime::parse_from_rfc3339(&updated)
+                .map(|d| d.with_timezone(&Local))
+                .unwrap_or_else(|_| Local::now()),
+        })
+    }
+
+    pub fn get_by_id(&self, id: &str) -> RepoResult<Option<CustomMethodology>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT * FROM custom_methodologies WHERE id = ?1")?;
+        let mut rows = stmt.query_map(params![id], Self::row_to_cm)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn list_all(&self) -> RepoResult<Vec<CustomMethodology>> {
+        let conn = self.pool.get()?;
+        let mut stmt =
+            conn.prepare("SELECT * FROM custom_methodologies ORDER BY created_at DESC")?;
+        let rows = stmt.query_map([], Self::row_to_cm)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn list_enabled(&self) -> RepoResult<Vec<CustomMethodology>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare(
+            "SELECT * FROM custom_methodologies WHERE enabled = 1 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map([], Self::row_to_cm)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// 更新名称/描述/步骤/启用状态（None 字段不动）
+    pub fn update(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+        steps: Option<&[MethodologyStep]>,
+        enabled: Option<bool>,
+    ) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        if let Some(n) = name {
+            conn.execute(
+                "UPDATE custom_methodologies SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                params![n, Local::now().to_rfc3339(), id],
+            )?;
+        }
+        if let Some(d) = description {
+            conn.execute(
+                "UPDATE custom_methodologies SET description = ?1, updated_at = ?2 WHERE id = ?3",
+                params![d, Local::now().to_rfc3339(), id],
+            )?;
+        }
+        if let Some(s) = steps {
+            conn.execute(
+                "UPDATE custom_methodologies SET steps_json = ?1, updated_at = ?2 WHERE id = ?3",
+                params![serde_json::to_string(s)?, Local::now().to_rfc3339(), id],
+            )?;
+        }
+        if let Some(e) = enabled {
+            conn.execute(
+                "UPDATE custom_methodologies SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
+                params![e as i32, Local::now().to_rfc3339(), id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn delete(&self, id: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "DELETE FROM custom_methodologies WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// 引用该方法论的故事数（删除前提示用）
+    pub fn count_stories_using(&self, id: &str) -> RepoResult<i64> {
+        let conn = self.pool.get()?;
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM stories WHERE methodology_id = ?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+        Ok(n)
+    }
+
+    /// 删除方法论时把引用它的故事的 methodology_id 置空
+    pub fn clear_story_references(&self, id: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE stories SET methodology_id = NULL, methodology_step = NULL \
+             WHERE methodology_id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::connection::create_test_pool;
+
+    fn sample_guidebook(id: &str) -> Guidebook {
+        Guidebook {
+            id: id.into(),
+            title: "故事".into(),
+            author: None,
+            subject: None,
+            word_count: Some(1000),
+            file_format: Some("txt".into()),
+            file_hash: Some(format!("hash_{}", id)),
+            file_path: None,
+            methodology_id: None,
+            status: DistillationStatus::Pending,
+            progress: 0,
+            error: None,
+            task_id: None,
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        }
+    }
+
+    #[test]
+    fn guidebook_crud_flow() {
+        let pool = create_test_pool().unwrap();
+        let repo = GuidebookRepository::new(pool);
+        repo.create(&sample_guidebook("g1")).unwrap();
+        // hash 去重查询
+        assert!(repo.get_by_hash("hash_g1").unwrap().is_some());
+        // 状态推进
+        repo.update_status("g1", DistillationStatus::Distilling, 40)
+            .unwrap();
+        let g = repo.get_by_id("g1").unwrap().unwrap();
+        assert_eq!(g.status, DistillationStatus::Distilling);
+        assert_eq!(g.progress, 40);
+        // 提炼回写
+        repo.update_distilled("g1", Some("故事（修订）"), None, Some("技巧"), "custom_m1")
+            .unwrap();
+        let g = repo.get_by_id("g1").unwrap().unwrap();
+        assert_eq!(g.title, "故事（修订）");
+        assert_eq!(g.methodology_id.as_deref(), Some("custom_m1"));
+        // 列表与删除
+        assert_eq!(repo.list_all().unwrap().len(), 1);
+        repo.delete("g1").unwrap();
+        assert!(repo.get_by_id("g1").unwrap().is_none());
+    }
+
+    #[test]
+    fn custom_methodology_crud_flow() {
+        let pool = create_test_pool().unwrap();
+        let repo = CustomMethodologyRepository::new(pool);
+        let cm = CustomMethodology {
+            id: "custom_m1".into(),
+            guidebook_id: None,
+            name: "三幕冲突法".into(),
+            description: Some("d".into()),
+            steps: vec![
+                MethodologyStep {
+                    title: "s1".into(),
+                    instruction: "i1".into(),
+                    checklist: vec![],
+                },
+                MethodologyStep {
+                    title: "s2".into(),
+                    instruction: "i2".into(),
+                    checklist: vec!["c".into()],
+                },
+            ],
+            enabled: true,
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        };
+        repo.create(&cm).unwrap();
+        let got = repo.get_by_id("custom_m1").unwrap().unwrap();
+        assert_eq!(got.max_steps(), 2);
+        assert_eq!(got.steps[1].checklist, vec!["c"]);
+        // enabled 过滤
+        assert_eq!(repo.list_enabled().unwrap().len(), 1);
+        repo.update("custom_m1", None, None, None, Some(false))
+            .unwrap();
+        assert!(repo.list_enabled().unwrap().is_empty());
+        assert_eq!(repo.list_all().unwrap().len(), 1);
+        // 改名
+        repo.update("custom_m1", Some("改名"), None, None, None)
+            .unwrap();
+        assert_eq!(repo.get_by_id("custom_m1").unwrap().unwrap().name, "改名");
+        repo.delete("custom_m1").unwrap();
+        assert!(repo.get_by_id("custom_m1").unwrap().is_none());
+    }
+}

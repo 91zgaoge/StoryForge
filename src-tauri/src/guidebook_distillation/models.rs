@@ -1,0 +1,230 @@
+#![allow(dead_code)]
+//! 指导书提炼 Models
+
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
+
+// ==================== 提炼状态 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum DistillationStatus {
+    Pending,
+    Extracting,
+    Distilling,
+    Merging,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl std::fmt::Display for DistillationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            DistillationStatus::Pending => "pending",
+            DistillationStatus::Extracting => "extracting",
+            DistillationStatus::Distilling => "distilling",
+            DistillationStatus::Merging => "merging",
+            DistillationStatus::Completed => "completed",
+            DistillationStatus::Failed => "failed",
+            DistillationStatus::Cancelled => "cancelled",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::str::FromStr for DistillationStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pending" => Ok(DistillationStatus::Pending),
+            "extracting" => Ok(DistillationStatus::Extracting),
+            "distilling" => Ok(DistillationStatus::Distilling),
+            "merging" => Ok(DistillationStatus::Merging),
+            "completed" => Ok(DistillationStatus::Completed),
+            "failed" => Ok(DistillationStatus::Failed),
+            "cancelled" => Ok(DistillationStatus::Cancelled),
+            _ => Err(format!("Unknown distillation status: {}", s)),
+        }
+    }
+}
+
+// ==================== 指导书主表模型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Guidebook {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub word_count: Option<i64>,
+    pub file_format: Option<String>,
+    pub file_hash: Option<String>,
+    pub file_path: Option<String>,
+    pub methodology_id: Option<String>,
+    pub status: DistillationStatus,
+    pub progress: i32,
+    pub error: Option<String>,
+    pub task_id: Option<String>,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuidebookListItem {
+    pub id: String,
+    pub title: String,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub word_count: Option<i64>,
+    pub file_format: Option<String>,
+    pub methodology_id: Option<String>,
+    pub status: String,
+    pub progress: i32,
+    pub created_at: String,
+}
+
+// ==================== 自定义方法论 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MethodologyStep {
+    pub title: String,
+    pub instruction: String,
+    #[serde(default)]
+    pub checklist: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomMethodology {
+    pub id: String,
+    pub guidebook_id: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub steps: Vec<MethodologyStep>,
+    pub enabled: bool,
+    pub created_at: DateTime<Local>,
+    pub updated_at: DateTime<Local>,
+}
+
+impl CustomMethodology {
+    /// 最大步数（章节完成自动推进到顶后停留），至少为 1
+    pub fn max_steps(&self) -> i32 {
+        (self.steps.len() as i32).max(1)
+    }
+}
+
+/// 解析 steps_json；坏数据返回空 vec（调用方按「无步骤」处理）
+pub fn parse_steps(json: &str) -> Vec<MethodologyStep> {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+// ==================== 进度事件 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistillationProgressEvent {
+    pub guidebook_id: String,
+    pub status: String,
+    pub progress: i32,
+    pub current_step: String,
+    pub message: Option<String>,
+    #[serde(default)]
+    pub active_threads: i32,
+}
+
+// ==================== LLM 响应类型 ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGuidebookMetadataResponse {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmDistillChunkResponse {
+    pub points: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmDistillMergeResponse {
+    pub principles: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmMethodologyStepResponse {
+    pub title: String,
+    pub instruction: String,
+    #[serde(default)]
+    pub checklist: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmMethodologyResponse {
+    pub name: String,
+    pub description: Option<String>,
+    pub steps: Vec<LlmMethodologyStepResponse>,
+}
+
+/// 提炼流水线的最终产出
+#[derive(Debug, Clone)]
+pub struct DistillationOutput {
+    pub metadata: LlmGuidebookMetadataResponse,
+    pub methodology: LlmMethodologyResponse,
+}
+
+// ==================== 聚合结果（给前端） ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuidebookResult {
+    pub guidebook: Guidebook,
+    pub methodology: Option<CustomMethodology>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_roundtrip() {
+        for s in [
+            DistillationStatus::Pending,
+            DistillationStatus::Extracting,
+            DistillationStatus::Distilling,
+            DistillationStatus::Merging,
+            DistillationStatus::Completed,
+            DistillationStatus::Failed,
+            DistillationStatus::Cancelled,
+        ] {
+            let text = s.to_string();
+            assert_eq!(text.parse::<DistillationStatus>().unwrap(), s);
+        }
+        assert!("bogus".parse::<DistillationStatus>().is_err());
+    }
+
+    #[test]
+    fn parse_steps_handles_valid_and_invalid() {
+        let json = r#"[{"title":"步骤一","instruction":"做某事","checklist":["a","b"]}]"#;
+        let steps = parse_steps(json);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].checklist, vec!["a", "b"]);
+        // checklist 缺省
+        let no_checklist = parse_steps(r#"[{"title":"t","instruction":"i"}]"#);
+        assert!(no_checklist[0].checklist.is_empty());
+        // 坏 JSON → 空
+        assert!(parse_steps("not json").is_empty());
+    }
+
+    #[test]
+    fn max_steps_at_least_one() {
+        let cm = CustomMethodology {
+            id: "custom_x".into(),
+            guidebook_id: None,
+            name: "n".into(),
+            description: None,
+            steps: vec![],
+            enabled: true,
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        };
+        assert_eq!(cm.max_steps(), 1);
+    }
+}
