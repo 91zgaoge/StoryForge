@@ -195,6 +195,21 @@ pub async fn get_scene(
     repo.get_by_id(&scene_id).map_err(AppError::from)
 }
 
+/// 自定义方法论最大步数求解：不存在按 1 步；瞬时 DB 错误返回 None，
+/// 调用方本次不推进，避免把 methodology_step 静默回退为 1。
+fn custom_methodology_max_steps(
+    result: Result<
+        Option<crate::guidebook_distillation::CustomMethodology>,
+        Box<dyn std::error::Error>,
+    >,
+) -> Option<i32> {
+    match result {
+        Ok(Some(cm)) => Some(cm.max_steps()),
+        Ok(None) => Some(1),
+        Err(_) => None,
+    }
+}
+
 /// v0.31.0: 章节完成后推进 methodology_step（到该方法论最大步数停留）。
 /// 返回是否发生了推进。story 无方法论或已到顶时为 noop。
 fn advance_methodology_step(pool: &crate::db::DbPool, story_id: &str) -> bool {
@@ -209,13 +224,14 @@ fn advance_methodology_step(pool: &crate::db::DbPool, story_id: &str) -> bool {
     };
     let current = story.methodology_step.unwrap_or(1);
     let next = if crate::domain::methodology::is_custom_methodology_id(mid) {
-        // 自定义方法论：最大步数 = 步骤数，到顶停留
-        let max = crate::guidebook_distillation::CustomMethodologyRepository::new(pool.clone())
-            .get_by_id(mid)
-            .ok()
-            .flatten()
-            .map(|cm| cm.max_steps())
-            .unwrap_or(1);
+        // 自定义方法论：最大步数 = 步骤数，到顶停留；DB 瞬时错误本次不推进
+        let max = match custom_methodology_max_steps(
+            crate::guidebook_distillation::CustomMethodologyRepository::new(pool.clone())
+                .get_by_id(mid),
+        ) {
+            Some(m) => m,
+            None => return false,
+        };
         (current.max(1) + 1).min(max)
     } else {
         crate::domain::methodology::next_methodology_step(mid, current)
@@ -1212,5 +1228,74 @@ mod tests {
             .expect("get")
             .expect("story exists");
         assert_eq!(reloaded.methodology_step, None);
+    }
+
+    #[test]
+    fn test_custom_methodology_max_steps_db_error_means_no_advance() {
+        // 瞬时 DB 错误：返回 None（不推进），避免误回退 methodology_step
+        let err: Result<
+            Option<crate::guidebook_distillation::CustomMethodology>,
+            Box<dyn std::error::Error>,
+        > = Err("simulated db error".into());
+        assert_eq!(custom_methodology_max_steps(err), None);
+    }
+
+    #[test]
+    fn test_custom_methodology_max_steps_missing_is_one() {
+        assert_eq!(custom_methodology_max_steps(Ok(None)), Some(1));
+    }
+
+    #[test]
+    fn test_custom_methodology_max_steps_uses_step_count() {
+        let cm = crate::guidebook_distillation::CustomMethodology {
+            id: "custom_t1".into(),
+            guidebook_id: None,
+            name: "三步法".into(),
+            description: None,
+            steps: (1..=3)
+                .map(|i| crate::guidebook_distillation::MethodologyStep {
+                    title: format!("s{}", i),
+                    instruction: "i".into(),
+                    checklist: vec![],
+                })
+                .collect(),
+            enabled: true,
+            created_at: chrono::Local::now(),
+            updated_at: chrono::Local::now(),
+        };
+        assert_eq!(custom_methodology_max_steps(Ok(Some(cm))), Some(3));
+    }
+
+    #[test]
+    fn test_advance_methodology_step_custom_methodology_advances() {
+        let pool = crate::db::create_test_pool().expect("test pool");
+        // 种一个 3 步的 custom methodology
+        let cm = crate::guidebook_distillation::CustomMethodology {
+            id: "custom_adv1".into(),
+            guidebook_id: None,
+            name: "三步法".into(),
+            description: None,
+            steps: (1..=3)
+                .map(|i| crate::guidebook_distillation::MethodologyStep {
+                    title: format!("s{}", i),
+                    instruction: "i".into(),
+                    checklist: vec![],
+                })
+                .collect(),
+            enabled: true,
+            created_at: chrono::Local::now(),
+            updated_at: chrono::Local::now(),
+        };
+        crate::guidebook_distillation::CustomMethodologyRepository::new(pool.clone())
+            .create(&cm)
+            .expect("create custom methodology");
+        let story = create_story(&pool, Some("custom_adv1"));
+
+        assert!(advance_methodology_step(&pool, &story.id));
+        let reloaded = crate::db::StoryRepository::new(pool.clone())
+            .get_by_id(&story.id)
+            .expect("get")
+            .expect("story exists");
+        assert_eq!(reloaded.methodology_step, Some(2));
     }
 }

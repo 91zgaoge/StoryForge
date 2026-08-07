@@ -37,6 +37,7 @@ export function useGuidebooks() {
 
 export function useGuidebookDistillationStatus(guidebookId: string | null) {
   const [liveStatus, setLiveStatus] = useState<GuidebookStatusResponse | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!guidebookId) return;
@@ -53,6 +54,11 @@ export function useGuidebookDistillationStatus(guidebookId: string | null) {
               current_step: event.payload.current_step,
               error: null,
             });
+            // 到达终态时刷新指导书列表（结果视图依赖列表项的
+            // status === 'completed' && methodology_id）
+            if (['completed', 'failed', 'cancelled'].includes(event.payload.status)) {
+              queryClient.invalidateQueries({ queryKey: [GUIDEBOOKS_KEY] });
+            }
           }
         }
       );
@@ -61,7 +67,7 @@ export function useGuidebookDistillationStatus(guidebookId: string | null) {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [guidebookId]);
+  }, [guidebookId, queryClient]);
 
   const query = useQuery({
     queryKey: [DISTILL_STATUS_KEY, guidebookId],

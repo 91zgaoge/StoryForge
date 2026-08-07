@@ -12,9 +12,9 @@ use tauri::AppHandle;
 
 use super::service::GuidebookDistillationService;
 use crate::{
-    book_deconstruction::{chunker::create_chunks, parser::parse_book},
+    book_deconstruction::{chunker::create_chunks, models::AnalysisError, parser::parse_book},
     db::DbPool,
-    guidebook_distillation::repository::GuidebookRepository,
+    guidebook_distillation::{models::DistillationStatus, repository::GuidebookRepository},
     llm::LlmService,
     task_system::{
         executor::{TaskExecutionContext, TaskExecutor},
@@ -106,6 +106,7 @@ impl TaskExecutor for GuidebookDistillationExecutor {
         let parsed = match tokio::task::spawn_blocking(move || parse_book(&path, None)).await {
             Ok(Ok(p)) => p,
             Ok(Err(e)) => {
+                cancel_monitor.abort();
                 let _ = GuidebookRepository::new(self.pool.clone())
                     .update_error(&guidebook_id, &format!("文件解析失败: {}", e));
                 return Ok(TaskResult {
@@ -115,6 +116,7 @@ impl TaskExecutor for GuidebookDistillationExecutor {
                 });
             }
             Err(e) => {
+                cancel_monitor.abort();
                 return Ok(TaskResult {
                     success: false,
                     result_json: None,
@@ -164,8 +166,18 @@ impl TaskExecutor for GuidebookDistillationExecutor {
                 })
             }
             Err(e) => {
-                let _ = GuidebookRepository::new(self.pool.clone())
-                    .update_error(&guidebook_id, &e.to_string());
+                // 取消是终态且已由 cancel_distillation 写入 cancelled，
+                // 不能用 update_error（SQL 硬写 failed）覆盖
+                if let AnalysisError::Cancelled(_) = e {
+                    let _ = GuidebookRepository::new(self.pool.clone()).update_status(
+                        &guidebook_id,
+                        DistillationStatus::Cancelled,
+                        0,
+                    );
+                } else {
+                    let _ = GuidebookRepository::new(self.pool.clone())
+                        .update_error(&guidebook_id, &e.to_string());
+                }
                 Ok(TaskResult {
                     success: false,
                     result_json: None,
