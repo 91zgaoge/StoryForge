@@ -11,7 +11,8 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - **③ 前端错误日志通道修复（`logging`）**：`write_frontend_log` 此前只写入运行期已失效的 tracing 文件，前端 warn/error 从未落盘。现同时写入 `creative_workflow.log`（经 WorkflowLogger）。
 - **④ 后端运行期日志修复（`logging`）**：tracing-appender 的 `WorkerGuard` 在 `.setup()` 闭包结束时被 drop，非阻塞写线程随之中止——这就是日志文件只有启动期几十行的根因。改为 `app.manage(log_guard)` 持有至退出。顺带将无害的 LogTracer 重复初始化 WARN 降为 debug。
 - **⑤ 分章切换场景加载与重试防护（`frontstage`）**：自动分章切换新章时同步加载场景列表（避免场景 ID 回退触发后端补建重复场景）；分章时取消在途保存重试，重试回调检测到 sceneId 已变更则自动放弃，防止分章前旧全文在 42 秒窗口内回写已截断的旧场景。
-- **测试**：新增 4 个前端测试（场景 ID 解析回归、失败重试 UI、分章后场景解析、跨场景重试放弃）；`cargo test --lib` 1175 项、`vitest` 367 项全部通过。
+- **⑥ 批量内容一次分章（`chapter-splitter`）**：分章器由此前每触发周期只切一章改为单次触发内循环切分，直到最新章 ≤ 阈值（安全上限 50 轮、无进展自中断）——粘贴恢复的大段正文（如 9 万字）可在一次 30 秒空闲窗口内分章完成。
+- **测试**：新增 4 个前端测试（场景 ID 解析回归、失败重试 UI、分章后场景解析、跨场景重试放弃）+ 4 个分章器测试（9000 字一次切 5 章、无边界内容不失控）；`cargo test --lib` 1179 项、`vitest` 367 项全部通过。
 
 ## v0.33.0（2026-08-06）
 
