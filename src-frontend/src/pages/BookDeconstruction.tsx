@@ -17,11 +17,13 @@ import { BookUploadPanel } from '@/components/book-deconstruction/BookUploadPane
 import { BookListGrid } from '@/components/book-deconstruction/BookListGrid';
 import { BookDetailView } from '@/components/book-deconstruction/BookDetailView';
 import { AnalysisProgress } from '@/components/book-deconstruction/AnalysisProgress';
+import { GuidebookDistillationPanel } from '@/components/guidebook-distillation/GuidebookDistillationPanel';
 import { GeneralSettings } from '@/pages/settings/GeneralSettings';
 import { cn } from '@/utils/cn';
 import { extractMessage } from '@/utils/errorHandler';
 
 export function BookDeconstruction() {
+  const [activeTab, setActiveTab] = useState<'books' | 'guidebooks'>('books');
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUpload, setShowUpload] = useState(false);
@@ -168,82 +170,111 @@ export function BookDeconstruction() {
   };
 
   return (
-    <div className="flex h-full bg-cinema-950">
-      {/* 左侧栏 */}
-      <div className="w-80 border-r border-cinema-800 flex flex-col bg-cinema-900">
-        {/* 头部 */}
-        <div className="p-4 border-b border-cinema-800">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-white">拆书</h2>
-            <button
-              onClick={() => {
-                setShowUpload(true);
-                setSelectedBookId(null);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cinema-gold/20 text-cinema-gold text-sm hover:bg-cinema-gold/30 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              上传
-            </button>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="搜索书籍..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg bg-cinema-800 border border-cinema-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold/50"
-            />
-          </div>
-        </div>
-
-        {/* 书籍列表 */}
-        <div className="flex-1 overflow-auto p-3">
-          {isLoading ? (
-            <div className="text-center py-8 text-gray-500">加载中...</div>
-          ) : filteredBooks && filteredBooks.length > 0 ? (
-            <BookListGrid
-              books={filteredBooks}
-              selectedId={selectedBookId}
-              onSelect={id => {
-                setSelectedBookId(id);
-                setShowUpload(false);
-              }}
-              onDelete={handleDelete}
-            />
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              {searchQuery ? '未找到匹配的书籍' : '暂无分析记录'}
-            </div>
-          )}
-        </div>
-
-        {/* v0.26.39: 拆书设置就近（从通用设置迁出） */}
-        <div className="border-t border-cinema-800">
+    <div className="flex flex-col h-full bg-cinema-950">
+      {/* Tab 头 */}
+      <div className="flex gap-2 border-b border-cinema-800 px-4">
+        {(
+          [
+            { key: 'books', label: '书籍拆解' },
+            { key: 'guidebooks', label: '指导书提炼' },
+          ] as const
+        ).map(tab => (
           <button
-            type="button"
-            onClick={() => setShowSettings(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-cinema-800/50"
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={cn(
+              'px-4 py-2 text-sm font-medium border-b-2 -mb-px',
+              activeTab === tab.key
+                ? 'border-cinema-gold text-cinema-gold'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            )}
           >
-            <span className="flex items-center gap-2">
-              <Settings2 className="w-4 h-4" />
-              拆书设置
-            </span>
-            <ChevronDown
-              className={cn('w-4 h-4 transition-transform', showSettings && 'rotate-180')}
-            />
+            {tab.label}
           </button>
-          {showSettings && (
-            <div className="px-3 pb-4 max-h-64 overflow-y-auto">
-              <GeneralSettings sections={['book']} />
-            </div>
-          )}
-        </div>
+        ))}
       </div>
 
-      {/* 右侧内容区 */}
-      <div className="flex-1 overflow-hidden">{renderContent()}</div>
+      {activeTab === 'books' && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* 左侧栏 */}
+          <div className="w-80 border-r border-cinema-800 flex flex-col bg-cinema-900">
+            {/* 头部 */}
+            <div className="p-4 border-b border-cinema-800">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-bold text-white">拆书</h2>
+                <button
+                  onClick={() => {
+                    setShowUpload(true);
+                    setSelectedBookId(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cinema-gold/20 text-cinema-gold text-sm hover:bg-cinema-gold/30 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  上传
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="搜索书籍..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-cinema-800 border border-cinema-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cinema-gold/50"
+                />
+              </div>
+            </div>
+
+            {/* 书籍列表 */}
+            <div className="flex-1 overflow-auto p-3">
+              {isLoading ? (
+                <div className="text-center py-8 text-gray-500">加载中...</div>
+              ) : filteredBooks && filteredBooks.length > 0 ? (
+                <BookListGrid
+                  books={filteredBooks}
+                  selectedId={selectedBookId}
+                  onSelect={id => {
+                    setSelectedBookId(id);
+                    setShowUpload(false);
+                  }}
+                  onDelete={handleDelete}
+                />
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  {searchQuery ? '未找到匹配的书籍' : '暂无分析记录'}
+                </div>
+              )}
+            </div>
+
+            {/* v0.26.39: 拆书设置就近（从通用设置迁出） */}
+            <div className="border-t border-cinema-800">
+              <button
+                type="button"
+                onClick={() => setShowSettings(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-cinema-800/50"
+              >
+                <span className="flex items-center gap-2">
+                  <Settings2 className="w-4 h-4" />
+                  拆书设置
+                </span>
+                <ChevronDown
+                  className={cn('w-4 h-4 transition-transform', showSettings && 'rotate-180')}
+                />
+              </button>
+              {showSettings && (
+                <div className="px-3 pb-4 max-h-64 overflow-y-auto">
+                  <GeneralSettings sections={['book']} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 右侧内容区 */}
+          <div className="flex-1 overflow-hidden">{renderContent()}</div>
+        </div>
+      )}
+
+      {activeTab === 'guidebooks' && <GuidebookDistillationPanel />}
     </div>
   );
 }

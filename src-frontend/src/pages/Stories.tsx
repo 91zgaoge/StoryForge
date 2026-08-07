@@ -27,6 +27,7 @@ import { extractMessage } from '@/utils/errorHandler';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useStories, useCreateStory, useDeleteStory, useUpdateStory } from '@/hooks/useStories';
+import { useAllMethodologies } from '@/hooks/useMethodologies';
 import { useCharacters } from '@/hooks/useCharacters';
 import { useScenes } from '@/hooks/useScenes';
 import { useForeshadowings } from '@/hooks/useForeshadowings';
@@ -358,6 +359,7 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
 
 export function Stories() {
   const { data: stories = [], isLoading } = useStories();
+  const { data: methodologies } = useAllMethodologies();
   const createStory = useCreateStory();
   const deleteStory = useDeleteStory();
   const updateStory = useUpdateStory();
@@ -785,12 +787,14 @@ export function Stories() {
                       onChange={e => setEditForm({ ...editForm, methodology_id: e.target.value })}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                     >
-                      <option value="">选择创作方法论（可选）</option>
-                      <option value="snowflake">雪花法</option>
-                      <option value="scene_structure">场景节拍</option>
-                      <option value="hero_journey">英雄之旅</option>
-                      <option value="character_depth">人物深度</option>
-                      <option value="world_building">高密度世界构建</option>
+                      {(methodologies ?? [])
+                        .filter(m => m.enabled)
+                        .map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                            {m.is_custom && m.source_book ? `（${m.source_book}）` : ''}
+                          </option>
+                        ))}
                     </select>
                     {editForm.methodology_id === 'snowflake' && (
                       <select

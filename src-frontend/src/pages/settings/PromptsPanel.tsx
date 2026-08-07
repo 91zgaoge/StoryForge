@@ -45,6 +45,7 @@ type PromptCategory =
   | 'Deconstruction'
   | 'Creation'
   | 'Strategy'
+  | 'Distillation'
   | 'Other';
 
 interface PromptEntry {
@@ -98,6 +99,7 @@ const CATEGORY_LABELS: Record<PromptCategory, string> = {
   Deconstruction: '拆书分析',
   Creation: '创世流程',
   Strategy: '策略选择',
+  Distillation: '提炼',
   Other: '其他',
 };
 
@@ -122,6 +124,7 @@ const CATEGORY_ORDER: PromptCategory[] = [
   'Knowledge',
   'Probe',
   'System',
+  'Distillation',
   'Other',
 ];
 
@@ -146,6 +149,7 @@ const CATEGORY_COLORS: Record<PromptCategory, string> = {
   Deconstruction: 'bg-fuchsia-500/20 text-fuchsia-400',
   Creation: 'bg-cyan-600/20 text-cyan-300',
   Strategy: 'bg-orange-600/20 text-orange-300',
+  Distillation: 'bg-teal-600/20 text-teal-300',
   Other: 'bg-slate-500/20 text-slate-400',
 };
 

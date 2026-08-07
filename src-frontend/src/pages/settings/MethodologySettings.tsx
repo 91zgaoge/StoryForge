@@ -3,35 +3,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/stores/appStore';
 import { useUpdateStory } from '@/hooks/useStories';
-
-const METHODOLOGIES = [
-  { id: '', name: '无（自由创作）', description: '不指定特定方法论，AI 自由发挥' },
-  {
-    id: 'snowflake',
-    name: '雪花法',
-    description: '从一句话概括逐步扩展为完整故事，适合 plotter 型作者',
-  },
-  {
-    id: 'scene_structure',
-    name: '场景节拍',
-    description: '以场景为单位构建叙事节拍，适合重视节奏的作者',
-  },
-  {
-    id: 'hero_journey',
-    name: '英雄之旅',
-    description: '经典三幕式英雄旅程结构，适合史诗/冒险类故事',
-  },
-  {
-    id: 'character_depth',
-    name: '人物深度',
-    description: '以人物为核心驱动故事，适合重视角色塑造的作者',
-  },
-  {
-    id: 'high_density_world_building',
-    name: '高密度世界构建',
-    description: '用状态驱动、桥节点连接、事件回流构建活的世界，适合奇幻/史诗/沉浸式小说',
-  },
-];
+import { useAllMethodologies } from '@/hooks/useMethodologies';
 
 /** 旧值 world_building 与 canonical 互认 */
 function normalizeMethodologyId(id: string): string {
@@ -62,14 +34,17 @@ const WORLD_BUILDING_PHASES = [
 export function MethodologySettings() {
   const currentStory = useAppStore(s => s.currentStory);
   const updateStoryMutation = useUpdateStory();
+  const { data: methodologies } = useAllMethodologies();
 
   const methodologyId = normalizeMethodologyId(currentStory?.methodology_id || '');
   const methodologyStep = currentStory?.methodology_step || 1;
+  const selectedMethodology = methodologies?.find(m => m.id === methodologyId);
 
   const handleSelectMethodology = (id: string) => {
     if (!currentStory) return;
     const canonical = normalizeMethodologyId(id);
-    const isStructured = canonical === 'snowflake' || canonical === 'high_density_world_building';
+    const target = methodologies?.find(m => m.id === canonical);
+    const isStructured = (target?.max_steps ?? 1) > 1;
     updateStoryMutation.mutate({
       id: currentStory.id,
       updates: {
@@ -117,20 +92,29 @@ export function MethodologySettings() {
             <div>
               <label className="block text-sm text-gray-400 mb-2">选择方法论</label>
               <div className="space-y-2">
-                {METHODOLOGIES.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleSelectMethodology(m.id)}
-                    className={`w-full p-3 rounded-lg text-left transition-colors border ${
-                      methodologyId === m.id
-                        ? 'bg-cinema-gold/20 border-cinema-gold/50'
-                        : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
-                    }`}
-                  >
-                    <div className="font-medium text-white">{m.name}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">{m.description}</div>
-                  </button>
-                ))}
+                {(methodologies ?? [])
+                  .filter(m => !m.is_custom || m.enabled)
+                  .map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => handleSelectMethodology(m.id)}
+                      className={`w-full p-3 rounded-lg text-left transition-colors border ${
+                        methodologyId === m.id
+                          ? 'bg-cinema-gold/20 border-cinema-gold/50'
+                          : 'bg-cinema-800 border-transparent hover:bg-cinema-700'
+                      }`}
+                    >
+                      <div className="font-medium text-white">
+                        {m.name}
+                        {m.is_custom && m.source_book && (
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-cinema-gold/10 text-cinema-gold/80">
+                            来自《{m.source_book}》
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">{m.description}</div>
+                    </button>
+                  ))}
               </div>
             </div>
 
@@ -174,6 +158,15 @@ export function MethodologySettings() {
                       {phase}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {selectedMethodology?.is_custom && selectedMethodology.max_steps > 1 && (
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">当前步骤</label>
+                <div className="p-3 rounded-lg bg-cinema-800 text-sm text-gray-300">
+                  当前：第 {methodologyStep} 步 / 共 {selectedMethodology.max_steps} 步
                 </div>
               </div>
             )}
