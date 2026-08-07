@@ -357,6 +357,12 @@ function StoryOverview({ storyId, isOpen }: { storyId: string; isOpen: boolean }
   );
 }
 
+/** 旧值 world_building 与 canonical 互认 */
+function normalizeMethodologyId(id: string): string {
+  if (id === 'world_building' || id === 'hdwb') return 'high_density_world_building';
+  return id;
+}
+
 export function Stories() {
   const { data: stories = [], isLoading } = useStories();
   const { data: methodologies } = useAllMethodologies();
@@ -783,7 +789,7 @@ export function Stories() {
                       <option value="其他">其他</option>
                     </select>
                     <select
-                      value={editForm.methodology_id}
+                      value={normalizeMethodologyId(editForm.methodology_id)}
                       onChange={e => setEditForm({ ...editForm, methodology_id: e.target.value })}
                       className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
                     >
@@ -825,7 +831,8 @@ export function Stories() {
                         ))}
                       </select>
                     )}
-                    {editForm.methodology_id === 'world_building' && (
+                    {normalizeMethodologyId(editForm.methodology_id) ===
+                      'high_density_world_building' && (
                       <select
                         value={editForm.methodology_step}
                         onChange={e =>
