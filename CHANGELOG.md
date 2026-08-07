@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.33.1（2026-08-06）
+
+### 保存链路全面修复：正文静默不落库、永远「保存中」、日志双通道失灵
+
+- **① 场景 ID 解析竞态（根因候选，`frontstage`）**：`selectStory` 在 `setScenes` 后同步调用 `selectChapter`，后者读到的是更新前的空 `scenes` 闭包，场景 ID 解析失败回退为章节 ID。改为通过 `opts.scenes` 传入刚取回的场景列表 + `scenesRef` 镜像，共修复 5 处同类调用点（selectStory、ChapterSwitch 新故事、pipeline-complete、两处 story_created）。
+- **② 保存失败不再静默（`frontstage`）**：`flushSceneSave` 的每个早退门控（无 sceneId / 空内容）与 `persistSceneContent` 的失败均通过 `logToBackend` 落日志（`flush_skip` / `persist_failed` / `scene_id_resolved`）；重试策略由单次 2s 改为 2s/10s/30s 封顶退避；最终失败时顶栏显示红色「保存失败，点击重试」，不再永远停在「保存中...」。
+- **③ 前端错误日志通道修复（`logging`）**：`write_frontend_log` 此前只写入运行期已失效的 tracing 文件，前端 warn/error 从未落盘。现同时写入 `creative_workflow.log`（经 WorkflowLogger）。
+- **④ 后端运行期日志修复（`logging`）**：tracing-appender 的 `WorkerGuard` 在 `.setup()` 闭包结束时被 drop，非阻塞写线程随之中止——这就是日志文件只有启动期几十行的根因。改为 `app.manage(log_guard)` 持有至退出。顺带将无害的 LogTracer 重复初始化 WARN 降为 debug。
+- **⑤ 分章切换场景加载与重试防护（`frontstage`）**：自动分章切换新章时同步加载场景列表（避免场景 ID 回退触发后端补建重复场景）；分章时取消在途保存重试，重试回调检测到 sceneId 已变更则自动放弃，防止分章前旧全文在 42 秒窗口内回写已截断的旧场景。
+- **测试**：新增 4 个前端测试（场景 ID 解析回归、失败重试 UI、分章后场景解析、跨场景重试放弃）；`cargo test --lib` 1175 项、`vitest` 367 项全部通过。
+
 ## v0.33.0（2026-08-06）
 
 ### 智能分章修通：超 3000 字按字数与情节自动划分章节，编辑器自动切换到新章
