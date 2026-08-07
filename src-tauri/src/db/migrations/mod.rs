@@ -901,6 +901,7 @@ pub mod V115__drop_chapter_content;
 pub mod V116__migrate_character_cs_columns;
 pub mod V117__unify_entities_to_kg_entities;
 pub mod V118__unify_foreshadowing_thread;
+pub mod V120__guidebooks_custom_methodologies;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -981,5 +982,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V116__migrate_character_cs_columns::Migration),
         Box::new(V117__unify_entities_to_kg_entities::Migration),
         Box::new(V118__unify_foreshadowing_thread::Migration),
+        Box::new(V120__guidebooks_custom_methodologies::Migration),
     ]
 }
