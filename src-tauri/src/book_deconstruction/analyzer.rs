@@ -904,7 +904,9 @@ JSON格式：
 // ==================== 工具函数 ====================
 
 /// 解析 LLM 返回的 JSON（带容错）
-fn parse_json_response<T: serde::de::DeserializeOwned>(response: &str) -> Result<T, AnalysisError> {
+pub(crate) fn parse_json_response<T: serde::de::DeserializeOwned>(
+    response: &str,
+) -> Result<T, AnalysisError> {
     let trimmed = response.trim();
 
     // 尝试直接解析
