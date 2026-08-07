@@ -77,21 +77,23 @@ impl ScheduleType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskType {
-    BookDeconstruction, // 拆书分析
-    CascadeRewrite,     // 级联改写
-    AiGeneration,       // AI 长文本生成
-    PipelineReview,     // Pipeline 审校
-    WorkflowNode,       // Workflow 节点执行
-    Ingest,             // 知识图谱 Ingest
-    AsyncAudit,         // 异步审计（分时架构时间线 2：Inspector → annotation 回流）
-    DeepInsight,        // 深度洞察（分时架构时间线 3：追读力/KG/向量/漂移，跨章节）
-    Custom,             // 自定义
+    BookDeconstruction,    // 拆书分析
+    GuidebookDistillation, // 指导书提炼
+    CascadeRewrite,        // 级联改写
+    AiGeneration,          // AI 长文本生成
+    PipelineReview,        // Pipeline 审校
+    WorkflowNode,          // Workflow 节点执行
+    Ingest,                // 知识图谱 Ingest
+    AsyncAudit,            // 异步审计（分时架构时间线 2：Inspector → annotation 回流）
+    DeepInsight,           // 深度洞察（分时架构时间线 3：追读力/KG/向量/漂移，跨章节）
+    Custom,                // 自定义
 }
 
 impl fmt::Display for TaskType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TaskType::BookDeconstruction => write!(f, "book_deconstruction"),
+            TaskType::GuidebookDistillation => write!(f, "guidebook_distillation"),
             TaskType::CascadeRewrite => write!(f, "cascade_rewrite"),
             TaskType::AiGeneration => write!(f, "ai_generation"),
             TaskType::PipelineReview => write!(f, "pipeline_review"),
@@ -108,6 +110,7 @@ impl TaskType {
     pub fn from_str(s: &str) -> Self {
         match s {
             "book_deconstruction" => TaskType::BookDeconstruction,
+            "guidebook_distillation" => TaskType::GuidebookDistillation,
             "cascade_rewrite" => TaskType::CascadeRewrite,
             "ai_generation" => TaskType::AiGeneration,
             "pipeline_review" => TaskType::PipelineReview,

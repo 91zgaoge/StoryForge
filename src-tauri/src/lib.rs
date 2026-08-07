@@ -408,6 +408,14 @@ fn init_task_system_and_automation(
         ),
     );
     task_service.register_executor(executor);
+    let guidebook_executor = std::sync::Arc::new(
+        guidebook_distillation::executor::GuidebookDistillationExecutor::new(
+            pool.clone(),
+            llm::LlmService::new(app_handle.clone()),
+            app_handle.clone(),
+        ),
+    );
+    task_service.register_executor(guidebook_executor);
     let cascade_executor = std::sync::Arc::new(
         creative_engine::cascade_rewriter::executor::CascadeRewriteExecutor::new(
             pool.clone(),

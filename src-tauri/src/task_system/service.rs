@@ -402,14 +402,17 @@ impl<R: Runtime> TaskService<R> {
     }
 }
 
-/// 拆书墙钟上限：12 小时（心跳仍由 HeartbeatMonitor 按 heartbeat_timeout
-/// 杀僵死任务）
+/// 拆书/指导书提炼墙钟上限：12 小时（心跳仍由 HeartbeatMonitor 按
+/// heartbeat_timeout 杀僵死任务）
 pub(crate) const BOOK_DECONSTRUCTION_WALL_CLOCK_SECS: u64 = 12 * 60 * 60;
 
 /// 计算任务墙钟超时秒数。
 pub(crate) fn wall_clock_timeout_secs(task: &Task) -> u64 {
     match task.task_type {
-        TaskType::BookDeconstruction => BOOK_DECONSTRUCTION_WALL_CLOCK_SECS,
+        // 拆书与指导书提炼同为多块 LLM 长任务，共享 12h 墙钟
+        TaskType::BookDeconstruction | TaskType::GuidebookDistillation => {
+            BOOK_DECONSTRUCTION_WALL_CLOCK_SECS
+        }
         _ => task.heartbeat_timeout_seconds.max(60) as u64,
     }
 }

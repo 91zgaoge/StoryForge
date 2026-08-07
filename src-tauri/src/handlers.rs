@@ -200,6 +200,16 @@ tauri::generate_handler! {
     book_deconstruction::commands::delete_reference_book,
     book_deconstruction::commands::convert_book_to_story,
     book_deconstruction::commands::cancel_book_analysis,
+    // Guidebook distillation commands
+    guidebook_distillation::commands::upload_guidebook,
+    guidebook_distillation::commands::get_guidebook_distillation_status,
+    guidebook_distillation::commands::get_guidebook_result,
+    guidebook_distillation::commands::list_guidebooks,
+    guidebook_distillation::commands::delete_guidebook,
+    guidebook_distillation::commands::cancel_guidebook_distillation,
+    guidebook_distillation::commands::list_all_methodologies,
+    guidebook_distillation::commands::update_custom_methodology,
+    guidebook_distillation::commands::delete_custom_methodology,
     // Task system commands
     task_system::commands::create_task,
     task_system::commands::update_task,
