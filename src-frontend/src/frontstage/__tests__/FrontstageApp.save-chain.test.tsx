@@ -192,4 +192,31 @@ describe('保存链路加固（v0.33.x）', () => {
     expect(updateSceneCalls().length).toBe(5);
     expect(screen.queryByText('保存失败，点击重试')).not.toBeInTheDocument();
   });
+
+  it('persist 重试出火时 sceneId 已切换则 no-op，不回写旧 scene（跨场景重试防护）', async () => {
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => expect(useFrontstageStore.getState().sceneId).toBe('scene-1'));
+
+    // update_scene 失败 → 排期 2s 重试（闭包持有 scene-1 的正文）
+    updateSceneBehavior.mode = 'fail';
+    vi.useFakeTimers();
+    await act(async () => {
+      listenCallbacks['frontstage-flush-requested']({ payload: undefined });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(updateSceneCalls().length).toBe(1); // 初次失败，重试已排期
+
+    // 模拟自动分章：store sceneId 在重试出火前已切到新 scene
+    act(() => {
+      useFrontstageStore.getState().setSceneInfo('scene-2', '第二章', 'ch-2');
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(42000);
+    });
+
+    // 持有旧全文的重试全部 no-op（不再调用 update_scene），也不会继续排期后续重试
+    expect(updateSceneCalls().length).toBe(1);
+    expect(updateSceneCalls().every(([, args]) => args?.scene_id === 'scene-1')).toBe(true);
+  });
 });

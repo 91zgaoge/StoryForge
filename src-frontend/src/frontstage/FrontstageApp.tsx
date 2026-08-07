@@ -73,7 +73,8 @@ const logToBackend = (phase: string, message: string, details?: Record<string, u
   }
 };
 
-// v0.33.x: persistSceneContent 失败重试退避（2s/10s/30s），重试耗尽后置 saveError 可见态
+// v0.33.x: persistSceneContent 失败重试退避（2s/10s/30s），重试耗尽后置 saveError 可见态；
+// 重试出火时若 store sceneId 已切换（如自动分章）则 no-op，避免旧全文回写已截断的旧 scene
 const SAVE_RETRY_DELAYS_MS = [2000, 10000, 30000];
 
 // v0.23.89: 最近接受的生成内容指纹，用于屏蔽后台事件重复写入同一内容
@@ -556,8 +557,10 @@ const FrontstageApp: React.FC = () => {
       // 幽灵文本为瞬态未保存内容，selectChapter 本就丢弃（setGeneratedText('')），
       // 故即使生成中/幽灵文本待确认也直接切换，不做延迟。
       if (splitFromChapterId && splitFromChapterId === currentChapterRef.current?.id) {
-        // 取消待执行的防抖保存，重置保存基准——旧全文永不可能被 flush 回旧 scene
+        // 取消待执行的防抖保存与在途失败重试，重置保存基准——旧全文永不可能被
+        // flush/重试回旧 scene（重试闭包持有分章前旧全文，最长 42s 后仍会出火）
         cancelAutoSave();
+        cancelPersistRetry();
         latestContentRef.current = '';
         suppressChapterSwitchFlushRef.current = true;
         // 5s 静默期，挡住分章伴随的 chapterUpdated 覆盖刚切换的正文
@@ -572,13 +575,39 @@ const FrontstageApp: React.FC = () => {
           }
         );
         loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
-        // 新章未必在已加载分页内（无 content），交由 selectChapter 懒加载完整章节后切换
-        selectChapter({
-          id: chapterId,
-          story_id: storyId,
-          title: title ?? '',
-          chapter_number: 0,
-        });
+        // v0.33.x fix: 新章的 scene 不在本地 scenes 分页内，切换前先拉取新鲜 scenes
+        // （与 selectStory 相同分页参数）并同步 setScenes。否则 selectChapter 解析
+        // sceneId 时读到 stale 空数组，回落 chapter.id，后端 heal 会建出
+        // id=chapter.id 的重复 scene，正文被拆到两个 scene。
+        void (async () => {
+          let freshScenes: Scene[] | undefined;
+          try {
+            const result = await loggedInvoke<Scene[]>('get_story_scenes_paged', {
+              story_id: storyId,
+              limit: SCENES_PAGE_SIZE,
+              offset: 0,
+            });
+            if (Array.isArray(result)) {
+              freshScenes = result;
+              setScenes(result);
+            }
+          } catch (e) {
+            frontstageLogger.error('[SplitAutoSwitch] Failed to load scenes for new chapter', {
+              error: e,
+            });
+          }
+          // 新章未必在已加载分页内（无 content），交由 selectChapter 懒加载完整章节后切换；
+          // 懒加载链路递归 selectChapter(full, opts)，opts.scenes 随之传到最终解析点
+          selectChapter(
+            {
+              id: chapterId,
+              story_id: storyId,
+              title: title ?? '',
+              chapter_number: 0,
+            },
+            { scenes: freshScenes }
+          );
+        })();
         setGenerationStatus('📑 已自动分章，编辑器已切换到新章');
         setTimeout(() => {
           setGenerationStatus(current =>
@@ -1226,6 +1255,16 @@ const FrontstageApp: React.FC = () => {
   const saveFailedRef = useRef(false);
   // flushSceneSave 入口日志仅在 sceneId 变化时记录一次，避免每次 flush 刷量
   const lastFlushLoggedSceneIdRef = useRef<string | null>(null);
+  // v0.33.x: 在途失败重试定时器——分章切换等场景可取消持有旧正文的在途重试
+  const saveRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // v0.33.x: 取消在途重试（分章自动切换时调用）——重试闭包持有分章前旧全文，
+  // 出火后会把旧全文回写到已截断的旧 scene，造成"旧全文 + 新章溢出副本"重复
+  const cancelPersistRetry = useCallback(() => {
+    if (saveRetryTimerRef.current) {
+      clearTimeout(saveRetryTimerRef.current);
+      saveRetryTimerRef.current = null;
+    }
+  }, []);
 
   // 序列化 DB 写入：所有 update_scene 必经此函数，按调用顺序串行提交。
   const persistSceneContent = useCallback(
@@ -1281,7 +1320,20 @@ const FrontstageApp: React.FC = () => {
         setIsSaved(false);
         if (retryCount < SAVE_RETRY_DELAYS_MS.length) {
           const delay = SAVE_RETRY_DELAYS_MS[retryCount];
-          setTimeout(() => {
+          saveRetryTimerRef.current = setTimeout(() => {
+            saveRetryTimerRef.current = null;
+            // v0.33.x: 跨场景重试防护——重试闭包持有调度时的旧正文，若出火时
+            // store sceneId 已切换（如自动分章切到新章），继续重试会把旧全文
+            // 回写到已截断的旧 scene，造成重复；此处直接 no-op。
+            const currentSceneId = useFrontstageStore.getState().sceneId;
+            if (currentSceneId !== sceneId) {
+              logToBackend(
+                'frontstage:persist_retry_skipped',
+                'persist retry skipped: scene changed since schedule',
+                { sceneId, currentSceneId, retryCount: retryCount + 1 }
+              );
+              return;
+            }
             void persistSceneContent(sceneId, content, title, retryCount + 1);
           }, delay);
         } else {
@@ -2069,6 +2121,9 @@ const FrontstageApp: React.FC = () => {
                         selectChapter(targetChapter, {
                           skipContent: chapterSwitchSkipContent,
                           markDeliveredOnLoad: shouldMarkDeliveredOnLoad,
+                          // v0.33.x: 传入刚 fetch 的 storyScenes，避免 selectChapter 读到
+                          // setScenes 前的 stale 空数组，sceneId 错误回落 chapter.id
+                          scenes: storyScenes,
                         });
                       } else {
                         frontstageLogger.error(
@@ -2946,6 +3001,8 @@ const FrontstageApp: React.FC = () => {
           const hasPendingGeneration = generatedTextRef.current.length > 0;
           selectChapter(activeChapter, {
             skipContent: hasPendingGeneration || genesisDeliveryRef.current === 'delivered',
+            // v0.33.x: 传入刚 fetch 的 storyScenes，避免 stale scenes 竞态（同 selectStory 修复）
+            scenes: storyScenes,
           });
           if (!hasPendingGeneration && genesisDeliveryRef.current !== 'delivered') {
             // v0.26.8 fix: pipeline-complete 加载 DB 正文后，标记 Genesis 已自动接受，
@@ -3442,7 +3499,8 @@ const FrontstageApp: React.FC = () => {
                 if (storyChapters.length > 0) {
                   // Phase 4 fix: 创世不自动加载内容，等 generatedText + Tab 确认
                   // 显式传 skipContent=true，避免 ChapterSwitch 事件已消耗 ref 后此处误加载 DB 正文
-                  selectChapter(storyChapters[0], { skipContent: true });
+                  // v0.33.x: 传入刚 fetch 的 storyScenes，避免 stale scenes 竞态（同 selectStory 修复）
+                  selectChapter(storyChapters[0], { skipContent: true, scenes: storyScenes });
                   // v0.30.46 fix: sceneId 就绪后补一次 flushSceneSave，确保创世 auto-accept
                   // 时因 sceneId 未就绪被跳过的即时落库能够完成。
                   // 否则前端清洗后的版本与 DB 分叉，重启后用户看到未清洗版本或空白。
@@ -3936,7 +3994,8 @@ const FrontstageApp: React.FC = () => {
             // v0.30.50: sceneId 未就绪（章节选中/setSceneInfo 完成前）时，
             // 此前直接跳过落库且无任何补偿——内容只留在编辑器，重启即丢失。
             // 对齐 v0.30.46 创世修复，延迟补偿两次覆盖就绪时序；
-            // flushSceneSave 在 sceneId 仍为空时静默 no-op，无副作用。
+            // flushSceneSave 在 sceneId 仍为空时 no-op（记录 frontstage:flush_skip
+            // 日志，非静默），无副作用。
             setTimeout(() => {
               void flushSceneSaveRef.current();
             }, 0);
@@ -4658,7 +4717,8 @@ const FrontstageApp: React.FC = () => {
                       is_first_chapter_ready: isFirstChapterReady,
                     }
                   );
-                  selectChapter(storyChapters[0], { skipContent: true });
+                  // v0.33.x: 传入刚 fetch 的 storyScenes，避免 stale scenes 竞态（同 selectStory 修复）
+                  selectChapter(storyChapters[0], { skipContent: true, scenes: storyScenes });
                   // v0.30.46 fix: sceneId 就绪后补一次 flushSceneSave，确保创世 auto-accept
                   // 时因 sceneId 未就绪被跳过的即时落库能够完成。
                   setTimeout(() => {

@@ -78,7 +78,7 @@ vi.mock('@/services/tauri', () => ({
           chapter_number: 2,
           title: '第二章',
           content: OVERFLOW_TEXT,
-          scene_id: 'scene-2',
+          // 注意：不携带 scene_id，强制走 scenes 列表匹配路径（回归分章 sceneId 解析）
         });
       }
       return Promise.resolve({
@@ -93,6 +93,21 @@ vi.mock('@/services/tauri', () => ({
       return Promise.resolve(FULL_TEXT);
     }
     if (cmd === 'get_story_scenes' || cmd === 'get_story_scenes_paged') {
+      // 分章后新章的 scene 已落库，分页可拉到
+      if (splitState.done) {
+        return Promise.resolve([
+          {
+            id: 'scene-2',
+            story_id: 'story-1',
+            sequence_number: 2,
+            title: '第二章',
+            chapter_id: 'ch-2',
+            content: OVERFLOW_TEXT,
+            characters_present: [],
+            character_conflicts: [],
+          },
+        ]);
+      }
       return Promise.resolve([]);
     }
     if (cmd === 'get_story_word_count') {
@@ -242,6 +257,33 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
     expect(updateSceneCalls()).toHaveLength(0);
     // 待执行的防抖保存被取消
     expect(mockCancelAutoSave).toHaveBeenCalled();
+  });
+
+  it('分章自动切换：新章 sceneId 解析为 scene.id（非 chapter.id 回落），避免重复 scene heal', async () => {
+    render(<FrontstageApp />, { wrapper });
+
+    // 等待旧章全文加载进编辑器
+    await waitFor(() => expect(captured.content).toContain('旧章独有开头段落'));
+    expect(syncStoreOptions.current?.onChapterCreated).toBeTypeOf('function');
+
+    // 分章发生：此后 get_story_scenes_paged 返回新章的 scene-2（不携带 scene_id 的
+    // get_chapter 强制走 scenes 列表匹配路径）
+    splitState.done = true;
+    mockLoggedInvoke.mockClear();
+
+    await act(async () => {
+      syncStoreOptions.current!.onChapterCreated!('story-1', 'ch-2', '第二章', 'ch-1');
+    });
+
+    // 切换到新章后 sceneId 必须是 scene id。修复前：split 分支未拉取 scenes，
+    // selectChapter 读到 stale 空数组，sceneId 回落 chapter.id（'ch-2'），后续
+    // update_scene 走后端 heal 建出 id=chapter.id 的重复 scene，正文被拆到两个 scene。
+    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'));
+    await waitFor(() => expect(useFrontstageStore.getState().sceneId).toBe('scene-2'));
+    // scenes 分页接口已被拉取，为 sceneId 解析提供新鲜列表
+    expect(
+      mockLoggedInvoke.mock.calls.filter(c => c[0] === 'get_story_scenes_paged').length
+    ).toBeGreaterThan(0);
   });
 
   it('非分章的 chapterCreated（无 split_from_chapter_id）：只重载列表，不切换章节', async () => {
