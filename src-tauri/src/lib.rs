@@ -673,6 +673,10 @@ pub fn run() {
                 );
             }
 
+            // 安装 panic hook（必须在 init_logger 之前）：绕过 tracing 直写
+            // panic-<ts>.log 文件，确保 Windows GUI 下崩溃现场（消息/位置/backtrace）留存
+            logging::install_panic_hook(&app_dir);
+
             // 初始化结构化日志系统（必须在其他操作之前，包括迁移日志）
             // v0.33.x fix: WorkerGuard 必须存活至应用退出——此前 `let _log_guard` 仅在
             // setup 闭包作用域内有效，闭包返回后 guard 被 drop，tracing-appender 的
@@ -718,22 +722,8 @@ pub fn run() {
                 log::warn!("[Setup] Bundled prompts directory not found; using fallback paths");
             }
 
-            // 设置 panic hook 以便记录崩溃信息，辅助诊断窗口最大化等异常退出
-            std::panic::set_hook(Box::new(|info| {
-                let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
-                    *s
-                } else if let Some(s) = info.payload().downcast_ref::<String>() {
-                    s.as_str()
-                } else {
-                    "unknown panic"
-                };
-                let location = info
-                    .location()
-                    .map(|l| format!("{}:{}", l.file(), l.line()))
-                    .unwrap_or_else(|| "unknown location".to_string());
-                log::error!("APPLICATION PANIC: {} at {}", payload, location);
-                eprintln!("APPLICATION PANIC: {} at {}", payload, location);
-            }));
+            // panic hook 已在 setup 最早期由 logging::install_panic_hook 安装（直写文件版），
+            // 此处不再重复设置，避免覆盖。
 
             // 初始化数据库（必须在加载 pending vector indexes 之前）
             let pool = match init_db(&app_dir, bundled_migrations.as_deref()) {

@@ -24,6 +24,42 @@ const LOG_RETENTION_DAYS: u64 = 7;
 /// 单日志文件大小上限（字节）
 const LOG_FILE_MAX_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
+/// 组装 panic 现场报告（消息 + 位置 + backtrace）。
+/// 抽出为独立函数以便单测——set_hook 全局唯一，无法直接测试 hook 安装。
+pub(crate) fn format_panic_report(info: &std::panic::PanicHookInfo) -> String {
+    let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+        *s
+    } else if let Some(s) = info.payload().downcast_ref::<String>() {
+        s.as_str()
+    } else {
+        "unknown panic"
+    };
+    let location = info
+        .location()
+        .map(|l| format!("{}:{}", l.file(), l.line()))
+        .unwrap_or_else(|| "unknown location".to_string());
+    let backtrace = std::backtrace::Backtrace::force_capture();
+    format!(
+        "APPLICATION PANIC: {} at {}\n\nBacktrace:\n{}\n",
+        payload, location, backtrace
+    )
+}
+
+/// 安装 panic hook：绕过 tracing 直接写文件，确保崩溃现场留存。
+/// 在 setup 最早期（init_logger 之前）调用。
+pub fn install_panic_hook(app_dir: &Path) {
+    let log_dir = app_dir.join("logs");
+    std::panic::set_hook(Box::new(move |info| {
+        let content = format_panic_report(info);
+        let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let _ = fs::create_dir_all(&log_dir);
+        let _ = fs::write(log_dir.join(format!("panic-{}.log", ts)), &content);
+        // 首行即 "APPLICATION PANIC: <msg> at <loc>"，供日志通道复述
+        log::error!("{}", content.lines().next().unwrap_or("APPLICATION PANIC"));
+        eprintln!("{}", content);
+    }));
+}
+
 /// 初始化日志系统
 ///
 /// # 参数
@@ -137,7 +173,7 @@ pub fn init_logger(app_dir: &Path) -> WorkerGuard {
 /// writer 在运行期静默丢弃记录 （WorkerGuard 随 setup 闭包结束被
 /// drop），导致前端 warn/error 完全不可见。
 #[tauri::command]
-pub fn write_frontend_log(
+pub async fn write_frontend_log(
     app_handle: tauri::AppHandle,
     level: String,
     target: String,
@@ -316,4 +352,31 @@ pub fn get_recent_logs(
     let recent: Vec<&str> = collected[start..].to_vec();
 
     Ok(recent.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// panic 现场报告必须包含消息与位置——这是 Windows 闪退诊断的唯一线索。
+    /// PanicHookInfo 无公开构造函数，只能通过临时 hook + catch_unwind
+    /// 捕获真实实例。
+    #[test]
+    fn format_panic_report_contains_message_and_location() {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = tx.send(format_panic_report(info));
+        }));
+        let result = std::panic::catch_unwind(|| {
+            panic!("split boom");
+        });
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err());
+        let report = rx.recv().expect("panic hook should produce a report");
+        assert!(report.contains("split boom"), "report: {}", report);
+        assert!(report.contains("logging.rs"), "report: {}", report);
+        assert!(report.contains("Backtrace"), "report: {}", report);
+    }
 }

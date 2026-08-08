@@ -254,6 +254,8 @@ const FrontstageApp: React.FC = () => {
   // v0.33.0: 自动分章命中当前编辑章时，抑制 selectChapter 内的 flushSceneSave——
   // 编辑器仍持有分章前的旧全文，flush 会把它回写到已被截断的旧 scene，造成重复。
   const suppressChapterSwitchFlushRef = useRef(false);
+  // v0.33.x fix: 分章事件风暴去抖定时器（chapterCreated/sceneXxx 事件共用一个）
+  const chapterListRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Phase 4 fix: Genesis 发 ChapterSwitch(auto_accept=false) 时，
   // selectChapter 跳过 setContent，内容走 generatedText+Tab 确认
   const skipChapterContentRef = useRef(false);
@@ -514,6 +516,29 @@ const FrontstageApp: React.FC = () => {
   }, []);
 
   // const { parseIntent, executeIntent } = useIntent(); // Removed — all AI routing is now backend-driven
+  // v0.33.x fix: 自动分章循环一次最多触发 49 个 chapterCreated + 每轮 scene 重写事件，
+  // 每个事件直连 loadStoryChapters/loadStoryScenes 全量查询会形成 IPC 风暴。
+  // 统一 300ms 去抖：事件只重置定时器，到点一次性刷新章节列表 + 场景列表 + 字数。
+  const scheduleChapterListRefresh = (storyId: string) => {
+    if (chapterListRefreshTimerRef.current) {
+      clearTimeout(chapterListRefreshTimerRef.current);
+    }
+    chapterListRefreshTimerRef.current = setTimeout(() => {
+      chapterListRefreshTimerRef.current = null;
+      loadStoryChapters(storyId)
+        .then(() => loadStoryScenes(storyId))
+        .then(() => loadStoryWordCount(storyId));
+    }, 300);
+  };
+  // 组件卸载/故事切换时清理去抖定时器，避免延迟刷新落到已离开的故事上
+  useEffect(() => {
+    return () => {
+      if (chapterListRefreshTimerRef.current) {
+        clearTimeout(chapterListRefreshTimerRef.current);
+        chapterListRefreshTimerRef.current = null;
+      }
+    };
+  }, [currentStory?.id]);
   // 统一实时状态同步中心：幕前监听后台数据变更，自动刷新本地状态
   // useSyncStore 内部已自动 invalidate TanStack Query 缓存，useCharacters/useScenes 等 hook 会自动重新获取
   useSyncStore({
@@ -530,19 +555,21 @@ const FrontstageApp: React.FC = () => {
       loadStories();
     },
     // v5.4.0: 监听 scene 变更（幕后修改后同步到幕前 scenes 列表）
+    // v0.33.x fix: 分章循环每轮重写 scene，sceneCreated/Updated 会成批到达，
+    // 每事件直连全量查询会形成 IPC 风暴——统一走 300ms 去抖刷新。
     onSceneCreated: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryScenes(storyId).then(() => loadStoryWordCount(storyId));
+        scheduleChapterListRefresh(storyId);
       }
     },
     onSceneUpdated: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryScenes(storyId).then(() => loadStoryWordCount(storyId));
+        scheduleChapterListRefresh(storyId);
       }
     },
     onSceneDeleted: storyId => {
       if (currentStory && storyId === currentStory.id) {
-        loadStoryScenes(storyId).then(() => loadStoryWordCount(storyId));
+        scheduleChapterListRefresh(storyId);
       }
     },
     // v5.4.0: 监听 chapter 创建/删除（幕后增删章节后同步幕前列表）
@@ -616,7 +643,9 @@ const FrontstageApp: React.FC = () => {
         }, 3000);
         return;
       }
-      loadStoryChapters(storyId).then(() => loadStoryWordCount(storyId));
+      // v0.33.x fix: 非当前章的 chapterCreated（含分章循环中前 48 轮）只做去抖刷新，
+      // 避免每个事件都触发 loadStoryChapters + loadStoryWordCount 全量查询。
+      scheduleChapterListRefresh(storyId);
     },
     onChapterDeleted: () => {
       if (currentStory) {
