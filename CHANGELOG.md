@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.33.3（2026-08-08）
+
+### 诊断版：定位 Windows 启动数秒后进程消失（c0000409 / P9=7，非 panic 型 abort）
+
+- **背景**：v0.33.2 在 Windows 上每次启动几秒后窗口消失，WER 记录 ExceptionCode `c0000409`、参数 7（CRT abort / __fastfail），`logs/` 目录无任何 panic 或启动日志——panic hook 未触发，且 tracing 非阻塞写入器在崩溃前来不及 flush，启动早期完全无现场。
+- **新增启动面包屑（`startup_trace`）**：`run()` 入口、builder 组装、`build()` 前后、`setup()` 各里程碑（app 目录解析、panic hook、logger、迁移、init_db、workflow engine、窗口初始化、setup 完成）、`RunEvent::Ready`、`graceful_shutdown` 全程直写 `%TEMP%\storymoss-startup-trace.log`（逐行立即 flush，绕过 tracing）；崩溃后最后一行即崩溃点前最后到达的位置，并能区分「崩溃」与「graceful_shutdown 正常退出被误认为闪退」。
+- **panic hook 同步写面包屑**：panic 发生时除 `logs/panic-*.log` 外同步追加一行到面包屑文件，便于对齐时间线。
+- **stderr 捕获指引**：面包屑同步写 stderr，用户在 PowerShell 中执行 `& 'D:\StoryMoss\storymoss.exe' 2> "$env:TEMP\storymoss-stderr.txt"` 可捕获 Rust 运行时的栈溢出 / 分配失败消息（这两类消息不走 panic hook，是本次无现场的主嫌疑）。
+- **已知问题（沿用）**：Windows 闪退根因待本版诊断结果定位；AI 操作记录 `previous_content` 截断导致的回滚风险沿用 v0.33.x 记录。
+- **测试**：`cargo test --lib` 新增 `startup_trace` 用例，全量回归通过。
+
 ## v0.33.2（2026-08-08）
 
 ### 新增

@@ -50,6 +50,7 @@ mod revision_commands;
 mod router;
 mod scene_commands;
 mod skills;
+mod startup_trace;
 mod state_sync;
 mod story_system;
 mod strategy;
@@ -106,6 +107,7 @@ static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
 
 /// 优雅关闭：WAL checkpoint、保存向量索引、然后退出
 fn graceful_shutdown(app_handle: &tauri::AppHandle) {
+    startup_trace::trace("graceful_shutdown() called");
     if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
         log::info!("[Shutdown] Already in progress, skipping duplicate call");
         return;
@@ -153,6 +155,7 @@ fn graceful_shutdown(app_handle: &tauri::AppHandle) {
 
     // 4. 退出应用
     log::info!("[Shutdown] Exiting application");
+    startup_trace::trace("graceful_shutdown: process::exit(0) — clean exit, not a crash");
     std::process::exit(0);
 }
 
@@ -608,7 +611,13 @@ fn spawn_background_tasks(_app_handle: tauri::AppHandle) {
 }
 
 pub fn run() {
-    let _app = tauri::Builder::default()
+    // 启动诊断面包屑（v0.33.3）：直写 %TEMP%/storymoss-startup-trace.log，
+    // 用于定位 Windows 启动早期 c0000409 abort 的崩溃点。
+    startup_trace::trace(&format!(
+        "=== run() entered, version {} ===",
+        env!("CARGO_PKG_VERSION")
+    ));
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -662,9 +671,11 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            startup_trace::trace("setup() entered");
             let app_dir = app.path().app_data_dir().unwrap_or_else(|_| {
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
             });
+            startup_trace::trace(&format!("app_data_dir = {}", app_dir.display()));
             if let Err(e) = std::fs::create_dir_all(&app_dir) {
                 log::error!(
                     "Failed to create app data directory {}: {}",
@@ -676,6 +687,7 @@ pub fn run() {
             // 安装 panic hook（必须在 init_logger 之前）：绕过 tracing 直写
             // panic-<ts>.log 文件，确保 Windows GUI 下崩溃现场（消息/位置/backtrace）留存
             logging::install_panic_hook(&app_dir);
+            startup_trace::trace("panic hook installed");
 
             // 初始化结构化日志系统（必须在其他操作之前，包括迁移日志）
             // v0.33.x fix: WorkerGuard 必须存活至应用退出——此前 `let _log_guard` 仅在
@@ -685,16 +697,19 @@ pub fn run() {
             // 随 state 析构并 flush 剩余缓冲。
             let log_guard = logging::init_logger(&app_dir);
             app.manage(log_guard);
+            startup_trace::trace("logger initialized");
 
             log::info!("App directory: {:?}", app_dir);
 
             // StoryForge 数据自动迁移（必须在数据库初始化之前完成，避免新库被锁定）
             let app_handle = app.handle();
             if migration_needed(app_handle) {
+                startup_trace::trace("StoryForge data migration needed; running");
                 if let Err(e) = run_storyforge_migration(app_handle) {
                     log::error!("[Migration] Failed to migrate StoryForge data: {}", e);
                     // 迁移失败不阻塞启动，让用户在空/新数据上继续，避免启动卡死
                 }
+                startup_trace::trace("StoryForge data migration finished");
             }
 
             let bundled_migrations = app
@@ -726,9 +741,11 @@ pub fn run() {
             // 此处不再重复设置，避免覆盖。
 
             // 初始化数据库（必须在加载 pending vector indexes 之前）
+            startup_trace::trace("init_db() starting");
             let pool = match init_db(&app_dir, bundled_migrations.as_deref()) {
                 Ok(pool) => {
                     log::info!("Database initialized successfully");
+                    startup_trace::trace("init_db() OK");
                     app.manage(pool.clone());
                     Some(pool)
                 }
@@ -738,6 +755,7 @@ pub fn run() {
                         app_dir.join("cinema_ai.db").display(),
                         e
                     );
+                    startup_trace::trace(&format!("init_db() FAILED: {}", e));
                     None
                 }
             };
@@ -1069,8 +1087,10 @@ pub fn run() {
             // }
 
             init_workflow_engine(app, app.handle().clone(), pool.as_ref());
+            startup_trace::trace("workflow engine initialized");
 
             init_windows(app);
+            startup_trace::trace("windows initialized");
             spawn_background_tasks(app.handle().clone());
 
             // v0.8.0: 启动记忆健康守护进程
@@ -1078,11 +1098,22 @@ pub fn run() {
                 crate::memory::health_daemon::spawn_daemon(pool.clone(), app.handle().clone());
             }
 
+            startup_trace::trace("setup() completed OK");
             Ok(())
         })
-        .invoke_handler(include!("handlers.rs"))
-        .run(tauri::generate_context!())
-        .expect("error running tauri app");
+        .invoke_handler(include!("handlers.rs"));
+    startup_trace::trace(
+        "tauri builder assembled; calling build() (window/webview creation + setup)",
+    );
+    let mut app = builder
+        .build(tauri::generate_context!())
+        .expect("error building tauri app");
+    startup_trace::trace("build() returned OK; entering event loop");
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::Ready = event {
+            startup_trace::trace("RunEvent::Ready — event loop running");
+        }
+    });
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -56,6 +56,7 @@ pub fn install_panic_hook(app_dir: &Path) {
         let _ = fs::write(log_dir.join(format!("panic-{}.log", ts)), &content);
         // 首行即 "APPLICATION PANIC: <msg> at <loc>"，供日志通道复述
         log::error!("{}", content.lines().next().unwrap_or("APPLICATION PANIC"));
+        crate::startup_trace::trace(content.lines().next().unwrap_or("APPLICATION PANIC"));
         eprintln!("{}", content);
     }));
 }
