@@ -52,6 +52,9 @@ mod scene_commands;
 mod skills;
 mod startup_trace;
 mod state_sync;
+
+// v0.33.4 诊断：main() 入口最早期的 panic 捕获（setup 之前的窗口期）
+pub use startup_trace::install_early_diag;
 mod story_system;
 mod strategy;
 mod studio_commands;

@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.33.4（2026-08-08）
+
+### 诊断版二号：控制台子系统 + main() 入口最早 panic hook（转储分析后的裁决实验）
+
+- **v0.33.3 复现结论**：仍无 `storymoss-startup-trace.log`——trace 写入是 `run()` 第一行，说明崩溃发生在 `run()` 执行之前或 `build()` 极早期。WER 确认为 0.33.3.0，偏移 0x2f824，与 0.33.1/0.33.2 同一崩溃点（仅随代码布局平移）。
+- **全内存转储分析（LocalDumps + minidump-stackwalk + 自研栈扫描/反汇编）**：崩溃主线程执行 `int 0x29`（__fastfail 7）；崩溃点前的错误字符串为 **"thread caused non-unwinding panic. aborting."**——某处 Rust panic 在 panic hook 覆盖不到的路径上穿过 `extern "C"` 边界导致 abort；调用链经 `panic_cannot_unwind` → `panic_fmt` → `rust_begin_unwind`；邻近 shim 含 "index out of bounds" / "RefCell already borrowed" 消息；`Get-FileHash` 比对官方 msi 内 exe 与用户机器 exe 完全一致（排除安装损坏）；`ctor` 依赖仅 tauri-utils `STARTING_BINARY`（`current_exe`+`canonicalize`，无 panic 路径）。
+- **本版变更**：①临时移除 `windows_subsystem = "windows"`（控制台子系统）——GUI 下 panic 消息写 stderr 不可见，控制台下从 PowerShell 启动可直接看到 `thread 'main' panicked at ... 文件:行号`；②`main()` 第一行安装超早期 panic hook（`install_early_diag`），覆盖 setup() 之前的窗口期；③面包屑双写 `C:\Users\Public\storymoss-startup-trace.log`，排除 temp_dir 解析差异。
+- **复现指引**：PowerShell 执行 `& 'D:\StoryMoss\storymoss.exe'`，崩溃后把终端输出的 panic 行（含文件:行号）发回即可精确定位。
+- **已知问题（沿用）**：Windows 启动崩溃根因待本版裁决；`windows_subsystem` 与早期 hook 为临时诊断措施，根因修复后回退；AI 操作记录 `previous_content` 截断回滚风险沿用 v0.33.x 记录。
+- **测试**：`cargo test --lib` 全量回归通过。
+
 ## v0.33.3（2026-08-08）
 
 ### 诊断版：定位 Windows 启动数秒后进程消失（c0000409 / P9=7，非 panic 型 abort）

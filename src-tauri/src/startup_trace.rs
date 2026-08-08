@@ -27,6 +27,20 @@ fn trace_path() -> PathBuf {
     std::env::temp_dir().join("storymoss-startup-trace.log")
 }
 
+/// 双写兜底目标：Windows 上除 %TEMP% 外同时写 C:\Users\Public。
+/// v0.33.3 复现时 %TEMP% 无文件——排除 temp_dir 解析/用户上下文差异的误判，
+/// Public 目录一定可写且位置固定。
+fn public_trace_path() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let dir = PathBuf::from(r"C:\Users\Public");
+        if dir.is_dir() {
+            return Some(dir.join("storymoss-startup-trace.log"));
+        }
+    }
+    None
+}
+
 /// 追加一行里程碑记录（时间戳 + pid + 描述），立即 flush。
 /// 同时写 stderr——用户用 `storymoss.exe 2> file` 重定向后可捕获
 /// Rust 运行时的栈溢出/分配失败消息（这些消息不走 panic hook）。
@@ -54,7 +68,30 @@ pub fn trace(milestone: &str) {
         let _ = f.write_all(line.as_bytes());
         let _ = f.flush();
     }
+    if let Some(public) = public_trace_path() {
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(public) {
+            let _ = f.write_all(line.as_bytes());
+            let _ = f.flush();
+        }
+    }
     eprint!("{}", line);
+}
+
+/// v0.33.4 诊断：main() 入口第一行安装的超早期 panic hook。
+/// 覆盖 setup() 的 install_panic_hook 之前的窗口期（tauri builder 组装、
+/// build() 中窗口/WebView2 创建）——v0.33.3 证实崩溃无任何面包屑，说明崩溃
+/// 在该窗口或更早；配合控制台子系统，panic 消息（含文件:行号）直接打在终端。
+/// setup() 的 install_panic_hook 生效后会覆盖此 hook，属预期交接。
+pub fn install_early_diag() {
+    std::panic::set_hook(Box::new(|info| {
+        let report = crate::logging::format_panic_report(info);
+        trace(&format!(
+            "EARLY PANIC: {}",
+            report.lines().next().unwrap_or("APPLICATION PANIC")
+        ));
+        eprintln!("{}", report);
+    }));
+    trace("early diag hook installed (main entry)");
 }
 
 #[cfg(test)]
