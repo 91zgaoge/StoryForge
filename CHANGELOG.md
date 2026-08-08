@@ -2,6 +2,17 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.33.5（2026-08-09）
+
+### 修复：Windows 启动数秒后必现闪退（根因已定位并消除）
+
+- **根因**：tauri 2.11.5 内部的 `app::setup()` **先创建 `tauri.conf.json` 配置的窗口、后调用用户 `.setup()` 闭包**。Windows 上 wry 创建 WebView2 环境时会泵 Win32 消息循环（慢机上实测 2.3 秒），期间 WebView 完成初始化并加载前端，前端立即发出 IPC 命令；命令的 `State<DbPool>` 提取发现连接池尚未 `manage()` → `state() called before manage()` panic → 该 panic 发生在 WebView2 的 COM 回调（`extern "C"`）内，无法解退 → Rust 运行时 `panic_cannot_unwind` → `__fastfail` abort（WER `c0000409` / P9=7）。mac 上 WebView 初始化快，setup 总能赢过前端首次 IPC，故仅 Windows 触发。
+- **诊断历程**（v0.33.3/v0.33.4 两个诊断版 + 全内存转储分析）：启动面包屑证实 `setup()` 从未执行；控制台子系统复现直接打出 panic 消息与位置（`tauri-2.11.5/src/lib.rs:734`）。
+- **修复**：`frontstage`/`backstage` 窗口在 `tauri.conf.json` 中改为 `create: false`，全部状态（数据库连接池、日志、迁移、工作流引擎等）`manage()` 完成后才由 setup 末尾通过 `WebviewWindowBuilder::from_config` 创建。任何 IPC 到达时所有 `State` 必定就绪，竞态从机制上消除（不再依赖时序运气）。
+- **回退诊断措施**：恢复 `windows_subsystem = "windows"`（GUI 子系统）；保留无感知的崩溃现场设施（main 入口早期 panic hook、启动面包屑、panic-*.log）。
+- **测试**：`cargo test --lib` 全量回归通过。窗口时序类问题无法本地单测复现（依赖 Windows WebView2 异步初始化时序），已由真实崩溃现场验证修复路径。
+- **已知问题（沿用）**：AI 操作记录 `previous_content` 截断回滚风险沿用 v0.33.x 记录。
+
 ## v0.33.4（2026-08-08）
 
 ### 诊断版二号：控制台子系统 + main() 入口最早 panic hook（转储分析后的裁决实验）

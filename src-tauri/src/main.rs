@@ -1,7 +1,6 @@
-// v0.33.4 诊断版：临时移除 #![cfg_attr(not(debug_assertions), windows_subsystem
-// = "windows")]。 GUI 子系统下 stderr 不可见，而 Windows 启动崩溃的 panic
-// 消息（含文件:行号） 正是经由 stderr 输出——v0.33.3 转储分析证实崩溃为非解退
-// panic（console 下可直接看到）。 根因修复后恢复该行。
+// v0.33.5：根因已定位修复（窗口推迟创建，消除 State 未就绪竞态），
+// 恢复 GUI 子系统（v0.33.4 诊断期曾临时移除以便在控制台观察 panic）。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
     // 最早诊断：panic hook 覆盖 setup() 之前（tauri builder/build()

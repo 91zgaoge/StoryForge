@@ -1092,6 +1092,23 @@ pub fn run() {
             init_workflow_engine(app, app.handle().clone(), pool.as_ref());
             startup_trace::trace("workflow engine initialized");
 
+            // v0.33.5 修复（Windows 启动崩溃根因）：窗口推迟到全部状态 manage 完成后
+            // 创建（tauri.conf.json 中 create: false）。tauri 内部的 app::setup() 先创建
+            // config 窗口、后调用户 setup 闭包；Windows 上 wry 创建 WebView2 环境时会泵
+            // 消息循环（慢机数秒），前端加载完成后立即发 IPC，State<DbPool> 提取发生在
+            // manage(pool) 之前 → panic 穿过 WebView2 COM 回调的 extern "C" 边界 →
+            // 非解退 abort（c0000409 / P9=7）。推迟建窗后，任何 IPC 到达时所有
+            // State 必定已就绪，竞态从机制上消除。
+            let window_configs: Vec<tauri::utils::config::WindowConfig> =
+                app.config().app.windows.clone();
+            for window_config in &window_configs {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)
+                    .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?
+                    .build()
+                    .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            }
+            startup_trace::trace("windows created (deferred until state ready)");
+
             init_windows(app);
             startup_trace::trace("windows initialized");
             spawn_background_tasks(app.handle().clone());
