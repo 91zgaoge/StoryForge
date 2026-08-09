@@ -17,10 +17,56 @@ use super::{
 static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, (String, String)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// 桌面登录流程：dstate -> DesktopFlow
+struct DesktopFlow {
+    oauth_state: String,
+    done: Option<(String, String)>, // (token, user_json)
+    created: std::time::Instant,
+}
+
+static DESKTOP_FLOW_STORE: Lazy<Mutex<HashMap<String, DesktopFlow>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+const DESKTOP_FLOW_TTL_SECS: u64 = 600; // 10 分钟
+
+fn desktop_flow_register(dstate: &str, oauth_state: &str) {
+    let mut store = DESKTOP_FLOW_STORE.lock().unwrap();
+    store.retain(|_, f| f.created.elapsed().as_secs() < DESKTOP_FLOW_TTL_SECS);
+    store.insert(
+        dstate.to_string(),
+        DesktopFlow {
+            oauth_state: oauth_state.to_string(),
+            done: None,
+            created: std::time::Instant::now(),
+        },
+    );
+}
+
+fn desktop_flow_complete(oauth_state: &str, token: String, user_json: String) {
+    let mut store = DESKTOP_FLOW_STORE.lock().unwrap();
+    for flow in store.values_mut() {
+        if flow.oauth_state == oauth_state {
+            flow.done = Some((token.clone(), user_json.clone()));
+        }
+    }
+}
+
+fn desktop_flow_take_done(dstate: &str) -> Option<(String, String)> {
+    let mut store = DESKTOP_FLOW_STORE.lock().unwrap();
+    let flow = store.get(dstate)?;
+    if flow.created.elapsed().as_secs() >= DESKTOP_FLOW_TTL_SECS {
+        store.remove(dstate);
+        return None;
+    }
+    flow.done.as_ref()?;
+    store.remove(dstate).and_then(|f| f.done)
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(auth_config)
         .service(oauth_start)
         .service(oauth_callback)
+        .service(desktop_poll)
         .service(logout)
         .service(get_me);
 }
@@ -39,7 +85,7 @@ async fn auth_config() -> impl Responder {
 
 /// GET /api/auth/{provider}/start
 #[get("/auth/{provider}/start")]
-async fn oauth_start(path: web::Path<String>) -> impl Responder {
+async fn oauth_start(path: web::Path<String>, query: web::Query<StartQuery>) -> impl Responder {
     let provider_str = path.into_inner();
     let provider = match provider_str.parse::<OAuthProvider>() {
         Ok(p) => p,
@@ -57,6 +103,16 @@ async fn oauth_start(path: web::Path<String>) -> impl Responder {
             {
                 let mut store = OAUTH_STATE_STORE.lock().unwrap();
                 store.insert(state.clone(), (provider_str, pkce_verifier));
+            }
+
+            // 桌面端流程：注册 dstate 映射并直接 302 到 provider 授权页
+            if query.client.as_deref() == Some("desktop") {
+                if let Some(dstate) = &query.dstate {
+                    desktop_flow_register(dstate, &state);
+                    return HttpResponse::Found()
+                        .append_header(("Location", auth_url))
+                        .finish();
+                }
             }
 
             HttpResponse::Ok().json(json!({
@@ -169,7 +225,41 @@ async fn oauth_callback(
         }
     };
 
+    // 桌面端流程：完成 dstate 映射并展示成功页
+    let user_json = serde_json::to_string(&user).unwrap_or_default();
+    {
+        let store = DESKTOP_FLOW_STORE.lock().unwrap();
+        if store.values().any(|f| f.oauth_state == *state) {
+            drop(store);
+            desktop_flow_complete(state, token, user_json);
+            return HttpResponse::Ok().content_type("text/html; charset=utf-8").body(
+                "<html><head><meta charset=\"utf-8\"><title>登录成功</title></head>\
+                 <body style=\"font-family:sans-serif;text-align:center;padding-top:80px\">\
+                 <h2>登录成功</h2><p>请返回 StoryMoss 应用，登录状态将自动同步。</p></body></html>",
+            );
+        }
+    }
+
     HttpResponse::Ok().json(LoginResponse { token, user })
+}
+
+/// GET /api/auth/desktop-poll?dstate=...
+#[get("/auth/desktop-poll")]
+async fn desktop_poll(query: web::Query<DesktopPollQuery>) -> impl Responder {
+    match desktop_flow_take_done(&query.dstate) {
+        Some((token, user_json)) => {
+            let user: serde_json::Value = serde_json::from_str(&user_json).unwrap_or(json!({}));
+            HttpResponse::Ok().json(json!({ "token": token, "user": user }))
+        }
+        None => {
+            let exists = DESKTOP_FLOW_STORE.lock().unwrap().contains_key(&query.dstate);
+            if exists {
+                HttpResponse::Accepted().json(json!({"status": "pending"}))
+            } else {
+                HttpResponse::NotFound().json(json!({"error": "unknown or expired dstate"}))
+            }
+        }
+    }
 }
 
 /// POST /api/auth/logout
@@ -222,9 +312,20 @@ async fn get_me(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
 }
 
 #[derive(serde::Deserialize)]
+struct StartQuery {
+    client: Option<String>,
+    dstate: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
 struct CallbackQuery {
     code: String,
     state: String,
+}
+
+#[derive(serde::Deserialize)]
+struct DesktopPollQuery {
+    dstate: String,
 }
 
 async fn find_or_create_user(
@@ -316,4 +417,27 @@ fn extract_state_from_url(url: &str) -> Option<String> {
         .query_pairs()
         .find(|(k, _)| k == "state")
         .map(|(_, v)| v.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_flow_pending_then_done_once() {
+        let dstate = "test-dstate-1";
+        desktop_flow_register(dstate, "oauth-state-1");
+        assert!(desktop_flow_take_done(dstate).is_none()); // pending
+
+        desktop_flow_complete("oauth-state-1", "tok".into(), r#"{"id":"u1"}"#.into());
+        let done = desktop_flow_take_done(dstate);
+        assert!(done.is_some());
+        // 一次性：再取没了
+        assert!(desktop_flow_take_done(dstate).is_none());
+    }
+
+    #[test]
+    fn desktop_flow_unknown_dstate() {
+        assert!(desktop_flow_take_done("nope").is_none());
+    }
 }
