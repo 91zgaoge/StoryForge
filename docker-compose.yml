@@ -51,7 +51,8 @@ services:
       QQ_CLIENT_ID: ${QQ_CLIENT_ID:-}
       QQ_CLIENT_SECRET: ${QQ_CLIENT_SECRET:-}
     ports:
-      - "8080:8080"
+      # 仅绑定回环地址，由主机 nginx 反代 /api/ 访问，避免直接暴露
+      - "127.0.0.1:8080:8080"
 
   web:
     build:
