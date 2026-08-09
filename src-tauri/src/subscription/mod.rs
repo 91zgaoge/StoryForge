@@ -247,6 +247,24 @@ mod tests {
     }
 
     #[test]
+    fn cache_remote_status_uses_remote_expiry_days() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let remote = crate::server_client::RemoteSubscription {
+            tier: "pro".into(),
+            status: "active".into(),
+            expires_at: Some((chrono::Local::now() + chrono::Duration::days(90)).to_rfc3339()),
+        };
+        cache_remote_status(&pool, "u-exp", &remote).unwrap();
+
+        // 本地缓存行的 expires_at 应≈90 天后（容差 1 天），而非恒 30 天
+        let svc = SubscriptionService::new(pool.clone());
+        let status = svc.get_or_create_subscription("u-exp").unwrap();
+        let exp = status.expires_at.unwrap();
+        let exp_dt = chrono::DateTime::parse_from_rfc3339(&exp).unwrap();
+        assert!(exp_dt > chrono::Local::now() + chrono::Duration::days(80));
+    }
+
+    #[test]
     fn cache_remote_status_same_tier_does_not_insert_new_row() {
         let pool = crate::db::connection::create_test_pool().unwrap();
         let remote = crate::server_client::RemoteSubscription {
@@ -294,7 +312,18 @@ pub fn cache_remote_status(
     let service = SubscriptionService::new(pool.clone());
     let current = service.get_or_create_subscription(user_id)?;
     if current.tier != remote.tier {
-        let expires_days = if remote.tier == "pro" { Some(30) } else { None };
+        let expires_days = remote
+            .expires_at
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|exp| {
+                let secs = exp.timestamp() - chrono::Local::now().timestamp();
+                (secs / 86400).max(0) as i32
+            });
+        let expires_days = match remote.tier.as_str() {
+            "free" => None,
+            _ => expires_days.or(Some(30)), // 无 expires 的 pro（dev 通道）兜底 30 天
+        };
         service.upgrade_subscription(user_id, &remote.tier, expires_days)?;
     }
     Ok(())
