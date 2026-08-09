@@ -34,7 +34,10 @@ export default function InviteCodesPage() {
 
   const refresh = () => {
     listInviteCodes()
-      .then(setCodes)
+      .then(c => {
+        setCodes(c)
+        setError('')
+      })
       .catch(() => setError('加载邀请码失败'))
       .finally(() => setIsLoading(false))
   }

@@ -27,7 +27,10 @@ export default function AdminsPage() {
 
   const refresh = () => {
     listUsers()
-      .then(users => setAdmins(users.filter(u => u.role === 'admin')))
+      .then(users => {
+        setAdmins(users.filter(u => u.role === 'admin'))
+        setError('')
+      })
       .catch(() => setError('加载管理员失败'))
       .finally(() => setIsLoading(false))
   }
@@ -55,11 +58,12 @@ export default function AdminsPage() {
     setToast('')
     try {
       const matches = await listUsers(q)
-      const target = matches.find(u => u.email === q) || matches[0]
+      const target = matches.find(u => u.email === q)
       if (!target) {
-        setToast('未找到该用户')
+        setToast('未找到邮箱精确匹配的用户')
         return
       }
+      if (!window.confirm(`确认将 ${target.email} 提拔为管理员？`)) return
       await setUserRole(target.id, 'admin')
       setToast(`已将 ${target.email} 提拔为管理员`)
       setEmail('')

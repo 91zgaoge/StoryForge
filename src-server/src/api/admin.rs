@@ -154,6 +154,9 @@ async fn disable_user(
     path: web::Path<uuid::Uuid>,
 ) -> impl Responder {
     let id = path.into_inner();
+    if id == admin.user_id {
+        return HttpResponse::BadRequest().json(json!({"error": "cannot disable self"}));
+    }
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
         Err(e) => {
@@ -328,6 +331,12 @@ async fn create_invite_codes(
     if body.max_uses < 1 {
         return HttpResponse::BadRequest().json(json!({"error": "max_uses must be >= 1"}));
     }
+    if let Some(d) = body.grant_pro_days {
+        if d <= 0 {
+            return HttpResponse::BadRequest()
+                .json(json!({"error": "grant_pro_days must be positive"}));
+        }
+    }
     let mut codes = Vec::with_capacity(body.count as usize);
     for _ in 0..body.count {
         // 撞 PK（code 唯一）重试一次
@@ -483,6 +492,32 @@ mod tests {
             .to_request();
         assert_eq!(test::call_service(&app, req).await.status(), 401);
         let _ = admin_id;
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn cannot_disable_self(pool: PgPool) {
+        let app = admin_app!(pool);
+        let (admin_id, admin_tok) = seed_user(&pool, "a@t.com", "admin").await;
+        let req = test::TestRequest::post()
+            .uri(&format!("/api/admin/users/{}/disable", admin_id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_tok)))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 400);
+
+        // disabled_at 仍为 NULL、sessions 未删
+        let disabled: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar!("SELECT disabled_at FROM users WHERE id = $1", admin_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(disabled.is_none());
+        let session_count: i64 =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM sessions WHERE user_id = $1", admin_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(session_count, 1);
     }
 
     #[sqlx::test(migrations = "./migrations")]

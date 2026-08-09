@@ -30,7 +30,10 @@ export default function UsersPage() {
 
   const refresh = (q?: string) => {
     listUsers(q)
-      .then(setUsers)
+      .then(u => {
+        setUsers(u)
+        setError('')
+      })
       .catch(() => setError('加载用户失败'))
       .finally(() => setIsLoading(false))
   }
