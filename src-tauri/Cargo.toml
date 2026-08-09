@@ -79,6 +79,7 @@ hex = "0.4"
 oauth2 = { version = "5.0", features = ["reqwest"] }
 jsonwebtoken = "9"
 argon2 = "0.5"
+urlencoding = "2"
 
 
 # Tauri plugins (v2.x)

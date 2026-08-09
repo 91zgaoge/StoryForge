@@ -3,6 +3,11 @@
 //! 参考开源 oauth2-rs crate 的 PKCE + Authorization Code 流程
 //! Google: https://developers.google.com/identity/protocols/oauth2/native-app
 //! GitHub: https://docs.github.com/en/developers/apps/building-oauth-apps/authorizing-oauth-apps
+//!
+//! 注：v0.34 起登录改走 server 中转轮询（见
+//! server_client.rs），本模块暂不被命令
+//! 引用，保留供后续本地回调监听等场景复用。
+#![allow(dead_code)]
 
 use std::{collections::HashMap, sync::Mutex};
 

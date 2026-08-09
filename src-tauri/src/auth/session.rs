@@ -1,4 +1,8 @@
 //! JWT Session 管理
+//!
+//! 注：v0.34 起 session token 由 server 签发（见
+//! server_client.rs），本模块暂不被 命令引用，保留供后续本地签发场景复用。
+#![allow(dead_code)]
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

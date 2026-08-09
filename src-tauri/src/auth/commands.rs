@@ -1,174 +1,99 @@
-//! Tauri IPC Commands — 认证相关
+//! Tauri IPC Commands — 认证（server 中转型）
 
 use tauri::{AppHandle, Manager, State};
 
-use super::{oauth, session, AuthConfig, OAuthProvider};
+use super::OAuthProvider;
 use crate::{
-    db::{DbPool, UserRepository},
+    db::{DbPool, UserInfo, UserRepository},
     error::AppError,
+    server_client::ServerClient,
 };
 
-/// 获取当前认证配置（前端用，不含密钥）
-#[tauri::command]
-pub fn get_auth_config(app_handle: AppHandle) -> Result<AuthConfig, AppError> {
-    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
-
-    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
-
-    // 检查各provider是否配置了client_id
-    let google_enabled = config
-        .auth_clients
-        .as_ref()
-        .and_then(|c| c.get("google"))
-        .map(|c| !c.client_id.is_empty())
-        .unwrap_or(false);
-
-    let github_enabled = config
-        .auth_clients
-        .as_ref()
-        .and_then(|c| c.get("github"))
-        .map(|c| !c.client_id.is_empty())
-        .unwrap_or(false);
-
-    let wechat_enabled = config
-        .auth_clients
-        .as_ref()
-        .and_then(|c| c.get("wechat"))
-        .map(|c| !c.client_id.is_empty())
-        .unwrap_or(false);
-
-    let qq_enabled = config
-        .auth_clients
-        .as_ref()
-        .and_then(|c| c.get("qq"))
-        .map(|c| !c.client_id.is_empty())
-        .unwrap_or(false);
-
-    Ok(AuthConfig {
-        google_enabled,
-        github_enabled,
-        wechat_enabled,
-        qq_enabled,
-    })
+#[derive(Debug, serde::Serialize)]
+pub struct CurrentSession {
+    pub user: UserInfo,
+    pub token: String,
 }
 
-/// 开始OAuth登录流程
+/// 获取当前认证配置（登录入口恒指向 server，始终可用）
 #[tauri::command]
-pub fn oauth_start(provider: String, app_handle: AppHandle) -> Result<serde_json::Value, AppError> {
-    let provider = provider.parse::<OAuthProvider>().map_err(AppError::from)?;
-
-    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
-
-    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
-
-    let client_config = config
-        .auth_clients
-        .as_ref()
-        .and_then(|c| c.get(&provider.to_string()))
-        .ok_or(format!("OAuth client not configured for {}", provider))?;
-
-    let (auth_url, state, port) = oauth::start_oauth_flow(
-        provider,
-        &client_config.client_id,
-        client_config.client_secret.as_deref(),
-    )?;
-
+pub fn get_auth_config() -> Result<serde_json::Value, AppError> {
     Ok(serde_json::json!({
-        "auth_url": auth_url,
-        "state": state,
-        "redirect_port": port,
+        "google_enabled": true,
+        "github_enabled": true,
+        "wechat_enabled": false,
+        "qq_enabled": false,
     }))
 }
 
-/// OAuth回调处理（桌面端通过本地HTTP服务器接收回调后调用）
+/// 开始 OAuth 登录：返回 server 授权 URL 与 dstate，前端打开浏览器后轮询
+/// oauth_poll_login invite 为可选邀请码（内测期新用户注册需要，见 Task 2B）
 #[tauri::command]
-pub async fn oauth_callback(
+pub fn oauth_start(
     provider: String,
-    code: String,
-    state: String,
-    app_handle: AppHandle,
-) -> Result<crate::db::UserInfo, AppError> {
+    invite: Option<String>,
+) -> Result<serde_json::Value, AppError> {
     let provider = provider.parse::<OAuthProvider>().map_err(AppError::from)?;
+    let dstate = uuid::Uuid::new_v4().to_string();
+    let client = ServerClient::new();
+    Ok(serde_json::json!({
+        "auth_url": client.desktop_auth_url(&provider.to_string(), &dstate, invite.as_deref()),
+        "dstate": dstate,
+    }))
+}
 
-    let app_dir = app_handle.path().app_data_dir().map_err(AppError::from)?;
-
-    let config = crate::config::AppConfig::load(&app_dir).map_err(AppError::from)?;
-
-    let client_config = config
-        .auth_clients
-        .as_ref()
-        .and_then(|c| c.get(&provider.to_string()))
-        .ok_or(format!("OAuth client not configured for {}", provider))?;
-
-    // 用code交换token并获取用户资料
-    let profile = oauth::handle_oauth_callback(
-        &state,
-        &code,
-        &client_config.client_id,
-        client_config.client_secret.as_deref(),
-    )
-    .await?;
-
-    // 获取数据库连接池
-    let pool = app_handle.state::<DbPool>().inner().clone();
-
-    let user_repo = UserRepository::new(pool);
-
-    // 查找或创建用户
-    let user = match user_repo
-        .find_by_oauth(&profile.provider, &profile.provider_account_id)
-        .map_err(AppError::from)?
-    {
-        Some(existing_user) => existing_user,
-        None => {
-            // 创建新用户
-            let new_user = user_repo
-                .create_user(
-                    profile.email.clone(),
-                    profile.display_name.clone(),
-                    profile.avatar_url.clone(),
-                )
-                .map_err(AppError::from)?;
-
-            // 创建OAuth账号关联
-            user_repo
-                .create_oauth_account(
-                    &new_user.id,
-                    &profile.provider,
-                    &profile.provider_account_id,
-                    Some(profile.access_token),
-                    profile.refresh_token,
-                    profile.expires_at,
-                )
-                .map_err(AppError::from)?;
-
-            new_user
-        }
+/// 轮询一次桌面登录结果；成功则落本地用户+session 并返回
+#[tauri::command]
+pub async fn oauth_poll_login(
+    dstate: String,
+    app_handle: AppHandle,
+) -> Result<Option<CurrentSession>, AppError> {
+    let client = ServerClient::new();
+    let login = match client.desktop_poll(&dstate).await? {
+        Some(l) => l,
+        None => return Ok(None),
     };
 
-    // 创建session
-    let token = session::create_token(&user.id)?;
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let repo = UserRepository::new(pool);
+    let user = repo
+        .upsert_server_user(
+            &login.user_id,
+            login.email,
+            login.display_name,
+            login.avatar_url,
+        )
+        .map_err(AppError::from)?;
     let expires_at = chrono::Local::now() + chrono::Duration::days(7);
-    user_repo
-        .create_session(&user.id, &token, expires_at)
+    repo.create_session(&user.id, &login.token, expires_at)
         .map_err(AppError::from)?;
 
-    Ok(user_repo.to_user_info(&user))
+    // 登录后立即同步一次订阅缓存
+    crate::subscription::sync_remote_subscription(&app_handle);
+
+    Ok(Some(CurrentSession {
+        user: repo.to_user_info(&user),
+        token: login.token,
+    }))
 }
 
-/// 获取当前登录用户
+/// 获取当前登录会话（启动恢复用）
 #[tauri::command]
-pub fn get_current_user(_pool: State<'_, DbPool>) -> Result<Option<crate::db::UserInfo>, AppError> {
-    // 桌面端简化实现：从内存/session存储中获取
-    // 实际应用中可以通过前端传递token来验证
-    // 这里返回None表示未实现完整的session持久化检查
-    Ok(None)
+pub fn get_current_user(pool: State<'_, DbPool>) -> Result<Option<CurrentSession>, AppError> {
+    let repo = UserRepository::new(pool.inner().clone());
+    Ok(repo
+        .find_latest_valid_session()
+        .map(|(user, token)| CurrentSession {
+            user: repo.to_user_info(&user),
+            token,
+        }))
 }
 
-/// 注销登录
+/// 注销：删本地 session + 尽力通知 server
 #[tauri::command]
-pub fn logout(token: String, pool: State<'_, DbPool>) -> Result<(), AppError> {
-    let user_repo = UserRepository::new(pool.inner().clone());
-    user_repo.delete_session(&token).map_err(AppError::from)?;
+pub async fn logout(token: String, pool: State<'_, DbPool>) -> Result<(), AppError> {
+    let repo = UserRepository::new(pool.inner().clone());
+    repo.delete_session(&token).map_err(AppError::from)?;
+    let _ = ServerClient::new().logout(&token).await;
     Ok(())
 }

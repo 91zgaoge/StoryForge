@@ -253,7 +253,7 @@ tauri::generate_handler! {
     // Auth commands
     auth::commands::get_auth_config,
     auth::commands::oauth_start,
-    auth::commands::oauth_callback,
+    auth::commands::oauth_poll_login,
     auth::commands::get_current_user,
     auth::commands::logout,
     // Genesis Engine commands

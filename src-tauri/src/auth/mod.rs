@@ -52,6 +52,9 @@ pub struct OAuthClientConfig {
 }
 
 /// 认证配置（前端可见部分）
+/// 注：v0.34 起 get_auth_config 改为恒指向 server 的硬编码
+/// JSON，本结构体保留备用。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthConfig {
     pub google_enabled: bool,

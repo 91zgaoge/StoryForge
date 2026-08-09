@@ -49,6 +49,7 @@ mod reading_power;
 mod revision_commands;
 mod router;
 mod scene_commands;
+pub mod server_client;
 mod skills;
 mod startup_trace;
 mod state_sync;

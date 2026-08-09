@@ -229,3 +229,6 @@ mod tests {
         assert!(svc.has_feature_access("u3", "writer").unwrap());
     }
 }
+
+/// 登录/启动后从 server 拉取订阅并写入本地缓存（Task 4 实装，当前为占位）
+pub fn sync_remote_subscription(_app_handle: &tauri::AppHandle) {}
