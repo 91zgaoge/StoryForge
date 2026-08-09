@@ -13,6 +13,9 @@ pub struct ServerConfig {
     pub server_host: String,
     pub server_port: u16,
     pub frontend_url: String,
+    /// 对外 base URL（OAuth redirect_uri 用），需与 provider 后台注册的
+    /// callback 前缀一致
+    pub server_base_url: Option<String>,
 
     // Dev
     pub dev_upgrade_enabled: bool,
@@ -41,6 +44,10 @@ impl ServerConfig {
                 .unwrap_or(8080),
             frontend_url: env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:5173".to_string()),
+            server_base_url: env::var("SERVER_BASE_URL")
+                .ok()
+                .map(|u| u.trim_end_matches('/').to_string())
+                .filter(|u| !u.is_empty()),
 
             dev_upgrade_enabled: env::var("DEV_UPGRADE_ENABLED")
                 .map(|v| v != "false")

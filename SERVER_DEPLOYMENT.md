@@ -140,7 +140,7 @@ web 服务与 storymoss.top 静态站的共存方式以主机实际 Web 服务�
 
 1. **Google Cloud Console**（https://console.cloud.google.com/apis/credentials）创建 OAuth client，callback 填 `https://storymoss.top/api/auth/google/callback`。
 2. **GitHub** Settings → Developer settings → OAuth Apps 新建应用，callback 填 `https://storymoss.top/api/auth/github/callback`。
-3. 主机 `/opt/storymoss/.env` 填写 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`、`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`、`JWT_SECRET`（与桌面端无关，server 自签自验）、`POSTGRES_PASSWORD`、`FRONTEND_URL=https://storymoss.top`。
+3. 主机 `/opt/storymoss/.env` 填写 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`、`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`、`JWT_SECRET`（与桌面端无关，server 自签自验）、`POSTGRES_PASSWORD`、`FRONTEND_URL=https://storymoss.top`、`SERVER_BASE_URL=https://storymoss.top`。注意 `SERVER_BASE_URL` 必须与第 1、2 步在 OAuth App 后台注册的 callback 前缀一致（即 nginx 反代对外域名），否则登录会因 redirect_uri 不匹配而失败。
 4. GitHub 仓库 Settings → Secrets 配置 `SERVER_SSH_HOST` / `SERVER_SSH_USER` / `SERVER_SSH_KEY`（供 `.github/workflows/deploy-server.yml` 使用）。
 5. 首次部署：主机上 `cd /opt/storymoss && docker compose up -d`；之后可通过 Actions 页面手动触发 **Deploy Server** 工作流。
 

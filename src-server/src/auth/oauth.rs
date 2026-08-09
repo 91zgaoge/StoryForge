@@ -148,7 +148,40 @@ fn get_provider_urls(provider: OAuthProvider) -> (AuthUrl, TokenUrl) {
 }
 
 fn get_server_base_url() -> String {
-    format!("http://{}:{}", CONFIG.server_host, CONFIG.server_port)
+    resolve_base_url(
+        CONFIG.server_base_url.clone(),
+        &CONFIG.server_host,
+        CONFIG.server_port,
+    )
+}
+
+/// 解析对外 base URL：优先 SERVER_BASE_URL（去除尾部 '/'），否则回退到 http://host:port
+fn resolve_base_url(env_val: Option<String>, host: &str, port: u16) -> String {
+    match env_val {
+        Some(url) => url,
+        None => format!("http://{}:{}", host, port),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_base_url;
+
+    #[test]
+    fn resolve_base_url_prefers_env_override() {
+        assert_eq!(
+            resolve_base_url(Some("https://storymoss.top".to_string()), "0.0.0.0", 8080),
+            "https://storymoss.top"
+        );
+    }
+
+    #[test]
+    fn resolve_base_url_falls_back_to_host_port() {
+        assert_eq!(
+            resolve_base_url(None, "0.0.0.0", 8080),
+            "http://0.0.0.0:8080"
+        );
+    }
 }
 
 async fn fetch_google_user_info(access_token: &str) -> Result<OAuthUserInfo, String> {
