@@ -1119,6 +1119,11 @@ pub fn run() {
                 crate::memory::health_daemon::spawn_daemon(pool.clone(), app.handle().clone());
             }
 
+            // 已登录时后台同步一次远程订阅状态到本地缓存（离线静默失败）
+            if pool.is_some() {
+                crate::subscription::sync_remote_subscription(app.handle());
+            }
+
             startup_trace::trace("setup() completed OK");
             Ok(())
         })

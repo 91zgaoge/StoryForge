@@ -9,7 +9,12 @@ use super::{
     repository::CustomMethodologyRepository,
     service::{GuidebookDistillationService, GuidebookStatusResponse},
 };
-use crate::{db::DbPool, error::AppError, llm::LlmService, subscription::SubscriptionService};
+use crate::{
+    db::DbPool,
+    error::AppError,
+    llm::LlmService,
+    subscription::{identity, SubscriptionService},
+};
 
 fn new_service(app_handle: &AppHandle) -> Result<GuidebookDistillationService, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
@@ -21,19 +26,6 @@ fn new_service(app_handle: &AppHandle) -> Result<GuidebookDistillationService, A
     ))
 }
 
-fn get_user_id(app_handle: &AppHandle) -> String {
-    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
-    let machine_id_path = app_dir.join(".machine_id");
-    if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    } else {
-        "local".to_string()
-    }
-}
-
 /// 上传指导书并开始提炼
 #[command(rename_all = "snake_case")]
 pub async fn upload_guidebook(
@@ -41,7 +33,7 @@ pub async fn upload_guidebook(
     app_handle: AppHandle,
 ) -> Result<String, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
-    let user_id = get_user_id(&app_handle);
+    let user_id = identity::resolve_user_id(&app_handle, &pool);
     let subscription = SubscriptionService::new(pool.clone());
     if !subscription.has_feature_access(&user_id, "guidebook_distillation")? {
         return Err(AppError::subscription_required(

@@ -4,7 +4,7 @@ use super::{types::*, PipelineOrchestrator, PostProcessRunWithSteps};
 use crate::{
     db::{DbPool, DraftRepository, PipelineReviewRepository},
     error::AppError,
-    subscription::SubscriptionService,
+    subscription::{identity, SubscriptionService},
     task_system::{
         models::{CreateTaskRequest, TaskStatus, TaskType},
         service::TaskService,
@@ -13,16 +13,7 @@ use crate::{
 
 fn check_pipeline_feature_access(app_handle: &AppHandle, feature_id: &str) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>();
-    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
-    let machine_id_path = app_dir.join(".machine_id");
-    let user_id = if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    } else {
-        "local".to_string()
-    };
+    let user_id = identity::resolve_user_id(&app_handle, pool.inner());
     let subscription = SubscriptionService::new(pool.inner().clone());
     if !subscription.has_feature_access(&user_id, feature_id)? {
         return Err(AppError::subscription_required(

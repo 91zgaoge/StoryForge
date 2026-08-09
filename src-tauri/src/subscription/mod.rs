@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{db::DbPool, error::AppError};
 
 pub mod commands;
+pub mod identity;
 
 pub use crate::domain::subscription::SubscriptionTier;
 
@@ -228,7 +229,99 @@ mod tests {
         // 免费基础功能不受影响
         assert!(svc.has_feature_access("u3", "writer").unwrap());
     }
+
+    #[test]
+    fn cache_remote_status_pro_unlocks_pro_features() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let remote = crate::server_client::RemoteSubscription {
+            tier: "pro".to_string(),
+            status: "active".to_string(),
+            expires_at: None,
+        };
+        cache_remote_status(&pool, "u-cache-pro", &remote).unwrap();
+
+        let svc = SubscriptionService::new(pool.clone());
+        assert!(svc
+            .has_feature_access("u-cache-pro", "guidebook_distillation")
+            .unwrap());
+    }
+
+    #[test]
+    fn cache_remote_status_same_tier_does_not_insert_new_row() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let remote = crate::server_client::RemoteSubscription {
+            tier: "pro".to_string(),
+            status: "active".to_string(),
+            expires_at: None,
+        };
+        cache_remote_status(&pool, "u-cache-same", &remote).unwrap();
+
+        let count_rows = || -> i64 {
+            pool.get()
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM subscriptions WHERE user_id = ?1",
+                    params!["u-cache-same"],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        let before = count_rows();
+        cache_remote_status(&pool, "u-cache-same", &remote).unwrap();
+        assert_eq!(count_rows(), before);
+
+        // tier 变化时才会插入新行
+        let remote_free = crate::server_client::RemoteSubscription {
+            tier: "free".to_string(),
+            status: "active".to_string(),
+            expires_at: None,
+        };
+        cache_remote_status(&pool, "u-cache-same", &remote_free).unwrap();
+        assert_eq!(count_rows(), before + 1);
+        let svc = SubscriptionService::new(pool.clone());
+        assert!(!svc
+            .has_feature_access("u-cache-same", "guidebook_distillation")
+            .unwrap());
+    }
 }
 
-/// 登录/启动后从 server 拉取订阅并写入本地缓存（Task 4 实装，当前为占位）
-pub fn sync_remote_subscription(_app_handle: &tauri::AppHandle) {}
+/// 远程订阅状态写本地缓存（供 has_feature_access 等同步检查点读取）
+pub fn cache_remote_status(
+    pool: &DbPool,
+    user_id: &str,
+    remote: &crate::server_client::RemoteSubscription,
+) -> Result<(), AppError> {
+    let service = SubscriptionService::new(pool.clone());
+    let current = service.get_or_create_subscription(user_id)?;
+    if current.tier != remote.tier {
+        let expires_days = if remote.tier == "pro" { Some(30) } else { None };
+        service.upgrade_subscription(user_id, &remote.tier, expires_days)?;
+    }
+    Ok(())
+}
+
+/// 已登录时后台同步一次远程订阅（登录后/启动时调用）
+pub fn sync_remote_subscription(app_handle: &tauri::AppHandle) {
+    use tauri::Manager;
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let identity = identity::resolve_identity(app_handle, &pool);
+    if let identity::Identity::Account { user_id, token } = identity {
+        let handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let client = crate::server_client::ServerClient::new();
+            match client.get_subscription(&token).await {
+                Ok(remote) => {
+                    if let Err(e) = cache_remote_status(&pool, &user_id, &remote) {
+                        log::warn!("cache remote subscription failed: {}", e);
+                    }
+                    let _ = crate::state_sync::StateSync::emit_subscription_changed(
+                        &handle,
+                        &user_id,
+                        &remote.tier,
+                    );
+                }
+                Err(e) => log::warn!("remote subscription sync failed (offline ok): {}", e),
+            }
+        });
+    }
+}

@@ -389,26 +389,9 @@ impl AgentService {
         (max_tokens, temperature)
     }
 
-    /// 获取当前用户 ID
-    fn get_user_id(&self) -> String {
-        let app_dir = match self.app_handle.path().app_data_dir() {
-            Ok(d) => d,
-            Err(_) => return "local".to_string(),
-        };
-        let machine_id_path = app_dir.join(".machine_id");
-        if machine_id_path.exists() {
-            std::fs::read_to_string(&machine_id_path)
-                .unwrap_or_default()
-                .trim()
-                .to_string()
-        } else {
-            "local".to_string()
-        }
-    }
-
     /// 获取当前用户的订阅层级（fallback 查询，优先使用 task.tier）
     fn get_user_tier(&self) -> SubscriptionTier {
-        let user_id = self.get_user_id();
+        let user_id = crate::subscription::identity::resolve_user_id(&self.app_handle, &self.pool);
         if user_id.is_empty() || user_id == "local" {
             log::warn!("[AgentService] user_id is empty/local, defaulting to Free");
             return SubscriptionTier::Free;
@@ -866,7 +849,8 @@ impl AgentService {
         // 记录 AI 使用日志
         {
             let service = SubscriptionService::new(self.pool.clone());
-            let user_id = self.get_user_id();
+            let user_id =
+                crate::subscription::identity::resolve_user_id(&self.app_handle, &self.pool);
             let tier_str = match tier {
                 SubscriptionTier::Free => "free",
                 SubscriptionTier::Pro => "pro",

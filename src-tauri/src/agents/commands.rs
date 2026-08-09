@@ -22,51 +22,21 @@ use crate::{
     },
     domain::creative_engine::CreativeEnginePort,
     error::AppError,
-    subscription::{SubscriptionService, SubscriptionTier},
+    subscription::{identity, SubscriptionService, SubscriptionTier},
 };
 
 /// 获取当前用户订阅层级（同步）
 fn get_user_tier_sync(app_handle: &AppHandle) -> SubscriptionTier {
-    let app_dir = match app_handle.path().app_data_dir() {
-        Ok(d) => d,
-        Err(_) => return SubscriptionTier::Free,
-    };
-    let machine_id_path = app_dir.join(".machine_id");
-    let user_id = if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    } else {
-        return SubscriptionTier::Free;
-    };
-    if user_id.is_empty() {
-        return SubscriptionTier::Free;
-    }
     if let Some(pool) = app_handle.try_state::<DbPool>() {
-        let service = SubscriptionService::new(pool.inner().clone());
-        if let Ok(status) = service.get_or_create_subscription(&user_id) {
-            return status.tier.parse().unwrap_or(SubscriptionTier::Free);
+        let user_id = identity::resolve_user_id(app_handle, pool.inner());
+        if !user_id.is_empty() {
+            let service = SubscriptionService::new(pool.inner().clone());
+            if let Ok(status) = service.get_or_create_subscription(&user_id) {
+                return status.tier.parse().unwrap_or(SubscriptionTier::Free);
+            }
         }
     }
     SubscriptionTier::Free
-}
-
-/// 获取用户 ID
-fn get_user_id(app_handle: &AppHandle) -> String {
-    let app_dir = app_handle.path().app_data_dir().unwrap_or_default();
-    let machine_id_path = app_dir.join(".machine_id");
-    if machine_id_path.exists() {
-        std::fs::read_to_string(&machine_id_path)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    } else {
-        let id = uuid::Uuid::new_v4().to_string();
-        let _ = std::fs::create_dir_all(&app_dir);
-        let _ = std::fs::write(&machine_id_path, &id);
-        id
-    }
 }
 
 static TASK_HANDLES: Lazy<Mutex<HashMap<String, tokio::task::AbortHandle>>> =
@@ -205,9 +175,9 @@ pub async fn auto_write(
     app_handle: AppHandle,
 ) -> Result<AutoWriteResponse, AppError> {
     let task_id = Uuid::new_v4().to_string();
-    let _user_id = get_user_id(&app_handle);
 
     let pool = app_handle.state::<DbPool>();
+    let _user_id = identity::resolve_user_id(&app_handle, pool.inner());
     let scene_repo = SceneRepository::new(pool.inner().clone());
 
     // v0.8.0: 在调用 coordinator 前捕获当前场景内容，避免生成期间用户编辑导致竞态

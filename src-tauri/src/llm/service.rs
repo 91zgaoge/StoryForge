@@ -2615,19 +2615,6 @@ impl<R: Runtime> LlmService<R> {
         let mut cancelled = self.cancelled_requests.lock().unwrap();
         cancelled.remove(request_id);
     }
-
-    /// 解析当前用户ID（从 .machine_id 文件）
-    fn resolve_user_id(&self) -> Option<String> {
-        let app_dir = self.app_handle.path().app_data_dir().ok()?;
-        let machine_id_path = app_dir.join(".machine_id");
-        if machine_id_path.exists() {
-            std::fs::read_to_string(&machine_id_path)
-                .ok()
-                .map(|s| s.trim().to_string())
-        } else {
-            None
-        }
-    }
 }
 
 #[async_trait::async_trait]
