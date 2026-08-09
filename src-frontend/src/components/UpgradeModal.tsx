@@ -11,6 +11,7 @@
 import React, { useState } from 'react';
 import { Sparkles, Zap, BookOpen, Wand2, X, Loader2 } from 'lucide-react';
 import { devUpgradeSubscription } from '@/services/tauri';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { createLogger } from '@/utils/logger';
 
 const upgradeLogger = createLogger('ui:UpgradeModal');
@@ -37,6 +38,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
 }) => {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const { isLoggedIn, isWaitingForOAuth, login } = useAuthStore();
 
   if (!isOpen) return null;
 
@@ -97,6 +99,28 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
           ))}
         </div>
 
+        {!isLoggedIn && (
+          <div className="mb-5 rounded-lg border border-cinema-700 bg-cinema-800/50 p-3">
+            <p className="text-xs text-gray-400 text-center mb-2">
+              登录后升级，Pro 跟随账号（换设备不丢）
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => void login('google')}
+                className="flex-1 py-2 rounded-lg bg-cinema-700 text-sm text-gray-200 hover:bg-cinema-600"
+              >
+                Google 登录
+              </button>
+              <button
+                onClick={() => void login('github')}
+                className="flex-1 py-2 rounded-lg bg-cinema-700 text-sm text-gray-200 hover:bg-cinema-600"
+              >
+                GitHub 登录
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="text-center mb-5">
           <span className="text-3xl font-bold text-cinema-gold">¥19</span>
           <span className="text-sm text-gray-400">/月</span>
@@ -111,10 +135,10 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
           <button
             className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-cinema-gold text-cinema-950 font-medium hover:bg-cinema-gold/90 transition-colors disabled:opacity-50"
             onClick={handleUpgrade}
-            disabled={isUpgrading}
+            disabled={isUpgrading || isWaitingForOAuth}
           >
             {isUpgrading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {isUpgrading ? '升级中...' : '立即升级'}
+            {isUpgrading ? '升级中...' : isLoggedIn ? '立即升级' : '暂不登录，仅本设备升级'}
           </button>
           <button
             className="w-full py-2 rounded-lg text-sm text-gray-400 hover:text-white transition-colors"

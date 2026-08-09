@@ -90,6 +90,9 @@ export function AccountSettings() {
               </button>
             )}
           </div>
+          <p className="text-xs text-gray-500 mt-3">
+            订阅来源：{isLoggedIn ? '账号同步（跨设备）' : '仅本设备（登录后可同步）'}
+          </p>
         </div>
       </Panel>
 

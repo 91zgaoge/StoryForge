@@ -34,6 +34,16 @@ vi.mock('@/services/tauri', () => ({
   devUpgradeSubscription: (...args: unknown[]) => devUpgradeMock(...args),
 }));
 
+// Task 6: UpgradeModal 未登录时按钮文案变为「暂不登录，仅本设备升级」——
+// 本链路测试沿用「立即升级」断言，故 mock 已登录态
+vi.mock('@/stores/useAuthStore', () => ({
+  useAuthStore: () => ({
+    isLoggedIn: true,
+    isWaitingForOAuth: false,
+    login: vi.fn(),
+  }),
+}));
+
 vi.mock('@/hooks/useGuidebookDistillation', () => ({
   useGuidebooks: () => ({ data: [], isLoading: false }),
   useUploadGuidebook: () => ({ mutateAsync: vi.fn(), isPending: false }),
