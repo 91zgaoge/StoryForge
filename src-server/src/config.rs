@@ -13,6 +13,9 @@ pub struct ServerConfig {
     pub server_port: u16,
     pub frontend_url: String,
 
+    // Dev
+    pub dev_upgrade_enabled: bool,
+
     // OAuth
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
@@ -35,6 +38,10 @@ impl ServerConfig {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
             frontend_url: env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string()),
+
+            dev_upgrade_enabled: env::var("DEV_UPGRADE_ENABLED")
+                .map(|v| v != "false")
+                .unwrap_or(true),
 
             google_client_id: env::var("GOOGLE_CLIENT_ID").ok(),
             google_client_secret: env::var("GOOGLE_CLIENT_SECRET").ok(),
