@@ -2,8 +2,9 @@
 
 use actix_web::web;
 
+pub(crate) mod admin;
 mod health;
-mod subscription;
+pub(crate) mod subscription;
 mod user;
 
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
@@ -12,6 +13,7 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
             .configure(health::init_routes)
             .configure(subscription::init_routes)
             .configure(user::init_routes)
-            .configure(super::auth::handlers::init_routes),
+            .configure(super::auth::handlers::init_routes)
+            .service(web::scope("/admin").configure(admin::init_routes)),
     );
 }

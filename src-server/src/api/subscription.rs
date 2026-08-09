@@ -18,10 +18,10 @@ pub struct SubscriptionResponse {
     pub expires_at: Option<String>,
 }
 
-struct SubscriptionRow {
-    tier: String,
-    status: String,
-    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+pub(crate) struct SubscriptionRow {
+    pub(crate) tier: String,
+    pub(crate) status: String,
+    pub(crate) expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn get_or_create(pool: &PgPool, user_id: uuid::Uuid) -> Result<SubscriptionRow, sqlx::Error> {
@@ -40,19 +40,36 @@ async fn get_or_create(pool: &PgPool, user_id: uuid::Uuid) -> Result<Subscriptio
                 .map(|t| t < chrono::Utc::now())
                 .unwrap_or(false);
         if expired {
-            let row = sqlx::query!(
+            // WHERE 守卫防 TOCTOU：并发请求可能已降级/续期，0 行时重查当前行为准
+            let updated = sqlx::query!(
                 "UPDATE subscriptions SET tier = 'free', expires_at = NULL, updated_at = NOW()
-                 WHERE user_id = $1
+                 WHERE user_id = $1 AND tier <> 'free' AND expires_at < NOW()
                  RETURNING tier, status, expires_at",
                 user_id
             )
-            .fetch_one(pool)
+            .fetch_optional(pool)
             .await?;
-            return Ok(SubscriptionRow {
-                tier: row.tier,
-                status: row.status,
-                expires_at: row.expires_at,
-            });
+            let row = match updated {
+                Some(row) => SubscriptionRow {
+                    tier: row.tier,
+                    status: row.status,
+                    expires_at: row.expires_at,
+                },
+                None => {
+                    let row = sqlx::query!(
+                        "SELECT tier, status, expires_at FROM subscriptions WHERE user_id = $1",
+                        user_id
+                    )
+                    .fetch_one(pool)
+                    .await?;
+                    SubscriptionRow {
+                        tier: row.tier,
+                        status: row.status,
+                        expires_at: row.expires_at,
+                    }
+                }
+            };
+            return Ok(row);
         }
         return Ok(SubscriptionRow {
             tier: row.tier,
