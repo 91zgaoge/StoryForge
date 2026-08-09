@@ -29,11 +29,24 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 - **deploy-server 工作流**：GitHub Actions 一键部署 src-server 到生产，含 nginx 反代配置与 OAuth App 注册清单。
 
+### 新增：网站会员系统与管理后台
+
+- **migration 004（src-server）**：`users` 加 `role`（user/admin）与 `disabled_at`；`invite_codes` 加 `grant_pro_days`（注册即赠 Pro N 天）、`created_by`、`revoked_at`（作废软删）。
+- **Admin API（/api/admin，src-server）**：用户列表/搜索、提拔/降级（不能降级自己）、禁用/启用（禁用即删 sessions 立即踢下线）、手动赠/调订阅、邀请码批量生成（`SM-`+8 位码，可附赠 Pro 天数）/列表/作废；`require_admin` 提取器每次查库校验 role（不信任 JWT claim），全部写操作 `log::info!` 审计。首个管理员由部署后 SQL 指定（见 SERVER_DEPLOYMENT.md「指定首个管理员」）。
+- **web 管理后台（src-server-web）**：`/admin` 路由 + `AdminLayout` 守卫（非 admin 跳 Dashboard）；三页签——邀请码（批量生成/作废/复制）、用户（搜索/赠 Pro/禁用启用）、管理员（提拔/降级）；Dashboard 加「订阅状态」卡片（tier 与到期时间）与管理后台入口；`GET /api/auth/me` 响应新增 `role` 字段。
+
+### 修复：订阅与登录安全
+
+- **JWT 吊销生效（src-server）**：验签后查 sessions 表（token 存在且未过期）+ `disabled_at IS NULL`，logout 或账号被禁用立即 401 踢下线。
+- **expires_at 全链路生效**：`GET /subscription/me` 对过期 pro 懒降级为 free；`upsert_tier` 支持 `days` 参数并读回真实行；邀请码赠 Pro N 天在注册事务内写入 expires_at；桌面端本地缓存透传 server expires_at（不再恒写 30 天）。
+- **作废邀请码注册被拒**：注册占码校验 `revoked_at IS NULL`，已作废码拒绝并回跳错误页。
+
 ### 测试
 
-- src-server：`cargo test` 7 用例全绿（邀请码门控 / dstate 一次性轮询 / 订阅 API）。
-- src-tauri：`cargo test --lib` 全量回归通过（身份收口、远程优先/缓存降级、登录轮询）。
-- 前端：vitest 全量通过（登录流程、升级弹窗登录引导、订阅来源显示）；`tsc --noEmit` 通过。
+- src-server：`cargo test` 21 用例全绿（邀请码门控 / dstate 一次性轮询 / 订阅 API / Admin API / JWT 吊销 / 赠 Pro 注册联动 / 过期懒降级）。
+- src-server-web：`npm test` 13 用例全绿（AdminLayout 守卫 / Dashboard 订阅卡片 / 邀请码页 / 用户页）；`npm run build` 通过。
+- src-tauri：`cargo test --lib` 1217 用例全绿（另有 2 ignored；身份收口、远程优先/缓存降级、登录轮询、expires_at 缓存透传）。
+- 前端：vitest 394 通过 / 3 跳过（登录流程、升级弹窗登录引导、订阅来源显示）；`tsc --noEmit` 通过。
 
 - **已知问题（沿用）**：未登录「仅本设备升级」的 Pro 不自动迁移到账号（当前设计取舍，付款接入时再议）；AI 操作记录 `previous_content` 截断回滚风险沿用 v0.33.x 记录。
 

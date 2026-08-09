@@ -144,9 +144,20 @@ web 服务与 storymoss.top 静态站的共存方式以主机实际 Web 服务�
 4. GitHub 仓库 Settings → Secrets 配置 `SERVER_SSH_HOST` / `SERVER_SSH_USER` / `SERVER_SSH_KEY`（供 `.github/workflows/deploy-server.yml` 使用）。
 5. 首次部署：主机上 `cd /opt/storymoss && docker compose up -d`；之后可通过 Actions 页面手动触发 **Deploy Server** 工作流。
 
+### 指定首个管理员
+
+首次部署后，管理员用你的登录邮箱执行：
+
+```bash
+docker compose exec postgres psql -U storymoss -d storymoss \
+  -c "UPDATE users SET role='admin' WHERE email='你的邮箱';"
+```
+
+之后可在网站 /admin 的「管理员」页签提拔其他管理员。
+
 ### 邀请码发放
 
-新用户注册需有效邀请码（老用户免码）。在主机上发放：
+新用户注册需有效邀请码（老用户免码）。可在网站 /admin 的「邀请码」页签批量生成（支持「注册即赠 Pro N 天」），也可在主机上手工发放：
 
 ```bash
 docker compose exec postgres psql -U storymoss -c "INSERT INTO invite_codes (code, max_uses, note) VALUES ('BETA-XXXX', 1, '发给某某');"

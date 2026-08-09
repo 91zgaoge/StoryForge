@@ -1,7 +1,7 @@
 # 网站侧会员系统设计文档（Admin 后台 + 邀请码发放 + JWT 吊销）
 
 日期：2026-08-09
-状态：设计已获批准（头脑风暴流程），待制定实现计划
+状态：已实现（W1–W9 全部落地，并入 v0.34.0；实现偏差见 ⑤ 邀请码格式）
 范围：src-server Admin API + src-server-web 管理后台与用户 Dashboard；桌面端仅 expires_at 透传小改。付款仍不在本期。
 
 ## 背景
@@ -52,7 +52,7 @@ OAuth 订阅同步（v0.34.0 待发布）落地后，网站侧只有落地/登�
 
 ## ⑤ 安全 / 错误处理 / 测试
 
-- 邀请码生成用密码学随机（自字母表 8 位，去易混字符）
+- 邀请码生成用密码学随机（自字母表 8 位，去易混字符）——**实现偏差**：实际为 `SM-` + 8 位大写 hex（取 UUID v4 前 8 位），撞 PK（code 唯一）兜底重试一次
 - 非管理员 403；禁用/过期 401 前端清 token 跳登录；表单校验 400
 - 测试：server sqlx::test——require_admin 拒普通用户、role 升降、禁用踢下线（sessions 删 + me 401）、邀请码生成/作废/赠 Pro 注册联动、`/me` 过期降级、upsert_tier 读回；web 前端补最小 vitest 基建 + 路由守卫与关键交互测试；桌面 cache_remote_status expires_at 透传单测
 - 部署：migration 004 随 server 启动自动跑；SERVER_DEPLOYMENT.md 加「指定首个管理员」
