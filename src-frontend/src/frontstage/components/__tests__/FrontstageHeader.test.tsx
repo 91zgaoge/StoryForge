@@ -227,4 +227,95 @@ describe('FrontstageHeader', () => {
     });
     expect(screen.queryByText('主创正在写第一章')).not.toBeInTheDocument();
   });
+
+  const chaptersProp = [
+    { id: 'c1', story_id: '1', title: '第一章', chapter_number: 1 },
+    { id: 'c2', story_id: '1', title: '', chapter_number: 2 },
+    { id: 'c3', story_id: '1', title: '临江夜雨', chapter_number: 3 },
+  ];
+
+  it('单击章节名应展开章节下拉并触发 onOpenChapterList', async () => {
+    const onOpenChapterList = vi.fn();
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        chapters={chaptersProp}
+        onOpenChapterList={onOpenChapterList}
+      />
+    );
+
+    await userEvent.click(screen.getByText('第一章'));
+    await waitFor(() => {
+      expect(screen.getByRole('listbox', { name: '章节列表' })).toBeInTheDocument();
+    });
+    expect(onOpenChapterList).toHaveBeenCalledTimes(1);
+    // 空标题章节按「第N章」展示
+    expect(screen.getByRole('option', { name: '第2章' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '临江夜雨' })).toBeInTheDocument();
+    // 当前章节高亮
+    expect(screen.getByRole('option', { name: '第一章' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('下拉中选中其他章节应调用 onSelectChapter 并关闭菜单', async () => {
+    const user = userEvent.setup();
+    const onSelectChapter = vi.fn();
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        chapters={chaptersProp}
+        onSelectChapter={onSelectChapter}
+      />
+    );
+
+    await user.click(screen.getByLabelText('展开章节列表'));
+    await user.click(screen.getByRole('option', { name: '临江夜雨' }));
+
+    expect(onSelectChapter).toHaveBeenCalledTimes(1);
+    expect(onSelectChapter).toHaveBeenCalledWith(chaptersProp[2]);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('选中当前章节不应触发 onSelectChapter', async () => {
+    const user = userEvent.setup();
+    const onSelectChapter = vi.fn();
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        chapters={chaptersProp}
+        onSelectChapter={onSelectChapter}
+      />
+    );
+
+    await user.click(screen.getByLabelText('展开章节列表'));
+    await user.click(screen.getByRole('option', { name: '第一章' }));
+    expect(onSelectChapter).not.toHaveBeenCalled();
+  });
+
+  it('双击章节名改名不应展开下拉', async () => {
+    const user = userEvent.setup();
+    render(
+      <FrontstageHeader
+        {...defaultProps}
+        chapters={chaptersProp}
+        canRenameChapter
+        onRenameChapter={vi.fn()}
+      />
+    );
+
+    await user.dblClick(screen.getByText('第一章'));
+    expect(screen.getByLabelText('编辑章节名称')).toBeInTheDocument();
+    // 等待超过单击延迟（250ms），确认下拉未弹出
+    await new Promise(resolve => setTimeout(resolve, 350));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('Escape 应关闭章节下拉', async () => {
+    const user = userEvent.setup();
+    render(<FrontstageHeader {...defaultProps} chapters={chaptersProp} />);
+
+    await user.click(screen.getByLabelText('展开章节列表'));
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
 });

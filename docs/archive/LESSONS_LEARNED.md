@@ -1,7 +1,7 @@
 # StoryMoss 经验教训档案
 
 > 本文件记录项目修复过程中积累的深层经验与反模式，供后续 AI 助手与开发者参考。
-> 最后更新：2026-07-06（基于 v0.26.16 Genesis 第一章重复根治与 GitHub 构建失败修复）
+> 最后更新：2026-08-09（基于 v0.33.5 Windows 启动闪退根治——tauri setup 建窗顺序竞态）
 
 ---
 
@@ -135,6 +135,26 @@
 
 ---
 
+## 经验 9：tauri setup 建窗顺序竞态——State 必须先于任何窗口/WebView 创建 manage
+
+**来源**：2026-08-09 Windows 启动闪退根治（v0.33.1–v0.33.5，最终修复 commit `01f5662`）
+
+**现象**：Windows 上双击启动即闪退，无任何日志文件；WER 报 `BEX64` / 异常码 `c0000409` / `P9=7`（`__fastfail`）。macOS 与部分 Windows 机器完全不复发。
+
+**根因**：tauri 2.11.5 的 `app::setup()`（`src-tauri/src/app.rs`）**先创建 `tauri.conf.json` 里声明的配置窗口、后调用用户 `.setup()` 闭包**。Windows 上 wry 创建 WebView2 环境时会泵 Win32 消息循环（故障机实测约 2.3 秒），前端页面加载完成后立即发 IPC 命令，`State<DbPool>` 提取发生在 `.manage()` 之前 → `state() called before manage()` panic（tauri-2.11.5/src/lib.rs:734）→ 该 panic 发生在 WebView2 COM 回调（`extern "C"` 边界）内无法解退 → `panic_cannot_unwind` → 进程直接 abort。macOS WebView 初始化快，竞态窗口几乎为零，因此从不触发。
+
+**修复**：frontstage/backstage 窗口在 `tauri.conf.json` 中设 `create: false`，全部状态 `manage()` 完成后，在 setup 末尾用 `WebviewWindowBuilder::from_config` 显式建窗。
+
+**经验**：
+- **铁律：任何 `State` 必须在第一个窗口/WebView 创建之前完成 `manage()`**。tauri 会先建 config 窗口再调 setup 闭包，因此配置窗口必须 `create: false`，由 setup 末尾在所有状态就绪后显式创建。
+- **`extern "C"` 边界内 panic = 无日志进程 abort**。COM 回调、WNDPROC、WebView IPC 处理函数等路径上的代码必须保证不 panic（这些边界无法解退，panic 直接 `__fastfail`，连 panic hook 都不一定来得及写盘）。
+- **GUI 子系统下 stderr 不可见**。Windows 诊断 GUI 应用崩溃时，临时去掉 `windows_subsystem = "windows"` 切控制台子系统，可从终端直接看到 panic 消息——本次正是靠这一击命中根因（此前两轮修复都在没有 panic 消息的情况下盲猜）。
+- **无日志崩溃的取证工具链**：启动面包屑（`startup_trace.rs`，写 `%TEMP%`）+ main 入口早期 panic hook（`install_early_diag()`）+ WER LocalDumps 全量转储 + `minidump-stackwalk` 分析 dmp。
+- **Windows setup 阶段触碰 WebView2 异步回调历来高危**：`init_windows`（`src-tauri/src/lib.rs:602`）注释记载此前 setup 里用 WebView2 COM 禁用右键菜单同样触发 BEX64/c0000409——同族问题第二次出现，今后 setup 阶段应避免任何依赖 WebView 异步回调的操作。
+- **平台不对称的竞态最容易漏网**："mac 从不复发"不等于"没问题"，时序窗口在慢初始化平台（Windows WebView2）上才会暴露。
+
+---
+
 ## 反模式清单
 
 | 反模式 | 症状 | 推荐方案 |
@@ -144,7 +164,9 @@
 | 症状驱动补丁 | 同一问题反复出现，每次在旧假设上加新补丁 | 停下来质疑核心假设，做根因分析 |
 | 单层模型防御 | 只做消费侧清理或只做 prompt 约束 | 消费侧 + 生成侧 + prompt 约束多层防御 |
 | 忽视格式化检查 | 认为 `fmt`/`prettier` 失败是"小问题" | 把格式检查当作编译错误 |
+| 状态后于窗口注册 | setup 闭包里 `manage()` 发生在 config 窗口创建之后，前端 IPC 抢跑 | 配置窗口 `create: false`，全部状态 manage 完后 setup 末尾显式建窗 |
+| 无日志盲修 | GUI 应用崩溃没有 panic 消息，凭猜测连续打补丁 | 先切控制台子系统/加面包屑拿到 panic 消息，再动手修 |
 
 ---
 
-_最后更新: 2026-07-06_
+_最后更新: 2026-08-09_

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
-import { Flame, Sparkles, ZapOff, Maximize, Settings } from 'lucide-react';
+import { Flame, Sparkles, ZapOff, Maximize, Settings, ChevronDown } from 'lucide-react';
 import ColorThemeDot from './ColorThemeDot';
 import { IngestHealthIndicator } from './IngestHealthIndicator';
 import DebtIndicator from './DebtIndicator';
@@ -34,6 +34,12 @@ interface FrontstageHeaderProps {
   displayChapterTitleText?: string;
   /** 是否允许双击改章节名 */
   canRenameChapter?: boolean;
+  /** 当前故事全部章节（顶栏章节下拉列表数据源） */
+  chapters?: Chapter[];
+  /** 下拉框选中章节时回调（切换幕前正文为该章节） */
+  onSelectChapter?: (chapter: Chapter) => void;
+  /** 下拉框打开时回调（用于拉取全量章节列表，分页场景本地可能只是部分页） */
+  onOpenChapterList?: () => void;
   wordCount: number;
   totalWordCount: number;
   fontSize: number;
@@ -68,6 +74,9 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
   currentChapter,
   displayChapterTitleText,
   canRenameChapter = false,
+  chapters,
+  onSelectChapter,
+  onOpenChapterList,
   wordCount,
   totalWordCount,
   fontSize,
@@ -94,6 +103,70 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
 
   // v0.30.17: 幕前顶部显示创世三 Agent（主创/管理/编辑审计）的动作与进度。
   const { lines: agentLines, hasActivity: hasAgentActivity } = useAgencyAgentActivity();
+
+  // 章节切换下拉：单击章节名展开章节列表，选中即切换幕前正文；
+  // 双击仍保留改名（用延迟单击区分单/双击）。
+  const [chapterMenuOpen, setChapterMenuOpen] = useState(false);
+  const chapterSwitcherRef = useRef<HTMLDivElement>(null);
+  const chapterClickTimerRef = useRef<number | null>(null);
+
+  const closeChapterMenu = useCallback(() => setChapterMenuOpen(false), []);
+
+  const toggleChapterMenu = useCallback(() => {
+    setChapterMenuOpen(prev => {
+      const next = !prev;
+      if (next) onOpenChapterList?.();
+      return next;
+    });
+  }, [onOpenChapterList]);
+
+  const handleChapterTitleClick = useCallback(() => {
+    if (chapterClickTimerRef.current !== null) {
+      window.clearTimeout(chapterClickTimerRef.current);
+    }
+    chapterClickTimerRef.current = window.setTimeout(() => {
+      chapterClickTimerRef.current = null;
+      toggleChapterMenu();
+    }, 250);
+  }, [toggleChapterMenu]);
+
+  const cancelChapterTitleClick = useCallback(() => {
+    if (chapterClickTimerRef.current !== null) {
+      window.clearTimeout(chapterClickTimerRef.current);
+      chapterClickTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!chapterMenuOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!chapterSwitcherRef.current?.contains(e.target as Node)) {
+        setChapterMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setChapterMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [chapterMenuOpen]);
+
+  useEffect(
+    () => () => {
+      if (chapterClickTimerRef.current !== null) {
+        window.clearTimeout(chapterClickTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const sortedChapters = (chapters ?? [])
+    .slice()
+    .sort((a, b) => a.chapter_number - b.chapter_number);
 
   const wensiTooltip =
     wensiMode === 'active'
@@ -203,12 +276,59 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
         )}
         <div className="frontstage-status-bar">
           {currentChapter && (
-            <EditableChapterTitle
-              displayTitle={displayChapterTitleText ?? displayChapterTitle(currentChapter)}
-              canRename={canRenameChapter}
-              onRename={onRenameChapter}
-              variant="status"
-            />
+            <div
+              className="chapter-switcher"
+              ref={chapterSwitcherRef}
+              onDoubleClickCapture={cancelChapterTitleClick}
+            >
+              <span
+                className="chapter-switcher-label"
+                onClick={e => {
+                  // 改名输入框内的点击不触发下拉
+                  if ((e.target as HTMLElement).tagName === 'INPUT') return;
+                  handleChapterTitleClick();
+                }}
+                title="单击切换章节，双击改名"
+              >
+                <EditableChapterTitle
+                  displayTitle={displayChapterTitleText ?? displayChapterTitle(currentChapter)}
+                  canRename={canRenameChapter}
+                  onRename={onRenameChapter}
+                  variant="status"
+                />
+              </span>
+              <ChevronDown
+                className={cn('chapter-switcher-chevron', chapterMenuOpen && 'open')}
+                onClick={toggleChapterMenu}
+                aria-label="展开章节列表"
+              />
+              {chapterMenuOpen && (
+                <div className="chapter-switcher-menu" role="listbox" aria-label="章节列表">
+                  {sortedChapters.length === 0 ? (
+                    <div className="chapter-switcher-empty">暂无章节</div>
+                  ) : (
+                    sortedChapters.map(ch => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        role="option"
+                        aria-selected={ch.id === currentChapter.id}
+                        className={cn(
+                          'chapter-switcher-item',
+                          ch.id === currentChapter.id && 'active'
+                        )}
+                        onClick={() => {
+                          closeChapterMenu();
+                          if (ch.id !== currentChapter.id) onSelectChapter?.(ch);
+                        }}
+                      >
+                        {displayChapterTitle(ch)}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           )}
           <span className="status-separator">·</span>
           <span className="status-item" title="当前章节字数 / 全文字数">

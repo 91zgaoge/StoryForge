@@ -5150,6 +5150,20 @@ const FrontstageApp: React.FC = () => {
       .join('\n');
   }, [diagnosticData]);
 
+  // 顶栏章节下拉：打开时拉取全量章节列表（分页加载场景下本地可能只是部分页）
+  const handleOpenChapterList = useCallback(() => {
+    const storyId = currentStoryRef.current?.id;
+    if (storyId) void loadStoryChapters(storyId);
+  }, [loadStoryChapters]);
+
+  // 顶栏下拉选中章节 → 走 selectChapter 咽喉点切换幕前正文
+  const handleHeaderSelectChapter = useCallback(
+    (chapter: Chapter) => {
+      selectChapter(chapter);
+    },
+    [selectChapter]
+  );
+
   return (
     <>
       <div className={`frontstage-container ${isZenMode ? 'zen-mode' : ''}`}>
@@ -5163,6 +5177,9 @@ const FrontstageApp: React.FC = () => {
           currentChapter={currentChapter}
           displayChapterTitleText={displayChapterTitle(currentChapter)}
           canRenameChapter={!!currentChapter}
+          chapters={chapters}
+          onSelectChapter={handleHeaderSelectChapter}
+          onOpenChapterList={handleOpenChapterList}
           wordCount={wordCount}
           totalWordCount={totalWordCount}
           fontSize={fontSize}
