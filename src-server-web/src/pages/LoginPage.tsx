@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Chrome, Github, ArrowLeft, Loader2 } from 'lucide-react'
 import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 export default function LoginPage() {
-  const navigate = useNavigate()
   const [config, setConfig] = useState({
     google_enabled: false,
     github_enabled: false,

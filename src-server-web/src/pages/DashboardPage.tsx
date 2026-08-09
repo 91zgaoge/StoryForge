@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { User, LogOut, BookOpen, ArrowLeft, Shield } from 'lucide-react'
+import { User, LogOut, BookOpen, ArrowLeft, Shield, Crown } from 'lucide-react'
 import axios from 'axios'
+import { getMySubscription, type Subscription } from '../api/subscription'
+import { getRole } from './admin/AdminLayout'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
@@ -10,11 +12,18 @@ interface UserInfo {
   email?: string
   display_name?: string
   avatar_url?: string
+  role?: string
+}
+
+function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return ''
+  return new Date(expiresAt).toISOString().slice(0, 10)
 }
 
 export default function DashboardPage() {
   const navigate = useNavigate()
   const [user, setUser] = useState<UserInfo | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -31,18 +40,26 @@ export default function DashboardPage() {
       })
       .then((res) => {
         setUser(res.data)
+        localStorage.setItem('sf_role', res.data.role || 'user')
       })
       .catch(() => {
         localStorage.removeItem('sf_token')
+        localStorage.removeItem('sf_role')
         navigate('/login')
       })
       .finally(() => {
         setIsLoading(false)
       })
+
+    // Fetch subscription status
+    getMySubscription()
+      .then(setSubscription)
+      .catch(() => {})
   }, [navigate])
 
   const handleLogout = () => {
     localStorage.removeItem('sf_token')
+    localStorage.removeItem('sf_role')
     navigate('/')
   }
 
@@ -71,13 +88,24 @@ export default function DashboardPage() {
               <span className="font-display font-bold text-white">草苔</span>
             </Link>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            退出登录
-          </button>
+          <div className="flex items-center gap-2">
+            {getRole() === 'admin' && (
+              <Link
+                to="/admin"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-cinema-gold hover:bg-cinema-gold/10 rounded-lg transition-colors"
+              >
+                <Shield className="w-4 h-4" />
+                管理后台
+              </Link>
+            )}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              退出登录
+            </button>
+          </div>
         </div>
       </header>
 
@@ -123,6 +151,29 @@ export default function DashboardPage() {
               </p>
 
               <div className="space-y-3">
+                {/* Subscription Card */}
+                {subscription && (
+                  <div className="p-4 rounded-xl bg-cinema-800/30 border border-cinema-700/30">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-white flex items-center gap-2">
+                          <Crown className="w-4 h-4 text-cinema-gold" />
+                          订阅状态
+                        </p>
+                        {subscription.tier === 'pro' ? (
+                          <p className="text-xs text-gray-400 mt-1">
+                            专业版 · 有效期至 {formatExpiry(subscription.expires_at)}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-gray-400 mt-1">
+                            免费版 · 下载 StoryMoss 客户端升级 Pro
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4 rounded-xl bg-cinema-800/30 border border-cinema-700/30">
                   <div className="flex items-center justify-between">
                     <div>
