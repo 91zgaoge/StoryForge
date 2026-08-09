@@ -40,13 +40,25 @@ async fn get_or_create(pool: &PgPool, user_id: uuid::Uuid) -> Result<Subscriptio
         });
     }
 
-    sqlx::query!("INSERT INTO subscriptions (user_id) VALUES ($1)", user_id)
-        .execute(pool)
-        .await?;
+    // 并发首请求可能同时 SELECT 未命中，INSERT 撞 user_id UNIQUE：
+    // ON CONFLICT DO NOTHING 后重新 SELECT，以已存在的一行为准
+    sqlx::query!(
+        "INSERT INTO subscriptions (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING",
+        user_id
+    )
+    .execute(pool)
+    .await?;
+
+    let row = sqlx::query!(
+        "SELECT tier, status, expires_at FROM subscriptions WHERE user_id = $1",
+        user_id
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(SubscriptionRow {
-        tier: "free".into(),
-        status: "active".into(),
-        expires_at: None,
+        tier: row.tier,
+        status: row.status,
+        expires_at: row.expires_at,
     })
 }
 
@@ -177,5 +189,36 @@ mod tests {
         let down = upsert_tier(&pool, user_id, "free").await.unwrap();
         assert_eq!(down.tier, "free");
         assert_eq!(down.expires_at, None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn get_or_create_is_idempotent_under_repeated_and_concurrent_calls(pool: PgPool) {
+        let user_id = uuid::Uuid::new_v4();
+        sqlx::query!(
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            user_id,
+            "t@t.com"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 同一 user 连续两次：幂等，不报错
+        let first = get_or_create(&pool, user_id).await.unwrap();
+        let second = get_or_create(&pool, user_id).await.unwrap();
+        assert_eq!(first.tier, second.tier);
+        assert_eq!(first.status, second.status);
+
+        // 并发调用（模拟并发首请求撞 UNIQUE）：均成功且仍只有一行
+        let (a, b) = tokio::try_join!(get_or_create(&pool, user_id), get_or_create(&pool, user_id))
+            .unwrap();
+        assert_eq!(a.tier, b.tier);
+
+        let count: Option<i64> =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM subscriptions WHERE user_id = $1", user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, Some(1));
     }
 }
