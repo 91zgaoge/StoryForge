@@ -13,8 +13,8 @@ use super::{
     LoginResponse, OAuthProvider, UserResponse,
 };
 
-/// 内存存储：state -> (provider, pkce_verifier)
-static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, (String, String)>>> =
+/// 内存存储：state -> (provider, pkce_verifier, invite)
+static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, (String, String, Option<String>)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// 桌面登录流程：dstate -> DesktopFlow
@@ -99,10 +99,13 @@ async fn oauth_start(path: web::Path<String>, query: web::Query<StartQuery>) -> 
             // 提取state（从auth_url中）
             let state = extract_state_from_url(&auth_url).unwrap_or_default();
 
-            // 存储state
+            // 存储state（含可选邀请码）
             {
                 let mut store = OAUTH_STATE_STORE.lock().unwrap();
-                store.insert(state.clone(), (provider_str, pkce_verifier));
+                store.insert(
+                    state.clone(),
+                    (provider_str, pkce_verifier, query.invite.clone()),
+                );
             }
 
             // 桌面端流程：注册 dstate 映射并直接 302 到 provider 授权页
@@ -139,7 +142,7 @@ async fn oauth_callback(
     let state = &query.state;
 
     // 查找并移除state
-    let (stored_provider, pkce_verifier) = {
+    let (stored_provider, pkce_verifier, invite) = {
         let mut store = OAUTH_STATE_STORE.lock().unwrap();
         match store.remove(state) {
             Some(data) => data,
@@ -171,12 +174,25 @@ async fn oauth_callback(
         }
     };
 
-    // 查找或创建用户
-    let user_id = match find_or_create_user(&pool, &profile).await {
+    // 查找或创建用户（内测期门控：新用户需有效邀请码，老用户免码）
+    let user_id = match find_or_create_user_gated(&pool, &profile, invite).await {
         Ok(id) => id,
         Err(e) => {
-            log::error!("Database error: {}", e);
-            return HttpResponse::InternalServerError().json(json!({"error": "Database error"}));
+            log::warn!("Invite gate rejected registration: {}", e);
+            // 桌面端流程：失败时不 complete（轮询继续 pending 直至过期），展示错误页
+            let is_desktop = DESKTOP_FLOW_STORE
+                .lock()
+                .unwrap()
+                .values()
+                .any(|f| f.oauth_state == *state);
+            if is_desktop {
+                return HttpResponse::Forbidden().content_type("text/html; charset=utf-8").body(
+                    "<html><head><meta charset=\"utf-8\"><title>注册受限</title></head>\
+                     <body style=\"font-family:sans-serif;text-align:center;padding-top:80px\">\
+                     <h2>邀请码无效或已使用</h2><p>请返回 StoryMoss 应用重新输入。</p></body></html>",
+                );
+            }
+            return HttpResponse::Forbidden().json(json!({"error": "invalid_or_used_invite"}));
         }
     };
 
@@ -232,11 +248,13 @@ async fn oauth_callback(
         if store.values().any(|f| f.oauth_state == *state) {
             drop(store);
             desktop_flow_complete(state, token, user_json);
-            return HttpResponse::Ok().content_type("text/html; charset=utf-8").body(
-                "<html><head><meta charset=\"utf-8\"><title>登录成功</title></head>\
+            return HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .body(
+                    "<html><head><meta charset=\"utf-8\"><title>登录成功</title></head>\
                  <body style=\"font-family:sans-serif;text-align:center;padding-top:80px\">\
                  <h2>登录成功</h2><p>请返回 StoryMoss 应用，登录状态将自动同步。</p></body></html>",
-            );
+                );
         }
     }
 
@@ -252,7 +270,10 @@ async fn desktop_poll(query: web::Query<DesktopPollQuery>) -> impl Responder {
             HttpResponse::Ok().json(json!({ "token": token, "user": user }))
         }
         None => {
-            let exists = DESKTOP_FLOW_STORE.lock().unwrap().contains_key(&query.dstate);
+            let exists = DESKTOP_FLOW_STORE
+                .lock()
+                .unwrap()
+                .contains_key(&query.dstate);
             if exists {
                 HttpResponse::Accepted().json(json!({"status": "pending"}))
             } else {
@@ -315,6 +336,7 @@ async fn get_me(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
 struct StartQuery {
     client: Option<String>,
     dstate: Option<String>,
+    invite: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -328,10 +350,12 @@ struct DesktopPollQuery {
     dstate: String,
 }
 
-async fn find_or_create_user(
+/// 查找已有用户：先按 OAuth 账号，再按 email；命中即返回
+/// user_id（含既有副作用）
+async fn find_existing_user(
     pool: &PgPool,
     profile: &super::OAuthUserInfo,
-) -> Result<uuid::Uuid, sqlx::Error> {
+) -> Result<Option<uuid::Uuid>, sqlx::Error> {
     // 先通过oauth account查找
     let existing = sqlx::query!(
         "SELECT user_id FROM oauth_accounts WHERE provider = $1 AND provider_account_id = $2",
@@ -354,7 +378,7 @@ async fn find_or_create_user(
         .execute(pool)
         .await;
 
-        return Ok(row.user_id);
+        return Ok(Some(row.user_id));
     }
 
     // 通过email查找（如果email存在）
@@ -378,8 +402,40 @@ async fn find_or_create_user(
             .execute(pool)
             .await;
 
-            return Ok(row.id);
+            return Ok(Some(row.id));
         }
+    }
+
+    Ok(None)
+}
+
+/// 内测期注册门控：老用户免码；新用户需有效邀请码。
+/// 校验 + 建用户 + 占码计数在同一事务内，UPDATE affected-rows 原子判断（0 行 =
+/// 无效/用满）。
+async fn find_or_create_user_gated(
+    pool: &PgPool,
+    profile: &super::OAuthUserInfo,
+    invite: Option<String>,
+) -> Result<uuid::Uuid, sqlx::Error> {
+    // 老用户（OAuth 账号已存在或 email 已存在）免码
+    if let Some(id) = find_existing_user(pool, profile).await? {
+        return Ok(id);
+    }
+
+    let code = invite.ok_or(sqlx::Error::RowNotFound)?;
+
+    let mut tx = pool.begin().await?;
+
+    // 原子占码：0 行受影响 = 邀请码不存在或已用满
+    let claimed = sqlx::query!(
+        "UPDATE invite_codes SET used_count = used_count + 1 WHERE code = $1 AND used_count < max_uses",
+        code
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if claimed.rows_affected() == 0 {
+        return Err(sqlx::Error::RowNotFound);
     }
 
     // 创建新用户
@@ -391,7 +447,7 @@ async fn find_or_create_user(
         profile.display_name,
         profile.avatar_url
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     // 创建OAuth关联
@@ -405,8 +461,10 @@ async fn find_or_create_user(
         profile.refresh_token,
         profile.expires_at
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(user_id)
 }
@@ -422,6 +480,68 @@ fn extract_state_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_profile(
+        email: &str,
+        provider: &str,
+        provider_account_id: &str,
+    ) -> crate::auth::OAuthUserInfo {
+        crate::auth::OAuthUserInfo {
+            provider: provider.to_string(),
+            provider_account_id: provider_account_id.to_string(),
+            email: Some(email.to_string()),
+            display_name: Some("Test User".to_string()),
+            avatar_url: None,
+            access_token: "dummy-access-token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+        }
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn new_user_requires_valid_invite(pool: PgPool) {
+        // 无码 → 拒绝
+        let profile = test_profile("new1@test.com", "github", "gh-new1");
+        assert!(find_or_create_user_gated(&pool, &profile, None)
+            .await
+            .is_err());
+
+        // 错码 → 拒绝
+        assert!(
+            find_or_create_user_gated(&pool, &profile, Some("NOPE".into()))
+                .await
+                .is_err()
+        );
+
+        // 有效码 → 成功，used_count +1
+        sqlx::query!("INSERT INTO invite_codes (code) VALUES ('BETA-1')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let uid = find_or_create_user_gated(&pool, &profile, Some("BETA-1".into()))
+            .await
+            .unwrap();
+        let used: i32 =
+            sqlx::query_scalar!("SELECT used_count FROM invite_codes WHERE code = 'BETA-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(used, 1);
+
+        // 一码一次：第二个新用户用同码 → 拒绝
+        let profile2 = test_profile("new2@test.com", "github", "gh-new2");
+        assert!(
+            find_or_create_user_gated(&pool, &profile2, Some("BETA-1".into()))
+                .await
+                .is_err()
+        );
+
+        // 老用户（OAuth 账号已存在）免码
+        let again = find_or_create_user_gated(&pool, &profile, None)
+            .await
+            .unwrap();
+        assert_eq!(again, uid);
+    }
 
     #[test]
     fn desktop_flow_pending_then_done_once() {
