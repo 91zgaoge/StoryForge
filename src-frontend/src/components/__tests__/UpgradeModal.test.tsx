@@ -42,6 +42,28 @@ describe('UpgradeModal - 登录引导（Task 6）', () => {
     expect(screen.queryByText('立即升级')).not.toBeInTheDocument();
   });
 
+  it('未登录：引导区出现邀请码输入框', () => {
+    renderModal();
+    expect(screen.getByPlaceholderText('邀请码（新用户注册必填）')).toBeInTheDocument();
+  });
+
+  it('未登录：点 Google 登录时透传输入的邀请码', async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByPlaceholderText('邀请码（新用户注册必填）'), 'BETA-9');
+    await user.click(screen.getByText('Google 登录'));
+    expect(loginMock).toHaveBeenCalledWith('google', 'BETA-9');
+  });
+
+  it('未登录：未填邀请码时 login 收到 undefined', async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.click(screen.getByText('GitHub 登录'));
+    expect(loginMock).toHaveBeenCalledWith('github', undefined);
+  });
+
   it("未登录：点「暂不登录，仅本设备升级」调 devUpgradeSubscription('pro')", async () => {
     devUpgradeMock.mockResolvedValue({ tier: 'pro' });
     const user = userEvent.setup();

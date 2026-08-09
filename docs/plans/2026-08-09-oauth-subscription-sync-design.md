@@ -28,7 +28,7 @@ Actix-web + Postgres 的 auth 服务（未部署、无订阅 API）。
   1. 桌面点「Google 登录」→ `shell.open` 打开
      `https://storymoss.top/api/auth/google/start?client=desktop&state=<uuid>`
   2. server 完成 Google 回调、建用户与 session → 跳转「登录成功」页（含一次性兑换码）
-  3. 桌面轮询 `POST /api/auth/exchange { state, code }` 拿 JWT → 存本地 sessions 表
+  3. 桌面轮询 `GET /api/auth/desktop-poll?dstate=...` 拿 JWT → 存本地 sessions 表
 - 订阅数据流：桌面所有订阅检查走 `SubscriptionBackend` 抽象——已登录 = RemoteBackend
   （打 server，结果写本地缓存）；未登录/离线 = LocalBackend（现状 machine_id 逻辑）
 
@@ -41,7 +41,8 @@ Actix-web + Postgres 的 auth 服务（未部署、无订阅 API）。
   - `GET /api/subscription/me`（JWT）→ `{ tier, status, expires_at }`，无记录自动建 free
   - `POST /api/subscription/dev-upgrade { tier }`（JWT；接付款后改为支付回调写库；
     生产可用 env 开关关闭）
-  - `POST /api/auth/exchange`：一次性 code 换 JWT（60s 有效、用一次作废）
+  - `GET /api/auth/desktop-poll?dstate=...`：桌面轮询登录结果——dstate 一次性
+    （取到即删）、10 分钟 TTL；202 pending / 200 返回 JWT+user / 403 返回失败码
 - OAuth start 支持 `client=desktop`，callback 按 client 决定跳 Web dashboard 或展示
   兑换码页
 - 复用现有 Google/GitHub userinfo 骨架
@@ -67,8 +68,9 @@ Actix-web + Postgres 的 auth 服务（未部署、无订阅 API）。
   6 处散落的 `get_user_id()`（subscription/agents/pipeline/book_deconstruction/
   guidebook_distillation/llm）统一为 `resolve_subscription_identity()`——已登录返回
   server UUID + RemoteBackend，否则 machine_id + LocalBackend
-- 本地缓存：本地 `subscriptions` 表加 `server_synced_at`（新迁移）；Remote 结果落缓存；
-  离线时 `has_feature_access` 用缓存 tier；已登录 dev 升级写 server 成功后更新本地
+- 本地缓存：Remote 结果按 tier-diff 落本地 `subscriptions` 缓存（tier 变化才插新行，
+  无新列/新迁移）；离线时 `has_feature_access` 用缓存 tier；已登录 dev 升级写 server
+  成功后更新本地
 
 ## ④ 前端 UI（src-frontend）
 

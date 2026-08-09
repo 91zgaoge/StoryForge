@@ -38,6 +38,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
 }) => {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [invite, setInvite] = useState('');
   const { isLoggedIn, isWaitingForOAuth, login } = useAuthStore();
 
   if (!isOpen) return null;
@@ -104,15 +105,22 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
             <p className="text-xs text-gray-400 text-center mb-2">
               登录后升级，Pro 跟随账号（换设备不丢）
             </p>
+            <input
+              type="text"
+              value={invite}
+              onChange={e => setInvite(e.target.value)}
+              placeholder="邀请码（新用户注册必填）"
+              className="w-full mb-2 px-3 py-2 text-sm rounded-lg bg-cinema-800 border border-cinema-700 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:border-cinema-600"
+            />
             <div className="flex gap-2">
               <button
-                onClick={() => void login('google')}
+                onClick={() => void login('google', invite.trim() || undefined)}
                 className="flex-1 py-2 rounded-lg bg-cinema-700 text-sm text-gray-200 hover:bg-cinema-600"
               >
                 Google 登录
               </button>
               <button
-                onClick={() => void login('github')}
+                onClick={() => void login('github', invite.trim() || undefined)}
                 className="flex-1 py-2 rounded-lg bg-cinema-700 text-sm text-gray-200 hover:bg-cinema-600"
               >
                 GitHub 登录
