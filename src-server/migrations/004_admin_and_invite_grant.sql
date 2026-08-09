@@ -1,0 +1,8 @@
+-- 会员系统：管理员角色 + 禁用 + 邀请码赠 Pro/作废
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+
+ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS grant_pro_days INT;
+ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_by UUID;
+ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;

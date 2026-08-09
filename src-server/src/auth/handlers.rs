@@ -24,7 +24,8 @@ const OAUTH_STATE_TTL_SECS: u64 = 600; // 10 分钟
 struct DesktopFlow {
     oauth_state: String,
     done: Option<(String, String)>, // (token, user_json)
-    /// 类型化失败通道：gated 失败等错误码（如 invalid_or_used_invite / internal）
+    /// 类型化失败通道：gated 失败等错误码（如 invalid_or_used_invite /
+    /// internal）
     failed: Option<String>,
     created: std::time::Instant,
 }
@@ -229,14 +230,14 @@ async fn oauth_callback(
                 } else {
                     ("登录失败", "服务器内部错误，请返回 StoryMoss 应用重试。")
                 };
-                return HttpResponse::Forbidden().content_type("text/html; charset=utf-8").body(
-                    format!(
+                return HttpResponse::Forbidden()
+                    .content_type("text/html; charset=utf-8")
+                    .body(format!(
                         "<html><head><meta charset=\"utf-8\"><title>注册受限</title></head>\
                          <body style=\"font-family:sans-serif;text-align:center;padding-top:80px\">\
                          <h2>{}</h2><p>{}</p></body></html>",
                         title, hint
-                    ),
-                );
+                    ));
             }
             if code == "internal" {
                 return HttpResponse::InternalServerError().json(json!({"error": code}));
@@ -272,7 +273,7 @@ async fn oauth_callback(
 
     // 获取用户信息
     let user_row = sqlx::query!(
-        "SELECT id, email, display_name, avatar_url FROM users WHERE id = $1",
+        "SELECT id, email, display_name, avatar_url, role FROM users WHERE id = $1",
         user_id
     )
     .fetch_one(pool.get_ref())
@@ -284,6 +285,7 @@ async fn oauth_callback(
             email: row.email,
             display_name: row.display_name,
             avatar_url: row.avatar_url,
+            role: row.role,
         },
         Err(_) => {
             return HttpResponse::InternalServerError().json(json!({"error": "User not found"}));
@@ -313,7 +315,8 @@ async fn oauth_callback(
 /// GET /api/auth/desktop-poll?dstate=...
 #[get("/auth/desktop-poll")]
 async fn desktop_poll(query: web::Query<DesktopPollQuery>) -> impl Responder {
-    // 失败通道优先：gated 拒绝等 → 一次性 403 + 错误码（取后删除条目，与 done 语义一致）
+    // 失败通道优先：gated 拒绝等 → 一次性 403 + 错误码（取后删除条目，与 done
+    // 语义一致）
     if let Some(code) = desktop_flow_take_failed(&query.dstate) {
         return HttpResponse::Forbidden().json(json!({"error": code}));
     }
@@ -364,7 +367,7 @@ async fn get_me(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
     };
 
     let row = sqlx::query!(
-        "SELECT id, email, display_name, avatar_url FROM users WHERE id = $1",
+        "SELECT id, email, display_name, avatar_url, role FROM users WHERE id = $1",
         user_id
     )
     .fetch_optional(pool.get_ref())
@@ -376,6 +379,7 @@ async fn get_me(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
             email: user.email,
             display_name: user.display_name,
             avatar_url: user.avatar_url,
+            role: user.role,
         }),
         Ok(None) => HttpResponse::NotFound().json(json!({"error": "User not found"})),
         Err(e) => {
