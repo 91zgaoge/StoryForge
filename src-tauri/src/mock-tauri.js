@@ -102,6 +102,12 @@ const mockTauri = {
             case "update_config":
                 return null;
 
+            case "oauth_poll_login":
+                return null;
+
+            case "get_current_user":
+                return null;
+
             default:
                 console.warn(`Unknown command: ${cmd}`);
                 return {};

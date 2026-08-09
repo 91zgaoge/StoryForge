@@ -11,7 +11,7 @@ import {
   getCurrentUser,
   logout as logoutApi,
   openOAuthBrowser,
-  oauthCallback,
+  oauthPollLogin,
 } from '@/services/auth';
 
 const authLogger = createLogger('auth:store');
@@ -21,14 +21,15 @@ interface AuthState {
   user: UserInfo | null;
   isLoggedIn: boolean;
   isLoading: boolean;
+  isWaitingForOAuth: boolean;
   authConfig: AuthConfig | null;
   authToken: string | null;
 
   // Actions
   setUser: (user: UserInfo | null) => void;
   setAuthToken: (token: string | null) => void;
-  login: (provider: string) => Promise<void>;
-  handleOAuthCallback: (provider: string, code: string, state: string) => Promise<void>;
+  login: (provider: string, invite?: string) => Promise<void>;
+  cancelLogin: () => void;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   loadAuthConfig: () => Promise<void>;
@@ -38,6 +39,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoggedIn: false,
   isLoading: false,
+  isWaitingForOAuth: false,
   authConfig: null,
   authToken: localStorage.getItem('sf_auth_token'),
 
@@ -52,34 +54,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ authToken: token });
   },
 
-  login: async (provider: string) => {
-    set({ isLoading: true });
+  login: async (provider: string, invite?: string) => {
+    set({ isLoading: true, isWaitingForOAuth: true });
     try {
-      const resp = await openOAuthBrowser(provider);
-      // 在桌面端，回调通过本地 HTTP 服务器接收
-      // 这里返回的 resp 包含 redirect_port，前端需要轮询或监听该端口
-      // 简化实现：等待用户手动触发回调处理
-      authLogger.debug('OAuth started', { redirect_port: resp.redirect_port });
-    } catch (error) {
-      authLogger.error('Login failed', { error });
-      throw error;
+      const resp = await openOAuthBrowser(provider, invite);
+      const deadline = Date.now() + 120_000;
+      while (Date.now() < deadline) {
+        if (!get().isWaitingForOAuth) return; // 用户取消
+        const session = await oauthPollLogin(resp.dstate);
+        if (session) {
+          get().setAuthToken(session.token);
+          set({ user: session.user, isLoggedIn: true });
+          return;
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      throw new Error('登录超时，请重试');
     } finally {
-      set({ isLoading: false });
+      set({ isLoading: false, isWaitingForOAuth: false });
     }
   },
 
-  handleOAuthCallback: async (provider: string, code: string, state: string) => {
-    set({ isLoading: true });
-    try {
-      const user = await oauthCallback(provider, code, state);
-      set({ user, isLoggedIn: true });
-    } catch (error) {
-      authLogger.error('OAuth callback failed', { error });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
+  cancelLogin: () => set({ isWaitingForOAuth: false }),
 
   logout: async () => {
     const { authToken, setAuthToken } = get();
@@ -96,9 +92,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   checkAuth: async () => {
     try {
-      const user = await getCurrentUser();
-      if (user) {
-        set({ user, isLoggedIn: true });
+      const session = await getCurrentUser();
+      if (session) {
+        get().setAuthToken(session.token);
+        set({ user: session.user, isLoggedIn: true });
       }
     } catch (e) {
       authLogger.error('Auth check failed', { error: e });

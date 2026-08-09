@@ -22,8 +22,12 @@ export interface UserInfo {
 
 export interface OAuthStartResponse {
   auth_url: string;
-  state: string;
-  redirect_port: number;
+  dstate: string;
+}
+
+export interface CurrentSession {
+  user: UserInfo;
+  token: string;
 }
 
 /**
@@ -32,21 +36,21 @@ export interface OAuthStartResponse {
 export const getAuthConfig = () => loggedInvoke<AuthConfig>('get_auth_config');
 
 /**
- * 开始 OAuth 登录流程
+ * 开始 OAuth 登录流程（可携带邀请码，新用户注册必填）
  */
-export const oauthStart = (provider: string) =>
-  loggedInvoke<OAuthStartResponse>('oauth_start', { provider });
+export const oauthStart = (provider: string, invite?: string) =>
+  loggedInvoke<OAuthStartResponse>('oauth_start', { provider, invite: invite ?? null });
 
 /**
- * OAuth 回调处理（桌面端通过本地 HTTP 服务器接收后调用）
+ * 轮询 OAuth 登录结果，完成授权后返回会话
  */
-export const oauthCallback = (provider: string, code: string, state: string) =>
-  loggedInvoke<UserInfo>('oauth_callback', { provider, code, state });
+export const oauthPollLogin = (dstate: string) =>
+  loggedInvoke<CurrentSession | null>('oauth_poll_login', { dstate });
 
 /**
- * 获取当前登录用户
+ * 获取当前登录会话
  */
-export const getCurrentUser = () => loggedInvoke<UserInfo | null>('get_current_user');
+export const getCurrentUser = () => loggedInvoke<CurrentSession | null>('get_current_user');
 
 /**
  * 注销登录
@@ -56,8 +60,11 @@ export const logout = (token: string) => loggedInvoke<void>('logout', { token })
 /**
  * 打开系统浏览器进行 OAuth 授权
  */
-export const openOAuthBrowser = async (provider: string): Promise<OAuthStartResponse> => {
-  const resp = await oauthStart(provider);
+export const openOAuthBrowser = async (
+  provider: string,
+  invite?: string
+): Promise<OAuthStartResponse> => {
+  const resp = await oauthStart(provider, invite);
   await open(resp.auth_url);
   return resp;
 };

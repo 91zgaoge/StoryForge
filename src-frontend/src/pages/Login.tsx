@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Chrome, Github, MessageCircle } from 'lucide-react';
+import { X, Chrome, Github, MessageCircle, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { Card } from '@/components/ui/Card';
 import toast from 'react-hot-toast';
@@ -15,8 +15,9 @@ interface LoginModalProps {
 }
 
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
-  const { authConfig, login, isLoading } = useAuthStore();
+  const { authConfig, login, isLoading, isWaitingForOAuth, cancelLogin } = useAuthStore();
   const [isVisible, setIsVisible] = useState(false);
+  const [invite, setInvite] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -37,10 +38,18 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
   const handleLogin = async (provider: string) => {
     try {
-      await login(provider);
-      toast.success('请在浏览器中完成授权');
+      await login(provider, invite.trim() || undefined);
+      if (useAuthStore.getState().isLoggedIn) {
+        toast.success('登录成功');
+        onClose();
+      }
     } catch (error) {
-      toast.error(`登录失败: ${error}`);
+      const message = String(error);
+      if (/邀请|invite/i.test(message)) {
+        toast.error('邀请码无效或已使用');
+      } else {
+        toast.error(`登录失败: ${message}`);
+      }
     }
   };
 
@@ -69,66 +78,89 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
           <p className="text-sm text-stone-500 mt-1">登录后可解锁云同步等跨设备功能</p>
         </div>
 
-        {/* OAuth Buttons */}
-        <div className="space-y-3">
-          {authConfig?.google_enabled && (
+        {/* OAuth Buttons / 等待授权 */}
+        {isWaitingForOAuth ? (
+          <div className="text-center py-6 space-y-4">
+            <Loader2 className="w-8 h-8 mx-auto animate-spin text-stone-500" />
+            <p className="text-sm text-stone-500">等待浏览器授权…</p>
             <button
-              onClick={() => handleLogin('google')}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={cancelLogin}
+              className="px-4 py-2 text-sm text-stone-600 border border-stone-200 rounded-lg hover:bg-stone-50 hover:border-stone-300 transition-all"
             >
-              <Chrome className="w-5 h-5 text-blue-500" />
-              <span className="text-sm font-medium">使用 Google 登录</span>
+              取消
             </button>
-          )}
-
-          {authConfig?.github_enabled && (
-            <button
-              onClick={() => handleLogin('github')}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* 邀请码（新用户注册必填） */}
+            <input
+              type="text"
+              value={invite}
+              onChange={e => setInvite(e.target.value)}
+              placeholder="邀请码（新用户注册必填）"
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Github className="w-5 h-5 text-stone-800" />
-              <span className="text-sm font-medium">使用 GitHub 登录</span>
-            </button>
-          )}
+              className="w-full px-3 py-2.5 text-sm bg-white border border-stone-200 rounded-lg text-stone-700 placeholder:text-stone-400 focus:outline-none focus:border-stone-400 transition-all disabled:opacity-50"
+            />
 
-          {/* WeChat — 预留，未启用时显示提示 */}
-          {authConfig?.wechat_enabled && (
-            <button
-              onClick={() => handleLogin('wechat')}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <MessageCircle className="w-5 h-5 text-green-500" />
-              <span className="text-sm font-medium">使用微信登录</span>
-            </button>
-          )}
-
-          {/* QQ — 预留 */}
-          {authConfig?.qq_enabled && (
-            <button
-              onClick={() => handleLogin('qq')}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <MessageCircle className="w-5 h-5 text-blue-400" />
-              <span className="text-sm font-medium">使用 QQ 登录</span>
-            </button>
-          )}
-
-          {/* 无可用provider时的提示 */}
-          {authConfig &&
-            !authConfig.google_enabled &&
-            !authConfig.github_enabled &&
-            !authConfig.wechat_enabled &&
-            !authConfig.qq_enabled && (
-              <div className="text-center py-4">
-                <p className="text-sm text-stone-500">尚未配置 OAuth 登录选项</p>
-                <p className="text-xs text-stone-400 mt-1">请在设置中配置 OAuth 客户端信息</p>
-              </div>
+            {authConfig?.google_enabled && (
+              <button
+                onClick={() => handleLogin('google')}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Chrome className="w-5 h-5 text-blue-500" />
+                <span className="text-sm font-medium">使用 Google 登录</span>
+              </button>
             )}
-        </div>
+
+            {authConfig?.github_enabled && (
+              <button
+                onClick={() => handleLogin('github')}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Github className="w-5 h-5 text-stone-800" />
+                <span className="text-sm font-medium">使用 GitHub 登录</span>
+              </button>
+            )}
+
+            {/* WeChat — 预留，未启用时显示提示 */}
+            {authConfig?.wechat_enabled && (
+              <button
+                onClick={() => handleLogin('wechat')}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <MessageCircle className="w-5 h-5 text-green-500" />
+                <span className="text-sm font-medium">使用微信登录</span>
+              </button>
+            )}
+
+            {/* QQ — 预留 */}
+            {authConfig?.qq_enabled && (
+              <button
+                onClick={() => handleLogin('qq')}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-lg text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <MessageCircle className="w-5 h-5 text-blue-400" />
+                <span className="text-sm font-medium">使用 QQ 登录</span>
+              </button>
+            )}
+
+            {/* 无可用provider时的提示 */}
+            {authConfig &&
+              !authConfig.google_enabled &&
+              !authConfig.github_enabled &&
+              !authConfig.wechat_enabled &&
+              !authConfig.qq_enabled && (
+                <div className="text-center py-4">
+                  <p className="text-sm text-stone-500">尚未配置 OAuth 登录选项</p>
+                  <p className="text-xs text-stone-400 mt-1">请在设置中配置 OAuth 客户端信息</p>
+                </div>
+              )}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="mt-6 pt-4 border-t border-stone-100">
