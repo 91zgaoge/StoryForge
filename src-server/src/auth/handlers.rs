@@ -483,17 +483,20 @@ async fn find_or_create_user_gated(
 
     let mut tx = pool.begin().await?;
 
-    // 原子占码：0 行受影响 = 邀请码不存在或已用满
+    // 原子占码：0 行 = 邀请码不存在/已用满/已作废（revoked_at 软删生效）
     let claimed = sqlx::query!(
-        "UPDATE invite_codes SET used_count = used_count + 1 WHERE code = $1 AND used_count < max_uses",
+        "UPDATE invite_codes SET used_count = used_count + 1 \
+         WHERE code = $1 AND used_count < max_uses AND revoked_at IS NULL \
+         RETURNING grant_pro_days",
         code
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
-    if claimed.rows_affected() == 0 {
-        return Err(sqlx::Error::RowNotFound);
-    }
+    let grant_days = match claimed {
+        Some(row) => row.grant_pro_days,
+        None => return Err(sqlx::Error::RowNotFound),
+    };
 
     // 创建新用户
     let user_id = uuid::Uuid::new_v4();
@@ -520,6 +523,18 @@ async fn find_or_create_user_gated(
     )
     .execute(&mut *tx)
     .await?;
+
+    // 邀请码附赠 Pro N 天
+    if let Some(days) = grant_days {
+        sqlx::query!(
+            "INSERT INTO subscriptions (user_id, tier, expires_at, source) VALUES ($1, 'pro', $2, 'invite') \
+             ON CONFLICT (user_id) DO NOTHING",
+            user_id,
+            chrono::Utc::now() + chrono::Duration::days(days as i64)
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     tx.commit().await?;
 
@@ -627,6 +642,43 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(linked, Some(user_id));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn invite_with_grant_pro_days_creates_pro_subscription(pool: PgPool) {
+        sqlx::query!("INSERT INTO invite_codes (code, grant_pro_days) VALUES ('VIP-1', 90)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let profile = test_profile("vip@t.com", "github", "gh-vip");
+        let uid = find_or_create_user_gated(&pool, &profile, Some("VIP-1".into()))
+            .await
+            .unwrap();
+
+        // 注：sqlx 0.8 的 query_as! 宏不接受元组类型（要求 struct path），改用 query!
+        let row = sqlx::query!(
+            "SELECT tier, expires_at FROM subscriptions WHERE user_id = $1",
+            uid
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.tier, "pro");
+        assert!(row.expires_at.unwrap() > chrono::Utc::now() + chrono::Duration::days(80));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn revoked_invite_is_rejected(pool: PgPool) {
+        sqlx::query!("INSERT INTO invite_codes (code, revoked_at) VALUES ('DEAD-1', NOW())")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let profile = test_profile("dead@t.com", "github", "gh-dead");
+        assert!(
+            find_or_create_user_gated(&pool, &profile, Some("DEAD-1".into()))
+                .await
+                .is_err()
+        );
     }
 
     #[test]
