@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractMessage, parseStructuredError } from '../errorHandler';
+import {
+  extractMessage,
+  isSubscriptionRequired,
+  parseStructuredError,
+  subscriptionFeatureId,
+} from '../errorHandler';
 
 /**
  * 回归测试：issue #12 -- 创作生成失败时 toast 显示 "[object Object]"
@@ -65,5 +70,36 @@ describe('extractMessage - issue #12 回归', () => {
     expect(extractMessage(null)).toBe('Unknown error');
     expect(extractMessage(42)).toBe('Unknown error');
     expect(extractMessage({ code: 123 })).toBe('Unknown error');
+  });
+});
+
+describe('isSubscriptionRequired / subscriptionFeatureId - Pro 门控统一判定', () => {
+  const subError = {
+    code: 'SUBSCRIPTION_REQUIRED',
+    message: '指导书提炼功能需要 Pro 订阅，请升级以继续使用',
+    severity: 'UserAction' as const,
+    data: { feature_id: 'guidebook_distillation', current_tier: null },
+  };
+
+  it('识别 AppError::SubscriptionRequired 普通对象', () => {
+    expect(isSubscriptionRequired(subError)).toBe(true);
+    expect(subscriptionFeatureId(subError)).toBe('guidebook_distillation');
+  });
+
+  it('识别 Error.message 内嵌 JSON 的旧式投递', () => {
+    const err = new Error(`command error: ${JSON.stringify(subError)}`);
+    expect(isSubscriptionRequired(err)).toBe(true);
+    expect(subscriptionFeatureId(err)).toBe('guidebook_distillation');
+  });
+
+  it('其他错误码不误判', () => {
+    expect(isSubscriptionRequired({ code: 'DB_LOCKED', message: '数据库繁忙' })).toBe(false);
+    expect(isSubscriptionRequired(new Error('网络异常'))).toBe(false);
+    expect(isSubscriptionRequired(undefined)).toBe(false);
+  });
+
+  it('无 feature_id 时返回 null', () => {
+    expect(subscriptionFeatureId({ code: 'SUBSCRIPTION_REQUIRED', message: '需订阅' })).toBeNull();
+    expect(subscriptionFeatureId(new Error('x'))).toBeNull();
   });
 });

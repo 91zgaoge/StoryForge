@@ -166,6 +166,16 @@ pub async fn get_story_scenes_paged(
         .map_err(AppError::from)
 }
 
+/// 查询指定章节关联的场景（幕前定位最新章时补拉其场景，保证 sceneId 解析）。
+#[command(rename_all = "snake_case")]
+pub async fn get_chapter_scenes(
+    chapter_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<Scene>, AppError> {
+    let repo = SceneRepository::new(pool.inner().clone());
+    repo.get_by_chapter(&chapter_id).map_err(AppError::from)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoryWordCountResponse {
     pub total_chars: i64,

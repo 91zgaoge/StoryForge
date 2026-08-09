@@ -160,3 +160,72 @@ impl SubscriptionService {
         self.get_or_create_subscription(user_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn service() -> SubscriptionService {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        SubscriptionService::new(pool)
+    }
+
+    #[test]
+    fn new_user_defaults_to_free_active() {
+        let svc = service();
+        let status = svc.get_or_create_subscription("u-new").unwrap();
+        assert_eq!(status.tier, "free");
+        assert_eq!(status.status, "active");
+        assert_eq!(status.expires_at, None);
+    }
+
+    #[test]
+    fn free_user_has_basic_features_but_not_pro_features() {
+        let svc = service();
+        assert!(svc.has_feature_access("u-free", "writer").unwrap());
+        assert!(svc.has_feature_access("u-free", "outline").unwrap());
+        assert!(!svc
+            .has_feature_access("u-free", "guidebook_distillation")
+            .unwrap());
+        assert!(!svc.has_feature_access("u-free", "bootstrap").unwrap());
+    }
+
+    #[test]
+    fn upgrade_to_pro_unlocks_pro_features_and_sets_expiry() {
+        let svc = service();
+        let status = svc.upgrade_subscription("u1", "pro", Some(30)).unwrap();
+        assert_eq!(status.tier, "pro");
+        assert!(status.expires_at.is_some());
+        // 注意：当前 has_feature_access 不校验 expires_at 是否过期，仅按 tier 判断
+        assert!(svc
+            .has_feature_access("u1", "guidebook_distillation")
+            .unwrap());
+    }
+
+    #[test]
+    fn upgrade_to_enterprise_also_unlocks_pro_features() {
+        let svc = service();
+        svc.upgrade_subscription("u2", "enterprise", Some(365))
+            .unwrap();
+        assert!(svc
+            .has_feature_access("u2", "guidebook_distillation")
+            .unwrap());
+    }
+
+    #[test]
+    fn downgrade_back_to_free_revokes_pro_features() {
+        let svc = service();
+        svc.upgrade_subscription("u3", "pro", Some(30)).unwrap();
+        assert!(svc
+            .has_feature_access("u3", "guidebook_distillation")
+            .unwrap());
+
+        let status = svc.upgrade_subscription("u3", "free", None).unwrap();
+        assert_eq!(status.tier, "free");
+        assert!(!svc
+            .has_feature_access("u3", "guidebook_distillation")
+            .unwrap());
+        // 免费基础功能不受影响
+        assert!(svc.has_feature_access("u3", "writer").unwrap());
+    }
+}

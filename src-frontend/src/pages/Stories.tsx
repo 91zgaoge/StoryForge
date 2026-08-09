@@ -472,9 +472,18 @@ export function Stories() {
     toast.success(`已选择 "${story.title}"`);
   };
 
-  const handleContinueStory = (story: Story) => {
+  const handleContinueStory = async (story: Story) => {
     setCurrentStory(story);
-    setCurrentView('scenes');
+    // v0.33.7: 「打开」直接跳幕前并定位该故事最新章节（此前进幕后场景视图）
+    try {
+      await loggedInvoke<unknown>('open_story_in_frontstage', {
+        story_id: story.id,
+        title: story.title,
+      });
+    } catch (error) {
+      storiesLogger.error('Failed to open story in frontstage', { error });
+      toast.error('打开幕前失败');
+    }
   };
 
   const handleEditClick = (story: Story, e: React.MouseEvent) => {

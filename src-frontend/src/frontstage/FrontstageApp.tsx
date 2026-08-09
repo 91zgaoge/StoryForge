@@ -554,6 +554,29 @@ const FrontstageApp: React.FC = () => {
     onStoryDeleted: () => {
       loadStories();
     },
+    // v0.33.7: 幕后故事卡片「打开」→ 幕前选中该故事并定位最新章节
+    // （selectStory 内取 chapter_number 最大章）。
+    onStorySelected: storyId => {
+      // 生成中/创世装配期间不切换，避免打断在途内容
+      if (isGeneratingRef.current || isGenesisSettingUpRef.current) return;
+      const current = currentStoryRef.current;
+      if (current?.id === storyId) {
+        // 同一故事也重新定位到最新章节
+        void selectStory(current);
+        return;
+      }
+      (async () => {
+        try {
+          const list = await loggedInvoke<Story[]>('list_stories');
+          if (!Array.isArray(list)) return;
+          setStories(list);
+          const story = list.find(s => s.id === storyId);
+          if (story) await selectStory(story);
+        } catch (e) {
+          frontstageLogger.error('[storySelected] Failed to switch story', { error: e });
+        }
+      })();
+    },
     // v5.4.0: 监听 scene 变更（幕后修改后同步到幕前 scenes 列表）
     // v0.33.x fix: 分章循环每轮重写 scene，sceneCreated/Updated 会成批到达，
     // 每事件直连全量查询会形成 IPC 风暴——统一走 300ms 去抖刷新。
@@ -2922,12 +2945,12 @@ const FrontstageApp: React.FC = () => {
     async (story: Story) => {
       setCurrentStory(story);
       try {
-        // B2: 初始仅加载当前章附近内容，降低大 story 的 IPC payload
+        // v0.33.7: 章节列表改用全量元数据接口（Phase 4 后 chapters 表已剥离
+        // content，列表仅为元数据，无大 payload）。选中**最新章**而非第一章——
+        // 启动与幕后「打开」都应呈现最新进度；被选章正文由 selectChapter 懒加载。
         const [result, scenesResult] = await Promise.all([
-          loggedInvoke<Chapter[]>('get_story_chapters_paged', {
+          loggedInvoke<Chapter[]>('get_story_chapters', {
             story_id: story.id,
-            limit: CHAPTERS_PAGE_SIZE,
-            offset: 0,
           }),
           loggedInvoke<Scene[]>('get_story_scenes_paged', {
             story_id: story.id,
@@ -2947,9 +2970,31 @@ const FrontstageApp: React.FC = () => {
         setScenes(scenesResult);
         loadStoryWordCount(story.id);
         if (result.length > 0) {
-          // v0.33.x fix: 传入刚 fetch 的 scenesResult，避免 selectChapter 读到
+          // 列表按 chapter_number 升序，最后一个即最新章
+          const latestChapter = result[result.length - 1];
+          // 最新章的场景通常不在场景分页首页，补拉该章场景，保证 selectChapter
+          // 正确解析 sceneId（避免 chapter_id 回退触发后端 heal 补建场景）
+          let scenesForSelect = scenesResult;
+          if (!scenesResult.some(s => s.chapter_id === latestChapter.id)) {
+            try {
+              const chapterScenes = await loggedInvoke<Scene[]>('get_chapter_scenes', {
+                chapter_id: latestChapter.id,
+              });
+              if (Array.isArray(chapterScenes) && chapterScenes.length > 0) {
+                const map = new Map(scenesResult.map(s => [s.id, s]));
+                chapterScenes.forEach(s => map.set(s.id, s));
+                scenesForSelect = Array.from(map.values()).sort(
+                  (a, b) => a.sequence_number - b.sequence_number
+                );
+                setScenes(scenesForSelect);
+              }
+            } catch (e) {
+              frontstageLogger.error('Failed to load latest chapter scenes', { error: e });
+            }
+          }
+          // v0.33.x fix: 传入刚 fetch 的 scenes，避免 selectChapter 读到
           // setScenes 之前的 stale scenes（冷启动 scenes=[] 时 sceneId 错误回落 chapter.id）
-          selectChapter(result[0], { scenes: scenesResult });
+          selectChapter(latestChapter, { scenes: scenesForSelect });
         } else {
           setCurrentChapter(null);
           setCurrentScene(null);

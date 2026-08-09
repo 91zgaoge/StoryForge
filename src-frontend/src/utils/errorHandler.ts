@@ -124,6 +124,22 @@ export function extractMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+/**
+ * 是否为「需要 Pro 订阅」错误（后端 AppError::SubscriptionRequired，
+ * code = SUBSCRIPTION_REQUIRED，severity = UserAction）。
+ * 用于统一把此类错误路由到升级引导 UI，而非普通错误 toast。
+ */
+export function isSubscriptionRequired(error: unknown): boolean {
+  return parseStructuredError(error)?.code === 'SUBSCRIPTION_REQUIRED';
+}
+
+/** 取订阅锁定错误的 feature_id（无则 null）。 */
+export function subscriptionFeatureId(error: unknown): string | null {
+  const data = parseStructuredError(error)?.data;
+  const id = data?.feature_id;
+  return typeof id === 'string' ? id : null;
+}
+
 function extractStack(error: unknown): string | undefined {
   if (error instanceof Error && error.stack) {
     return error.stack;

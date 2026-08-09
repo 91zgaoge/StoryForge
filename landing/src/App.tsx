@@ -5,6 +5,7 @@ import { LoopSection } from "./components/LoopSection";
 import { CraftSection } from "./components/CraftSection";
 import { ScreensSection } from "./components/ScreensSection";
 import { QuickStart } from "./components/QuickStart";
+import { PricingSection } from "./components/PricingSection";
 import { DownloadCTA } from "./components/DownloadCTA";
 import { Footer } from "./components/Footer";
 
@@ -19,6 +20,7 @@ export default function App() {
         <CraftSection />
         <ScreensSection />
         <QuickStart />
+        <PricingSection />
         <DownloadCTA />
       </main>
       <Footer />

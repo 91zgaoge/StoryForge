@@ -181,7 +181,7 @@ describe('FrontstageApp', () => {
         if (cmd === 'list_stories') {
           return [{ id: 'story-1', title: '测试故事' }];
         }
-        if (cmd === 'get_story_chapters_paged') {
+        if (cmd === 'get_story_chapters' || cmd === 'get_story_chapters_paged') {
           return [
             {
               id: 'chapter-1',
@@ -260,7 +260,7 @@ describe('FrontstageApp', () => {
       if (cmd === 'list_stories') {
         return [{ id: storyId, title: '持久化测试故事' }];
       }
-      if (cmd === 'get_story_chapters_paged') {
+      if (cmd === 'get_story_chapters' || cmd === 'get_story_chapters_paged') {
         return [
           {
             id: 'chapter-1',
@@ -321,7 +321,7 @@ describe('FrontstageApp', () => {
       if (cmd === 'list_stories') {
         return [{ id: storyId, title: '召回测试故事' }];
       }
-      if (cmd === 'get_story_chapters_paged') {
+      if (cmd === 'get_story_chapters' || cmd === 'get_story_chapters_paged') {
         return [
           {
             id: 'chapter-2',

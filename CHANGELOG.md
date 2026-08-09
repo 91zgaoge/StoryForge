@@ -2,6 +2,36 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.33.7（2026-08-09）
+
+### 修复：自动分章章节标题全部相同
+
+- **根因**：`chapter_splitter.rs` 的 `latest_chapter_contract_goal` 取"章号最大的章节合约"的 goal 作为所有新切章标题；循环切分时合约不随新章更新，一次切分出的几十个新章全部共用同一个 goal 标题。
+- **修复**：改为按新章章号精确匹配章节合约（`chapter_contract_goal_for`），无对应合约回退 `第{N}章`。
+- **存量修复（迁移 V121）**：同一故事内标题重复（≥2 章同名）的章节自动回退为 `第{章号}章` 并同步 scenes 共享标题，幂等。升级后既有小说的重复标题自动修复。
+
+### 新增：启动与「打开」定位最新章节
+
+- **启动定位最新章**：幕前 `selectStory` 选中 chapter_number 最大的章节（原为第一章）；章节列表改用全量元数据接口 `get_story_chapters`（Phase 4 后无大 payload），被选章正文走懒加载；最新章场景不在场景分页首页时经新命令 `get_chapter_scenes` 补拉，保证 sceneId 正确解析。
+- **幕后故事卡片「打开」跳幕前**：从"跳幕后场景视图"改为新命令 `open_story_in_frontstage`——显示幕前窗口并广播 `storySelected`（接线此前死代码 `emit_story_selected`），幕前收到后选中该故事并定位最新章；生成中/创世装配期间不切换。
+
+### 新增：Pro 门控前端化与统一升级引导
+
+- **指导书提炼面板**（后端 Pro 门控此前已有）：Free 用户可见「Pro」徽标与升级横幅，上传按钮预先拦截（不再选完文件才报错）；后端兜底返回 `SUBSCRIPTION_REQUIRED` 时同样弹升级弹窗；升级成功即时刷新订阅态解锁。
+- **统一判定工具**：`errorHandler` 新增 `isSubscriptionRequired` / `subscriptionFeatureId`，识别结构化 `SUBSCRIPTION_REQUIRED` 错误（含 Error.message 内嵌 JSON 旧式投递）。
+- **共享升级弹窗 `UpgradeModal`**（幕后 cinema 主题，与幕前 UpgradePanel 并存）：拆书上传的订阅锁定错误同样接入。
+
+### 网站：落地页新增价格区
+
+- `landing` 新增 `PricingSection`（免费版 vs Pro ¥19/月早鸟价对比卡片），导航增加「价格」锚点；下载页版本号机制不变（运行时拉 latest.json）。
+
+### 测试
+
+- 后端：`cargo test --lib` 全绿；新增分章命名回归测试（合约按章号匹配）、V121 迁移测试（重复标题修复 / 跨故事同名不误判 / 幂等）与订阅服务 5 用例（默认 free / 免费白名单 / 升 Pro 与 Enterprise 解锁 / 降级回收）。
+- 前端：vitest 全绿；新增启动定位最新章节 2 用例、指导书面板 Pro 门控 4 用例与「升级→解锁」链路 1 用例、`isSubscriptionRequired` 判定 4 用例；landing 构建 + 24 用例通过。
+
+- **已知问题（沿用）**：AI 操作记录 `previous_content` 截断回滚风险沿用 v0.33.x 记录。
+
 ## v0.33.6（2026-08-09）
 
 ### 新增：幕前顶栏章节切换下拉

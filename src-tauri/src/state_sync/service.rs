@@ -100,7 +100,6 @@ impl StateSync {
         );
     }
 
-    #[allow(dead_code)]
     pub fn emit_story_selected<R: Runtime>(
         app: &AppHandle<R>,
         story_id: &str,

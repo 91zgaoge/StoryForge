@@ -20,7 +20,8 @@ import { AnalysisProgress } from '@/components/book-deconstruction/AnalysisProgr
 import { GuidebookDistillationPanel } from '@/components/guidebook-distillation/GuidebookDistillationPanel';
 import { GeneralSettings } from '@/pages/settings/GeneralSettings';
 import { cn } from '@/utils/cn';
-import { extractMessage } from '@/utils/errorHandler';
+import { extractMessage, isSubscriptionRequired } from '@/utils/errorHandler';
+import { UpgradeModal } from '@/components/UpgradeModal';
 
 export function BookDeconstruction() {
   const [activeTab, setActiveTab] = useState<'books' | 'guidebooks'>('books');
@@ -28,6 +29,7 @@ export function BookDeconstruction() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const queryClient = useQueryClient();
   const setCurrentStory = useAppStore(s => s.setCurrentStory);
@@ -55,6 +57,11 @@ export function BookDeconstruction() {
       setSelectedBookId(bookId);
       toast.success('上传成功，开始分析...');
     } catch (error) {
+      // 后端拆书门控：Free 用户统一引导升级，而非普通错误 toast
+      if (isSubscriptionRequired(error)) {
+        setShowUpgradeModal(true);
+        return;
+      }
       toast.error(`上传失败: ${extractMessage(error)}`);
     }
   };
@@ -275,6 +282,12 @@ export function BookDeconstruction() {
       )}
 
       {activeTab === 'guidebooks' && <GuidebookDistillationPanel />}
+
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        featureName="拆书分析"
+      />
     </div>
   );
 }

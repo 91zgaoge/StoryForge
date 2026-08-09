@@ -17,6 +17,7 @@ export function Navbar() {
     { href: "#learning", label: "学习" },
     { href: "#craft", label: "品质" },
     { href: "#screens", label: "界面" },
+    { href: "#pricing", label: "价格" },
     { href: "#download", label: "下载" },
   ];
 

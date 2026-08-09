@@ -48,7 +48,7 @@ vi.mock('@/services/tauri', () => ({
     if (cmd === 'list_stories') {
       return Promise.resolve([{ id: 'story-1', title: '测试小说' }]);
     }
-    if (cmd === 'get_story_chapters_paged') {
+    if (cmd === 'get_story_chapters' || cmd === 'get_story_chapters_paged') {
       return Promise.resolve([
         {
           id: 'ch-1',

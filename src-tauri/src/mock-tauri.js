@@ -52,6 +52,7 @@ const mockTauri = {
 
             case "get_story_scenes":
             case "get_story_scenes_paged":
+            case "get_chapter_scenes":
                 return [
                     { id: "scene_001", story_id: args.storyId, sequence_number: 1, title: "开场", content: "场景内容...", execution_stage: "drafting", characters_present: [], character_conflicts: [], created_at: "2025-04-01T00:00:00Z", updated_at: "2025-04-10T00:00:00Z" }
                 ];

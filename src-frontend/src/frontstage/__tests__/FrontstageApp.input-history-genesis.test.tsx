@@ -67,7 +67,7 @@ vi.mock('@/services/tauri', () => ({
         },
       ]);
     }
-    if (cmd === 'get_story_chapters_paged') {
+    if (cmd === 'get_story_chapters' || cmd === 'get_story_chapters_paged') {
       return Promise.resolve(
         genesisStoryCreated
           ? [

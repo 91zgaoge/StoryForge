@@ -50,6 +50,19 @@ pub fn notify_frontstage_data_refresh(entity: String, app: AppHandle) -> Result<
     crate::window::WindowManager::send_to_frontstage(&app, event)
 }
 
+/// 幕后故事卡片「打开」：显示幕前窗口并广播 storySelected，
+/// 幕前收到后选中该故事（selectStory 定位到最新章节）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn open_story_in_frontstage(
+    story_id: String,
+    title: Option<String>,
+    app: AppHandle,
+) -> Result<(), AppError> {
+    crate::window::WindowManager::show_frontstage(&app)?;
+    crate::state_sync::service::StateSync::emit_story_selected(&app, &story_id, title.as_deref());
+    Ok(())
+}
+
 /// 显示 backstage 窗口
 #[tauri::command(rename_all = "snake_case")]
 pub fn show_backstage(

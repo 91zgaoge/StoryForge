@@ -19,6 +19,7 @@ tauri::generate_handler! {
     commands::sync::notify_frontstage_content_changed,
     commands::sync::notify_frontstage_data_refresh,
     commands::sync::show_backstage,
+    commands::sync::open_story_in_frontstage,
     commands::sync::cancel_genesis_pipeline,
     // Settings commands
     config::get_settings,
@@ -96,6 +97,7 @@ tauri::generate_handler! {
     scene_commands::create_scene,
     scene_commands::get_story_scenes,
     scene_commands::get_story_scenes_paged,
+    scene_commands::get_chapter_scenes,
     scene_commands::get_story_word_count,
     scene_commands::get_scene,
     scene_commands::update_scene,

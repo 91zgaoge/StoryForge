@@ -9,6 +9,7 @@ import {
   Square,
   Save,
   Plus,
+  Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -27,7 +28,9 @@ import type {
   MethodologyStep,
 } from '@/types/guidebook-distillation';
 import { cn } from '@/utils/cn';
-import { extractMessage } from '@/utils/errorHandler';
+import { extractMessage, isSubscriptionRequired } from '@/utils/errorHandler';
+import { useSubscription } from '@/hooks/useSubscription';
+import { UpgradeModal } from '@/components/UpgradeModal';
 
 const ACTIVE_STATUSES = ['pending', 'extracting', 'distilling', 'merging'];
 
@@ -327,12 +330,19 @@ function GuidebookResultView({ guidebookId }: { guidebookId: string }) {
 
 export function GuidebookDistillationPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
+  const { isPro, fetchStatus: refreshSubscription } = useSubscription();
   const { data: guidebooks, isLoading } = useGuidebooks();
   const uploadMutation = useUploadGuidebook();
   const deleteMutation = useDeleteGuidebook();
 
   const handleUpload = async () => {
+    // 后端 upload_guidebook 有 Pro 门控；前端预先拦截，避免选完文件才报错
+    if (!isPro) {
+      setShowUpgradeModal(true);
+      return;
+    }
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
       const selected = await open({
@@ -345,6 +355,11 @@ export function GuidebookDistillationPanel() {
         toast.success('上传成功，开始提炼...');
       }
     } catch (error) {
+      // 订阅状态可能在前端快照之后变化（如他端退订）——后端门控兜底
+      if (isSubscriptionRequired(error)) {
+        setShowUpgradeModal(true);
+        return;
+      }
       toast.error(`上传失败: ${extractMessage(error)}`);
     }
   };
@@ -366,7 +381,14 @@ export function GuidebookDistillationPanel() {
     <div className="p-6 overflow-auto h-full">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-lg font-bold text-white">指导书提炼</h2>
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            指导书提炼
+            {!isPro && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cinema-gold/20 text-cinema-gold">
+                Pro
+              </span>
+            )}
+          </h2>
           <p className="text-sm text-gray-500 mt-1">
             上传故事创作指导书（txt/pdf/epub），自动提炼为可调用的创作方法论
           </p>
@@ -374,6 +396,7 @@ export function GuidebookDistillationPanel() {
         <button
           onClick={handleUpload}
           disabled={uploadMutation.isPending}
+          title={isPro ? undefined : '指导书提炼为 Pro 功能，点击了解升级'}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-cinema-gold/20 text-cinema-gold text-sm hover:bg-cinema-gold/30 transition-colors disabled:opacity-50"
         >
           {uploadMutation.isPending ? (
@@ -384,6 +407,23 @@ export function GuidebookDistillationPanel() {
           上传指导书
         </button>
       </div>
+
+      {!isPro && (
+        <div className="mb-6 max-w-3xl flex items-center justify-between gap-4 rounded-xl border border-cinema-gold/30 bg-cinema-gold/5 px-4 py-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Sparkles className="w-5 h-5 text-cinema-gold shrink-0" />
+            <p className="text-sm text-gray-300">
+              指导书提炼为 Pro 功能，升级后即可上传指导书并自动提炼创作方法论。
+            </p>
+          </div>
+          <button
+            onClick={() => setShowUpgradeModal(true)}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-cinema-gold text-cinema-950 text-sm font-medium hover:bg-cinema-gold/90 transition-colors"
+          >
+            升级 Pro
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-12 text-gray-500">加载中...</div>
@@ -411,6 +451,16 @@ export function GuidebookDistillationPanel() {
           <p className="text-sm">暂无指导书，点击右上角上传</p>
         </div>
       )}
+
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        featureName="指导书提炼"
+        onUpgraded={() => {
+          void refreshSubscription();
+          toast.success('已升级 Pro，指导书提炼已解锁');
+        }}
+      />
     </div>
   );
 }

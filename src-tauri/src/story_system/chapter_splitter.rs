@@ -293,11 +293,11 @@ pub fn plan_split(
     })
 }
 
-/// 新章标题：优先取故事最新章节合约（CHAPTER）的 `goal`
+/// 新章标题：优先取**该章号**对应章节合约（CHAPTER）的 `goal`
 /// （截断至 30 个字符、按字符边界切），无合约 / 空 goal 时回退 `第{N}章`。
 fn resolve_new_chapter_title(pool: &DbPool, story_id: &str, chapter_number: i32) -> String {
     title_from_goal(
-        latest_chapter_contract_goal(pool, story_id).as_deref(),
+        chapter_contract_goal_for(pool, story_id, chapter_number).as_deref(),
         chapter_number,
     )
 }
@@ -311,9 +311,11 @@ fn title_from_goal(goal: Option<&str>, chapter_number: i32) -> String {
     }
 }
 
-/// 查询故事最新（chapter_number 最大）章节合约的 goal；查询失败时告警并返回
-/// None。
-fn latest_chapter_contract_goal(pool: &DbPool, story_id: &str) -> Option<String> {
+/// 查询**指定章号**的章节合约 goal；查询失败时告警并返回 None。
+/// v0.33.7 fix：此前取"最新（chapter_number 最大）合约"的 goal 作为所有
+/// 新切章的标题——循环切分时合约不随新章更新，导致一次切出的几十个新章
+/// 全部共用同一个标题。合约按章号精确匹配，没有对应合约就回退 `第{N}章`。
+fn chapter_contract_goal_for(pool: &DbPool, story_id: &str, chapter_number: i32) -> Option<String> {
     let repo = StoryContractRepository::new(pool.clone());
     let contracts = match repo.get_by_story(story_id) {
         Ok(c) => c,
@@ -326,7 +328,7 @@ fn latest_chapter_contract_goal(pool: &DbPool, story_id: &str) -> Option<String>
         .iter()
         .filter(|c| c.contract_type == "CHAPTER")
         .filter_map(|c| serde_json::from_str::<ChapterContract>(&c.contract_json).ok())
-        .max_by_key(|c| c.chapter_number)
+        .find(|c| c.chapter_number == chapter_number)
         .map(|c| c.chapter_directive.goal)
 }
 
@@ -776,5 +778,69 @@ mod tests {
         assert!(outcomes.is_empty());
         let chapter_repo = ChapterRepository::new(pool.clone());
         assert_eq!(chapter_repo.get_by_story(&story_id).unwrap().len(), 1);
+    }
+
+    // ==================== 新章命名（v0.33.7 fix） ====================
+
+    /// 循环切分时：只有存在**对应章号**合约的新章才用合约 goal 命名；
+    /// 无合约的新章回退 `第{N}章`。回归 v0.33.x bug：此前取"最新合约"
+    /// 的 goal 给所有新章命名，一次切分出的章节全部同名。
+    #[test]
+    fn split_names_new_chapters_by_matching_contract_only() {
+        let pool = create_test_pool().unwrap();
+        // 3 段 × 1800 字 → 切出第 2、3 章
+        let para = chinese_repeat('文', 1800);
+        let content = [para.as_str(); 3].join("\n\n");
+        let (story_id, chapter_id) = seed_story_with_chapter(&pool, &content);
+
+        // 仅第 2 章有合约
+        let contract = crate::domain::contracts::ChapterContract {
+            schema_version: "1".to_string(),
+            contract_type: "CHAPTER".to_string(),
+            generator_version: "test".to_string(),
+            chapter_number: 2,
+            chapter_directive: crate::domain::contracts::ChapterDirective {
+                goal: "潜入敌营救出同伴".to_string(),
+                must_cover_nodes: vec![],
+                forbidden_zones: vec![],
+                time_anchor: None,
+                chapter_span: None,
+            },
+        };
+        let contract_repo = StoryContractRepository::new(pool.clone());
+        contract_repo
+            .create(
+                &story_id,
+                "CHAPTER",
+                &serde_json::to_string(&contract).unwrap(),
+            )
+            .unwrap();
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &chapter_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+        assert_eq!(outcomes.len(), 2, "5400 字应切出 2 章");
+
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        let chapters = chapter_repo.get_by_story(&story_id).unwrap();
+        let title_of = |n: i32| {
+            chapters
+                .iter()
+                .find(|c| c.chapter_number == n)
+                .and_then(|c| c.title.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(title_of(2), "潜入敌营救出同伴");
+        assert_eq!(title_of(3), "第3章");
+        // 三章标题互不相同
+        let mut titles: Vec<String> = chapters.iter().filter_map(|c| c.title.clone()).collect();
+        titles.sort();
+        titles.dedup();
+        assert_eq!(titles.len(), chapters.len());
     }
 }
