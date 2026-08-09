@@ -4,8 +4,7 @@ use actix_web::{get, post, web, HttpResponse, Responder};
 use serde_json::json;
 use sqlx::PgPool;
 
-use crate::auth::jwt::AuthClaims;
-use crate::config::CONFIG;
+use crate::{auth::jwt::AuthClaims, config::CONFIG};
 
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_my_subscription).service(dev_upgrade);
@@ -34,16 +33,28 @@ async fn get_or_create(pool: &PgPool, user_id: uuid::Uuid) -> Result<Subscriptio
     .await?;
 
     if let Some(row) = existing {
-        return Ok(SubscriptionRow { tier: row.tier, status: row.status, expires_at: row.expires_at });
+        return Ok(SubscriptionRow {
+            tier: row.tier,
+            status: row.status,
+            expires_at: row.expires_at,
+        });
     }
 
     sqlx::query!("INSERT INTO subscriptions (user_id) VALUES ($1)", user_id)
         .execute(pool)
         .await?;
-    Ok(SubscriptionRow { tier: "free".into(), status: "active".into(), expires_at: None })
+    Ok(SubscriptionRow {
+        tier: "free".into(),
+        status: "active".into(),
+        expires_at: None,
+    })
 }
 
-async fn upsert_tier(pool: &PgPool, user_id: uuid::Uuid, tier: &str) -> Result<SubscriptionRow, sqlx::Error> {
+async fn upsert_tier(
+    pool: &PgPool,
+    user_id: uuid::Uuid,
+    tier: &str,
+) -> Result<SubscriptionRow, sqlx::Error> {
     let expires_at = if tier == "pro" {
         Some(chrono::Utc::now() + chrono::Duration::days(30))
     } else {
@@ -52,11 +63,17 @@ async fn upsert_tier(pool: &PgPool, user_id: uuid::Uuid, tier: &str) -> Result<S
     sqlx::query!(
         "INSERT INTO subscriptions (user_id, tier, expires_at) VALUES ($1, $2, $3)
          ON CONFLICT (user_id) DO UPDATE SET tier = $2, expires_at = $3, updated_at = NOW()",
-        user_id, tier, expires_at
+        user_id,
+        tier,
+        expires_at
     )
     .execute(pool)
     .await?;
-    Ok(SubscriptionRow { tier: tier.into(), status: "active".into(), expires_at })
+    Ok(SubscriptionRow {
+        tier: tier.into(),
+        status: "active".into(),
+        expires_at,
+    })
 }
 
 fn to_response(user_id: uuid::Uuid, row: SubscriptionRow) -> SubscriptionResponse {
@@ -121,8 +138,14 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn me_creates_free_subscription_for_new_user(pool: PgPool) {
         let user_id = uuid::Uuid::new_v4();
-        sqlx::query!("INSERT INTO users (id, email) VALUES ($1, $2)", user_id, "t@t.com")
-            .execute(&pool).await.unwrap();
+        sqlx::query!(
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            user_id,
+            "t@t.com"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let status = get_or_create(&pool, user_id).await.unwrap();
         assert_eq!(status.tier, "free");
@@ -133,8 +156,14 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn dev_upgrade_sets_pro_with_expiry(pool: PgPool) {
         let user_id = uuid::Uuid::new_v4();
-        sqlx::query!("INSERT INTO users (id, email) VALUES ($1, $2)", user_id, "t@t.com")
-            .execute(&pool).await.unwrap();
+        sqlx::query!(
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            user_id,
+            "t@t.com"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let status = upsert_tier(&pool, user_id, "pro").await.unwrap();
         assert_eq!(status.tier, "pro");

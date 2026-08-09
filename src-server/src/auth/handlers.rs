@@ -1,11 +1,11 @@
 //! Auth Handlers — Actix-web HTTP Handlers
 
+use std::{collections::HashMap, sync::Mutex};
+
 use actix_web::{get, post, web, HttpResponse, Responder};
+use once_cell::sync::Lazy;
 use serde_json::json;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 use super::{
     jwt::{create_token, AuthClaims},
@@ -88,7 +88,8 @@ async fn oauth_callback(
         match store.remove(state) {
             Some(data) => data,
             None => {
-                return HttpResponse::BadRequest().json(json!({"error": "Invalid or expired state"}));
+                return HttpResponse::BadRequest()
+                    .json(json!({"error": "Invalid or expired state"}));
             }
         }
     };
@@ -128,7 +129,8 @@ async fn oauth_callback(
         Ok(t) => t,
         Err(e) => {
             log::error!("JWT creation failed: {}", e);
-            return HttpResponse::InternalServerError().json(json!({"error": "Token creation failed"}));
+            return HttpResponse::InternalServerError()
+                .json(json!({"error": "Token creation failed"}));
         }
     };
 
@@ -172,14 +174,14 @@ async fn oauth_callback(
 
 /// POST /api/auth/logout
 #[post("/auth/logout")]
-async fn logout(
-    claims: AuthClaims,
-    pool: web::Data<PgPool>,
-) -> impl Responder {
+async fn logout(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
     // 删除用户的所有session
-    if let Err(e) = sqlx::query!("DELETE FROM sessions WHERE user_id = $1", claims.sub.parse::<uuid::Uuid>().unwrap_or_default())
-        .execute(pool.get_ref())
-        .await
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM sessions WHERE user_id = $1",
+        claims.sub.parse::<uuid::Uuid>().unwrap_or_default()
+    )
+    .execute(pool.get_ref())
+    .await
     {
         log::error!("Failed to delete sessions: {}", e);
     }
@@ -189,10 +191,7 @@ async fn logout(
 
 /// GET /api/auth/me
 #[get("/auth/me")]
-async fn get_me(
-    claims: AuthClaims,
-    pool: web::Data<PgPool>,
-) -> impl Responder {
+async fn get_me(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
     let user_id = match claims.sub.parse::<uuid::Uuid>() {
         Ok(id) => id,
         Err(_) => {
@@ -208,14 +207,12 @@ async fn get_me(
     .await;
 
     match row {
-        Ok(Some(user)) => {
-            HttpResponse::Ok().json(UserResponse {
-                id: user.id.to_string(),
-                email: user.email,
-                display_name: user.display_name,
-                avatar_url: user.avatar_url,
-            })
-        }
+        Ok(Some(user)) => HttpResponse::Ok().json(UserResponse {
+            id: user.id.to_string(),
+            email: user.email,
+            display_name: user.display_name,
+            avatar_url: user.avatar_url,
+        }),
         Ok(None) => HttpResponse::NotFound().json(json!({"error": "User not found"})),
         Err(e) => {
             log::error!("Database error: {}", e);

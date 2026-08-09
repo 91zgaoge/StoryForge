@@ -1,7 +1,8 @@
 //! Server Configuration
 
-use once_cell::sync::Lazy;
 use std::env;
+
+use once_cell::sync::Lazy;
 
 pub static CONFIG: Lazy<ServerConfig> = Lazy::new(|| ServerConfig::from_env());
 
@@ -31,13 +32,15 @@ impl ServerConfig {
     pub fn from_env() -> Self {
         Self {
             database_url: env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-            jwt_secret: env::var("JWT_SECRET").unwrap_or_else(|_| "storymoss-default-secret-change-me".to_string()),
+            jwt_secret: env::var("JWT_SECRET")
+                .unwrap_or_else(|_| "storymoss-default-secret-change-me".to_string()),
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             server_port: env::var("SERVER_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
-            frontend_url: env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string()),
+            frontend_url: env::var("FRONTEND_URL")
+                .unwrap_or_else(|_| "http://localhost:5173".to_string()),
 
             dev_upgrade_enabled: env::var("DEV_UPGRADE_ENABLED")
                 .map(|v| v != "false")

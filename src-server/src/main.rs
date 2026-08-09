@@ -2,10 +2,11 @@
 //!
 //! v4.5.0: Actix-web + PostgreSQL + OAuth2
 
+use std::env;
+
 use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpServer};
 use sqlx::postgres::PgPoolOptions;
-use std::env;
 
 mod api;
 mod auth;
@@ -22,7 +23,11 @@ async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
     log::info!("🚀 StoryMoss Server v{}", env!("CARGO_PKG_VERSION"));
-    log::info!("📡 Starting HTTP server on {}:{}", CONFIG.server_host, CONFIG.server_port);
+    log::info!(
+        "📡 Starting HTTP server on {}:{}",
+        CONFIG.server_host,
+        CONFIG.server_port
+    );
 
     // Initialize database pool
     let db_pool = PgPoolOptions::new()

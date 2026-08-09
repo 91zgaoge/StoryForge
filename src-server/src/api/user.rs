@@ -11,10 +11,7 @@ pub fn init_routes(cfg: &mut web::ServiceConfig) {
 }
 
 #[get("/users/me")]
-async fn get_me(
-    claims: AuthClaims,
-    pool: web::Data<PgPool>,
-) -> impl Responder {
+async fn get_me(claims: AuthClaims, pool: web::Data<PgPool>) -> impl Responder {
     let user_id = match claims.sub.parse::<uuid::Uuid>() {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user ID"})),
@@ -27,15 +24,13 @@ async fn get_me(
     .await;
 
     match user {
-        Ok(Some(row)) => {
-            HttpResponse::Ok().json(json!({
-                "id": row.id,
-                "email": row.email,
-                "display_name": row.display_name,
-                "avatar_url": row.avatar_url,
-                "created_at": row.created_at,
-            }))
-        }
+        Ok(Some(row)) => HttpResponse::Ok().json(json!({
+            "id": row.id,
+            "email": row.email,
+            "display_name": row.display_name,
+            "avatar_url": row.avatar_url,
+            "created_at": row.created_at,
+        })),
         Ok(None) => HttpResponse::NotFound().json(json!({
             "error": "User not found"
         })),

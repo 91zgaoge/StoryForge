@@ -2,13 +2,13 @@
 //!
 //! 参考 oauth2-rs crate 实现 Authorization Code + PKCE 流程
 
-use super::{OAuthProvider, OAuthUserInfo};
 use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde_json::Value;
 
+use super::{OAuthProvider, OAuthUserInfo};
 use crate::config::CONFIG;
 
 /// 构建OAuth客户端
@@ -73,7 +73,8 @@ pub async fn exchange_code_and_get_user(
     let access_token = token_result.access_token().secret().clone();
     let refresh_token = token_result.refresh_token().map(|t| t.secret().clone());
     let expires_at = token_result.expires_in().map(|d| {
-        chrono::Utc::now() + chrono::Duration::from_std(d).unwrap_or(chrono::Duration::seconds(3600))
+        chrono::Utc::now()
+            + chrono::Duration::from_std(d).unwrap_or(chrono::Duration::seconds(3600))
     });
 
     // 获取用户资料
@@ -98,14 +99,26 @@ pub async fn exchange_code_and_get_user(
 fn get_provider_config(provider: OAuthProvider) -> Result<(String, String, String), String> {
     match provider {
         OAuthProvider::Google => {
-            let id = CONFIG.google_client_id.clone().ok_or("Google client ID not configured")?;
-            let secret = CONFIG.google_client_secret.clone().ok_or("Google client secret not configured")?;
+            let id = CONFIG
+                .google_client_id
+                .clone()
+                .ok_or("Google client ID not configured")?;
+            let secret = CONFIG
+                .google_client_secret
+                .clone()
+                .ok_or("Google client secret not configured")?;
             let redirect = format!("{}/api/auth/google/callback", get_server_base_url());
             Ok((id, secret, redirect))
         }
         OAuthProvider::Github => {
-            let id = CONFIG.github_client_id.clone().ok_or("GitHub client ID not configured")?;
-            let secret = CONFIG.github_client_secret.clone().ok_or("GitHub client secret not configured")?;
+            let id = CONFIG
+                .github_client_id
+                .clone()
+                .ok_or("GitHub client ID not configured")?;
+            let secret = CONFIG
+                .github_client_secret
+                .clone()
+                .ok_or("GitHub client secret not configured")?;
             let redirect = format!("{}/api/auth/github/callback", get_server_base_url());
             Ok((id, secret, redirect))
         }
@@ -174,8 +187,14 @@ async fn fetch_github_user_info(access_token: &str) -> Result<OAuthUserInfo, Str
 
     let data: Value = response.json().await.map_err(|e| e.to_string())?;
 
-    let user_id = data["id"].as_i64().map(|id| id.to_string()).unwrap_or_default();
-    let name = data["name"].as_str().or_else(|| data["login"].as_str()).map(|s| s.to_string());
+    let user_id = data["id"]
+        .as_i64()
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    let name = data["name"]
+        .as_str()
+        .or_else(|| data["login"].as_str())
+        .map(|s| s.to_string());
     let avatar = data["avatar_url"].as_str().map(|s| s.to_string());
 
     // Get email
@@ -210,7 +229,11 @@ async fn fetch_github_email(access_token: &str) -> Result<String, String> {
     let emails: Vec<Value> = response.json().await.map_err(|e| e.to_string())?;
 
     for entry in &emails {
-        if entry.get("primary").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if entry
+            .get("primary")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             if let Some(email) = entry["email"].as_str() {
                 return Ok(email.to_string());
             }

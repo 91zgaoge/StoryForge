@@ -1,11 +1,11 @@
 //! JWT 签发与验证
 
+use std::{future::Future, pin::Pin};
+
 use actix_web::{dev::Payload, error, FromRequest, HttpRequest};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use std::future::Future;
-use std::pin::Pin;
 
 use crate::config::CONFIG;
 
@@ -68,14 +68,16 @@ impl FromRequest for AuthClaims {
                 let result = validate_token(t);
                 match result {
                     Ok(claims) => Box::pin(async move { Ok(claims) }),
-                    Err(_) => Box::pin(async move {
-                        Err(error::ErrorUnauthorized("Invalid token"))
-                    }),
+                    Err(_) => {
+                        Box::pin(async move { Err(error::ErrorUnauthorized("Invalid token")) })
+                    }
                 }
             }
-            None => Box::pin(async move {
-                Err(error::ErrorUnauthorized("Missing Authorization header"))
-            }),
+            None => {
+                Box::pin(
+                    async move { Err(error::ErrorUnauthorized("Missing Authorization header")) },
+                )
+            }
         }
     }
 }
