@@ -432,11 +432,93 @@ git commit -m "新增(server): 桌面 OAuth 中转（302 授权 + dstate 一次�
 
 ---
 
+### Task 2B: Server 邀请码注册门控
+
+**Files:**
+- Create: `src-server/migrations/003_invite_codes.sql`
+- Modify: `src-server/src/auth/handlers.rs`
+
+**Interfaces:**
+- Consumes: Task 2 的 `OAUTH_STATE_STORE`（值扩为含 invite）、`DESKTOP_FLOW_STORE`、`find_or_create_user`
+- Produces:
+  - `GET /api/auth/{provider}/start` 增加可选 query `invite=<code>`（desktop/web 通用），随 state 存入 `OAUTH_STATE_STORE`
+  - callback 门控：OAuth 账号已存在或 email 已存在 → 老用户免码；否则校验 invite——缺失/不存在/已用满 → `403 {"error":"invalid_or_used_invite"}`（desktop 流程则展示错误 HTML 页）；有效 → 建用户并在同一事务 `used_count + 1`
+  - 邀请码发放：管理员 SQL 手工 `INSERT INTO invite_codes (code, max_uses, note) VALUES (...)`
+
+- [ ] **Step 1: 写迁移**
+
+```sql
+-- 邀请码（内测期注册门控）
+
+CREATE TABLE IF NOT EXISTS invite_codes (
+    code TEXT PRIMARY KEY,
+    max_uses INT NOT NULL DEFAULT 1,
+    used_count INT NOT NULL DEFAULT 0,
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+- [ ] **Step 2: 写失败测试**
+
+handlers.rs 测试模块加（`#[sqlx::test(migrations = "./migrations")]`）：
+
+```rust
+#[sqlx::test(migrations = "./migrations")]
+async fn new_user_requires_valid_invite(pool: PgPool) {
+    // 无码 → 拒绝
+    let profile = test_profile("new1@test.com", "github", "gh-new1");
+    assert!(find_or_create_user_gated(&pool, &profile, None).await.is_err());
+
+    // 错码 → 拒绝
+    assert!(find_or_create_user_gated(&pool, &profile, Some("NOPE".into())).await.is_err());
+
+    // 有效码 → 成功，used_count +1
+    sqlx::query!("INSERT INTO invite_codes (code) VALUES ('BETA-1')").execute(&pool).await.unwrap();
+    let uid = find_or_create_user_gated(&pool, &profile, Some("BETA-1".into())).await.unwrap();
+    let used: i32 = sqlx::query_scalar!("SELECT used_count FROM invite_codes WHERE code = 'BETA-1'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(used, 1);
+
+    // 一码一次：第二个新用户用同码 → 拒绝
+    let profile2 = test_profile("new2@test.com", "github", "gh-new2");
+    assert!(find_or_create_user_gated(&pool, &profile2, Some("BETA-1".into())).await.is_err());
+
+    // 老用户（OAuth 账号已存在）免码
+    let again = find_or_create_user_gated(&pool, &profile, None).await.unwrap();
+    assert_eq!(again, uid);
+}
+```
+
+`test_profile` 为构造 `OAuthUserInfo` 的测试辅助。`find_or_create_user_gated(pool, profile, invite: Option<String>) -> Result<Uuid, sqlx::Error>`：内部先走原 `find_or_create_user` 的「查找」两段（oauth 账号、email），命中即返回；未命中才校验 invite 并建用户。校验+建用户+计数在一个事务里（`pool.begin()`），用 `UPDATE invite_codes SET used_count = used_count + 1 WHERE code = $1 AND used_count < max_uses` 的 affected-rows 判断原子占码（0 行 = 无效/用满）。
+
+运行 `cargo test auth::handlers` — FAIL。
+
+- [ ] **Step 3: 实现门控与接线**
+
+- `StartQuery` 加 `invite: Option<String>`；`OAUTH_STATE_STORE` 值类型从 `(String, String)` 扩为 `(String, String, Option<String>)`（provider, pkce_verifier, invite），callback 取出后传入 gated 函数
+- callback 调 `find_or_create_user` 处换成 `find_or_create_user_gated(&pool, &profile, invite).await`，错误分支：
+  - desktop 流程（state 在 DESKTOP_FLOW_STORE 中）：返回错误 HTML「邀请码无效或已使用，请返回应用重新输入」
+  - 其余：`403 {"error":"invalid_or_used_invite"}`
+- 注意 Task 2 的 `desktop_flow_complete` 不受失败影响（失败时不 complete，桌面轮询继续 pending 直至过期——前端有 2 分钟超时兜底）
+
+- [ ] **Step 4: 测试通过 + Commit**
+
+`cargo test auth::handlers` 全过。
+
+```bash
+git add src-server/migrations/003_invite_codes.sql src-server/src/auth/handlers.rs
+git commit -m "新增(server): 邀请码注册门控（新用户注册需有效邀请码，老用户免码）"
+```
+
+---
+
 ### Task 3: 桌面端 server_client + auth 命令重写
 
 **Files:**
 - Create: `src-tauri/src/server_client.rs`
 - Modify: `src-tauri/src/lib.rs`（`mod server_client;`）
+- Modify: `src-tauri/Cargo.toml`（加 `urlencoding = "2"`——若不想加依赖，可手写仅对邀请码常见字符的极简 percent-encode 辅助函数代替）
 - Modify: `src-tauri/src/auth/commands.rs`（重写 oauth_start / get_current_user / logout，新增 oauth_poll_login）
 - Modify: `src-tauri/src/db/repositories/user_repository.rs`（加方法）
 - Modify: `src-tauri/src/handlers.rs:254-258`（注册 oauth_poll_login）
@@ -445,14 +527,14 @@ git commit -m "新增(server): 桌面 OAuth 中转（302 授权 + dstate 一次�
 - Consumes: Task 1/2 的 server API；现有 `UserRepository`、`crate::db::UserInfo`
 - Produces（Task 4/5 依赖）:
   - `server_client::ServerClient::new() -> Self`（base 读 env `STORYMOSS_SERVER_URL`，默认 `https://storymoss.top`）
-  - `ServerClient::desktop_auth_url(&self, provider: &str, dstate: &str) -> String`
+  - `ServerClient::desktop_auth_url(&self, provider: &str, dstate: &str, invite: Option<&str>) -> String`（invite 非空时拼 `&invite=`，URL-encode）
   - `ServerClient::desktop_poll(&self, dstate: &str) -> Result<Option<DesktopLogin>, AppError>`（None=pending；404/网络错按 Err 上抛由调用方区分——404 视为过期返回 Err）
   - `ServerClient::get_subscription(&self, token: &str) -> Result<RemoteSubscription, AppError>`
   - `ServerClient::dev_upgrade(&self, token: &str, tier: &str) -> Result<RemoteSubscription, AppError>`
   - `ServerClient::logout(&self, token: &str) -> Result<(), AppError>`
   - `DesktopLogin { token: String, user_id: String, email: Option<String>, display_name: Option<String>, avatar_url: Option<String> }`
   - `RemoteSubscription { tier: String, status: String, expires_at: Option<String> }`
-  - Tauri 命令：`oauth_start(provider) -> { auth_url, dstate }`；`oauth_poll_login(dstate) -> Option<CurrentSession>`；`get_current_user() -> Option<CurrentSession>`；`logout(token)`
+  - Tauri 命令：`oauth_start(provider, invite?) -> { auth_url, dstate }`；`oauth_poll_login(dstate) -> Option<CurrentSession>`；`get_current_user() -> Option<CurrentSession>`；`logout(token)`
   - `CurrentSession { user: crate::db::UserInfo, token: String }`（serde Serialize）
   - `UserRepository::upsert_server_user(&self, id: &str, email: Option<String>, display_name: Option<String>, avatar_url: Option<String>) -> Result<User, _>`
   - `UserRepository::find_latest_valid_session(&self) -> Option<(User, String)>`
@@ -512,8 +594,12 @@ impl ServerClient {
         Self { base_url: base_url.trim_end_matches('/').to_string(), client: Client::new() }
     }
 
-    pub fn desktop_auth_url(&self, provider: &str, dstate: &str) -> String {
-        format!("{}/api/auth/{}/start?client=desktop&dstate={}", self.base_url, provider, dstate)
+    pub fn desktop_auth_url(&self, provider: &str, dstate: &str, invite: Option<&str>) -> String {
+        let mut url = format!("{}/api/auth/{}/start?client=desktop&dstate={}", self.base_url, provider, dstate);
+        if let Some(code) = invite.filter(|c| !c.trim().is_empty()) {
+            url.push_str(&format!("&invite={}", urlencoding::encode(code.trim())));
+        }
+        url
     }
 
     /// Ok(None) = pending；Err = 过期或网络失败
@@ -589,8 +675,12 @@ mod tests {
     fn desktop_auth_url_format() {
         let c = ServerClient::new();
         assert_eq!(
-            c.desktop_auth_url("google", "abc"),
+            c.desktop_auth_url("google", "abc", None),
             "https://storymoss.top/api/auth/google/start?client=desktop&dstate=abc"
+        );
+        assert_eq!(
+            c.desktop_auth_url("google", "abc", Some("BETA 1")),
+            "https://storymoss.top/api/auth/google/start?client=desktop&dstate=abc&invite=BETA%201"
         );
     }
 
@@ -689,13 +779,14 @@ pub fn get_auth_config() -> Result<serde_json::Value, AppError> {
 }
 
 /// 开始 OAuth 登录：返回 server 授权 URL 与 dstate，前端打开浏览器后轮询 oauth_poll_login
+/// invite 为可选邀请码（内测期新用户注册需要，见 Task 2B）
 #[tauri::command]
-pub fn oauth_start(provider: String) -> Result<serde_json::Value, AppError> {
+pub fn oauth_start(provider: String, invite: Option<String>) -> Result<serde_json::Value, AppError> {
     let provider = provider.parse::<OAuthProvider>().map_err(AppError::from)?;
     let dstate = uuid::Uuid::new_v4().to_string();
     let client = ServerClient::new();
     Ok(serde_json::json!({
-        "auth_url": client.desktop_auth_url(&provider.to_string(), &dstate),
+        "auth_url": client.desktop_auth_url(&provider.to_string(), &dstate, invite.as_deref()),
         "dstate": dstate,
     }))
 }
@@ -972,12 +1063,13 @@ git commit -m "新增(订阅): 身份收口（账号 UUID/machine_id）+ 远程�
 **Interfaces:**
 - Consumes: Task 3 命令 `oauth_start { auth_url, dstate }`、`oauth_poll_login -> CurrentSession|null`、`get_current_user -> CurrentSession|null`、`logout(token)`
 - Produces:
-  - `services/auth.ts`：`OAuthStartResponse { auth_url: string; dstate: string }`（删除 redirect_port 与 oauthCallback）；`oauthPollLogin(dstate) -> CurrentSession|null`；`getCurrentUser() -> CurrentSession|null`；`CurrentSession { user: UserInfo; token: string }`
-  - store：`login(provider)` 完整流程（打开浏览器 + 2s×60 轮询 + 成功落 user/token）；`cancelLogin()`；`isWaitingForOAuth: boolean`
+  - `services/auth.ts`：`OAuthStartResponse { auth_url: string; dstate: string }`（删除 redirect_port 与 oauthCallback）；`oauthStart(provider, invite?)`；`oauthPollLogin(dstate) -> CurrentSession|null`；`getCurrentUser() -> CurrentSession|null`；`CurrentSession { user: UserInfo; token: string }`
+  - store：`login(provider, invite?)` 完整流程（打开浏览器 + 2s×60 轮询 + 成功落 user/token）；`cancelLogin()`；`isWaitingForOAuth: boolean`
+  - Login.tsx：登录按钮上方加邀请码输入框（占位文案「邀请码（新用户注册必填）」），值随 login 传递；错误 toast 提示「邀请码无效或已使用」场景
 
 - [ ] **Step 1: 写失败测试**
 
-`useAuthStore.test.ts`：mock `@/services/auth` 的 `openOAuthBrowser` 返回 `{ auth_url, dstate: 'd1' }`，`oauthPollLogin` 前两次 null 第三次返回 `{ user: { id: 'u1' }, token: 'tok' }`；断言 `login('google')` 完成后 `isLoggedIn === true`、`authToken === 'tok'`、localStorage 有 `sf_auth_token`。再一例：`cancelLogin()` 后不再轮询、isWaitingForOAuth=false。
+`useAuthStore.test.ts`：mock `@/services/auth` 的 `openOAuthBrowser` 返回 `{ auth_url, dstate: 'd1' }`，`oauthPollLogin` 前两次 null 第三次返回 `{ user: { id: 'u1' }, token: 'tok' }`；断言 `login('google', 'BETA-1')` 完成后 `isLoggedIn === true`、`authToken === 'tok'`、localStorage 有 `sf_auth_token`，且 openOAuthBrowser 收到 `('google', 'BETA-1')`。再一例：`cancelLogin()` 后不再轮询、isWaitingForOAuth=false。
 
 - [ ] **Step 2: services/auth.ts 重写**
 
@@ -992,8 +1084,8 @@ export interface CurrentSession {
   token: string;
 }
 
-export const oauthStart = (provider: string) =>
-  loggedInvoke<OAuthStartResponse>('oauth_start', { provider });
+export const oauthStart = (provider: string, invite?: string) =>
+  loggedInvoke<OAuthStartResponse>('oauth_start', { provider, invite: invite ?? null });
 
 export const oauthPollLogin = (dstate: string) =>
   loggedInvoke<CurrentSession | null>('oauth_poll_login', { dstate });
@@ -1002,8 +1094,8 @@ export const getCurrentUser = () => loggedInvoke<CurrentSession | null>('get_cur
 
 export const logout = (token: string) => loggedInvoke<void>('logout', { token });
 
-export const openOAuthBrowser = async (provider: string): Promise<OAuthStartResponse> => {
-  const resp = await oauthStart(provider);
+export const openOAuthBrowser = async (provider: string, invite?: string): Promise<OAuthStartResponse> => {
+  const resp = await oauthStart(provider, invite);
   await open(resp.auth_url);
   return resp;
 };
@@ -1014,10 +1106,10 @@ export const openOAuthBrowser = async (provider: string): Promise<OAuthStartResp
 - [ ] **Step 3: useAuthStore 重写 login/checkAuth**
 
 ```ts
-login: async (provider: string) => {
+login: async (provider: string, invite?: string) => {
   set({ isLoading: true, isWaitingForOAuth: true });
   try {
-    const resp = await openOAuthBrowser(provider);
+    const resp = await openOAuthBrowser(provider, invite);
     const deadline = Date.now() + 120_000;
     while (Date.now() < deadline) {
       if (!get().isWaitingForOAuth) return; // 用户取消
@@ -1176,6 +1268,7 @@ jobs:
 
 - Nginx 片段：`location /api/ { proxy_pass http://127.0.0.1:8080; proxy_set_header Host $host; }`
 - 手工清单（用户操作）：① Google Cloud Console 建 OAuth client，callback `https://storymoss.top/api/auth/google/callback`；② GitHub Settings → Developer → OAuth Apps，callback `https://storymoss.top/api/auth/github/callback`；③ 主机 `/opt/storymoss/.env` 填 GOOGLE/GITHUB_CLIENT_ID/SECRET、JWT_SECRET（与桌面无关，server 自签自验）、POSTGRES_PASSWORD、FRONTEND_URL=https://storymoss.top；④ GitHub repo secrets 配 SERVER_SSH_*；⑤ 首次 `docker compose up -d`。
+- 邀请码发放（Task 2B 配套）：`docker compose exec postgres psql -U storymoss -c "INSERT INTO invite_codes (code, max_uses, note) VALUES ('BETA-XXXX', 1, '发给某某');"`；查余量 `SELECT code, used_count, max_uses FROM invite_codes;`
 
 - [ ] **Step 3: Commit**
 

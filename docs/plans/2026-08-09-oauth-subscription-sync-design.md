@@ -46,6 +46,17 @@ Actix-web + Postgres 的 auth 服务（未部署、无订阅 API）。
   兑换码页
 - 复用现有 Google/GitHub userinfo 骨架
 
+### ②B 邀请码注册门控（2026-08-09 追加需求）
+
+- 内测期门控：OAuth 登录时**新用户注册**必须持有效邀请码；老用户（OAuth 账号或
+  email 已存在）免码直接登录
+- `invite_codes(code PK, max_uses DEFAULT 1, used_count, note)`；原子占码
+  （`UPDATE ... WHERE used_count < max_uses` 受影响行数判断），校验+建用户+计数同事务
+- start 增加可选 `invite` 参数随 state 透传；无码/错码/用满 → desktop 流程展示错误
+  HTML 页，其余 403 `invalid_or_used_invite`
+- 桌面登录窗加邀请码输入框随 `oauth_start` 传递
+- 发码：管理员 SQL 手工插入（`max_uses` 可配多次），暂不做管理界面
+
 ## ③ 桌面端（src-tauri）
 
 - 打通 auth 骨架：`oauth_start` 改为「打开 server 授权页 + 后台轮询 exchange」；
