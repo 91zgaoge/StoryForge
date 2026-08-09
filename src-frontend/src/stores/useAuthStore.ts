@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import { createLogger } from '@/utils/logger';
+import { extractMessage } from '@/utils/errorHandler';
 import type { UserInfo, AuthConfig } from '@/services/auth';
 import {
   getAuthConfig,
@@ -15,6 +16,16 @@ import {
 } from '@/services/auth';
 
 const authLogger = createLogger('auth:store');
+
+/** server 类型化失败通道：desktop_poll 403 时 Rust 侧以 `AUTH_FAILED:<code>` 前缀上抛 */
+const AUTH_FAILED_RE = /AUTH_FAILED:([a-z_]+)/;
+
+/** 提取轮询错误中的失败码并映射为中文文案；非失败通道错误返回 null */
+const mapAuthFailedMessage = (error: unknown): string | null => {
+  const code = AUTH_FAILED_RE.exec(extractMessage(error))?.[1];
+  if (!code) return null;
+  return code === 'invalid_or_used_invite' ? '邀请码无效或已被使用' : '登录失败，请重试';
+};
 
 interface AuthState {
   // State
@@ -61,7 +72,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const deadline = Date.now() + 120_000;
       while (Date.now() < deadline) {
         if (!get().isWaitingForOAuth) return; // 用户取消
-        const session = await oauthPollLogin(resp.dstate);
+        let session;
+        try {
+          session = await oauthPollLogin(resp.dstate);
+        } catch (e) {
+          // server 类型化失败通道（如错邀请码）：立即终止轮询，按 code 映射文案
+          const mapped = mapAuthFailedMessage(e);
+          if (mapped) throw new Error(mapped);
+          throw e;
+        }
         if (session) {
           get().setAuthToken(session.token);
           set({ user: session.user, isLoggedIn: true });

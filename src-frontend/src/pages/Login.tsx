@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { X, Chrome, Github, MessageCircle, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { extractMessage } from '@/utils/errorHandler';
 import { Card } from '@/components/ui/Card';
 import toast from 'react-hot-toast';
 
@@ -44,8 +45,10 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         onClose();
       }
     } catch (error) {
-      const message = String(error);
-      if (/邀请|invite/i.test(message)) {
+      const message = extractMessage(error);
+      // 以 server 失败码为准；正则兜底兼容旧文案
+      const code = /AUTH_FAILED:([a-z_]+)/.exec(message)?.[1];
+      if (code === 'invalid_or_used_invite' || /邀请|invite/i.test(message)) {
         toast.error('邀请码无效或已使用');
       } else {
         toast.error(`登录失败: ${message}`);

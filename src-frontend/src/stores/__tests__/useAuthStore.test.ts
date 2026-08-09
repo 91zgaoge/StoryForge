@@ -82,6 +82,26 @@ describe('useAuthStore login 轮询流程', () => {
     expect(state.isLoggedIn).toBe(false);
   });
 
+  it('poll 抛 AUTH_FAILED:invalid_or_used_invite → 立即 reject 邀请码文案且不再轮询', async () => {
+    mockedPoll.mockRejectedValue({
+      code: 'INTERNAL_ERROR',
+      message: 'AUTH_FAILED:invalid_or_used_invite',
+      severity: 'Fatal',
+    });
+
+    const p = useAuthStore.getState().login('google', 'BAD-CODE');
+    const assertion = expect(p).rejects.toThrow('邀请码无效或已被使用');
+    await vi.advanceTimersByTimeAsync(0);
+    await assertion;
+
+    // 立即终止：只轮询一次，不再等 120s 超时
+    expect(mockedPoll).toHaveBeenCalledTimes(1);
+    const state = useAuthStore.getState();
+    expect(state.isWaitingForOAuth).toBe(false);
+    expect(state.isLoading).toBe(false);
+    expect(state.isLoggedIn).toBe(false);
+  });
+
   it('checkAuth 适配 CurrentSession（含 token）', async () => {
     mockedGetCurrentUser.mockResolvedValue(session);
 

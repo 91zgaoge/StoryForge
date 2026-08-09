@@ -13,14 +13,19 @@ use super::{
     LoginResponse, OAuthProvider, UserResponse,
 };
 
-/// 内存存储：state -> (provider, pkce_verifier, invite)
-static OAUTH_STATE_STORE: Lazy<Mutex<HashMap<String, (String, String, Option<String>)>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+/// 内存存储：state -> (provider, pkce_verifier, invite, created)
+static OAUTH_STATE_STORE: Lazy<
+    Mutex<HashMap<String, (String, String, Option<String>, std::time::Instant)>>,
+> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+const OAUTH_STATE_TTL_SECS: u64 = 600; // 10 分钟
 
 /// 桌面登录流程：dstate -> DesktopFlow
 struct DesktopFlow {
     oauth_state: String,
     done: Option<(String, String)>, // (token, user_json)
+    /// 类型化失败通道：gated 失败等错误码（如 invalid_or_used_invite / internal）
+    failed: Option<String>,
     created: std::time::Instant,
 }
 
@@ -37,6 +42,7 @@ fn desktop_flow_register(dstate: &str, oauth_state: &str) {
         DesktopFlow {
             oauth_state: oauth_state.to_string(),
             done: None,
+            failed: None,
             created: std::time::Instant::now(),
         },
     );
@@ -49,6 +55,24 @@ fn desktop_flow_complete(oauth_state: &str, token: String, user_json: String) {
             flow.done = Some((token.clone(), user_json.clone()));
         }
     }
+}
+
+/// 标记桌面流程失败（gated 拒绝等），desktop-poll 将一次性返回 403 + 错误码
+fn desktop_flow_fail(oauth_state: &str, code: &str) {
+    let mut store = DESKTOP_FLOW_STORE.lock().unwrap();
+    for flow in store.values_mut() {
+        if flow.oauth_state == oauth_state {
+            flow.failed = Some(code.to_string());
+        }
+    }
+}
+
+/// 取出失败码（一次性，取后删除条目，与 done 语义一致）
+fn desktop_flow_take_failed(dstate: &str) -> Option<String> {
+    let mut store = DESKTOP_FLOW_STORE.lock().unwrap();
+    let flow = store.get(dstate)?;
+    flow.failed.as_ref()?;
+    store.remove(dstate).and_then(|f| f.failed)
 }
 
 fn desktop_flow_take_done(dstate: &str) -> Option<(String, String)> {
@@ -99,12 +123,20 @@ async fn oauth_start(path: web::Path<String>, query: web::Query<StartQuery>) -> 
             // 提取state（从auth_url中）
             let state = extract_state_from_url(&auth_url).unwrap_or_default();
 
-            // 存储state（含可选邀请码）
+            // 存储state（含可选邀请码）；照 DESKTOP_FLOW_STORE 范式顺带清理过期条目
             {
                 let mut store = OAUTH_STATE_STORE.lock().unwrap();
+                store.retain(|_, (_, _, _, created)| {
+                    created.elapsed().as_secs() < OAUTH_STATE_TTL_SECS
+                });
                 store.insert(
                     state.clone(),
-                    (provider_str, pkce_verifier, query.invite.clone()),
+                    (
+                        provider_str,
+                        pkce_verifier,
+                        query.invite.clone(),
+                        std::time::Instant::now(),
+                    ),
                 );
             }
 
@@ -142,7 +174,7 @@ async fn oauth_callback(
     let state = &query.state;
 
     // 查找并移除state
-    let (stored_provider, pkce_verifier, invite) = {
+    let (stored_provider, pkce_verifier, invite, _created) = {
         let mut store = OAUTH_STATE_STORE.lock().unwrap();
         match store.remove(state) {
             Some(data) => data,
@@ -178,21 +210,38 @@ async fn oauth_callback(
     let user_id = match find_or_create_user_gated(&pool, &profile, invite).await {
         Ok(id) => id,
         Err(e) => {
-            log::warn!("Invite gate rejected registration: {}", e);
-            // 桌面端流程：失败时不 complete（轮询继续 pending 直至过期），展示错误页
+            // RowNotFound = 邀请码无效/用满；其余（DB 故障等）= internal
+            let code = match e {
+                sqlx::Error::RowNotFound => "invalid_or_used_invite",
+                _ => "internal",
+            };
+            log::warn!("Invite gate rejected registration: {} (code={})", e, code);
+            // 桌面端流程：写入 failed 失败码（desktop-poll 一次性 403），并仍展示错误页
             let is_desktop = DESKTOP_FLOW_STORE
                 .lock()
                 .unwrap()
                 .values()
                 .any(|f| f.oauth_state == *state);
             if is_desktop {
+                desktop_flow_fail(state, code);
+                let (title, hint) = if code == "invalid_or_used_invite" {
+                    ("邀请码无效或已使用", "请返回 StoryMoss 应用重新输入。")
+                } else {
+                    ("登录失败", "服务器内部错误，请返回 StoryMoss 应用重试。")
+                };
                 return HttpResponse::Forbidden().content_type("text/html; charset=utf-8").body(
-                    "<html><head><meta charset=\"utf-8\"><title>注册受限</title></head>\
-                     <body style=\"font-family:sans-serif;text-align:center;padding-top:80px\">\
-                     <h2>邀请码无效或已使用</h2><p>请返回 StoryMoss 应用重新输入。</p></body></html>",
+                    format!(
+                        "<html><head><meta charset=\"utf-8\"><title>注册受限</title></head>\
+                         <body style=\"font-family:sans-serif;text-align:center;padding-top:80px\">\
+                         <h2>{}</h2><p>{}</p></body></html>",
+                        title, hint
+                    ),
                 );
             }
-            return HttpResponse::Forbidden().json(json!({"error": "invalid_or_used_invite"}));
+            if code == "internal" {
+                return HttpResponse::InternalServerError().json(json!({"error": code}));
+            }
+            return HttpResponse::Forbidden().json(json!({"error": code}));
         }
     };
 
@@ -264,6 +313,10 @@ async fn oauth_callback(
 /// GET /api/auth/desktop-poll?dstate=...
 #[get("/auth/desktop-poll")]
 async fn desktop_poll(query: web::Query<DesktopPollQuery>) -> impl Responder {
+    // 失败通道优先：gated 拒绝等 → 一次性 403 + 错误码（取后删除条目，与 done 语义一致）
+    if let Some(code) = desktop_flow_take_failed(&query.dstate) {
+        return HttpResponse::Forbidden().json(json!({"error": code}));
+    }
     match desktop_flow_take_done(&query.dstate) {
         Some((token, user_json)) => {
             let user: serde_json::Value = serde_json::from_str(&user_json).unwrap_or(json!({}));
@@ -543,6 +596,35 @@ mod tests {
         assert_eq!(again, uid);
     }
 
+    #[sqlx::test(migrations = "./migrations")]
+    async fn existing_email_user_bypasses_invite_gate(pool: PgPool) {
+        // 预置老用户：email 相同、无 oauth_accounts
+        let user_id = uuid::Uuid::new_v4();
+        sqlx::query!(
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            user_id,
+            "legacy@test.com"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 不带邀请码：email 命中免码路径，成功并关联 OAuth 账号
+        let profile = test_profile("legacy@test.com", "google", "g-legacy-1");
+        let uid = find_or_create_user_gated(&pool, &profile, None)
+            .await
+            .unwrap();
+        assert_eq!(uid, user_id);
+
+        let linked: Option<uuid::Uuid> = sqlx::query_scalar!(
+            "SELECT user_id FROM oauth_accounts WHERE provider = 'google' AND provider_account_id = 'g-legacy-1'"
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(linked, Some(user_id));
+    }
+
     #[test]
     fn desktop_flow_pending_then_done_once() {
         let dstate = "test-dstate-1";
@@ -559,5 +641,22 @@ mod tests {
     #[test]
     fn desktop_flow_unknown_dstate() {
         assert!(desktop_flow_take_done("nope").is_none());
+        assert!(desktop_flow_take_failed("nope").is_none());
+    }
+
+    #[test]
+    fn desktop_flow_failed_polls_403_once() {
+        let dstate = "test-dstate-fail-1";
+        desktop_flow_register(dstate, "oauth-state-fail-1");
+        assert!(desktop_flow_take_failed(dstate).is_none()); // 未失败时无失败码
+
+        desktop_flow_fail("oauth-state-fail-1", "invalid_or_used_invite");
+        assert_eq!(
+            desktop_flow_take_failed(dstate).as_deref(),
+            Some("invalid_or_used_invite")
+        );
+        // 一次性：再取没了，条目已删除（done/pending 也不可用）
+        assert!(desktop_flow_take_failed(dstate).is_none());
+        assert!(desktop_flow_take_done(dstate).is_none());
     }
 }

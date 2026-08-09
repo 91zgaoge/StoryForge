@@ -64,7 +64,9 @@ impl ServerClient {
         url
     }
 
-    /// Ok(None) = pending；Err = 过期或网络失败
+    /// Ok(None) = pending；Err = 过期或网络失败；403 + `{"error": code}` =
+    /// 登录失败 （以 `AUTH_FAILED:<code>` 前缀上抛，前端按 code
+    /// 映射文案并终止轮询）
     pub async fn desktop_poll(&self, dstate: &str) -> Result<Option<DesktopLogin>, AppError> {
         let resp = self
             .client
@@ -87,6 +89,19 @@ impl ServerClient {
                     display_name: body.user.display_name,
                     avatar_url: body.user.avatar_url,
                 }))
+            }
+            403 => {
+                let code = resp
+                    .json::<serde_json::Value>()
+                    .await
+                    .ok()
+                    .and_then(|v| {
+                        v.get("error")
+                            .and_then(|e| e.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+                Err(format!("AUTH_FAILED:{}", code).into())
             }
             s => Err(format!("desktop poll status {}", s).into()),
         }
