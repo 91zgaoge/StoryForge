@@ -2,6 +2,41 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.34.0（2026-08-09）
+
+### 新增：OAuth 登录绑定订阅
+
+- **server 订阅 API（src-server）**：新增 `GET /subscription`（JWT 鉴权返回当前账号 tier）与升级/查询内部端点；`SubscriptionResponse` 与桌面端 `RemoteSubscription` 字段对齐（tier / 来源 / 到期时间）。
+- **桌面 OAuth 中转登录（src-server + src-tauri）**：server 新增 `/auth/desktop/login`（302 跳转 Google 授权，state 携带一次性 dstate）与 `/auth/desktop/poll`（桌面轮询 dstate 换 JWT，一次性消费）；桌面 `server_client` + auth 命令重写——`login` 打开浏览器走 server 中转并轮询换 session，`get_current_user` 返回真实会话（`CurrentSession`），`logout` 通知 server 并清理本地态。
+- **server 基地址可配**：`SERVER_BASE_URL` 环境变量覆盖默认地址，compose 透传 `DEV_UPGRADE_ENABLED` / `SERVER_BASE_URL`。
+
+### 新增：邀请码注册门控
+
+- **新用户注册需有效邀请码（src-server）**：Google OAuth 回调首次创建账号时校验邀请码（无效/已用完拒绝并回跳错误页）；已存在的老用户登录免码直通，不影响存量账号。
+
+### 新增：订阅跨设备同步与离线降级
+
+- **订阅身份收口（src-tauri）**：`Identity` 统一为 `Identity::Account(uuid)`（已登录）与 `Identity::Device(machine_id)`（未登录），订阅判定按身份路由。
+- **远程优先 + 本地缓存降级**：已登录时优先拉取 server 订阅并写入本地缓存；断网/服务不可达时降级使用缓存 tier，写作流不中断。启动与登录成功后自动 `sync_remote_subscription`。
+- **退出登录回落**：`logout` 后订阅身份回落 machine_id 设备身份。
+
+### 新增：升级弹窗登录引导
+
+- **前端登录等待 UI**：邀请码输入 → 打开浏览器授权 → 轮询等待页（可取消），登录成功自动收口。
+- **升级弹窗登录引导**：未登录用户在 `UpgradeModal` 可选择「登录并升级」或「暂不登录，仅本设备升级」（明示仅本设备生效）；`AccountSettings` 显示订阅来源（账号 / 本设备）。
+
+### 网站/部署
+
+- **deploy-server 工作流**：GitHub Actions 一键部署 src-server 到生产，含 nginx 反代配置与 OAuth App 注册清单。
+
+### 测试
+
+- src-server：`cargo test` 7 用例全绿（邀请码门控 / dstate 一次性轮询 / 订阅 API）。
+- src-tauri：`cargo test --lib` 全量回归通过（身份收口、远程优先/缓存降级、登录轮询）。
+- 前端：vitest 全量通过（登录流程、升级弹窗登录引导、订阅来源显示）；`tsc --noEmit` 通过。
+
+- **已知问题（沿用）**：未登录「仅本设备升级」的 Pro 不自动迁移到账号（当前设计取舍，付款接入时再议）；AI 操作记录 `previous_content` 截断回滚风险沿用 v0.33.x 记录。
+
 ## v0.33.7（2026-08-09）
 
 ### 修复：自动分章章节标题全部相同
