@@ -5,7 +5,7 @@
 use super::{OAuthProvider, OAuthUserInfo};
 use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenUrl,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde_json::Value;
 
@@ -209,7 +209,7 @@ async fn fetch_github_email(access_token: &str) -> Result<String, String> {
 
     let emails: Vec<Value> = response.json().await.map_err(|e| e.to_string())?;
 
-    for entry in emails {
+    for entry in &emails {
         if entry.get("primary").and_then(|v| v.as_bool()).unwrap_or(false) {
             if let Some(email) = entry["email"].as_str() {
                 return Ok(email.to_string());

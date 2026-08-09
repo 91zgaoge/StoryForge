@@ -15,9 +15,13 @@ async fn get_me(
     claims: AuthClaims,
     pool: web::Data<PgPool>,
 ) -> impl Responder {
+    let user_id = match claims.sub.parse::<uuid::Uuid>() {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user ID"})),
+    };
     let user = sqlx::query!(
         "SELECT id, email, display_name, avatar_url, created_at FROM users WHERE id = $1",
-        claims.sub
+        user_id
     )
     .fetch_optional(pool.get_ref())
     .await;
