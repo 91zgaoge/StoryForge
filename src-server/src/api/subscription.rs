@@ -33,6 +33,27 @@ async fn get_or_create(pool: &PgPool, user_id: uuid::Uuid) -> Result<Subscriptio
     .await?;
 
     if let Some(row) = existing {
+        // 非 free 且已过期：懒降级为 free 并写回库
+        let expired = row.tier != "free"
+            && row
+                .expires_at
+                .map(|t| t < chrono::Utc::now())
+                .unwrap_or(false);
+        if expired {
+            let row = sqlx::query!(
+                "UPDATE subscriptions SET tier = 'free', expires_at = NULL, updated_at = NOW()
+                 WHERE user_id = $1
+                 RETURNING tier, status, expires_at",
+                user_id
+            )
+            .fetch_one(pool)
+            .await?;
+            return Ok(SubscriptionRow {
+                tier: row.tier,
+                status: row.status,
+                expires_at: row.expires_at,
+            });
+        }
         return Ok(SubscriptionRow {
             tier: row.tier,
             status: row.status,
@@ -62,12 +83,17 @@ async fn get_or_create(pool: &PgPool, user_id: uuid::Uuid) -> Result<Subscriptio
     })
 }
 
-async fn upsert_tier(
+pub(crate) async fn upsert_tier(
     pool: &PgPool,
     user_id: uuid::Uuid,
     tier: &str,
+    pro_days: Option<i64>,
 ) -> Result<SubscriptionRow, sqlx::Error> {
-    let expires_at = if tier == "pro" {
+    let expires_at = if tier == "free" {
+        None
+    } else if let Some(days) = pro_days {
+        Some(chrono::Utc::now() + chrono::Duration::days(days))
+    } else if tier == "pro" {
         Some(chrono::Utc::now() + chrono::Duration::days(30))
     } else {
         None
@@ -81,10 +107,17 @@ async fn upsert_tier(
     )
     .execute(pool)
     .await?;
+    // 写后读回真实行（Task 4 admin 调订阅复用）
+    let row = sqlx::query!(
+        "SELECT tier, status, expires_at FROM subscriptions WHERE user_id = $1",
+        user_id
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(SubscriptionRow {
-        tier: tier.into(),
-        status: "active".into(),
-        expires_at,
+        tier: row.tier,
+        status: row.status,
+        expires_at: row.expires_at,
     })
 }
 
@@ -134,7 +167,7 @@ async fn dev_upgrade(
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().json(json!({"error": "Invalid user ID"})),
     };
-    match upsert_tier(pool.get_ref(), user_id, tier).await {
+    match upsert_tier(pool.get_ref(), user_id, tier, None).await {
         Ok(row) => HttpResponse::Ok().json(to_response(user_id, row)),
         Err(e) => {
             log::error!("dev upgrade failed: {}", e);
@@ -177,7 +210,7 @@ mod tests {
         .await
         .unwrap();
 
-        let status = upsert_tier(&pool, user_id, "pro").await.unwrap();
+        let status = upsert_tier(&pool, user_id, "pro", None).await.unwrap();
         assert_eq!(status.tier, "pro");
         assert!(status.expires_at.is_some());
 
@@ -186,9 +219,61 @@ mod tests {
         assert_eq!(again.tier, "pro");
 
         // 降级回 free
-        let down = upsert_tier(&pool, user_id, "free").await.unwrap();
+        let down = upsert_tier(&pool, user_id, "free", None).await.unwrap();
         assert_eq!(down.tier, "free");
         assert_eq!(down.expires_at, None);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn expired_pro_is_downgraded_lazily(pool: PgPool) {
+        let uid = uuid::Uuid::new_v4();
+        sqlx::query!(
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            uid,
+            "e@t.com"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "INSERT INTO subscriptions (user_id, tier, expires_at) VALUES ($1, 'pro', NOW() - INTERVAL '1 day')",
+            uid
+        )
+        .execute(&pool).await.unwrap();
+
+        let row = get_or_create(&pool, uid).await.unwrap();
+        assert_eq!(row.tier, "free");
+        assert_eq!(row.expires_at, None);
+        // 库里也懒更新为 free
+        let tier: String =
+            sqlx::query_scalar!("SELECT tier FROM subscriptions WHERE user_id = $1", uid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(tier, "free");
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn upsert_tier_with_days_and_reads_back(pool: PgPool) {
+        let uid = uuid::Uuid::new_v4();
+        sqlx::query!(
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            uid,
+            "d@t.com"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let row = upsert_tier(&pool, uid, "pro", Some(90)).await.unwrap();
+        assert_eq!(row.tier, "pro");
+        let exp = row.expires_at.unwrap();
+        assert!(exp > chrono::Utc::now() + chrono::Duration::days(80));
+
+        // 改回 free 读回真实行
+        let row = upsert_tier(&pool, uid, "free", None).await.unwrap();
+        assert_eq!(row.tier, "free");
+        assert_eq!(row.expires_at, None);
     }
 
     #[sqlx::test(migrations = "./migrations")]
@@ -210,15 +295,17 @@ mod tests {
         assert_eq!(first.status, second.status);
 
         // 并发调用（模拟并发首请求撞 UNIQUE）：均成功且仍只有一行
-        let (a, b) = tokio::try_join!(get_or_create(&pool, user_id), get_or_create(&pool, user_id))
-            .unwrap();
+        let (a, b) =
+            tokio::try_join!(get_or_create(&pool, user_id), get_or_create(&pool, user_id)).unwrap();
         assert_eq!(a.tier, b.tier);
 
-        let count: Option<i64> =
-            sqlx::query_scalar!("SELECT COUNT(*) FROM subscriptions WHERE user_id = $1", user_id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: Option<i64> = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM subscriptions WHERE user_id = $1",
+            user_id
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(count, Some(1));
     }
 }
