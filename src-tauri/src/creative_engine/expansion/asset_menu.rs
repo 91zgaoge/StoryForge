@@ -17,7 +17,8 @@ pub struct AssetMenuItem {
     pub line: String,
 }
 
-/// 从候选中确定性轮转选取 n 个（排除近期用过的；排除后为空则回退全集）
+/// 从候选中确定性轮转选取 n 个（排除近期用过的；排除后为空则返回空——
+/// 31/21/13 常量库 vs 5 条排除窗口，实践中不可达）
 fn pick_rotating<T: Clone>(
     items: Vec<T>,
     id_of: impl Fn(&T) -> &str,

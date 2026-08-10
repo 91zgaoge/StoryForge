@@ -164,6 +164,12 @@ mod tests {
         let mild = debt(2, 0, 0, 0).quota_text().unwrap();
         assert!(mild.contains("冲突"));
         assert!(mild.contains("必须"));
+        // 达标（debt = 阈值）不升级为"严重停滞"
+        assert!(!mild.contains("严重停滞"));
+        // 差值 1（debt = 阈值 + 1）仍不升级，off-by-one 护栏
+        let borderline = debt(3, 0, 0, 0).quota_text().unwrap();
+        assert!(borderline.contains("停滞"));
+        assert!(!borderline.contains("严重停滞"));
         // 深度债务（超阈值 ≥2）措辞升级
         let deep = debt(4, 0, 0, 0).quota_text().unwrap();
         assert!(deep.contains("严重停滞"));

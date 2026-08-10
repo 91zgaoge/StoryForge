@@ -426,9 +426,10 @@ impl WriteTimeBundle {
         };
 
         // v0.34.0 弹性扩张：轮换账本段（数据缺失/空书 → None，整段省略；
-        // 加载失败 .ok() 吞掉回退 None——非关键增强段，不得阻断创作主流程）
+        // 加载失败降级为 None 并 log::warn 留痕——非关键增强段，不得阻断创作主流程）
         let rotation_ledger_text =
             crate::creative_engine::expansion::RotationLedger::load_sync(pool, story_id)
+                .map_err(|e| log::warn!("[WriteTimeBundle] 轮换账本加载失败: {}", e))
                 .ok()
                 .and_then(|l| l.render_for_prompt());
 

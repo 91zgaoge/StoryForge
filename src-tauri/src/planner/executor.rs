@@ -1777,7 +1777,9 @@ impl PlanExecutor {
 
     /// beat_planner 降级输出：content 为 Rust 侧兜底文案（v0.34.0 起为
     /// 扩张配额文本，无配额时仍为空串），writer 依赖检查通过、
-    /// `{{beat_planner}}` 占位符替换为该文案，TimeSliced 跳过空 beat_plan。
+    /// `{{beat_planner}}` 占位符替换为该文案。非空配额文案将经
+    /// `{{beat_planner}}` 注入 writer prompt——orchestrator.rs:1131-1136
+    /// 按参数字符串非空判定，而非 beat_plan 是否为 null。
     fn degraded_beat_output(reason: &str, default_content: String) -> serde_json::Value {
         log::warn!(
             "[PlanExecutor::execute_beat_planner] 降级为单 writer 路径: {}",
