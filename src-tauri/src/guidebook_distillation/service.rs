@@ -207,6 +207,8 @@ impl GuidebookDistillationService {
                     checklist: s.checklist.clone(),
                 })
                 .collect(),
+            patterns: vec![],
+            cheatsheet: Cheatsheet::default(),
             enabled: true,
             created_at: now,
             updated_at: now,
@@ -405,6 +407,8 @@ mod extension_tests {
                         checklist: vec![],
                     },
                 ],
+                patterns: vec![],
+                cheatsheet: Cheatsheet::default(),
                 enabled,
                 created_at: chrono::Local::now(),
                 updated_at: chrono::Local::now(),

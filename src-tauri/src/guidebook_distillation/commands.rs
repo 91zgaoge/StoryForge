@@ -170,6 +170,8 @@ pub async fn update_custom_methodology(
             description.as_deref(),
             steps.as_deref(),
             enabled,
+            None,
+            None,
         )
         .map_err(AppError::from)
 }

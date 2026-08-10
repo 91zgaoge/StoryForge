@@ -93,6 +93,33 @@ pub struct MethodologyStep {
     pub checklist: Vec<String>,
 }
 
+/// 技巧模式库条目（提炼自指导书的具名技巧）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Technique {
+    pub name: String,
+    #[serde(default)]
+    pub when_to_use: String,
+    #[serde(default)]
+    pub how: String,
+}
+
+/// 反模式（避免什么 + 为什么）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AntiPattern {
+    pub what: String,
+    #[serde(default)]
+    pub why: String,
+}
+
+/// 决策速查表（决策规则 + 反模式）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct Cheatsheet {
+    #[serde(default)]
+    pub decision_rules: Vec<String>,
+    #[serde(default)]
+    pub anti_patterns: Vec<AntiPattern>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomMethodology {
     pub id: String,
@@ -100,6 +127,10 @@ pub struct CustomMethodology {
     pub name: String,
     pub description: Option<String>,
     pub steps: Vec<MethodologyStep>,
+    #[serde(default)]
+    pub patterns: Vec<Technique>,
+    #[serde(default)]
+    pub cheatsheet: Cheatsheet,
     pub enabled: bool,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
@@ -114,6 +145,16 @@ impl CustomMethodology {
 
 /// 解析 steps_json；坏数据返回空 vec（调用方按「无步骤」处理）
 pub fn parse_steps(json: &str) -> Vec<MethodologyStep> {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+/// 解析 patterns_json；坏数据返回空 vec
+pub fn parse_patterns(json: &str) -> Vec<Technique> {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+/// 解析 cheatsheet_json；坏数据返回默认空速查表
+pub fn parse_cheatsheet(json: &str) -> Cheatsheet {
     serde_json::from_str(json).unwrap_or_default()
 }
 
@@ -214,6 +255,33 @@ mod tests {
     }
 
     #[test]
+    fn parse_patterns_handles_valid_and_invalid() {
+        let json =
+            r#"[{"name":"雪花写作法","when_to_use":"搭建大纲时","how":"从一句话扩展到段落"}]"#;
+        let p = parse_patterns(json);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].name, "雪花写作法");
+        assert_eq!(p[0].when_to_use, "搭建大纲时");
+        // 缺省字段容错
+        let minimal = parse_patterns(r#"[{"name":"x"}]"#);
+        assert_eq!(minimal[0].when_to_use, "");
+        // 坏 JSON → 空
+        assert!(parse_patterns("not json").is_empty());
+    }
+
+    #[test]
+    fn parse_cheatsheet_handles_valid_and_invalid() {
+        let json = r#"{"decision_rules":["当冲突弱化时加码，因为张力是引擎"],"anti_patterns":[{"what":"流水账","why":"没有冲突驱动"}]}"#;
+        let cs = parse_cheatsheet(json);
+        assert_eq!(cs.decision_rules.len(), 1);
+        assert_eq!(cs.anti_patterns[0].what, "流水账");
+        // 坏 JSON → 默认空
+        let empty = parse_cheatsheet("not json");
+        assert!(empty.decision_rules.is_empty());
+        assert!(empty.anti_patterns.is_empty());
+    }
+
+    #[test]
     fn max_steps_at_least_one() {
         let cm = CustomMethodology {
             id: "custom_x".into(),
@@ -221,6 +289,8 @@ mod tests {
             name: "n".into(),
             description: None,
             steps: vec![],
+            patterns: vec![],
+            cheatsheet: Cheatsheet::default(),
             enabled: true,
             created_at: Local::now(),
             updated_at: Local::now(),

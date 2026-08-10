@@ -190,13 +190,16 @@ impl CustomMethodologyRepository {
         let conn = self.pool.get()?;
         conn.execute(
             "INSERT INTO custom_methodologies (id, guidebook_id, name, description, steps_json, \
-             enabled, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+             patterns_json, cheatsheet_json, enabled, created_at, updated_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
             params![
                 cm.id,
                 cm.guidebook_id,
                 cm.name,
                 cm.description,
                 serde_json::to_string(&cm.steps)?,
+                serde_json::to_string(&cm.patterns)?,
+                serde_json::to_string(&cm.cheatsheet)?,
                 cm.enabled as i32,
                 cm.created_at.to_rfc3339(),
                 cm.updated_at.to_rfc3339(),
@@ -207,6 +210,8 @@ impl CustomMethodologyRepository {
 
     fn row_to_cm(row: &rusqlite::Row) -> rusqlite::Result<CustomMethodology> {
         let steps_json: String = row.get("steps_json")?;
+        let patterns_json: String = row.get("patterns_json")?;
+        let cheatsheet_json: String = row.get("cheatsheet_json")?;
         let created: String = row.get("created_at")?;
         let updated: String = row.get("updated_at")?;
         let enabled: i32 = row.get("enabled")?;
@@ -216,6 +221,8 @@ impl CustomMethodologyRepository {
             name: row.get("name")?,
             description: row.get("description")?,
             steps: parse_steps(&steps_json),
+            patterns: parse_patterns(&patterns_json),
+            cheatsheet: parse_cheatsheet(&cheatsheet_json),
             enabled: enabled != 0,
             created_at: DateTime::parse_from_rfc3339(&created)
                 .map(|d| d.with_timezone(&Local))
@@ -250,7 +257,7 @@ impl CustomMethodologyRepository {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// 更新名称/描述/步骤/启用状态（None 字段不动）
+    /// 更新名称/描述/步骤/启用状态/技巧模式库/决策速查（None 字段不动）
     pub fn update(
         &self,
         id: &str,
@@ -258,6 +265,8 @@ impl CustomMethodologyRepository {
         description: Option<&str>,
         steps: Option<&[MethodologyStep]>,
         enabled: Option<bool>,
+        patterns: Option<&[Technique]>,
+        cheatsheet: Option<&Cheatsheet>,
     ) -> RepoResult<()> {
         let conn = self.pool.get()?;
         if let Some(n) = name {
@@ -282,6 +291,18 @@ impl CustomMethodologyRepository {
             conn.execute(
                 "UPDATE custom_methodologies SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
                 params![e as i32, Local::now().to_rfc3339(), id],
+            )?;
+        }
+        if let Some(p) = patterns {
+            conn.execute(
+                "UPDATE custom_methodologies SET patterns_json = ?1, updated_at = ?2 WHERE id = ?3",
+                params![serde_json::to_string(p)?, Local::now().to_rfc3339(), id],
+            )?;
+        }
+        if let Some(c) = cheatsheet {
+            conn.execute(
+                "UPDATE custom_methodologies SET cheatsheet_json = ?1, updated_at = ?2 WHERE id = ?3",
+                params![serde_json::to_string(c)?, Local::now().to_rfc3339(), id],
             )?;
         }
         Ok(())
@@ -390,6 +411,8 @@ mod tests {
                     checklist: vec!["c".into()],
                 },
             ],
+            patterns: vec![],
+            cheatsheet: Cheatsheet::default(),
             enabled: true,
             created_at: Local::now(),
             updated_at: Local::now(),
@@ -400,15 +423,71 @@ mod tests {
         assert_eq!(got.steps[1].checklist, vec!["c"]);
         // enabled 过滤
         assert_eq!(repo.list_enabled().unwrap().len(), 1);
-        repo.update("custom_m1", None, None, None, Some(false))
+        repo.update("custom_m1", None, None, None, Some(false), None, None)
             .unwrap();
         assert!(repo.list_enabled().unwrap().is_empty());
         assert_eq!(repo.list_all().unwrap().len(), 1);
         // 改名
-        repo.update("custom_m1", Some("改名"), None, None, None)
+        repo.update("custom_m1", Some("改名"), None, None, None, None, None)
             .unwrap();
         assert_eq!(repo.get_by_id("custom_m1").unwrap().unwrap().name, "改名");
         repo.delete("custom_m1").unwrap();
         assert!(repo.get_by_id("custom_m1").unwrap().is_none());
+    }
+
+    #[test]
+    fn custom_methodology_patterns_and_cheatsheet_roundtrip() {
+        let pool = create_test_pool().unwrap();
+        let repo = CustomMethodologyRepository::new(pool);
+        let cm = CustomMethodology {
+            id: "custom_p1".into(),
+            guidebook_id: None,
+            name: "资产测试".into(),
+            description: None,
+            steps: vec![MethodologyStep {
+                title: "s".into(),
+                instruction: "i".into(),
+                checklist: vec![],
+            }],
+            patterns: vec![Technique {
+                name: "三幕结构".into(),
+                when_to_use: "布局全书".into(),
+                how: "建置-对抗-解决".into(),
+            }],
+            cheatsheet: Cheatsheet {
+                decision_rules: vec!["当节奏拖沓时删场景，因为每场景须推进冲突".into()],
+                anti_patterns: vec![AntiPattern {
+                    what: "信息倾倒".into(),
+                    why: "读者失去探索欲".into(),
+                }],
+            },
+            enabled: true,
+            created_at: Local::now(),
+            updated_at: Local::now(),
+        };
+        repo.create(&cm).unwrap();
+        let got = repo.get_by_id("custom_p1").unwrap().unwrap();
+        assert_eq!(got.patterns.len(), 1);
+        assert_eq!(got.patterns[0].name, "三幕结构");
+        assert_eq!(got.cheatsheet.decision_rules.len(), 1);
+        assert_eq!(got.cheatsheet.anti_patterns[0].why, "读者失去探索欲");
+        // update 新字段
+        repo.update(
+            "custom_p1",
+            None,
+            None,
+            None,
+            None,
+            Some(&[Technique {
+                name: "新技巧".into(),
+                when_to_use: String::new(),
+                how: String::new(),
+            }]),
+            None,
+        )
+        .unwrap();
+        let got = repo.get_by_id("custom_p1").unwrap().unwrap();
+        assert_eq!(got.patterns[0].name, "新技巧");
+        assert_eq!(got.cheatsheet.decision_rules.len(), 1); // 未传则不动
     }
 }

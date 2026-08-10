@@ -1269,6 +1269,8 @@ mod tests {
                     checklist: vec![],
                 })
                 .collect(),
+            patterns: vec![],
+            cheatsheet: crate::guidebook_distillation::Cheatsheet::default(),
             enabled: true,
             created_at: chrono::Local::now(),
             updated_at: chrono::Local::now(),
@@ -1292,6 +1294,8 @@ mod tests {
                     checklist: vec![],
                 })
                 .collect(),
+            patterns: vec![],
+            cheatsheet: crate::guidebook_distillation::Cheatsheet::default(),
             enabled: true,
             created_at: chrono::Local::now(),
             updated_at: chrono::Local::now(),
