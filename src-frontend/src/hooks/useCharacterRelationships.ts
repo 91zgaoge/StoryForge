@@ -24,10 +24,14 @@ export function useCreateCharacterRelationship() {
   return useMutation({
     mutationFn: (params: {
       story_id: string;
-      character_a_id: string;
-      character_b_id: string;
+      source_character_id: string;
+      target_character_id: string;
       relationship_type: string;
       description?: string;
+      emotional_bond?: string;
+      emotional_intensity?: number;
+      reverse_emotional_bond?: string;
+      reverse_emotional_intensity?: number;
     }) => createCharacterRelationship(params),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
@@ -59,22 +63,25 @@ export function useDeleteCharacterRelationship() {
   });
 }
 
-// v0.30.16: 编辑角色关系（关系类型/描述）
+// v0.30.16: 编辑角色关系（关系类型/描述/情感）
 export function useUpdateCharacterRelationship() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: ({
       relationshipId,
-      storyId,
-      relationship_type,
-      description,
+      storyId: _storyId,
+      ...updates
     }: {
       relationshipId: string;
       storyId: string;
       relationship_type?: string;
       description?: string;
-    }) => updateCharacterRelationship(relationshipId, { relationship_type, description }),
+      emotional_bond?: string;
+      emotional_intensity?: number;
+      reverse_emotional_bond?: string;
+      reverse_emotional_intensity?: number;
+    }) => updateCharacterRelationship(relationshipId, updates),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: [CHARACTER_RELATIONSHIPS_KEY, variables.storyId],

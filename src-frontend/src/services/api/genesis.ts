@@ -21,10 +21,14 @@ export const getCharacterRelationships = (storyId: string) =>
 
 export const createCharacterRelationship = (params: {
   story_id: string;
-  character_a_id: string;
-  character_b_id: string;
+  source_character_id: string;
+  target_character_id: string;
   relationship_type: string;
   description?: string;
+  emotional_bond?: string;
+  emotional_intensity?: number;
+  reverse_emotional_bond?: string;
+  reverse_emotional_intensity?: number;
 }) => loggedInvoke<CharacterRelationship>('create_character_relationship', params);
 
 export const updateCharacterRelationship = (
@@ -32,6 +36,10 @@ export const updateCharacterRelationship = (
   updates: {
     relationship_type?: string;
     description?: string;
+    emotional_bond?: string;
+    emotional_intensity?: number;
+    reverse_emotional_bond?: string;
+    reverse_emotional_intensity?: number;
   }
 ) =>
   loggedInvoke<void>('update_character_relationship', {

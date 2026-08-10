@@ -5,6 +5,20 @@ import { Button } from '@/components/ui/Button';
 import { useCreateCharacterRelationship } from '@/hooks/useCharacterRelationships';
 import type { Character } from '@/types/index';
 
+/** 情感纽带可选项（与后端情感属性体系对齐，支持留空） */
+const EMOTIONAL_BOND_OPTIONS = [
+  '信任',
+  '崇拜',
+  '爱慕',
+  '依赖',
+  '憎恨',
+  '恐惧',
+  '欺骗',
+  '嫉妒',
+  '愧疚',
+  '冷漠',
+];
+
 interface CharacterRelationshipFormProps {
   storyId: string;
   characters: Character[];
@@ -25,6 +39,10 @@ export function CharacterRelationshipForm({
   const [characterBId, setCharacterBId] = useState('');
   const [relationshipType, setRelationshipType] = useState('');
   const [description, setDescription] = useState('');
+  const [emotionalBond, setEmotionalBond] = useState('');
+  const [emotionalIntensity, setEmotionalIntensity] = useState(0.5);
+  const [reverseEmotionalBond, setReverseEmotionalBond] = useState('');
+  const [reverseEmotionalIntensity, setReverseEmotionalIntensity] = useState(0.5);
 
   if (!isOpen) return null;
 
@@ -35,16 +53,24 @@ export function CharacterRelationshipForm({
     createRelationship.mutate(
       {
         story_id: storyId,
-        character_a_id: characterAId,
-        character_b_id: characterBId,
+        source_character_id: characterAId,
+        target_character_id: characterBId,
         relationship_type: relationshipType.trim(),
         description: description.trim() || undefined,
+        emotional_bond: emotionalBond || undefined,
+        emotional_intensity: emotionalBond ? emotionalIntensity : undefined,
+        reverse_emotional_bond: reverseEmotionalBond || undefined,
+        reverse_emotional_intensity: reverseEmotionalBond ? reverseEmotionalIntensity : undefined,
       },
       {
         onSuccess: () => {
           setCharacterBId('');
           setRelationshipType('');
           setDescription('');
+          setEmotionalBond('');
+          setEmotionalIntensity(0.5);
+          setReverseEmotionalBond('');
+          setReverseEmotionalIntensity(0.5);
           onClose();
         },
       }
@@ -126,6 +152,70 @@ export function CharacterRelationshipForm({
                 className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none resize-none"
                 placeholder="描述这两个角色之间的关系..."
               />
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">A对B的情感</label>
+              <select
+                value={emotionalBond}
+                onChange={e => setEmotionalBond(e.target.value)}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+              >
+                <option value="">无</option>
+                {EMOTIONAL_BOND_OPTIONS.map(bond => (
+                  <option key={bond} value={bond}>
+                    {bond}
+                  </option>
+                ))}
+              </select>
+              {emotionalBond && (
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={emotionalIntensity}
+                    onChange={e => setEmotionalIntensity(Number(e.target.value))}
+                    className="flex-1 accent-cinema-gold"
+                  />
+                  <span className="text-sm text-gray-400 w-8 text-right">
+                    {emotionalIntensity.toFixed(1)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">B对A的情感</label>
+              <select
+                value={reverseEmotionalBond}
+                onChange={e => setReverseEmotionalBond(e.target.value)}
+                className="w-full px-4 py-2 bg-cinema-800 border border-cinema-700 rounded-xl text-white focus:border-cinema-gold focus:outline-none"
+              >
+                <option value="">无</option>
+                {EMOTIONAL_BOND_OPTIONS.map(bond => (
+                  <option key={bond} value={bond}>
+                    {bond}
+                  </option>
+                ))}
+              </select>
+              {reverseEmotionalBond && (
+                <div className="mt-2 flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={reverseEmotionalIntensity}
+                    onChange={e => setReverseEmotionalIntensity(Number(e.target.value))}
+                    className="flex-1 accent-cinema-gold"
+                  />
+                  <span className="text-sm text-gray-400 w-8 text-right">
+                    {reverseEmotionalIntensity.toFixed(1)}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 pt-4 border-t border-cinema-700">

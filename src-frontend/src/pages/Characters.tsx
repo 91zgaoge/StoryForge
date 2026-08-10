@@ -57,6 +57,10 @@ function RelationshipCard({
   const [draft, setDraft] = useState({
     relationship_type: rel.relationship_type,
     description: rel.description || '',
+    emotional_bond: rel.emotional_bond || '',
+    emotional_intensity: rel.emotional_intensity ?? 0.5,
+    reverse_emotional_bond: rel.reverse_emotional_bond || '',
+    reverse_emotional_intensity: rel.reverse_emotional_intensity ?? 0.5,
   });
 
   const handleDelete = () => {
@@ -72,6 +76,12 @@ function RelationshipCard({
         storyId,
         relationship_type: draft.relationship_type,
         description: draft.description,
+        emotional_bond: draft.emotional_bond || undefined,
+        emotional_intensity: draft.emotional_bond ? draft.emotional_intensity : undefined,
+        reverse_emotional_bond: draft.reverse_emotional_bond || undefined,
+        reverse_emotional_intensity: draft.reverse_emotional_bond
+          ? draft.reverse_emotional_intensity
+          : undefined,
       },
       { onSuccess: () => setEditing(false) }
     );
@@ -97,6 +107,10 @@ function RelationshipCard({
                 setDraft({
                   relationship_type: rel.relationship_type,
                   description: rel.description || '',
+                  emotional_bond: rel.emotional_bond || '',
+                  emotional_intensity: rel.emotional_intensity ?? 0.5,
+                  reverse_emotional_bond: rel.reverse_emotional_bond || '',
+                  reverse_emotional_intensity: rel.reverse_emotional_intensity ?? 0.5,
                 });
                 setEditing(true);
               }}
@@ -132,6 +146,60 @@ function RelationshipCard({
             placeholder="关系描述"
             className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
           />
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">A对B的情感</label>
+            <input
+              value={draft.emotional_bond}
+              onChange={e => setDraft({ ...draft, emotional_bond: e.target.value })}
+              placeholder="如：信任/憎恨（留空表示无）"
+              className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+            />
+            {draft.emotional_bond && (
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={draft.emotional_intensity}
+                  onChange={e =>
+                    setDraft({ ...draft, emotional_intensity: Number(e.target.value) })
+                  }
+                  className="flex-1 accent-cinema-gold"
+                />
+                <span className="text-xs text-gray-500 w-7 text-right">
+                  {draft.emotional_intensity.toFixed(1)}
+                </span>
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">B对A的情感</label>
+            <input
+              value={draft.reverse_emotional_bond}
+              onChange={e => setDraft({ ...draft, reverse_emotional_bond: e.target.value })}
+              placeholder="如：崇拜/冷漠（留空表示无）"
+              className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
+            />
+            {draft.reverse_emotional_bond && (
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={draft.reverse_emotional_intensity}
+                  onChange={e =>
+                    setDraft({ ...draft, reverse_emotional_intensity: Number(e.target.value) })
+                  }
+                  className="flex-1 accent-cinema-gold"
+                />
+                <span className="text-xs text-gray-500 w-7 text-right">
+                  {draft.reverse_emotional_intensity.toFixed(1)}
+                </span>
+              </div>
+            )}
+          </div>
           <div className="flex gap-2 justify-end">
             <Button
               variant="ghost"
@@ -157,6 +225,19 @@ function RelationshipCard({
         <>
           {rel.description && (
             <p className="mt-1 text-xs text-gray-500 line-clamp-2">{rel.description}</p>
+          )}
+          {rel.emotional_bond && (
+            <p className="mt-1 text-xs text-gray-500">
+              A对B: {rel.emotional_bond}
+              {rel.emotional_intensity != null && ` (${rel.emotional_intensity.toFixed(1)})`}
+            </p>
+          )}
+          {rel.reverse_emotional_bond && (
+            <p className="mt-1 text-xs text-gray-500">
+              B对A: {rel.reverse_emotional_bond}
+              {rel.reverse_emotional_intensity != null &&
+                ` (${rel.reverse_emotional_intensity.toFixed(1)})`}
+            </p>
           )}
           {rel.dynamic && <p className="mt-1 text-xs text-gray-600 italic">动态: {rel.dynamic}</p>}
         </>

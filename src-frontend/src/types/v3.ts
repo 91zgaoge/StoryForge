@@ -484,6 +484,14 @@ export interface CharacterProfileOption {
   background: string;
   goals: string;
   voice_style: string;
+  /** 情感内核：角色的主导情感倾向 */
+  emotional_core?: string;
+  /** 情感触发：引爆情绪的场景/行为 */
+  emotional_trigger?: string;
+  /** 情感创伤：塑造情感模式的过往伤口 */
+  emotional_wound?: string;
+  /** 情感需求：角色深层渴望的情感满足 */
+  emotional_need?: string;
 }
 
 export interface WritingStyleOption {

@@ -283,6 +283,10 @@ export interface CharacterRelationship {
   relationship_type: string;
   description?: string;
   dynamic?: string;
+  emotional_bond?: string;
+  emotional_intensity?: number;
+  reverse_emotional_bond?: string;
+  reverse_emotional_intensity?: number;
   created_at: string;
 }
 
