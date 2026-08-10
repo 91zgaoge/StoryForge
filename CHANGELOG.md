@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.35.0（2026-08-09）
+
+### 新增：角色情感属性与情感关系
+
+- **DB 层（V123/V124）**：`characters` 加 4 列情感属性（`emotional_core` 情感内核 / `emotional_trigger` 情感触发 / `emotional_wound` 情感创伤 / `emotional_need` 情感需求）；`character_relationships` 加 4 列双向情感维度（`emotional_bond` / `emotional_intensity` / `reverse_emotional_bond` / `reverse_emotional_intensity`）；模型/DTO/Repository 全链路读写，kg_entities attributes 与旧表双写一致。
+- **Agency 创世**：概念包强制产出 8 字段情感角色卡 + 角色间双向情感关系（至少含一条强负面情感：恨/欺骗/恐惧/嫉妒/毁灭欲）；`SeedRelationship` 新类型入黑板；materialize 落库情感列与关系表（按名关联角色，单对象/数组双兼容）。
+- **向导路径**：角色谱（CharacterProfileOption）对齐 8 字段，roster 模板与 fallback prompt 同步；顺带修复模板 `rosters`/`character_sets` 键名不一致的既有 bug。
+
+### 新增：情感驱动的写作上下文
+
+- **Writer 注入（续写链路）**：`build_writer_context_from_db` 纯函数提取（可测试）；角色段注入 4 项情感属性；新增「角色情感关系」段——真实情感可与表面社会关系不一致，要求角色言行与情感一致。
+- **情感张力账本（`agency/emotional_ledger`，零 LLM 成本）**：从情感关系计算人际张力种子（未揭穿的欺骗/对抗/嫉妒暗涌/复仇驱动…，带压力值与建议动作）；从情感属性推导情感弧光（创伤→当前→需求的成长/堕落轨迹）；注入续写 `write_chapter` 与 TriShot `build_progression_anchor` 两条路径——情感从约束升级为剧情驱动力。
+
+### 修复：角色关系前端
+
+- **参数名 bug**：前端 `createCharacterRelationship` 误发 `character_a_id`/`character_b_id`（后端期望 `source_character_id`/`target_character_id`），关系创建此前实际一直失败——已修复并加回归测试。
+- **情感编辑 UI**：关系创建/编辑表单与 RelationshipCard 全量支持双向情感与强度（0-1）；方向标签随入向/出向动态适配含实际角色名；placeholder 文案纠偏（留空=保持不变）。
+
+### 测试
+
+- src-tauri `cargo test --lib`：**1260 passed / 2 ignored**（+26：DB 读写回环、Seed/ConceptPack 反序列化与向后兼容、materialize 落库、writer 上下文注入、张力/弧光计算与渲染）。
+- src-frontend `npx vitest run`：**399 passed / 3 skipped**（+5：API 参数名、情感表单、方向标签）。
+
 ## v0.34.0（2026-08-09）
 
 ### 新增：OAuth 登录绑定订阅
