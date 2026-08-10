@@ -102,33 +102,37 @@ impl GuidebookDistiller {
             guidebook_id,
             "distilling",
             12,
-            &format!("正在分块提炼创作要点（共 {} 块）...", total),
+            &format!("正在分块提炼创作资产（共 {} 块）...", total),
         )
         .await;
-        let points = self
+        let assets = self
             .distill_chunks(guidebook_id, chunks, &cancel_check)
             .await?;
         heartbeat();
         check_cancel()?;
 
         // Step 3: 合并去重（→85%）
-        self.emit_progress(guidebook_id, "merging", 72, "正在合并去重创作要点...")
+        self.emit_progress(guidebook_id, "merging", 72, "正在分类合并创作资产...")
             .await;
-        let principles = self.merge_points(&points).await?;
+        let merged = self.merge_assets(&assets).await?;
         heartbeat();
         check_cancel()?;
 
         // Step 4: 结构化方法论（→100%），JSON 失败重试一次
         self.emit_progress(guidebook_id, "merging", 88, "正在生成创作方法论...")
             .await;
-        let methodology = match self.generate_methodology(&principles, &book_title).await {
+        let methodology = match self
+            .generate_methodology(&merged.principles, &book_title)
+            .await
+        {
             Ok(m) => m,
             Err(e) => {
                 log::warn!(
                     "[GuidebookDistiller] methodology 首次生成失败，重试一次: {}",
                     e
                 );
-                self.generate_methodology(&principles, &book_title).await?
+                self.generate_methodology(&merged.principles, &book_title)
+                    .await?
             }
         };
         self.emit_progress(guidebook_id, "merging", 100, "提炼完成")
@@ -138,6 +142,11 @@ impl GuidebookDistiller {
         Ok(DistillationOutput {
             metadata,
             methodology,
+            techniques: merged.techniques,
+            cheatsheet: Cheatsheet {
+                decision_rules: merged.decision_rules,
+                anti_patterns: merged.anti_patterns,
+            },
         })
     }
 
@@ -177,7 +186,7 @@ impl GuidebookDistiller {
         guidebook_id: &str,
         chunks: &[TextChunk],
         cancel_check: &Option<Box<dyn Fn() -> bool + Send + Sync>>,
-    ) -> Result<Vec<String>, AnalysisError> {
+    ) -> Result<ChunkAssets, AnalysisError> {
         let total = chunks.len();
         let processed = Arc::new(AtomicI32::new(0));
         let mut set = tokio::task::JoinSet::new();
@@ -218,9 +227,9 @@ impl GuidebookDistiller {
                     let prompt =
                         crate::prompts::engine::TemplateEngine::render_with_conditions(&tpl, &vars);
                     let resp =
-                        call_llm(&llm, "guidebook_chunk", prompt, Some(2000), Some(0.3)).await?;
+                        call_llm(&llm, "guidebook_chunk", prompt, Some(3000), Some(0.3)).await?;
                     let parsed: LlmDistillChunkResponse = parse_json_response(&resp)?;
-                    Ok::<Vec<String>, AnalysisError>(parsed.points)
+                    Ok::<LlmDistillChunkResponse, AnalysisError>(parsed)
                 }
                 .await;
                 active.fetch_sub(1, Ordering::Relaxed);
@@ -242,12 +251,12 @@ impl GuidebookDistiller {
             });
         }
 
-        let mut all_points = Vec::new();
+        let mut all = ChunkAssets::default();
         while let Some(res) = set.join_next().await {
             match res {
-                Ok(Ok(points)) => all_points.extend(points),
+                Ok(Ok(chunk_assets)) => all.extend(chunk_assets),
                 Ok(Err(e)) => {
-                    // 单块失败不致命：记录并继续（剩余块仍可提供要点）
+                    // 单块失败不致命：记录并继续
                     log::warn!("[GuidebookDistiller] 单块提炼失败，跳过: {}", e);
                 }
                 Err(e) => {
@@ -255,33 +264,19 @@ impl GuidebookDistiller {
                 }
             }
         }
-        Ok(all_points)
+        Ok(all)
     }
 
-    async fn merge_points(&self, points: &[String]) -> Result<Vec<String>, AnalysisError> {
-        if points.is_empty() {
+    async fn merge_assets(
+        &self,
+        assets: &ChunkAssets,
+    ) -> Result<LlmDistillMergeResponse, AnalysisError> {
+        if assets.is_empty() {
             return Err(AnalysisError::LlmError(
                 "全书未提炼出任何创作要点".to_string(),
             ));
         }
-        // 截断防爆 token：每条 200 字、总量 12000 字
-        let joined = points
-            .iter()
-            .map(|p| {
-                let s = p.trim();
-                if s.chars().count() > 200 {
-                    s.chars().take(200).collect::<String>()
-                } else {
-                    s.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let joined = if joined.chars().count() > 12000 {
-            joined.chars().take(12000).collect::<String>()
-        } else {
-            joined
-        };
+        let joined = build_merge_input(assets);
         let prompt = self
             .render_prompt("distill_merge", &[("points", joined)])
             .ok_or_else(|| AnalysisError::LlmError("prompt distill_merge 未注册".into()))?;
@@ -289,7 +284,7 @@ impl GuidebookDistiller {
             &self.llm_service,
             "guidebook_merge",
             prompt,
-            Some(2000),
+            Some(4000),
             Some(0.3),
         )
         .await?;
@@ -297,7 +292,7 @@ impl GuidebookDistiller {
         if parsed.principles.is_empty() {
             return Err(AnalysisError::LlmError("合并后原则为空".to_string()));
         }
-        Ok(parsed.principles)
+        Ok(parsed)
     }
 
     async fn generate_methodology(
@@ -339,6 +334,88 @@ impl GuidebookDistiller {
             },
         );
     }
+}
+
+/// 分块结构化资产的聚合容器
+#[derive(Debug, Default)]
+pub struct ChunkAssets {
+    pub points: Vec<String>,
+    pub techniques: Vec<Technique>,
+    pub decision_rules: Vec<String>,
+    pub anti_patterns: Vec<AntiPattern>,
+}
+
+impl ChunkAssets {
+    pub fn extend(&mut self, r: LlmDistillChunkResponse) {
+        self.points.extend(r.points);
+        self.techniques.extend(r.techniques);
+        self.decision_rules.extend(r.decision_rules);
+        self.anti_patterns.extend(r.anti_patterns);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
+            && self.techniques.is_empty()
+            && self.decision_rules.is_empty()
+            && self.anti_patterns.is_empty()
+    }
+}
+
+/// 截断到 max 字（chars）
+fn clip_chars(s: &str, max: usize) -> String {
+    let t = s.trim();
+    if t.chars().count() > max {
+        t.chars().take(max).collect()
+    } else {
+        t.to_string()
+    }
+}
+
+/// 构建 merge 输入：四类资产分区，单条 200 字、总量 12000 字截断
+fn build_merge_input(assets: &ChunkAssets) -> String {
+    let mut sections = Vec::new();
+    if !assets.points.is_empty() {
+        let lines = assets
+            .points
+            .iter()
+            .map(|p| clip_chars(p, 200))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(format!("【要点】\n{}", lines));
+    }
+    if !assets.techniques.is_empty() {
+        let lines = assets
+            .techniques
+            .iter()
+            .map(|t| {
+                clip_chars(
+                    &format!("{}｜何时用：{}｜怎么做：{}", t.name, t.when_to_use, t.how),
+                    200,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(format!("【技巧】\n{}", lines));
+    }
+    if !assets.decision_rules.is_empty() {
+        let lines = assets
+            .decision_rules
+            .iter()
+            .map(|r| clip_chars(r, 200))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(format!("【决策规则】\n{}", lines));
+    }
+    if !assets.anti_patterns.is_empty() {
+        let lines = assets
+            .anti_patterns
+            .iter()
+            .map(|a| clip_chars(&format!("{}｜{}", a.what, a.why), 200))
+            .collect::<Vec<_>>()
+            .join("\n");
+        sections.push(format!("【反模式】\n{}", lines));
+    }
+    clip_chars(&sections.join("\n\n"), 12000)
 }
 
 /// 校验提炼产物：名称非空、至少一个步骤、每个步骤有 instruction
@@ -392,6 +469,61 @@ async fn call_llm(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_assets_aggregate_extends_all_categories() {
+        let mut a = ChunkAssets::default();
+        a.extend(LlmDistillChunkResponse {
+            points: vec!["p1".into()],
+            techniques: vec![Technique {
+                name: "t1".into(),
+                when_to_use: String::new(),
+                how: String::new(),
+            }],
+            decision_rules: vec!["r1".into()],
+            anti_patterns: vec![],
+        });
+        a.extend(LlmDistillChunkResponse {
+            points: vec!["p2".into()],
+            techniques: vec![],
+            decision_rules: vec![],
+            anti_patterns: vec![AntiPattern {
+                what: "w".into(),
+                why: String::new(),
+            }],
+        });
+        assert_eq!(a.points, vec!["p1", "p2"]);
+        assert_eq!(a.techniques.len(), 1);
+        assert_eq!(a.decision_rules.len(), 1);
+        assert_eq!(a.anti_patterns.len(), 1);
+        assert!(!a.is_empty());
+        assert!(ChunkAssets::default().is_empty());
+    }
+
+    #[test]
+    fn merge_input_contains_four_sections_and_truncates() {
+        let mut a = ChunkAssets::default();
+        a.points.push("要点".repeat(300)); // 超长条 → 截断
+        a.techniques.push(Technique {
+            name: "雪花写作法".into(),
+            when_to_use: "搭大纲".into(),
+            how: "逐步扩展".into(),
+        });
+        a.decision_rules.push("当X时做Y，因为Z".into());
+        a.anti_patterns.push(AntiPattern {
+            what: "流水账".into(),
+            why: "无冲突".into(),
+        });
+        let input = build_merge_input(&a);
+        assert!(input.contains("【要点】"));
+        assert!(input.contains("【技巧】"));
+        assert!(input.contains("雪花写作法"));
+        assert!(input.contains("【决策规则】"));
+        assert!(input.contains("【反模式】"));
+        assert!(input.contains("流水账"));
+        // 单条 200 字截断：拼接行不含完整 300 字重复
+        assert!(!input.contains(&"要点".repeat(300)));
+    }
 
     #[test]
     fn validate_methodology_accepts_valid() {

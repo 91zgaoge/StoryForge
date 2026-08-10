@@ -182,12 +182,26 @@ pub struct LlmGuidebookMetadataResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmDistillChunkResponse {
+    #[serde(default, alias = "key_points")]
     pub points: Vec<String>,
+    #[serde(default)]
+    pub techniques: Vec<Technique>,
+    #[serde(default)]
+    pub decision_rules: Vec<String>,
+    #[serde(default)]
+    pub anti_patterns: Vec<AntiPattern>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmDistillMergeResponse {
+    #[serde(default)]
     pub principles: Vec<String>,
+    #[serde(default)]
+    pub techniques: Vec<Technique>,
+    #[serde(default)]
+    pub decision_rules: Vec<String>,
+    #[serde(default)]
+    pub anti_patterns: Vec<AntiPattern>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +224,8 @@ pub struct LlmMethodologyResponse {
 pub struct DistillationOutput {
     pub metadata: LlmGuidebookMetadataResponse,
     pub methodology: LlmMethodologyResponse,
+    pub techniques: Vec<Technique>,
+    pub cheatsheet: Cheatsheet,
 }
 
 // ==================== 聚合结果（给前端） ====================
@@ -279,6 +295,44 @@ mod tests {
         let empty = parse_cheatsheet("not json");
         assert!(empty.decision_rules.is_empty());
         assert!(empty.anti_patterns.is_empty());
+    }
+
+    #[test]
+    fn chunk_response_deserializes_structured_assets() {
+        let json = r#"{"key_points":["要点一"],
+          "techniques":[{"name":"雪花写作法","when_to_use":"搭大纲","how":"逐步扩展"}],
+          "decision_rules":["当冲突弱时加码，因为张力是引擎"],
+          "anti_patterns":[{"what":"流水账","why":"无冲突驱动"}]}"#;
+        let r: LlmDistillChunkResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.points, vec!["要点一"]);
+        assert_eq!(r.techniques[0].name, "雪花写作法");
+        assert_eq!(r.decision_rules.len(), 1);
+        assert_eq!(r.anti_patterns[0].why, "无冲突驱动");
+    }
+
+    #[test]
+    fn chunk_response_backward_compat_old_points_format() {
+        // 旧格式（只有 points）不崩溃，新字段为空
+        let r: LlmDistillChunkResponse = serde_json::from_str(r#"{"points":["要点"]}"#).unwrap();
+        assert_eq!(r.points, vec!["要点"]);
+        assert!(r.techniques.is_empty());
+        assert!(r.decision_rules.is_empty());
+        assert!(r.anti_patterns.is_empty());
+    }
+
+    #[test]
+    fn merge_response_deserializes_classified_assets() {
+        let json = r#"{"principles":["原则一"],
+          "techniques":[{"name":"t","when_to_use":"w","how":"h"}],
+          "decision_rules":["r"],
+          "anti_patterns":[{"what":"x","why":"y"}]}"#;
+        let r: LlmDistillMergeResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(r.principles, vec!["原则一"]);
+        assert_eq!(r.techniques.len(), 1);
+        assert_eq!(r.anti_patterns[0].what, "x");
+        // 旧格式兼容
+        let old: LlmDistillMergeResponse = serde_json::from_str(r#"{"principles":["p"]}"#).unwrap();
+        assert!(old.techniques.is_empty());
     }
 
     #[test]
