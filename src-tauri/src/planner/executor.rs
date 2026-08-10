@@ -58,9 +58,15 @@ pub struct BeatPlan {
     /// 伏笔操作（埋设/推进/兑现）
     #[serde(default)]
     pub foreshadowing_ops: String,
+    /// 角色调度：沉寂角色回归/新角色登场及各自行动目的（v0.34.0 弹性扩张）
+    #[serde(default)]
+    pub character_moves: String,
     /// 本节拍目标字数
     #[serde(default = "default_beat_target_words")]
     pub target_words: u32,
+    /// 本章选用的创作资产 ID（从资产菜单精选，v0.34.0 弹性扩张）
+    #[serde(default)]
+    pub selected_asset_ids: Vec<String>,
 }
 
 fn default_beat_target_words() -> u32 {
@@ -70,14 +76,24 @@ fn default_beat_target_words() -> u32 {
 impl BeatPlan {
     /// 渲染为注入 writer prompt 的文本段。
     pub fn to_prompt_text(&self) -> String {
-        format!(
+        let mut text = format!(
             "【本节拍规划】\n戏剧目标：{}\n冲突升级：{}\n新元素：{}\n伏笔操作：{}\n目标字数：{}",
             self.goal,
             self.conflict_escalation,
             self.new_elements,
             self.foreshadowing_ops,
             self.target_words
-        )
+        );
+        if !self.character_moves.is_empty() {
+            text.push_str(&format!("\n角色调度：{}", self.character_moves));
+        }
+        if !self.selected_asset_ids.is_empty() {
+            text.push_str(&format!(
+                "\n本章选用创作资产：{}",
+                self.selected_asset_ids.join("、")
+            ));
+        }
+        text
     }
 }
 
@@ -1615,6 +1631,25 @@ impl PlanExecutor {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "无".to_string());
 
+        // v0.34.0 弹性扩张：轮换账本 + 扩张债务配额 + 资产菜单（纯 Rust，零额外 LLM）。
+        // 配额文案必须最先算出——下方所有降级分支以它为 content 兜底。
+        let chapter_number = plan_context.chapter_number.max(1);
+        let ledger =
+            crate::creative_engine::expansion::RotationLedger::load_sync(&self.pool, &story_id)
+                .unwrap_or_default();
+        let debt = crate::creative_engine::expansion::ExpansionDebt::compute(
+            &self.pool, &story_id, &ledger,
+        )
+        .unwrap_or_default();
+        let quota_text = debt.quota_text();
+        let ledger_text = ledger.render_for_prompt();
+        let menu = crate::creative_engine::expansion::asset_menu::build_asset_menu(
+            &self.pool,
+            &story_id,
+            chapter_number,
+        );
+        let menu_text = crate::creative_engine::expansion::asset_menu::render_asset_menu(&menu);
+
         // 2) 渲染 prompt（PromptRegistry 覆盖优先，回退内置 md；均失败则降级——
         //    禁止内联硬编码 prompt，所有 prompt 走 PromptRegistry）
         let template =
@@ -1626,6 +1661,7 @@ impl PlanExecutor {
                 None => {
                     return Ok(Self::degraded_beat_output(
                         "writer_beat_plan 提示词未注册（PromptRegistry 与内置 md 均缺失）",
+                        quota_text.clone().unwrap_or_default(),
                     ));
                 }
             };
@@ -1644,6 +1680,9 @@ impl PlanExecutor {
             &quartet_text,
             &instruction,
             &planner_understanding,
+            quota_text.as_deref().unwrap_or(""),
+            ledger_text.as_deref().unwrap_or(""),
+            menu_text.as_deref().unwrap_or(""),
         );
 
         // 3) 单次 LLM，60s 超时（execute_step 外层 90s 步超时兜底）
@@ -1657,13 +1696,32 @@ impl PlanExecutor {
         );
         let response = match tokio::time::timeout(std::time::Duration::from_secs(60), call).await {
             Ok(Ok(r)) => r,
-            Ok(Err(e)) => return Ok(Self::degraded_beat_output(&format!("LLM 调用失败: {}", e))),
-            Err(_) => return Ok(Self::degraded_beat_output("beat_planner 超时（60s）")),
+            Ok(Err(e)) => {
+                return Ok(Self::degraded_beat_output(
+                    &format!("LLM 调用失败: {}", e),
+                    quota_text.clone().unwrap_or_default(),
+                ))
+            }
+            Err(_) => {
+                return Ok(Self::degraded_beat_output(
+                    "beat_planner 超时（60s）",
+                    quota_text.clone().unwrap_or_default(),
+                ))
+            }
         };
 
         // 4) 解析输出；失败同样降级
         match Self::parse_beat_plan_output(&response.content) {
             Ok(plan) => {
+                // v0.34.0 弹性扩张：记录资产选用历史，供后续章节菜单轮换排除
+                if !plan.selected_asset_ids.is_empty() {
+                    let _ = crate::creative_engine::expansion::append_asset_history(
+                        &self.pool,
+                        &story_id,
+                        chapter_number,
+                        &plan.selected_asset_ids,
+                    );
+                }
                 let text = plan.to_prompt_text();
                 Ok(serde_json::json!({
                     "content": text,
@@ -1671,13 +1729,17 @@ impl PlanExecutor {
                     "degraded": false,
                 }))
             }
-            Err(e) => Ok(Self::degraded_beat_output(&format!("输出解析失败: {}", e))),
+            Err(e) => Ok(Self::degraded_beat_output(
+                &format!("输出解析失败: {}", e),
+                quota_text.clone().unwrap_or_default(),
+            )),
         }
     }
 
     /// beat_planner prompt 组装：渲染 writer_beat_plan 模板的全部变量。
     /// 提取为纯函数以便单测（final-review F2：断言 planner_understanding
-    /// 进入 prompt 组装）。
+    /// 进入 prompt 组装）。expansion_quota/rotation_ledger/asset_menu 为
+    /// v0.34.0 弹性扩张注入，空串时对应 {{#if}} 条件块不展开。
     fn render_beat_plan_prompt(
         template: &str,
         story_context: &str,
@@ -1685,6 +1747,9 @@ impl PlanExecutor {
         quartet_text: &str,
         instruction: &str,
         planner_understanding: &str,
+        expansion_quota: &str,
+        rotation_ledger: &str,
+        asset_menu: &str,
     ) -> String {
         let mut vars = HashMap::new();
         vars.insert("story_context".to_string(), story_context.to_string());
@@ -1695,6 +1760,9 @@ impl PlanExecutor {
             "planner_understanding".to_string(),
             planner_understanding.to_string(),
         );
+        vars.insert("expansion_quota".to_string(), expansion_quota.to_string());
+        vars.insert("rotation_ledger".to_string(), rotation_ledger.to_string());
+        vars.insert("asset_menu".to_string(), asset_menu.to_string());
         crate::prompts::engine::TemplateEngine::render_with_conditions(template, &vars)
     }
 
@@ -1707,15 +1775,16 @@ impl PlanExecutor {
         serde_json::from_str(&sanitized).map_err(|e| format!("beat_plan JSON 解析失败: {}", e))
     }
 
-    /// beat_planner 降级输出：content 为空串，writer 依赖检查通过、
-    /// `{{beat_planner}}` 占位符替换为空，TimeSliced 跳过空 beat_plan。
-    fn degraded_beat_output(reason: &str) -> serde_json::Value {
+    /// beat_planner 降级输出：content 为 Rust 侧兜底文案（v0.34.0 起为
+    /// 扩张配额文本，无配额时仍为空串），writer 依赖检查通过、
+    /// `{{beat_planner}}` 占位符替换为该文案，TimeSliced 跳过空 beat_plan。
+    fn degraded_beat_output(reason: &str, default_content: String) -> serde_json::Value {
         log::warn!(
             "[PlanExecutor::execute_beat_planner] 降级为单 writer 路径: {}",
             reason
         );
         serde_json::json!({
-            "content": "",
+            "content": default_content,
             "beat_plan": null,
             "degraded": true,
             "reason": reason,
@@ -2887,12 +2956,19 @@ mod tests {
 
     #[test]
     fn test_degraded_beat_output_shape() {
-        // 降级输出必须含 content 键（空串），让 writer 依赖检查通过、
-        // {{beat_planner}} 占位符替换为空（TimeSliced 跳过空 beat_plan）
-        let out = PlanExecutor::degraded_beat_output("测试降级");
+        // 降级输出必须含 content 键，让 writer 依赖检查通过、
+        // {{beat_planner}} 占位符替换为兜底文案（TimeSliced 跳过空 beat_plan）
+        let out = PlanExecutor::degraded_beat_output("测试降级", String::new());
         assert_eq!(out.get("content").and_then(|v| v.as_str()), Some(""));
         assert_eq!(out.get("degraded").and_then(|v| v.as_bool()), Some(true));
         assert!(out.get("beat_plan").map(|v| v.is_null()).unwrap_or(false));
+
+        // v0.34.0：有扩张配额时 content 为配额文案而非空串
+        let out = PlanExecutor::degraded_beat_output("测试降级", "【本章扩张任务】……".to_string());
+        assert_eq!(
+            out.get("content").and_then(|v| v.as_str()),
+            Some("【本章扩张任务】……")
+        );
     }
 
     #[test]
@@ -2976,10 +3052,34 @@ mod tests {
             "无",
             "继续写下去",
             "主题：复仇与救赎，主角动机是寻找真相",
+            "",
+            "",
+            "",
         );
         assert!(prompt.contains("【Planner 资产理解】"));
         assert!(prompt.contains("主题：复仇与救赎，主角动机是寻找真相"));
         assert!(prompt.contains("继续写下去"));
+    }
+
+    #[test]
+    fn test_beat_plan_prompt_includes_expansion_blocks() {
+        // v0.34.0 弹性扩张：配额/账本/资产菜单非空时进入 prompt
+        let template = crate::prompts::registry::resolve_prompt_default("writer_beat_plan")
+            .expect("内置 writer_beat_plan 提示词应存在");
+        let prompt = PlanExecutor::render_beat_plan_prompt(
+            &template,
+            "故事上下文文本",
+            "未指定",
+            "无",
+            "续写",
+            "",
+            "【本章扩张任务】引入新场景",
+            "【轮换账本】场景：客栈×3",
+            "【可选创作资产】beat_card.x：回归",
+        );
+        assert!(prompt.contains("【本章扩张任务】引入新场景"));
+        assert!(prompt.contains("【轮换账本】场景：客栈×3"));
+        assert!(prompt.contains("【可选创作资产】beat_card.x：回归"));
     }
 
     #[test]
@@ -2993,9 +3093,45 @@ mod tests {
             "无",
             "续写",
             "",
+            "",
+            "",
+            "",
         );
         // 空值时条件块整段省略，不留空标题
         assert!(!prompt.contains("【Planner 资产理解】"));
+        assert!(!prompt.contains("expansion_quota"));
         assert!(prompt.contains("续写"));
+    }
+
+    // ---- v0.34.0 弹性扩张：BeatPlan 新字段 ----
+
+    #[test]
+    fn beat_plan_parses_new_expansion_fields() {
+        let json = r#"{
+            "goal": "夺回令牌",
+            "conflict_escalation": "师父当众翻脸",
+            "new_elements": "新场景：断剑崖",
+            "character_moves": "林雪回归，带来令牌线索",
+            "foreshadowing_ops": "埋设：令牌背面的铭文",
+            "target_words": 1500,
+            "selected_asset_ids": ["beat_card.downfall_relearn_return"]
+        }"#;
+        let plan: BeatPlan = serde_json::from_str(json).unwrap();
+        assert_eq!(plan.character_moves, "林雪回归，带来令牌线索");
+        assert_eq!(
+            plan.selected_asset_ids,
+            vec!["beat_card.downfall_relearn_return"]
+        );
+        let text = plan.to_prompt_text();
+        assert!(text.contains("林雪回归"));
+    }
+
+    #[test]
+    fn beat_plan_defaults_when_new_fields_absent() {
+        // 旧格式输出（无新字段）仍可解析——向后兼容
+        let json = r#"{"goal": "g", "conflict_escalation": "c", "new_elements": "n", "foreshadowing_ops": "f", "target_words": 1200}"#;
+        let plan: BeatPlan = serde_json::from_str(json).unwrap();
+        assert!(plan.character_moves.is_empty());
+        assert!(plan.selected_asset_ids.is_empty());
     }
 }
