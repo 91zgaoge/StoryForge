@@ -564,6 +564,8 @@ struct ConceptOut {
 
 /// 创世快速路径：概念包角色卡（concept pack 单调用产出）。
 /// 字段带别名：本地模型常用 backstory/character/motivation 等变体键。
+/// 情感属性（emotional_core/trigger/wound/need）为身份级静态属性，
+/// 驱动角色行为动机与冲突演进（Mentis 情感驱动模型）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SeedCharacter {
     #[serde(alias = "character_name")]
@@ -574,9 +576,54 @@ pub struct SeedCharacter {
     pub personality: String,
     #[serde(default, alias = "goal", alias = "motivation")]
     pub goals: String,
+    /// 情感内核：驱动角色一切行为的底层情感（如"被遗弃的恐惧"）
+    #[serde(default, alias = "emotional_core", alias = "emotion_core")]
+    pub emotional_core: String,
+    /// 情感触发点：什么情境会激活情感内核、令角色失控或做出非理性行为
+    #[serde(default, alias = "emotional_trigger", alias = "emotion_trigger")]
+    pub emotional_trigger: String,
+    /// 情感创伤：角色过去的情感伤口，塑造其当前行为模式
+    #[serde(default, alias = "emotional_wound", alias = "emotion_wound")]
+    pub emotional_wound: String,
+    /// 情感需求：角色真正需要的情感满足（往往与其显性目标冲突）
+    #[serde(default, alias = "emotional_need", alias = "emotion_need")]
+    pub emotional_need: String,
 }
 
-/// 创世快速路径：概念包（标题/类型/简介 + 2-3 张角色卡）。
+/// 创世快速路径：概念包角色关系（含情感纽带）。
+/// 情感关系是故事冲突的最大驱动力--角色间的爱恨欺骗驱动情节发展。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SeedRelationship {
+    /// 源角色名（须与 characters 中的 name 匹配；别名兼容 source_name 变体）
+    #[serde(alias = "source_name")]
+    pub source: String,
+    /// 目标角色名（别名兼容 target_name 变体）
+    #[serde(alias = "target_name")]
+    pub target: String,
+    /// 关系类型（如"师徒"/"恋人"/"宿敌"）
+    #[serde(default)]
+    pub relationship_type: String,
+    /// 源→目标的情感纽带（如"恨"/"爱"/"欺骗"/"复仇"）
+    pub emotional_bond: String,
+    /// 情感强度 0.0-1.0
+    #[serde(default = "default_intensity")]
+    pub emotional_intensity: f32,
+    /// 目标→源的反向情感纽带（单向关系可省略）
+    #[serde(default)]
+    pub reverse_emotional_bond: String,
+    /// 反向情感强度
+    #[serde(default = "default_intensity")]
+    pub reverse_emotional_intensity: f32,
+    /// 关系描述
+    #[serde(default)]
+    pub description: String,
+}
+
+fn default_intensity() -> f32 {
+    0.5
+}
+
+/// 创世快速路径：概念包（标题/类型/简介 + 2-3 张角色卡 + 角色间情感关系）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConceptPack {
     pub title: String,
@@ -586,6 +633,9 @@ pub struct ConceptPack {
     pub logline: String,
     #[serde(default)]
     pub characters: Vec<SeedCharacter>,
+    /// 角色间情感关系（驱动冲突的核心动力）
+    #[serde(default)]
+    pub relationships: Vec<SeedRelationship>,
 }
 
 /// 创世快速路径：producer 深度资产单调用产出。
@@ -1531,6 +1581,27 @@ impl AgencyCoordinator {
             })
             .await?;
         }
+        // 角色间情感关系写入资产区（驱动冲突的核心动力）：
+        // 全量关系序列化为单条数组条目，与 materialize 的 Vec 解析对应。
+        if !pack.relationships.is_empty() {
+            let rel_json = serde_json::to_string(&pack.relationships).unwrap_or_default();
+            let board_r = board.clone();
+            let rid = run_id.to_string();
+            let sid = story_id.clone();
+            self.db(move || {
+                board_r.write(
+                    &rid,
+                    &sid,
+                    AgentRole::Producer,
+                    BoardZone::Asset,
+                    "relationship",
+                    "relationships",
+                    &rel_json,
+                    "角色情感关系",
+                )
+            })
+            .await?;
+        }
         // concept 里程碑检查点（best-effort）
         self.checkpoint_auto(run_id, &story_id, "concept", None, budget)
             .await;
@@ -1659,12 +1730,17 @@ impl AgencyCoordinator {
             budget.clone(),
             AgentRole::Producer,
         );
-        let raw = concept_llm.complete_json(
-            "你是小说策划，只输出 JSON。",
-            &format!("故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\",\"characters\":[{{\"name\":\"真名\",\"background\":\"背景\",\"personality\":\"性格\",\"goals\":\"欲望/目标\"}}]}}（2-3 张角色卡）", premise),
-            TaskType::Brainstorming,
-            2048,
-        ).await?;
+        let raw = concept_llm
+            .complete_json(
+                "你是小说策划，只输出 JSON。",
+                &format!(
+                    "故事前提：{}\n\n输出 JSON：{{\"title\":\"书名\",\"genre\":\"类型\",\"logline\":\"一句话简介\",\"characters\":[{{\"name\":\"真名\",\"background\":\"背景\",\"personality\":\"性格\",\"goals\":\"欲望/目标\",\"emotional_core\":\"情感内核\",\"emotional_trigger\":\"情感触发\",\"emotional_wound\":\"情感创伤\",\"emotional_need\":\"情感需求\"}}],\"relationships\":[{{\"source\":\"角色A名\",\"target\":\"角色B名\",\"relationship_type\":\"社会关系\",\"emotional_bond\":\"A对B的真实情感\",\"emotional_intensity\":0.8,\"reverse_emotional_bond\":\"B对A的真实情感\",\"reverse_emotional_intensity\":0.6,\"description\":\"关系概述\"}}]}}\n\n要求（强制）：1.每个角色必须含全部8个字段，emotional_*不得为空 2.relationships不得为空 3.须含至少一条强负面情感（恨/欺骗/恐惧/嫉妒/毁灭欲） 4.intensity取0.0-1.0 5.情感关系可与表面社会关系不一致（2-3张角色卡）",
+                    premise,
+                ),
+                TaskType::Brainstorming,
+                2048,
+            )
+            .await?;
         parse_lenient(&raw).ok_or_else(|| AppError::from("concept pack 解析失败"))
     }
 
@@ -2139,7 +2215,7 @@ impl AgencyCoordinator {
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm_and_budget(
             budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
-            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力）、第一卷大纲、伏笔清单。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
             return Err(AppError::from(circuit_break_message(
@@ -2765,7 +2841,7 @@ impl AgencyCoordinator {
                 let registry = Arc::new(ToolRegistry::agency_default());
                 let producer_out = self.run_role_with_llm_and_budget(
                     budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
-                    "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式）/大纲，写入资产区。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
+                    "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式，含 emotional_core/emotional_trigger/emotional_wound/emotional_need）/大纲，写入资产区。如有多个角色，补齐角色间情感关系（item_type=relationship）。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
                 ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
                 if producer_out.aborted {
                     return Err(AppError::from(circuit_break_message(
@@ -5089,5 +5165,50 @@ mod depth_assets_outline_tests {
         let v = serde_json::json!({"unknown_field": "数据"});
         let text = normalize_outline(&v);
         assert!(text.contains("unknown_field"));
+    }
+}
+
+#[cfg(test)]
+mod concept_pack_emotional_tests {
+    use super::{ConceptPack, SeedCharacter};
+
+    #[test]
+    fn test_seed_character_deserializes_emotional_fields() {
+        let json = r#"{"name":"阿岩","background":"孤儿","personality":"偏执","goals":"夺回令牌",
+          "emotional_core":"表面冷漠内心炽热","emotional_trigger":"被背叛时暴怒",
+          "emotional_wound":"童年被师父抛弃","emotional_need":"渴望被认可"}"#;
+        let ch: SeedCharacter = serde_json::from_str(json).unwrap();
+        assert_eq!(ch.emotional_core, "表面冷漠内心炽热");
+        assert_eq!(ch.emotional_trigger, "被背叛时暴怒");
+    }
+
+    #[test]
+    fn test_seed_character_backward_compat_without_emotional() {
+        let json = r#"{"name":"甲","background":"背景","personality":"性格","goals":"目标"}"#;
+        let ch: SeedCharacter = serde_json::from_str(json).unwrap();
+        assert_eq!(ch.name, "甲");
+        assert_eq!(ch.emotional_core, "");
+    }
+
+    #[test]
+    fn test_concept_pack_deserializes_relationships() {
+        let json = r#"{"title":"书名","genre":"奇幻","logline":"一句话",
+          "characters":[{"name":"甲","background":"","personality":"","goals":"",
+            "emotional_core":"愤怒","emotional_trigger":"","emotional_wound":"","emotional_need":""}],
+          "relationships":[{"source":"甲","target":"乙","relationship_type":"师徒",
+            "emotional_bond":"欺骗","emotional_intensity":0.9,
+            "reverse_emotional_bond":"崇拜","reverse_emotional_intensity":0.7,
+            "description":"面和心不和"}]}"#;
+        let pack: ConceptPack = serde_json::from_str(json).unwrap();
+        assert_eq!(pack.relationships.len(), 1);
+        assert_eq!(pack.relationships[0].emotional_bond, "欺骗");
+        assert_eq!(pack.relationships[0].reverse_emotional_bond, "崇拜");
+    }
+
+    #[test]
+    fn test_concept_pack_backward_compat_without_relationships() {
+        let json = r#"{"title":"书名","characters":[{"name":"甲","background":"","personality":"","goals":""}]}"#;
+        let pack: ConceptPack = serde_json::from_str(json).unwrap();
+        assert!(pack.relationships.is_empty());
     }
 }

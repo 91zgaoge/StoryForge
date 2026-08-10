@@ -52,6 +52,14 @@ pub struct SeedCharacter {
     pub personality: String,
     #[serde(default)]
     pub goals: String,
+    #[serde(default)]
+    pub emotional_core: String,
+    #[serde(default)]
+    pub emotional_trigger: String,
+    #[serde(default)]
+    pub emotional_wound: String,
+    #[serde(default)]
+    pub emotional_need: String,
 }
 
 #[derive(Debug, serde::Deserialize)]

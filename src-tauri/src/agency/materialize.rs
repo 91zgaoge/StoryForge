@@ -1,9 +1,12 @@
 //! 资产落库：把黑板资产区的条目物化到应用资产表（characters/world_buildings/
-//! story_outlines/foreshadowing_tracker）。 character 条目 content 须为 JSON
-//! {"name","background","personality","goals"}； world/outline 条目 content
+//! story_outlines/foreshadowing_tracker/character_relationships）。 character
+//! 条目 content 须为 JSON（{"name","background","personality","goals"} +
+//! 可选 emotional_core/trigger/wound/need）； relationship 条目 content 为
+//! SeedRelationship JSON 数组（兼容单对象）； world/outline 条目 content
 //! 为纯文本； foreshadowing 条目 content 为纯文本或 JSON（数组/对象，
 //! 经 normalize_foreshadowing 逐条归一化）。item_type 做别名归一化
-//! （worldbuilding/world_building→world，story_outline→outline），兼容本地
+//! （worldbuilding/world_building→world，story_outline→outline，
+//! emotional_relationship/bond→relationship），兼容本地
 //! 模型变体。解析失败的条目跳过并 log::warn!。
 
 use rusqlite::params;
@@ -12,6 +15,20 @@ use crate::{agency::models::BoardItem, db::DbPool};
 
 fn now() -> String {
     chrono::Local::now().to_rfc3339()
+}
+
+/// 按角色名查 characters 表 id（relationship 落库时解析 source/target）。
+fn find_character_id_by_name(
+    conn: &rusqlite::Connection,
+    story_id: &str,
+    name: &str,
+) -> Option<String> {
+    conn.query_row(
+        "SELECT id FROM characters WHERE story_id = ?1 AND name = ?2 LIMIT 1",
+        params![story_id, name],
+        |r| r.get(0),
+    )
+    .ok()
 }
 
 pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) -> usize {
@@ -28,13 +45,23 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
         let normalized_type = match item.item_type.as_str() {
             "worldbuilding" | "world_building" => "world",
             "story_outline" => "outline",
+            "emotional_relationship" | "bond" => "relationship",
             other => other,
         };
         match normalized_type {
             "character" => {
                 let parsed =
                     crate::agency::coordinator::parse_lenient::<serde_json::Value>(&item.content);
-                let (name, background, personality, goals) = match parsed.as_ref() {
+                let (
+                    name,
+                    background,
+                    personality,
+                    goals,
+                    emo_core,
+                    emo_trigger,
+                    emo_wound,
+                    emo_need,
+                ) = match parsed.as_ref() {
                     Some(v) => (
                         v.get("name")
                             .and_then(|x| x.as_str())
@@ -52,6 +79,22 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                             .and_then(|x| x.as_str())
                             .unwrap_or("")
                             .to_string(),
+                        v.get("emotional_core")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        v.get("emotional_trigger")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        v.get("emotional_wound")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        v.get("emotional_need")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                     ),
                     None => {
                         log::warn!("materialize: 角色条目 {} 非 JSON，跳过", item.key);
@@ -65,18 +108,24 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                 let id = uuid::Uuid::new_v4().to_string();
                 let ts = now();
                 // story_id+name upsert：已存在同名角色时刷新字段（创世重跑/资产
-                // 补齐场景），否则插入新行。
+                // 补齐场景），否则插入新行。情感属性同步写入 characters 表。
                 let updated = conn.execute(
-                    "UPDATE characters SET background = ?3, personality = ?4, goals = ?5, updated_at = ?6
+                    "UPDATE characters SET background = ?3, personality = ?4, goals = ?5, \
+                     emotional_core = ?6, emotional_trigger = ?7, emotional_wound = ?8, emotional_need = ?9, \
+                     updated_at = ?10
                      WHERE story_id = ?1 AND name = ?2",
-                    params![story_id, name, background, personality, goals, ts],
+                    params![story_id, name, background, personality, goals,
+                            emo_core, emo_trigger, emo_wound, emo_need, ts],
                 );
                 match updated {
                     Ok(n) if n > 0 => count += 1,
                     Ok(_) => match conn.execute(
-                        "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'agency', 1, ?7, ?8)",
-                        params![id, story_id, name, background, personality, goals, ts, ts],
+                        "INSERT INTO characters (id, story_id, name, background, personality, goals, \
+                         emotional_core, emotional_trigger, emotional_wound, emotional_need, \
+                         source, is_auto_generated, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'agency', 1, ?11, ?12)",
+                        params![id, story_id, name, background, personality, goals,
+                                emo_core, emo_trigger, emo_wound, emo_need, ts, ts],
                     ) {
                         Ok(n) => count += n,
                         Err(e) => log::warn!("materialize: 插入角色失败: {}", e),
@@ -147,6 +196,56 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                     ) {
                         Ok(n) => count += n,
                         Err(e) => log::warn!("materialize: 写入伏笔失败: {}", e),
+                    }
+                }
+            }
+            "relationship" => {
+                use crate::agency::coordinator::SeedRelationship;
+                // content 为关系数组（concept_pack 路径）；兼容单对象
+                // （producer 经 board_write 逐条写入的路径）。
+                let rels: Vec<SeedRelationship> =
+                    match crate::agency::coordinator::parse_lenient(&item.content) {
+                        Some(v) => v,
+                        None => {
+                            match crate::agency::coordinator::parse_lenient::<SeedRelationship>(
+                                &item.content,
+                            ) {
+                                Some(single) => vec![single],
+                                None => {
+                                    log::warn!("materialize: 关系条目 {} 非 JSON，跳过", item.key);
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+                for rel in rels {
+                    let source_id = find_character_id_by_name(&conn, story_id, &rel.source);
+                    let target_id = find_character_id_by_name(&conn, story_id, &rel.target);
+                    match (source_id, target_id) {
+                        (Some(sid), Some(tid)) => {
+                            let id = uuid::Uuid::new_v4().to_string();
+                            let ts = now();
+                            match conn.execute(
+                                "INSERT INTO character_relationships (id, story_id, source_character_id, \
+                                 target_character_id, relationship_type, description, emotional_bond, \
+                                 emotional_intensity, reverse_emotional_bond, reverse_emotional_intensity, \
+                                 created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                                params![id, story_id, sid, tid, rel.relationship_type,
+                                        if rel.description.is_empty() { None } else { Some(&rel.description) },
+                                        if rel.emotional_bond.is_empty() { None } else { Some(&rel.emotional_bond) },
+                                        rel.emotional_intensity,
+                                        if rel.reverse_emotional_bond.is_empty() { None } else { Some(&rel.reverse_emotional_bond) },
+                                        rel.reverse_emotional_intensity, ts],
+                            ) {
+                                Ok(n) => count += n,
+                                Err(e) => log::warn!("materialize: 写入关系失败: {}", e),
+                            }
+                        }
+                        _ => log::warn!(
+                            "materialize: 关系 {} -> {} 找不到角色，跳过",
+                            rel.source,
+                            rel.target
+                        ),
                     }
                 }
             }
@@ -349,5 +448,80 @@ mod tests {
             )
             .unwrap();
         assert_eq!(outline, "整本书大纲");
+    }
+
+    #[test]
+    fn test_materialize_character_with_emotional_attrs() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let items = vec![item(
+            "character",
+            "主角",
+            r#"{"name":"阿苔","background":"拾荒者","personality":"坚韧","goals":"找到星环",
+               "emotional_core":"压抑的愤怒","emotional_trigger":"被背叛时暴怒",
+               "emotional_wound":"目睹母亲惨死","emotional_need":"被认可"}"#,
+        )];
+        assert_eq!(materialize_assets(&pool, "s1", &items), 1);
+        let conn = pool.get().unwrap();
+        let core: String = conn
+            .query_row(
+                "SELECT emotional_core FROM characters WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(core, "压抑的愤怒");
+        let wound: String = conn
+            .query_row(
+                "SELECT emotional_wound FROM characters WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(wound, "目睹母亲惨死");
+    }
+
+    #[test]
+    fn test_materialize_relationship_with_emotional_bond() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let items = vec![
+            item(
+                "character",
+                "甲",
+                r#"{"name":"甲","background":"","personality":"","goals":""}"#,
+            ),
+            item(
+                "character",
+                "乙",
+                r#"{"name":"乙","background":"","personality":"","goals":""}"#,
+            ),
+            item(
+                "relationship",
+                "关系",
+                r#"[{"source":"甲","target":"乙","relationship_type":"师徒",
+               "emotional_bond":"欺骗","emotional_intensity":0.9,
+               "reverse_emotional_bond":"崇拜","reverse_emotional_intensity":0.7,
+               "description":"面和心不和"}]"#,
+            ),
+        ];
+        materialize_assets(&pool, "s1", &items);
+        let conn = pool.get().unwrap();
+        let bond: String = conn
+            .query_row(
+                "SELECT emotional_bond FROM character_relationships WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bond, "欺骗");
+        let rev_bond: String = conn
+            .query_row(
+                "SELECT reverse_emotional_bond FROM character_relationships WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rev_bond, "崇拜");
     }
 }
