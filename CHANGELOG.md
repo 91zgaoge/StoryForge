@@ -41,11 +41,18 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - **expires_at 全链路生效**：`GET /subscription/me` 对过期 pro 懒降级为 free；`upsert_tier` 支持 `days` 参数并读回真实行；邀请码赠 Pro N 天在注册事务内写入 expires_at；桌面端本地缓存透传 server expires_at（不再恒写 30 天）。
 - **作废邀请码注册被拒**：注册占码校验 `revoked_at IS NULL`，已作废码拒绝并回跳错误页。
 
+### 新增：弹性扩张——续写侧创作资产强关联
+
+- **轮换账本**：近 10 章场景使用账 + 角色沉寂账注入写作上下文（⑧e 段，零 LLM 成本）。
+- **扩张债务弹性配额**：冲突停滞 2 章/场景固化 3 章/角色固化 3 章/伏笔停滞 3 章触发硬性扩张任务，债务越深措辞越强；平稳期零干扰。
+- **动态资产菜单**：31 张桥段卡/21 种剧情引擎/13 种高压关系按轮换排除粗筛 5 个候选，beat_planner 精选 1-2 个写入 beat 计划；选用历史存 stories.asset_history_json（V122）。
+- **beat_planner 降级兜底**：beat_planner 超时/失败时由 Rust 侧注入默认配额文案兜底。
+
 ### 测试
 
 - src-server：`cargo test` 21 用例全绿（邀请码门控 / dstate 一次性轮询 / 订阅 API / Admin API / JWT 吊销 / 赠 Pro 注册联动 / 过期懒降级）。
 - src-server-web：`npm test` 13 用例全绿（AdminLayout 守卫 / Dashboard 订阅卡片 / 邀请码页 / 用户页）；`npm run build` 通过。
-- src-tauri：`cargo test --lib` 1217 用例全绿（另有 2 ignored；身份收口、远程优先/缓存降级、登录轮询、expires_at 缓存透传）。
+- src-tauri：`cargo test --lib` 1234 用例全绿（另有 2 ignored；身份收口、远程优先/缓存降级、登录轮询、expires_at 缓存透传、弹性扩张轮换账本/扩张债务/资产菜单粗筛/beat_planner 注入与降级兜底）。
 - 前端：vitest 394 通过 / 3 跳过（登录流程、升级弹窗登录引导、订阅来源显示）；`tsc --noEmit` 通过。
 
 - **已知问题（沿用）**：未登录「仅本设备升级」的 Pro 不自动迁移到账号（当前设计取舍，付款接入时再议）；AI 操作记录 `previous_content` 截断回滚风险沿用 v0.33.x 记录。
