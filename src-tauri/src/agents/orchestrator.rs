@@ -1480,6 +1480,7 @@ impl AgentOrchestrator {
 
                     source: None,
                     is_auto_generated: None,
+                    ..Default::default()
                 };
                 match char_repo.create(req) {
                     Ok(_) => {

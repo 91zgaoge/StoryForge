@@ -152,7 +152,7 @@ pub struct UpdateStoryRequest {
     pub strategy_json: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct CreateCharacterRequest {
     pub story_id: String,
     pub name: String,
@@ -166,6 +166,18 @@ pub struct CreateCharacterRequest {
     pub source: Option<String>,
     #[serde(default)]
     pub is_auto_generated: Option<bool>,
+    /// 情感内核：角色的主导情感倾向
+    #[serde(default)]
+    pub emotional_core: Option<String>,
+    /// 情感触发：什么引发强烈情感反应
+    #[serde(default)]
+    pub emotional_trigger: Option<String>,
+    /// 情感创伤：驱动行为的过往创伤
+    #[serde(default)]
+    pub emotional_wound: Option<String>,
+    /// 情感需求：角色内心真正渴望什么
+    #[serde(default)]
+    pub emotional_need: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

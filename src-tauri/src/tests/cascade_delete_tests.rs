@@ -41,6 +41,7 @@ mod cascade_delete_tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character = character_repo.create(character_request)?;
 
@@ -109,6 +110,7 @@ mod cascade_delete_tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character = character_repo.create(character_request)?;
 
@@ -211,6 +213,7 @@ mod cascade_delete_tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character1 = character_repo.create(char1_request)?;
 
@@ -226,6 +229,7 @@ mod cascade_delete_tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character2 = character_repo.create(char2_request)?;
 

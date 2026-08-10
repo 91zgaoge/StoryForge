@@ -245,6 +245,7 @@ impl QuickPreflightChecker {
             age: None,
             source: Some("auto_placeholder".to_string()),
             is_auto_generated: Some(true),
+            ..Default::default()
         })?;
         Ok(())
     }

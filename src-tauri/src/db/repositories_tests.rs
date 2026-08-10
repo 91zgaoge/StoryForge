@@ -165,6 +165,7 @@ mod tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character = char_repo.create(char_req).unwrap();
         assert_eq!(character.name, "张三");
@@ -205,6 +206,7 @@ mod tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -242,6 +244,7 @@ mod tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character = char_repo.create(char_req).unwrap();
 
@@ -296,6 +299,7 @@ mod tests {
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         };
         let character = char_repo.create(char_req).unwrap();
 

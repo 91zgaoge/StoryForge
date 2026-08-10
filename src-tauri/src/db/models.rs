@@ -410,7 +410,262 @@ pub struct CharacterRelationship {
     pub relationship_type: String,
     pub description: Option<String>,
     pub dynamic: Option<String>,
+    /// A->B 情感纽带："爱"/"欺骗"/"毁灭欲"...
+    pub emotional_bond: Option<String>,
+    /// A->B 情感强度 0.0-1.0
+    pub emotional_intensity: Option<f32>,
+    /// B->A 情感纽带
+    pub reverse_emotional_bond: Option<String>,
+    /// B->A 情感强度 0.0-1.0
+    pub reverse_emotional_intensity: Option<f32>,
     pub created_at: DateTime<Local>,
+}
+
+/// 角色间情感纽带类型。创建时强制选择，驱动冲突与剧情。
+///
+/// 枚举用于类型安全处理；DB 中以中文字符串存储（`Display` 输出），
+/// `FromStr` 兼容常见变体（"憎恨"/"恨" -> Hate）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EmotionalBond {
+    /// 爱
+    Love,
+    /// 崇拜
+    Admiration,
+    /// 信任
+    Trust,
+    /// 喜爱
+    Affection,
+    /// 忠诚
+    Loyalty,
+    /// 感恩
+    Gratitude,
+    /// 憎恨
+    Hate,
+    /// 恐惧
+    Fear,
+    /// 蔑视
+    Contempt,
+    /// 怨恨
+    Resentment,
+    /// 厌恶
+    Disgust,
+    /// 欺骗（伪装的情感）
+    Deception,
+    /// 执念
+    Obsession,
+    /// 嫉妒
+    Jealousy,
+    /// 欲望（占有/控制）
+    Desire,
+    /// 愧疚
+    Guilt,
+    /// 怜悯
+    Pity,
+    /// 毁灭欲
+    Destructive,
+    /// 复仇
+    Vengeance,
+}
+
+impl EmotionalBond {
+    /// 输出中文标签。
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Love => "爱",
+            Self::Admiration => "崇拜",
+            Self::Trust => "信任",
+            Self::Affection => "喜爱",
+            Self::Loyalty => "忠诚",
+            Self::Gratitude => "感恩",
+            Self::Hate => "恨",
+            Self::Fear => "恐惧",
+            Self::Contempt => "蔑视",
+            Self::Resentment => "怨恨",
+            Self::Disgust => "厌恶",
+            Self::Deception => "欺骗",
+            Self::Obsession => "执念",
+            Self::Jealousy => "嫉妒",
+            Self::Desire => "欲望",
+            Self::Guilt => "愧疚",
+            Self::Pity => "怜悯",
+            Self::Destructive => "毁灭欲",
+            Self::Vengeance => "复仇",
+        }
+    }
+
+    /// 是否为负面情感。
+    pub fn is_negative(&self) -> bool {
+        matches!(
+            self,
+            Self::Hate
+                | Self::Fear
+                | Self::Contempt
+                | Self::Resentment
+                | Self::Disgust
+                | Self::Deception
+                | Self::Obsession
+                | Self::Jealousy
+                | Self::Desire
+                | Self::Guilt
+                | Self::Pity
+                | Self::Destructive
+                | Self::Vengeance
+        )
+    }
+}
+
+impl std::fmt::Display for EmotionalBond {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+impl std::str::FromStr for EmotionalBond {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "爱" | "热爱" | "love" => Ok(Self::Love),
+            "崇拜" | "崇敬" | "admiration" => Ok(Self::Admiration),
+            "信任" | "trust" => Ok(Self::Trust),
+            "喜爱" | "喜欢" | "affection" => Ok(Self::Affection),
+            "忠诚" | "loyalty" => Ok(Self::Loyalty),
+            "感恩" | "感激" | "gratitude" => Ok(Self::Gratitude),
+            "恨" | "憎恨" | "仇恨" | "痛恨" | "hate" => Ok(Self::Hate),
+            "恐惧" | "害怕" | "畏怯" | "fear" => Ok(Self::Fear),
+            "蔑视" | "轻蔑" | "contempt" => Ok(Self::Contempt),
+            "怨恨" | "resentment" => Ok(Self::Resentment),
+            "厌恶" | "讨厌" | "disgust" => Ok(Self::Disgust),
+            "欺骗" | "背叛" | "deception" => Ok(Self::Deception),
+            "执念" | "痴迷" | "obsession" => Ok(Self::Obsession),
+            "嫉妒" | "妒忌" | "jealousy" => Ok(Self::Jealousy),
+            "欲望" | "占有欲" | "控制欲" | "desire" => Ok(Self::Desire),
+            "愧疚" | "内疚" | "guilt" => Ok(Self::Guilt),
+            "怜悯" | "同情" | "pity" => Ok(Self::Pity),
+            "毁灭欲" | "毁灭" | "destructive" => Ok(Self::Destructive),
+            "复仇" | "报复" | "vengeance" => Ok(Self::Vengeance),
+            other => Err(format!("未知情感类型: {}", other)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod emotional_bond_tests {
+    use std::str::FromStr;
+
+    use super::EmotionalBond;
+
+    #[test]
+    fn test_display_outputs_chinese_label() {
+        assert_eq!(EmotionalBond::Love.to_string(), "爱");
+        assert_eq!(EmotionalBond::Hate.to_string(), "恨");
+        assert_eq!(EmotionalBond::Deception.to_string(), "欺骗");
+        assert_eq!(EmotionalBond::Vengeance.to_string(), "复仇");
+        assert_eq!(EmotionalBond::Destructive.to_string(), "毁灭欲");
+    }
+
+    #[test]
+    fn test_fromstr_accepts_chinese_and_english() {
+        assert_eq!(EmotionalBond::from_str("爱").unwrap(), EmotionalBond::Love);
+        assert_eq!(
+            EmotionalBond::from_str("热爱").unwrap(),
+            EmotionalBond::Love
+        );
+        assert_eq!(
+            EmotionalBond::from_str("love").unwrap(),
+            EmotionalBond::Love
+        );
+
+        assert_eq!(
+            EmotionalBond::from_str("憎恨").unwrap(),
+            EmotionalBond::Hate
+        );
+        assert_eq!(
+            EmotionalBond::from_str("仇恨").unwrap(),
+            EmotionalBond::Hate
+        );
+        assert_eq!(
+            EmotionalBond::from_str("hate").unwrap(),
+            EmotionalBond::Hate
+        );
+
+        assert_eq!(
+            EmotionalBond::from_str("欺骗").unwrap(),
+            EmotionalBond::Deception
+        );
+        assert_eq!(
+            EmotionalBond::from_str("背叛").unwrap(),
+            EmotionalBond::Deception
+        );
+
+        assert_eq!(
+            EmotionalBond::from_str("毁灭欲").unwrap(),
+            EmotionalBond::Destructive
+        );
+        assert_eq!(
+            EmotionalBond::from_str("毁灭").unwrap(),
+            EmotionalBond::Destructive
+        );
+    }
+
+    #[test]
+    fn test_fromstr_rejects_unknown() {
+        assert!(EmotionalBond::from_str("开心").is_err());
+        assert!(EmotionalBond::from_str("").is_err());
+        assert!(EmotionalBond::from_str("unknown").is_err());
+    }
+
+    #[test]
+    fn test_is_negative_classification() {
+        // 正面情感
+        assert!(!EmotionalBond::Love.is_negative());
+        assert!(!EmotionalBond::Trust.is_negative());
+        assert!(!EmotionalBond::Admiration.is_negative());
+        assert!(!EmotionalBond::Loyalty.is_negative());
+
+        // 负面情感
+        assert!(EmotionalBond::Hate.is_negative());
+        assert!(EmotionalBond::Fear.is_negative());
+        assert!(EmotionalBond::Contempt.is_negative());
+        assert!(EmotionalBond::Deception.is_negative());
+        assert!(EmotionalBond::Obsession.is_negative());
+        assert!(EmotionalBond::Jealousy.is_negative());
+        assert!(EmotionalBond::Destructive.is_negative());
+        assert!(EmotionalBond::Vengeance.is_negative());
+
+        // 复杂情感（Desire/Pity/Guilt 归负面，驱动冲突）
+        assert!(EmotionalBond::Desire.is_negative());
+        assert!(EmotionalBond::Pity.is_negative());
+        assert!(EmotionalBond::Guilt.is_negative());
+    }
+
+    #[test]
+    fn test_roundtrip_display_fromstr() {
+        for bond in [
+            EmotionalBond::Love,
+            EmotionalBond::Admiration,
+            EmotionalBond::Trust,
+            EmotionalBond::Affection,
+            EmotionalBond::Loyalty,
+            EmotionalBond::Gratitude,
+            EmotionalBond::Hate,
+            EmotionalBond::Fear,
+            EmotionalBond::Contempt,
+            EmotionalBond::Resentment,
+            EmotionalBond::Disgust,
+            EmotionalBond::Deception,
+            EmotionalBond::Obsession,
+            EmotionalBond::Jealousy,
+            EmotionalBond::Desire,
+            EmotionalBond::Guilt,
+            EmotionalBond::Pity,
+            EmotionalBond::Destructive,
+            EmotionalBond::Vengeance,
+        ] {
+            let label = bond.to_string();
+            let parsed = EmotionalBond::from_str(&label).unwrap();
+            assert_eq!(bond, parsed, "roundtrip failed for {}", label);
+        }
+    }
 }
 
 // ==================== 世界观模型 ====================
@@ -1149,6 +1404,14 @@ pub struct Character {
     pub is_auto_generated: Option<bool>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
+    /// 情感内核：角色的主导情感倾向（身份级静态属性）
+    pub emotional_core: Option<String>,
+    /// 情感触发：什么引发强烈情感反应
+    pub emotional_trigger: Option<String>,
+    /// 情感创伤：驱动行为的过往创伤
+    pub emotional_wound: Option<String>,
+    /// 情感需求：角色内心真正渴望什么
+    pub emotional_need: Option<String>,
 }
 
 impl Character {
@@ -1182,6 +1445,10 @@ impl Character {
             is_auto_generated: entity.is_auto_generated,
             created_at: entity.first_seen,
             updated_at: entity.last_updated,
+            emotional_core: attr_string(attrs, "emotional_core"),
+            emotional_trigger: attr_string(attrs, "emotional_trigger"),
+            emotional_wound: attr_string(attrs, "emotional_wound"),
+            emotional_need: attr_string(attrs, "emotional_need"),
         })
     }
 
@@ -1195,6 +1462,10 @@ impl Character {
             "gender": self.gender,
             "age": self.age,
             "dynamic_traits": self.dynamic_traits,
+            "emotional_core": self.emotional_core,
+            "emotional_trigger": self.emotional_trigger,
+            "emotional_wound": self.emotional_wound,
+            "emotional_need": self.emotional_need,
         })
     }
 }

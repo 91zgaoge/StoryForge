@@ -584,6 +584,7 @@ impl BookDeconstructionService {
 
                     source: None,
                     is_auto_generated: None,
+                    ..Default::default()
                 })
                 .map_err(AppError::from)?;
         }

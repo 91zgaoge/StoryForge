@@ -917,6 +917,7 @@ impl AutoContractBuilder {
 
                 source: None,
                 is_auto_generated: None,
+                ..Default::default()
             })
             .map_err(|e| format!("保存角色失败: {}", e))?;
 

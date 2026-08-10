@@ -517,6 +517,10 @@ pub async fn create_character_relationship(
     relationship_type: String,
     description: Option<String>,
     dynamic: Option<String>,
+    emotional_bond: Option<String>,
+    emotional_intensity: Option<f32>,
+    reverse_emotional_bond: Option<String>,
+    reverse_emotional_intensity: Option<f32>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<serde_json::Value, AppError> {
@@ -534,6 +538,10 @@ pub async fn create_character_relationship(
             &relationship_type,
             description.as_deref(),
             dynamic.as_deref(),
+            emotional_bond.as_deref(),
+            emotional_intensity,
+            reverse_emotional_bond.as_deref(),
+            reverse_emotional_intensity,
         )
         .map_err(|e| {
             log::error!(
@@ -560,6 +568,10 @@ pub async fn create_character_relationship(
         "relationship_type": relationship.relationship_type,
         "description": relationship.description,
         "dynamic": relationship.dynamic,
+        "emotional_bond": relationship.emotional_bond,
+        "emotional_intensity": relationship.emotional_intensity,
+        "reverse_emotional_bond": relationship.reverse_emotional_bond,
+        "reverse_emotional_intensity": relationship.reverse_emotional_intensity,
         "created_at": relationship.created_at,
     }))
 }
@@ -570,6 +582,10 @@ pub async fn update_character_relationship(
     relationship_type: Option<String>,
     description: Option<String>,
     dynamic: Option<String>,
+    emotional_bond: Option<String>,
+    emotional_intensity: Option<f32>,
+    reverse_emotional_bond: Option<String>,
+    reverse_emotional_intensity: Option<f32>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<(), AppError> {
@@ -588,6 +604,10 @@ pub async fn update_character_relationship(
         relationship_type.as_deref(),
         description.as_deref(),
         dynamic.as_deref(),
+        emotional_bond.as_deref(),
+        emotional_intensity,
+        reverse_emotional_bond.as_deref(),
+        reverse_emotional_intensity,
     )
     .map_err(|e| {
         log::error!(
@@ -811,6 +831,10 @@ pub async fn get_character_relationships(
                 "relationship_type": r.relationship_type,
                 "description": r.description,
                 "dynamic": r.dynamic,
+                "emotional_bond": r.emotional_bond,
+                "emotional_intensity": r.emotional_intensity,
+                "reverse_emotional_bond": r.reverse_emotional_bond,
+                "reverse_emotional_intensity": r.reverse_emotional_intensity,
                 "created_at": r.created_at,
             })
         })

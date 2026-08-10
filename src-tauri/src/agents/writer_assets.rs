@@ -336,6 +336,7 @@ mod tests {
                 age: None,
                 source: None,
                 is_auto_generated: None,
+                ..Default::default()
             })
             .unwrap();
         let manager = crate::canonical_state::CanonicalStateManager::new(pool.clone());

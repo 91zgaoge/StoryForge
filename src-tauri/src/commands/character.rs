@@ -45,6 +45,7 @@ pub fn create_character(
 
             source: None,
             is_auto_generated: None,
+            ..Default::default()
         })
         .map_err(AppError::from)?;
 

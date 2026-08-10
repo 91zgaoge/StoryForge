@@ -31,6 +31,10 @@ impl CharacterRepository {
             "gender": req.gender,
             "age": req.age,
             "dynamic_traits": serde_json::json!([]),
+            "emotional_core": req.emotional_core,
+            "emotional_trigger": req.emotional_trigger,
+            "emotional_wound": req.emotional_wound,
+            "emotional_need": req.emotional_need,
         });
 
         let entity = kg_repo.create_entity_in_tx_with_source(
@@ -50,8 +54,8 @@ impl CharacterRepository {
         tx.execute(
             "INSERT INTO characters (id, story_id, name, background, personality, goals, \
              appearance, gender, age, dynamic_traits, source, is_auto_generated, created_at, \
-             updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             updated_at, emotional_core, emotional_trigger, emotional_wound, emotional_need)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 &entity.id,
                 &req.story_id,
@@ -67,6 +71,10 @@ impl CharacterRepository {
                 is_auto_generated as i32,
                 entity.first_seen.to_rfc3339(),
                 entity.last_updated.to_rfc3339(),
+                req.emotional_core,
+                req.emotional_trigger,
+                req.emotional_wound,
+                req.emotional_need,
             ],
         )?;
 
@@ -143,7 +151,8 @@ impl CharacterRepository {
         // table (e.g. older code paths or tests that insert directly).
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
-             dynamic_traits, source, is_auto_generated, created_at, updated_at
+             dynamic_traits, source, is_auto_generated, created_at, updated_at, \
+             emotional_core, emotional_trigger, emotional_wound, emotional_need
              FROM characters
              WHERE story_id = ?1 AND id NOT IN (
                  SELECT id FROM kg_entities WHERE story_id = ?1 AND entity_type = 'Character'
@@ -170,7 +179,8 @@ impl CharacterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
-             dynamic_traits, source, is_auto_generated, created_at, updated_at
+             dynamic_traits, source, is_auto_generated, created_at, updated_at, \
+             emotional_core, emotional_trigger, emotional_wound, emotional_need
              FROM characters WHERE id = ?1",
         )?;
         let character = stmt.query_row([id], Self::row_to_character).optional()?;
@@ -182,7 +192,9 @@ impl CharacterRepository {
     /// Expected column order:
     ///   0 id, 1 story_id, 2 name, 3 background, 4 personality, 5 goals,
     ///   6 appearance, 7 gender, 8 age, 9 dynamic_traits, 10 source,
-    ///   11 is_auto_generated, 12 created_at, 13 updated_at
+    ///   11 is_auto_generated, 12 created_at, 13 updated_at,
+    ///   14 emotional_core, 15 emotional_trigger, 16 emotional_wound, 17
+    /// emotional_need
     fn row_to_character(row: &Row) -> Result<Character, rusqlite::Error> {
         let traits_json: String = row
             .get::<_, Option<String>>(9)?
@@ -208,6 +220,10 @@ impl CharacterRepository {
             is_auto_generated: is_auto_generated.map(|v| v != 0),
             created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
             updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+            emotional_core: row.get(14).ok(),
+            emotional_trigger: row.get(15).ok(),
+            emotional_wound: row.get(16).ok(),
+            emotional_need: row.get(17).ok(),
         })
     }
 
@@ -299,6 +315,75 @@ impl CharacterRepository {
         Ok(count)
     }
 
+    /// 仅更新角色情感属性（身份级静态属性）。
+    /// 与 `update` 分离以保持接口简洁；同时写入 kg_entities.attributes
+    /// JSON 和 legacy characters 表。
+    pub fn update_emotional(
+        &self,
+        id: &str,
+        emotional_core: Option<String>,
+        emotional_trigger: Option<String>,
+        emotional_wound: Option<String>,
+        emotional_need: Option<String>,
+    ) -> Result<usize, rusqlite::Error> {
+        let kg_repo = KnowledgeGraphRepository::new(self.pool.clone());
+        let entity = match kg_repo.get_entity_by_id(id)? {
+            Some(e) => e,
+            None => return Ok(0),
+        };
+        if entity.entity_type != EntityType::Character {
+            return Ok(0);
+        }
+
+        let mut attrs = entity.attributes.clone();
+        if let Some(map) = attrs.as_object_mut() {
+            if let Some(ref v) = emotional_core {
+                map.insert("emotional_core".into(), serde_json::json!(v));
+            }
+            if let Some(ref v) = emotional_trigger {
+                map.insert("emotional_trigger".into(), serde_json::json!(v));
+            }
+            if let Some(ref v) = emotional_wound {
+                map.insert("emotional_wound".into(), serde_json::json!(v));
+            }
+            if let Some(ref v) = emotional_need {
+                map.insert("emotional_need".into(), serde_json::json!(v));
+            }
+        }
+
+        let now = Local::now().to_rfc3339();
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let tx = conn.transaction()?;
+
+        let count = tx.execute(
+            "UPDATE kg_entities SET attributes = ?2, last_updated = ?3 WHERE id = ?1",
+            params![id, attrs.to_string(), now],
+        )?;
+
+        tx.execute(
+            "UPDATE characters SET
+                emotional_core = COALESCE(?2, emotional_core),
+                emotional_trigger = COALESCE(?3, emotional_trigger),
+                emotional_wound = COALESCE(?4, emotional_wound),
+                emotional_need = COALESCE(?5, emotional_need),
+                updated_at = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                emotional_core.as_deref(),
+                emotional_trigger.as_deref(),
+                emotional_wound.as_deref(),
+                emotional_need.as_deref(),
+                now
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(count)
+    }
     /// 将角色动态状态写入 `character_states` 表（而非 `characters` 的 `cs_*`
     /// 列）。
     pub fn update_character_state(
@@ -502,7 +587,8 @@ impl CharacterRepository {
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
         let mut stmt = conn.prepare(
             "SELECT id, story_id, name, background, personality, goals, appearance, gender, age, \
-             dynamic_traits, source, is_auto_generated, created_at, updated_at
+             dynamic_traits, source, is_auto_generated, created_at, updated_at, \
+             emotional_core, emotional_trigger, emotional_wound, emotional_need
              FROM v_characters WHERE story_id = ?1",
         )?;
 
@@ -531,6 +617,10 @@ mod tests {
             age: None,
             source: None,
             is_auto_generated: None,
+            emotional_core: None,
+            emotional_trigger: None,
+            emotional_wound: None,
+            emotional_need: None,
         }
     }
 
@@ -565,6 +655,10 @@ mod tests {
                 age: Some(25),
                 source: None,
                 is_auto_generated: None,
+                emotional_core: None,
+                emotional_trigger: None,
+                emotional_wound: None,
+                emotional_need: None,
             })
             .unwrap();
 
@@ -653,5 +747,120 @@ mod tests {
         assert_eq!(from_view[0].name, "王芳");
         assert_eq!(from_view[0].dynamic_traits.len(), 1);
         assert_eq!(from_view[0].dynamic_traits[0].trait_name, "坚定");
+    }
+
+    /// 角色 CRUD 全链路写入/回读情感属性（身份级静态属性）。
+    #[test]
+    fn test_create_character_with_emotional_attrs() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let story = story_repo.create(story_req("情感角色测试")).unwrap();
+        let repo = CharacterRepository::new(pool.clone());
+
+        let ch = repo
+            .create(CreateCharacterRequest {
+                story_id: story.id.clone(),
+                name: "林夕".to_string(),
+                background: Some("失忆的剑客".to_string()),
+                personality: Some("沉默寡言".to_string()),
+                goals: Some("找回记忆".to_string()),
+                appearance: None,
+                gender: Some("male".to_string()),
+                age: Some(28),
+                source: None,
+                is_auto_generated: None,
+                emotional_core: Some("被遗弃的恐惧驱动一切行为".to_string()),
+                emotional_trigger: Some("看到有人被抛弃时失控".to_string()),
+                emotional_wound: Some("幼年被师父逐出师门".to_string()),
+                emotional_need: Some("被无条件接纳".to_string()),
+            })
+            .unwrap();
+
+        // 通过 get_by_id 回读
+        let by_id = repo.get_by_id(&ch.id).unwrap().unwrap();
+        assert_eq!(
+            by_id.emotional_core.as_deref(),
+            Some("被遗弃的恐惧驱动一切行为")
+        );
+        assert_eq!(
+            by_id.emotional_trigger.as_deref(),
+            Some("看到有人被抛弃时失控")
+        );
+        assert_eq!(by_id.emotional_wound.as_deref(), Some("幼年被师父逐出师门"));
+        assert_eq!(by_id.emotional_need.as_deref(), Some("被无条件接纳"));
+
+        // 通过 get_by_story 回读
+        let by_story = repo.get_by_story(&story.id).unwrap();
+        assert_eq!(by_story.len(), 1);
+        assert_eq!(
+            by_story[0].emotional_core.as_deref(),
+            Some("被遗弃的恐惧驱动一切行为")
+        );
+        assert_eq!(by_story[0].emotional_need.as_deref(), Some("被无条件接纳"));
+
+        // 通过 v_characters 兼容视图回读
+        let from_view = repo.get_from_view(&story.id).unwrap();
+        assert_eq!(from_view.len(), 1);
+        assert_eq!(
+            from_view[0].emotional_core.as_deref(),
+            Some("被遗弃的恐惧驱动一切行为")
+        );
+        assert_eq!(
+            from_view[0].emotional_trigger.as_deref(),
+            Some("看到有人被抛弃时失控")
+        );
+        assert_eq!(
+            from_view[0].emotional_wound.as_deref(),
+            Some("幼年被师父逐出师门")
+        );
+        assert_eq!(from_view[0].emotional_need.as_deref(), Some("被无条件接纳"));
+
+        // 验证 kg_entities.attributes JSON 包含情感字段
+        let kg_repo = KnowledgeGraphRepository::new(pool.clone());
+        let entity = kg_repo.get_entity_by_id(&ch.id).unwrap().unwrap();
+        assert_eq!(
+            entity.attributes["emotional_core"].as_str(),
+            Some("被遗弃的恐惧驱动一切行为")
+        );
+        assert_eq!(
+            entity.attributes["emotional_need"].as_str(),
+            Some("被无条件接纳")
+        );
+    }
+
+    /// update_emotional 独立更新情感属性，不影响其他字段。
+    #[test]
+    fn test_update_emotional_attrs() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let story = story_repo.create(story_req("情感更新测试")).unwrap();
+        let repo = CharacterRepository::new(pool.clone());
+
+        // 创建时不带情感属性
+        let ch = repo.create(req(&story.id, "苏璃")).unwrap();
+        assert!(ch.emotional_core.is_none());
+
+        // 更新情感属性
+        repo.update_emotional(
+            &ch.id,
+            Some("对自由的渴望压倒一切".to_string()),
+            Some("被束缚时暴怒".to_string()),
+            Some("曾被囚禁十年".to_string()),
+            Some("挣脱枷锁、自由飞翔".to_string()),
+        )
+        .unwrap();
+
+        // 回读验证
+        let by_id = repo.get_by_id(&ch.id).unwrap().unwrap();
+        assert_eq!(
+            by_id.emotional_core.as_deref(),
+            Some("对自由的渴望压倒一切")
+        );
+        assert_eq!(by_id.emotional_trigger.as_deref(), Some("被束缚时暴怒"));
+        assert_eq!(by_id.emotional_wound.as_deref(), Some("曾被囚禁十年"));
+        assert_eq!(by_id.emotional_need.as_deref(), Some("挣脱枷锁、自由飞翔"));
+
+        // 原有字段不受影响
+        assert_eq!(by_id.name, "苏璃");
     }
 }

@@ -443,6 +443,7 @@ impl CreationWorkflowEngine {
 
                                     source: None,
                                     is_auto_generated: None,
+                                    ..Default::default()
                                 })
                                 .map(|_| ())
                         } else {
@@ -1060,6 +1061,7 @@ impl CreationWorkflowEngine {
 
                             source: None,
                             is_auto_generated: None,
+                            ..Default::default()
                         });
                     }
                     log::info!(

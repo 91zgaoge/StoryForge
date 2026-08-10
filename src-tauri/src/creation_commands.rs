@@ -181,6 +181,7 @@ fn persist_wizard_elements_in_tx(
                 age: None,
                 source: Some("genesis".to_string()),
                 is_auto_generated: Some(true),
+                ..Default::default()
             },
         )?;
         created_chars.push(char);
@@ -311,6 +312,7 @@ fn apply_wizard_elements_in_tx(
                     age: None,
                     source: Some("genesis".to_string()),
                     is_auto_generated: Some(true),
+                    ..Default::default()
                 },
             )?;
             created_chars.push(char);
