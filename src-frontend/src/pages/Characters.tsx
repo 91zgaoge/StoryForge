@@ -44,15 +44,26 @@ type CharacterTab = 'info' | 'relationships';
 function RelationshipCard({
   rel,
   characterId,
+  characters,
   storyId,
 }: {
   rel: CharacterRelationship;
   characterId: string;
+  characters: Character[];
   storyId: string;
 }) {
   const deleteRelationship = useDeleteCharacterRelationship();
   const updateRelationship = useUpdateCharacterRelationship();
   const isOutgoing = rel.source_character_id === characterId;
+  // 对方角色名：出向时后端 JOIN 填充的 target_character_name 即对方；
+  // 入向时 target 就是当前角色，需从角色列表按 source_character_id 解析对方名
+  const otherName = isOutgoing
+    ? rel.target_character_name
+    : (characters.find(c => c.id === rel.source_character_id)?.name ?? rel.target_character_name);
+  const other = otherName ?? '对方';
+  // 方向标签随 isOutgoing 适配：emotional_bond 恒为 source→target，reverse 恒为 target→source
+  const forwardLabel = isOutgoing ? `当前角色 → ${other}` : `${other} → 当前角色`;
+  const reverseLabel = isOutgoing ? `${other} → 当前角色` : `当前角色 → ${other}`;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({
     relationship_type: rel.relationship_type,
@@ -94,9 +105,9 @@ function RelationshipCard({
           <Link2 className="w-3.5 h-3.5 text-cinema-gold" />
           <span className="text-white font-medium">{isOutgoing ? '->' : '←'}</span>
           <span className="text-cinema-gold">{rel.relationship_type}</span>
-          {rel.target_character_name && (
+          {otherName && (
             <span className="text-gray-400">
-              {isOutgoing ? '对' : '来自'} {rel.target_character_name}
+              {isOutgoing ? '对' : '来自'} {otherName}
             </span>
           )}
         </div>
@@ -147,11 +158,11 @@ function RelationshipCard({
             className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
           />
           <div>
-            <label className="block text-xs text-gray-500 mb-1">A对B的情感</label>
+            <label className="block text-xs text-gray-500 mb-1">{forwardLabel}的情感</label>
             <input
               value={draft.emotional_bond}
               onChange={e => setDraft({ ...draft, emotional_bond: e.target.value })}
-              placeholder="如：信任/憎恨（留空表示无）"
+              placeholder="如：信任/憎恨（留空则保持不变）"
               className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
             />
             {draft.emotional_bond && (
@@ -174,11 +185,11 @@ function RelationshipCard({
             )}
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">B对A的情感</label>
+            <label className="block text-xs text-gray-500 mb-1">{reverseLabel}的情感</label>
             <input
               value={draft.reverse_emotional_bond}
               onChange={e => setDraft({ ...draft, reverse_emotional_bond: e.target.value })}
-              placeholder="如：崇拜/冷漠（留空表示无）"
+              placeholder="如：崇拜/冷漠（留空则保持不变）"
               className="w-full px-2 py-1 bg-cinema-900 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none"
             />
             {draft.reverse_emotional_bond && (
@@ -228,13 +239,13 @@ function RelationshipCard({
           )}
           {rel.emotional_bond && (
             <p className="mt-1 text-xs text-gray-500">
-              A对B: {rel.emotional_bond}
+              {forwardLabel}: {rel.emotional_bond}
               {rel.emotional_intensity != null && ` (${rel.emotional_intensity.toFixed(1)})`}
             </p>
           )}
           {rel.reverse_emotional_bond && (
             <p className="mt-1 text-xs text-gray-500">
-              B对A: {rel.reverse_emotional_bond}
+              {reverseLabel}: {rel.reverse_emotional_bond}
               {rel.reverse_emotional_intensity != null &&
                 ` (${rel.reverse_emotional_intensity.toFixed(1)})`}
             </p>
@@ -592,6 +603,7 @@ export function Characters() {
                           key={rel.id}
                           rel={rel}
                           characterId={char.id}
+                          characters={characters}
                           storyId={currentStory.id}
                         />
                       ))}

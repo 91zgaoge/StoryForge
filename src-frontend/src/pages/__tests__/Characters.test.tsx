@@ -33,7 +33,10 @@ vi.mock('@/stores/appStore', () => ({
 
 vi.mock('@/hooks/useCharacters', () => ({
   useCharacters: () => ({
-    data: [{ id: 'char-1', name: 'Alice', is_auto_generated: false }],
+    data: [
+      { id: 'char-1', name: 'Alice', is_auto_generated: false },
+      { id: 'char-2', name: 'Bob', is_auto_generated: false },
+    ],
     isLoading: false,
   }),
   useCreateCharacter: () => ({ mutate: vi.fn(), isPending: false }),
@@ -51,6 +54,24 @@ vi.mock('@/hooks/useCharacterRelationships', () => ({
         target_character_name: 'Bob',
         relationship_type: '朋友',
         description: '好朋友',
+        emotional_bond: '信任',
+        emotional_intensity: 0.8,
+        reverse_emotional_bond: '依赖',
+        reverse_emotional_intensity: 0.6,
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'rel-2',
+        story_id: 'story-1',
+        source_character_id: 'char-2',
+        target_character_id: 'char-1',
+        target_character_name: 'Alice',
+        relationship_type: '对手',
+        description: '竞争对手',
+        emotional_bond: '嫉妒',
+        emotional_intensity: 0.7,
+        reverse_emotional_bond: '欣赏',
+        reverse_emotional_intensity: 0.4,
         created_at: new Date().toISOString(),
       },
     ],
@@ -93,7 +114,7 @@ describe('Characters', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '关系' }));
 
-    const deleteBtn = await screen.findByTestId('delete-relationship-rel-1');
+    const deleteBtn = (await screen.findAllByTestId('delete-relationship-rel-1'))[0];
     expect(deleteBtn).toBeInTheDocument();
 
     await userEvent.click(deleteBtn);
@@ -108,9 +129,38 @@ describe('Characters', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '关系' }));
 
-    const deleteBtn = await screen.findByTestId('delete-relationship-rel-1');
+    const deleteBtn = (await screen.findAllByTestId('delete-relationship-rel-1'))[0];
     await userEvent.click(deleteBtn);
 
     expect(deleteMutate).not.toHaveBeenCalled();
+  });
+
+  it('展示行方向标签按 isOutgoing 生成并含实际角色名', async () => {
+    render(<Characters />, { wrapper });
+
+    await userEvent.click(screen.getByRole('button', { name: '关系' }));
+
+    // 出向卡片（Alice 视角看 rel-1）：source→target 即 当前角色 → Bob
+    expect(await screen.findAllByText(/当前角色 → Bob: 信任/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/Bob → 当前角色: 依赖/)).not.toHaveLength(0);
+
+    // 入向卡片（Alice 视角看 rel-2）：对方名按 source 解析为 Bob，方向交换
+    expect(screen.getAllByText(/Bob → 当前角色: 嫉妒/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/当前角色 → Bob: 欣赏/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/来自 Bob/)).not.toHaveLength(0);
+  });
+
+  it('编辑表单的方向标签与 placeholder 随 isOutgoing 适配', async () => {
+    render(<Characters />, { wrapper });
+
+    await userEvent.click(screen.getByRole('button', { name: '关系' }));
+
+    const editButtons = await screen.findAllByTitle('编辑关系');
+    await userEvent.click(editButtons[0]);
+
+    expect(screen.getByText(/当前角色 → Bob的情感/)).toBeInTheDocument();
+    expect(screen.getByText(/Bob → 当前角色的情感/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('如：信任/憎恨（留空则保持不变）')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('如：崇拜/冷漠（留空则保持不变）')).toBeInTheDocument();
   });
 });
