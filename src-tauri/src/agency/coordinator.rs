@@ -5040,6 +5040,17 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
             "要求：角色言行须与其情感关系一致；不得让角色做出与其情感矛盾的行为（除非剧情有转变理由）。\n\n",
         );
     }
+    // 情感张力账本：人际张力种子 + 情感弧光，作为本节剧情驱动力。
+    let tensions = crate::agency::emotional_ledger::load_tensions(pool, story_id);
+    let tension_text = crate::agency::emotional_ledger::render_tensions_for_prompt(&tensions);
+    if !tension_text.is_empty() {
+        ctx.push_str(&tension_text);
+    }
+    let arcs = crate::agency::emotional_ledger::load_arcs(pool, story_id);
+    let arc_text = crate::agency::emotional_ledger::render_arcs_for_prompt(&arcs);
+    if !arc_text.is_empty() {
+        ctx.push_str(&arc_text);
+    }
     // v0.30.31: 世界观全字段注入（concept + rules 前5 + history + cultures 前3）。
     // 此前只注入 concept+history 且超 6000 整段丢弃（全有或全无），用户在世界观
     // 面板填的规则/文化从不到达 writer；现改为超预算截断降级注入，规则/文化不再

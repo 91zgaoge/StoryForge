@@ -3943,6 +3943,21 @@ fn build_progression_anchor(
         }
     }
 
+    // 情感张力账本：人际张力种子 + 情感弧光（剧情驱动力，非硬约束，不计入
+    // has_assets）
+    {
+        let tensions = crate::agency::emotional_ledger::load_tensions(pool, story_id);
+        let tension_text = crate::agency::emotional_ledger::render_tensions_for_prompt(&tensions);
+        if !tension_text.is_empty() {
+            sections.push(tension_text.trim_end().to_string());
+        }
+        let arcs = crate::agency::emotional_ledger::load_arcs(pool, story_id);
+        let arc_text = crate::agency::emotional_ledger::render_arcs_for_prompt(&arcs);
+        if !arc_text.is_empty() {
+            sections.push(arc_text.trim_end().to_string());
+        }
+    }
+
     if sections.is_empty() {
         return String::new();
     }
