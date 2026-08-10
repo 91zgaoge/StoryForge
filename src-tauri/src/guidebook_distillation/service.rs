@@ -57,12 +57,30 @@ impl GuidebookDistillationService {
         let file_hash = self.compute_file_hash(file_path).await?;
 
         let repo = GuidebookRepository::new(self.pool.clone());
-        if let Ok(Some(existing)) = repo.get_by_hash(&file_hash) {
-            log::info!(
-                "[GuidebookDistillation] File already exists: {}",
-                existing.id
-            );
-            return Ok(existing.id);
+        // 先取出 id 与去重决策，避免把非 Send 的 RepoResult 临时量带过 await
+        let dedup = match repo.get_by_hash(&file_hash) {
+            Ok(Some(existing)) => Some((existing.id, dedup_decision(&existing.status))),
+            _ => None,
+        };
+        if let Some((existing_id, decision)) = dedup {
+            match decision {
+                DedupDecision::ReturnExisting => {
+                    log::info!(
+                        "[GuidebookDistillation] File already exists: {}",
+                        existing_id
+                    );
+                    return Ok(existing_id);
+                }
+                DedupDecision::RetryExisting => {
+                    // 失败/已取消的记录：复用已存文件重新提炼，不重复落文件
+                    log::info!(
+                        "[GuidebookDistillation] Retrying failed/cancelled distillation: {}",
+                        existing_id
+                    );
+                    self.retry_distillation(&existing_id).await?;
+                    return Ok(existing_id);
+                }
+            }
         }
 
         let guidebook_id = Uuid::new_v4().to_string();
@@ -308,6 +326,82 @@ impl GuidebookDistillationService {
             .map_err(AppError::from)
     }
 
+    /// 重试提炼：复用已存文件重建任务（仅 failed/cancelled 可重试）。
+    /// 与 upload_and_distill 的任务创建/回退路径同款。
+    pub async fn retry_distillation(&self, guidebook_id: &str) -> Result<(), ParseError> {
+        let repo = GuidebookRepository::new(self.pool.clone());
+        let book = repo
+            .get_by_id(guidebook_id)
+            .map_err(|e| ParseError::StorageError(format!("查询指导书失败: {}", e)))?
+            .ok_or_else(|| ParseError::StorageError("指导书不存在".to_string()))?;
+        match book.status {
+            DistillationStatus::Failed | DistillationStatus::Cancelled => {}
+            _ => {
+                return Err(ParseError::StorageError(
+                    "仅失败或已取消的指导书可重试".to_string(),
+                ))
+            }
+        }
+        let file_path = book.file_path.clone().ok_or_else(|| {
+            ParseError::StorageError("原始文件记录缺失，请删除后重新上传".to_string())
+        })?;
+        let path = std::path::PathBuf::from(&file_path);
+        if !path.exists() {
+            return Err(ParseError::IoError(
+                "原始文件已丢失，请删除后重新上传".to_string(),
+            ));
+        }
+        let parsed = parse_book(&path, None)?;
+        repo.reset_for_retry(guidebook_id)
+            .map_err(|e| ParseError::StorageError(format!("重置状态失败: {}", e)))?;
+
+        let payload = serde_json::json!({
+            "guidebook_id": guidebook_id,
+            "file_path": file_path,
+        })
+        .to_string();
+        let task_req = CreateTaskRequest {
+            name: format!("指导书提炼（重试）: {}", book.title),
+            description: Some(format!("重试提炼 {} 字的指导书", parsed.word_count)),
+            task_type: "guidebook_distillation".to_string(),
+            schedule_type: "once".to_string(),
+            cron_pattern: None,
+            payload: Some(payload),
+            enabled: Some(true),
+            max_retries: Some(3),
+            heartbeat_timeout_seconds: Some(600),
+        };
+
+        let task_service = self.app_handle.state::<TaskService>();
+        match task_service.create_task(task_req) {
+            Ok(task) => {
+                let _ = repo.update_task_id(guidebook_id, &task.id);
+                let _ = repo.update_status(guidebook_id, DistillationStatus::Pending, 0);
+            }
+            Err(e) => {
+                log::error!(
+                    "[GuidebookDistillation] 重试任务创建失败，回退直接后台提炼: {}",
+                    e
+                );
+                let pool = self.pool.clone();
+                let llm_service = self.llm_service.clone();
+                let app_handle = self.app_handle.clone();
+                let gid = guidebook_id.to_string();
+                let chunks = create_chunks(&parsed);
+                tauri::async_runtime::spawn(async move {
+                    let service =
+                        GuidebookDistillationService::new(pool.clone(), llm_service, app_handle);
+                    if let Err(e) = service.run_distillation(&gid, &chunks, None, None).await {
+                        log::error!("[GuidebookDistillation] 回退重试提炼失败 {}: {}", gid, e);
+                        let repo = GuidebookRepository::new(pool.clone());
+                        let _ = repo.update_error(&gid, &e.to_string());
+                    }
+                });
+            }
+        }
+        Ok(())
+    }
+
     // ==================== 文件工具（与拆书同款规则） ====================
 
     fn validate_file(&self, file_path: &Path) -> Result<(), ParseError> {
@@ -430,6 +524,20 @@ fn clip_chars(s: &str, max: usize) -> String {
     }
 }
 
+/// hash 去重决策：失败/已取消的记录走重试，其余直接返回旧 id
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum DedupDecision {
+    ReturnExisting,
+    RetryExisting,
+}
+
+pub(crate) fn dedup_decision(status: &DistillationStatus) -> DedupDecision {
+    match status {
+        DistillationStatus::Failed | DistillationStatus::Cancelled => DedupDecision::RetryExisting,
+        _ => DedupDecision::ReturnExisting,
+    }
+}
+
 #[cfg(test)]
 mod extension_tests {
     use super::*;
@@ -519,6 +627,27 @@ mod extension_tests {
                 updated_at: chrono::Local::now(),
             })
             .unwrap();
+    }
+
+    #[test]
+    fn dedup_decision_only_failed_and_cancelled_retry() {
+        assert!(matches!(
+            dedup_decision(&DistillationStatus::Failed),
+            DedupDecision::RetryExisting
+        ));
+        assert!(matches!(
+            dedup_decision(&DistillationStatus::Cancelled),
+            DedupDecision::RetryExisting
+        ));
+        for s in [
+            DistillationStatus::Pending,
+            DistillationStatus::Extracting,
+            DistillationStatus::Distilling,
+            DistillationStatus::Merging,
+            DistillationStatus::Completed,
+        ] {
+            assert!(matches!(dedup_decision(&s), DedupDecision::ReturnExisting));
+        }
     }
 
     #[test]

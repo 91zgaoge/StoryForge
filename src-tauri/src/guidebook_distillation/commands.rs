@@ -87,6 +87,18 @@ pub async fn cancel_guidebook_distillation(
     new_service(&app_handle)?.cancel_distillation(&guidebook_id)
 }
 
+/// 重试失败/已取消的提炼（复用已存文件，无需重新上传）
+#[command(rename_all = "snake_case")]
+pub async fn retry_guidebook_distillation(
+    guidebook_id: String,
+    app_handle: AppHandle,
+) -> Result<(), AppError> {
+    new_service(&app_handle)?
+        .retry_distillation(&guidebook_id)
+        .await
+        .map_err(AppError::from)
+}
+
 // ==================== 方法论清单与自定义方法论管理 ====================
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

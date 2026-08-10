@@ -209,6 +209,7 @@ tauri::generate_handler! {
     guidebook_distillation::commands::list_guidebooks,
     guidebook_distillation::commands::delete_guidebook,
     guidebook_distillation::commands::cancel_guidebook_distillation,
+    guidebook_distillation::commands::retry_guidebook_distillation,
     guidebook_distillation::commands::list_all_methodologies,
     guidebook_distillation::commands::update_custom_methodology,
     guidebook_distillation::commands::delete_custom_methodology,

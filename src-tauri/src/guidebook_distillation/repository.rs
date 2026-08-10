@@ -143,6 +143,17 @@ impl GuidebookRepository {
         Ok(())
     }
 
+    /// 重试前重置：清错误、回到 pending、进度归零
+    pub fn reset_for_retry(&self, id: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE guidebooks SET status = 'pending', progress = 0, error = NULL, \
+             updated_at = ?1 WHERE id = ?2",
+            params![Local::now().to_rfc3339(), id],
+        )?;
+        Ok(())
+    }
+
     /// 提炼完成后回写元信息与产物关联
     pub fn update_distilled(
         &self,
@@ -388,6 +399,22 @@ mod tests {
         assert_eq!(repo.list_all().unwrap().len(), 1);
         repo.delete("g1").unwrap();
         assert!(repo.get_by_id("g1").unwrap().is_none());
+    }
+
+    #[test]
+    fn reset_for_retry_clears_status_progress_error() {
+        let pool = create_test_pool().unwrap();
+        let repo = GuidebookRepository::new(pool);
+        repo.create(&sample_guidebook("g9")).unwrap();
+        repo.update_error("g9", "LLM 超时").unwrap();
+        let g = repo.get_by_id("g9").unwrap().unwrap();
+        assert_eq!(g.status, DistillationStatus::Failed);
+        assert!(g.error.is_some());
+        repo.reset_for_retry("g9").unwrap();
+        let g = repo.get_by_id("g9").unwrap().unwrap();
+        assert_eq!(g.status, DistillationStatus::Pending);
+        assert_eq!(g.progress, 0);
+        assert!(g.error.is_none());
     }
 
     #[test]
