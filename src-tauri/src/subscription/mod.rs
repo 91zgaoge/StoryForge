@@ -72,7 +72,8 @@ impl SubscriptionService {
     /// 检查用户是否有权使用指定功能（订阅解锁功能，非模型配额）
     ///
     /// 细粒度功能权限映射：
-    /// - Free 用户可用：基础写作、场景管理、角色管理、知识图谱查询
+    /// - Free 用户可用：基础写作、场景管理、角色管理、知识图谱查询、大纲、
+    ///   技能书提炼（v0.36.0 起免费）
     /// - Pro 用户解锁：Bootstrap / Pipeline（Refine/Review/Finalize）/ 拆书 /
     ///   自动续写 / 自动修改
     pub fn has_feature_access(&self, user_id: &str, feature_id: &str) -> Result<bool, AppError> {
@@ -86,6 +87,7 @@ impl SubscriptionService {
             "character_management",
             "knowledge_graph_query",
             "outline",
+            "guidebook_distillation",
         ];
 
         if free_features.contains(&feature_id) {
@@ -185,7 +187,8 @@ mod tests {
         let svc = service();
         assert!(svc.has_feature_access("u-free", "writer").unwrap());
         assert!(svc.has_feature_access("u-free", "outline").unwrap());
-        assert!(!svc
+        // v0.36.0：技能书提炼转为免费功能
+        assert!(svc
             .has_feature_access("u-free", "guidebook_distillation")
             .unwrap());
         assert!(!svc.has_feature_access("u-free", "bootstrap").unwrap());
@@ -217,17 +220,16 @@ mod tests {
     fn downgrade_back_to_free_revokes_pro_features() {
         let svc = service();
         svc.upgrade_subscription("u3", "pro", Some(30)).unwrap();
-        assert!(svc
-            .has_feature_access("u3", "guidebook_distillation")
-            .unwrap());
+        assert!(svc.has_feature_access("u3", "book_deconstruction").unwrap());
 
         let status = svc.upgrade_subscription("u3", "free", None).unwrap();
         assert_eq!(status.tier, "free");
-        assert!(!svc
+        assert!(!svc.has_feature_access("u3", "book_deconstruction").unwrap());
+        // 免费基础功能不受影响（含 v0.36.0 起免费的技能书提炼）
+        assert!(svc.has_feature_access("u3", "writer").unwrap());
+        assert!(svc
             .has_feature_access("u3", "guidebook_distillation")
             .unwrap());
-        // 免费基础功能不受影响
-        assert!(svc.has_feature_access("u3", "writer").unwrap());
     }
 
     #[test]
@@ -298,7 +300,7 @@ mod tests {
         assert_eq!(count_rows(), before + 1);
         let svc = SubscriptionService::new(pool.clone());
         assert!(!svc
-            .has_feature_access("u-cache-same", "guidebook_distillation")
+            .has_feature_access("u-cache-same", "book_deconstruction")
             .unwrap());
     }
 }

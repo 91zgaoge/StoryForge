@@ -13,34 +13,15 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
   <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 );
 
-const { subscriptionState, dialogOpenMock, devUpgradeMock } = vi.hoisted(() => ({
+const { subscriptionState, dialogOpenMock } = vi.hoisted(() => ({
   subscriptionState: { isPro: false },
   dialogOpenMock: vi.fn(),
-  devUpgradeMock: vi.fn(),
 }));
 
 vi.mock('@/hooks/useSubscription', () => ({
   useSubscription: () => ({
     isPro: subscriptionState.isPro,
-    // 模拟刷新订阅状态：升级成功后后端已为 Pro
-    fetchStatus: () => {
-      subscriptionState.isPro = true;
-      return Promise.resolve();
-    },
-  }),
-}));
-
-vi.mock('@/services/tauri', () => ({
-  devUpgradeSubscription: (...args: unknown[]) => devUpgradeMock(...args),
-}));
-
-// Task 6: UpgradeModal 未登录时按钮文案变为「暂不登录，仅本设备升级」——
-// 本链路测试沿用「立即升级」断言，故 mock 已登录态
-vi.mock('@/stores/useAuthStore', () => ({
-  useAuthStore: () => ({
-    isLoggedIn: true,
-    isWaitingForOAuth: false,
-    login: vi.fn(),
+    fetchStatus: () => Promise.resolve(),
   }),
 }));
 
@@ -61,66 +42,24 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 
-describe('GuidebookDistillationPanel - Pro 门控（v0.33.7）', () => {
+describe('GuidebookDistillationPanel - 免费可用（v0.36.0）', () => {
   beforeEach(() => {
     subscriptionState.isPro = false;
     dialogOpenMock.mockReset();
-    devUpgradeMock.mockReset();
   });
 
-  it('Free 用户看到 Pro 徽标与升级横幅', () => {
+  it('Free 用户无 Pro 徽标与升级横幅', () => {
     render(<GuidebookDistillationPanel />, { wrapper });
-    expect(screen.getByText('Pro')).toBeInTheDocument();
-    expect(screen.getByText(/指导书提炼为 Pro 功能/)).toBeInTheDocument();
-    expect(screen.getByText('升级 Pro')).toBeInTheDocument();
+    expect(screen.queryByText('Pro')).not.toBeInTheDocument();
+    expect(screen.queryByText(/指导书提炼为 Pro 功能/)).not.toBeInTheDocument();
+    expect(screen.queryByText('升级 Pro')).not.toBeInTheDocument();
   });
 
-  it('Free 用户点击上传不弹文件对话框，改为打开升级弹窗', async () => {
-    const user = userEvent.setup();
-    render(<GuidebookDistillationPanel />, { wrapper });
-
-    await user.click(screen.getByText('上传指导书'));
-    expect(dialogOpenMock).not.toHaveBeenCalled();
-    expect(screen.getByText('「指导书提炼」需要 Pro')).toBeInTheDocument();
-  });
-
-  it('Free 用户点击横幅「升级 Pro」打开升级弹窗', async () => {
-    const user = userEvent.setup();
-    render(<GuidebookDistillationPanel />, { wrapper });
-
-    await user.click(screen.getByText('升级 Pro'));
-    expect(screen.getByText('「指导书提炼」需要 Pro')).toBeInTheDocument();
-  });
-
-  it('Pro 用户无徽标与横幅，点击上传会打开文件对话框', async () => {
-    subscriptionState.isPro = true;
+  it('Free 用户点击上传直接打开文件对话框', async () => {
     dialogOpenMock.mockResolvedValue(null);
     const user = userEvent.setup();
     render(<GuidebookDistillationPanel />, { wrapper });
 
-    expect(screen.queryByText(/指导书提炼为 Pro 功能/)).not.toBeInTheDocument();
-    await user.click(screen.getByText('上传指导书'));
-    expect(dialogOpenMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('升级链路：弹窗点「立即升级」后横幅消失、上传入口解锁', async () => {
-    devUpgradeMock.mockResolvedValue({ tier: 'pro' });
-    dialogOpenMock.mockResolvedValue(null);
-    const user = userEvent.setup();
-    render(<GuidebookDistillationPanel />, { wrapper });
-
-    // Free 态：横幅存在，上传被拦截
-    await user.click(screen.getByText('升级 Pro'));
-    expect(screen.getByText('「指导书提炼」需要 Pro')).toBeInTheDocument();
-
-    await user.click(screen.getByText('立即升级'));
-    expect(devUpgradeMock).toHaveBeenCalledWith('pro');
-
-    // 升级后：弹窗关闭、横幅消失
-    expect(screen.queryByText('「指导书提炼」需要 Pro')).not.toBeInTheDocument();
-    expect(screen.queryByText(/指导书提炼为 Pro 功能/)).not.toBeInTheDocument();
-
-    // 上传入口已解锁
     await user.click(screen.getByText('上传指导书'));
     expect(dialogOpenMock).toHaveBeenCalledTimes(1);
   });
