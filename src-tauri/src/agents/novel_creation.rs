@@ -238,13 +238,18 @@ impl NovelCreationAgent {
         "personality": "性格特点（30-50字）",
         "background": "背景故事（50-100字）",
         "goals": "目标动机（30-50字）",
-        "voice_style": "语言风格（20-30字）"
+        "voice_style": "语言风格（20-30字）",
+        "emotional_core": "情感内核：主导情感倾向（20-40字）",
+        "emotional_trigger": "情感触发：引爆情绪的场景或行为（20-40字）",
+        "emotional_wound": "情感创伤：塑造情感模式的过往伤口（20-40字）",
+        "emotional_need": "情感需求：深层渴望的情感满足（20-40字）"
       }}
     ]
   ]
 }}
 
 注意：
+- 每个角色必须含全部10个字段，emotional_* 四字段不得为空
 - 姓名应符合世界观文化背景，且具有辨识度
 - 禁止使用林、陈、王、李、张、刘等最常见单字姓；禁止单字名
 - 同一组角色姓氏不得重复
@@ -667,6 +672,24 @@ mod tests {
         let raw = r#"{"characters":[]}"#;
         let err = NovelCreationAgent::parse_character_roster_response(raw).unwrap_err();
         assert!(err.contains("character_sets"), "err={}", err);
+    }
+
+    #[test]
+    fn test_character_profile_option_deserializes_emotional_fields() {
+        let json = r#"{"id":"c1","name":"阿岩","personality":"偏执","background":"孤儿",
+          "goals":"夺回令牌","voice_style":"冷硬",
+          "emotional_core":"表面冷漠内心炽热","emotional_trigger":"被背叛时暴怒",
+          "emotional_wound":"童年被师父抛弃","emotional_need":"渴望被认可"}"#;
+        let opt: CharacterProfileOption = serde_json::from_str(json).unwrap();
+        assert_eq!(opt.emotional_core, "表面冷漠内心炽热");
+        assert_eq!(opt.emotional_wound, "童年被师父抛弃");
+    }
+
+    #[test]
+    fn test_character_profile_option_backward_compat() {
+        let json = r#"{"id":"c1","name":"甲","personality":"","background":"","goals":"","voice_style":""}"#;
+        let opt: CharacterProfileOption = serde_json::from_str(json).unwrap();
+        assert_eq!(opt.emotional_core, "");
     }
 
     #[test]

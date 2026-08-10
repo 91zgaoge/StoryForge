@@ -34,6 +34,16 @@ use crate::{
     router::TaskType,
 };
 
+/// 空串转 None：情感属性缺省为空串，落库时归一为 NULL（与向导/Agency
+/// 路径对齐）。
+fn non_empty_opt(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
 /// 创作阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1061,6 +1071,10 @@ impl CreationWorkflowEngine {
 
                             source: None,
                             is_auto_generated: None,
+                            emotional_core: non_empty_opt(&c.emotional_core),
+                            emotional_trigger: non_empty_opt(&c.emotional_trigger),
+                            emotional_wound: non_empty_opt(&c.emotional_wound),
+                            emotional_need: non_empty_opt(&c.emotional_need),
                             ..Default::default()
                         });
                     }

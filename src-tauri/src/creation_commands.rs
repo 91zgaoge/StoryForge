@@ -109,6 +109,15 @@ pub struct WizardCreationResult {
     pub ingested_relations: usize,
 }
 
+/// 空串转 None：情感属性缺省为空串，落库时归一为 NULL（与 Agency 路径对齐）。
+fn non_empty_opt(s: &str) -> Option<String> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
 /// 在事务中持久化故事核心要素（Story + WorldBuilding + Characters +
 /// WritingStyle + Scene） 供 create_story_with_wizard 和 CreationWorkflowEngine
 /// 复用
@@ -181,6 +190,10 @@ fn persist_wizard_elements_in_tx(
                 age: None,
                 source: Some("genesis".to_string()),
                 is_auto_generated: Some(true),
+                emotional_core: non_empty_opt(&char_opt.emotional_core),
+                emotional_trigger: non_empty_opt(&char_opt.emotional_trigger),
+                emotional_wound: non_empty_opt(&char_opt.emotional_wound),
+                emotional_need: non_empty_opt(&char_opt.emotional_need),
                 ..Default::default()
             },
         )?;
@@ -312,6 +325,10 @@ fn apply_wizard_elements_in_tx(
                     age: None,
                     source: Some("genesis".to_string()),
                     is_auto_generated: Some(true),
+                    emotional_core: non_empty_opt(&char_opt.emotional_core),
+                    emotional_trigger: non_empty_opt(&char_opt.emotional_trigger),
+                    emotional_wound: non_empty_opt(&char_opt.emotional_wound),
+                    emotional_need: non_empty_opt(&char_opt.emotional_need),
                     ..Default::default()
                 },
             )?;

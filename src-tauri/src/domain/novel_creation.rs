@@ -25,6 +25,18 @@ pub struct CharacterProfileOption {
     pub background: String,
     pub goals: String,
     pub voice_style: String,
+    /// 情感内核：角色的主导情感倾向（缺省空串，向后兼容旧响应）
+    #[serde(default)]
+    pub emotional_core: String,
+    /// 情感触发：引爆情绪的场景/行为
+    #[serde(default)]
+    pub emotional_trigger: String,
+    /// 情感创伤：塑造情感模式的过往伤口
+    #[serde(default)]
+    pub emotional_wound: String,
+    /// 情感需求：角色深层渴望的情感满足
+    #[serde(default)]
+    pub emotional_need: String,
 }
 
 /// 文字风格选项
