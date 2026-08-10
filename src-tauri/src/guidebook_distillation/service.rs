@@ -207,8 +207,8 @@ impl GuidebookDistillationService {
                     checklist: s.checklist.clone(),
                 })
                 .collect(),
-            patterns: vec![],
-            cheatsheet: Cheatsheet::default(),
+            patterns: output.techniques.clone(),
+            cheatsheet: output.cheatsheet.clone(),
             enabled: true,
             created_at: now,
             updated_at: now,
@@ -345,7 +345,7 @@ impl GuidebookDistillationService {
     }
 }
 
-/// 续写注入点用：渲染自定义方法论当前步骤的约束文本。
+/// 续写注入点用：渲染自定义方法论当前步骤的约束文本 + 技巧参考 + 决策速查。
 /// 未知 id / 已禁用 / 无步骤 → None（调用方静默跳过注入）。
 pub fn render_custom_methodology_extension(
     pool: &DbPool,
@@ -373,14 +373,61 @@ pub fn render_custom_methodology_extension(
                 .join("\n")
         )
     };
-    Some(format!(
+    let mut out = format!(
         "【创作方法论（{}·第{}步：{}）】\n{}{}",
         cm.name,
         idx + 1,
         s.title,
         s.instruction,
         checklist
-    ))
+    );
+
+    // 技巧参考：按步骤轮转取最多 3 条（确定性、零额外 LLM 调用）
+    if !cm.patterns.is_empty() {
+        let start = idx % cm.patterns.len();
+        let n = 3.min(cm.patterns.len());
+        let lines = (0..n)
+            .map(|k| {
+                let t = &cm.patterns[(start + k) % cm.patterns.len()];
+                format!(
+                    "- {}：{}→{}",
+                    clip_chars(&t.name, 40),
+                    clip_chars(&t.when_to_use, 80),
+                    clip_chars(&t.how, 160)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        out.push_str(&format!("\n\n【技巧参考】\n{}", lines));
+    }
+
+    // 决策速查：最多 3 条规则 + 1 条反模式
+    if !cm.cheatsheet.decision_rules.is_empty() || !cm.cheatsheet.anti_patterns.is_empty() {
+        let mut lines = Vec::new();
+        for r in cm.cheatsheet.decision_rules.iter().take(3) {
+            lines.push(format!("- {}", clip_chars(r, 120)));
+        }
+        if let Some(ap) = cm.cheatsheet.anti_patterns.first() {
+            lines.push(format!(
+                "- 避免：{}（{}）",
+                clip_chars(&ap.what, 60),
+                clip_chars(&ap.why, 80)
+            ));
+        }
+        out.push_str(&format!("\n\n【决策速查】\n{}", lines.join("\n")));
+    }
+
+    Some(out)
+}
+
+/// 截断到 max 字（chars），防爆 token
+fn clip_chars(s: &str, max: usize) -> String {
+    let t = s.trim();
+    if t.chars().count() > max {
+        t.chars().take(max).collect()
+    } else {
+        t.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -414,6 +461,104 @@ mod extension_tests {
                 updated_at: chrono::Local::now(),
             })
             .unwrap();
+    }
+
+    fn seed_cm_with_assets(pool: &DbPool) {
+        CustomMethodologyRepository::new(pool.clone())
+            .create(&CustomMethodology {
+                id: "custom_a1".into(),
+                guidebook_id: None,
+                name: "冲突驱动法".into(),
+                description: None,
+                steps: vec![
+                    MethodologyStep {
+                        title: "立冲突".into(),
+                        instruction: "确立核心冲突".into(),
+                        checklist: vec![],
+                    },
+                    MethodologyStep {
+                        title: "升级".into(),
+                        instruction: "升级冲突".into(),
+                        checklist: vec![],
+                    },
+                ],
+                patterns: vec![
+                    Technique {
+                        name: "场景目标法".into(),
+                        when_to_use: "每场开场".into(),
+                        how: "给 POV 角色一个当场可达成的具体目标".into(),
+                    },
+                    Technique {
+                        name: "灾难收尾".into(),
+                        when_to_use: "场景结尾".into(),
+                        how: "让目标受挫并引出新难题".into(),
+                    },
+                    Technique {
+                        name: "情感节拍".into(),
+                        when_to_use: "反应段".into(),
+                        how: "先情感后理性再行动".into(),
+                    },
+                    Technique {
+                        name: "第四技巧".into(),
+                        when_to_use: "w4".into(),
+                        how: "h4".into(),
+                    },
+                ],
+                cheatsheet: Cheatsheet {
+                    decision_rules: vec![
+                        "当节奏拖沓时删场景，因为每场景必须推进冲突".into(),
+                        "当人物扁平时加矛盾欲望，因为冲突来自内心".into(),
+                    ],
+                    anti_patterns: vec![AntiPattern {
+                        what: "信息倾倒".into(),
+                        why: "读者失去探索欲".into(),
+                    }],
+                },
+                enabled: true,
+                created_at: chrono::Local::now(),
+                updated_at: chrono::Local::now(),
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_extension_includes_techniques_and_cheatsheet() {
+        let pool = create_test_pool().unwrap();
+        seed_cm_with_assets(&pool);
+        let text = render_custom_methodology_extension(&pool, "custom_a1", 1).unwrap();
+        assert!(text.contains("【技巧参考】"));
+        assert!(text.contains("场景目标法"));
+        assert!(text.contains("给 POV 角色一个当场可达成的具体目标"));
+        assert!(text.contains("【决策速查】"));
+        assert!(text.contains("当节奏拖沓时删场景"));
+        assert!(text.contains("避免：信息倾倒"));
+    }
+
+    #[test]
+    fn render_extension_rotates_techniques_by_step() {
+        let pool = create_test_pool().unwrap();
+        seed_cm_with_assets(&pool);
+        // step 1（idx 0）：从 patterns[0] 起取 3 条
+        let s1 = render_custom_methodology_extension(&pool, "custom_a1", 1).unwrap();
+        assert!(s1.contains("场景目标法"));
+        assert!(s1.contains("灾难收尾"));
+        assert!(s1.contains("情感节拍"));
+        assert!(!s1.contains("第四技巧"));
+        // step 2（idx 1）：轮转从 patterns[1] 起
+        let s2 = render_custom_methodology_extension(&pool, "custom_a1", 2).unwrap();
+        assert!(s2.contains("灾难收尾"));
+        assert!(s2.contains("情感节拍"));
+        assert!(s2.contains("第四技巧"));
+        assert!(!s2.contains("场景目标法"));
+    }
+
+    #[test]
+    fn render_extension_omits_sections_when_no_assets() {
+        let pool = create_test_pool().unwrap();
+        seed_cm(&pool, true); // 无 patterns/cheatsheet 的旧数据
+        let text = render_custom_methodology_extension(&pool, "custom_t1", 1).unwrap();
+        assert!(!text.contains("【技巧参考】"));
+        assert!(!text.contains("【决策速查】"));
     }
 
     #[test]
