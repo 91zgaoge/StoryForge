@@ -79,6 +79,7 @@ mod integration_tests {
             chase_debt_text: None,
             genre_reference: None,
             style_blend_text: None,
+            rotation_ledger_text: None,
         }
     }
 }

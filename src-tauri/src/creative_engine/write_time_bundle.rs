@@ -425,6 +425,13 @@ impl WriteTimeBundle {
             }
         };
 
+        // v0.34.0 弹性扩张：轮换账本段（数据缺失/空书 → None，整段省略；
+        // 加载失败 .ok() 吞掉回退 None——非关键增强段，不得阻断创作主流程）
+        let rotation_ledger_text =
+            crate::creative_engine::expansion::RotationLedger::load_sync(pool, story_id)
+                .ok()
+                .and_then(|l| l.render_for_prompt());
+
         Ok(WriteTimeBundle {
             contract_redlines,
             core_characters,
@@ -453,6 +460,7 @@ impl WriteTimeBundle {
             chase_debt_text: None, // 由调用方（orchestrator）从 task.parameters 设置
             genre_reference,
             style_blend_text: None, // 由调用方（orchestrator）从 task.parameters 设置
+            rotation_ledger_text,
         })
     }
 
@@ -748,6 +756,11 @@ impl WriteTimeBundle {
         // ⑧d 追读力债务 + 本章追读力目标（由 orchestrator 渲染后设置）
         if let Some(ref chase) = self.chase_debt_text {
             sections.push(chase.clone());
+        }
+
+        // ⑧e 轮换账本（v0.34.0 弹性扩张：场景/角色使用数据驱动调度）
+        if let Some(ref ledger) = self.rotation_ledger_text {
+            sections.push(ledger.clone());
         }
 
         // ⑨ 主导风格一句话摘要（全题材，非完整六维 DNA）
@@ -1189,6 +1202,7 @@ mod tests {
             chase_debt_text: None,
             genre_reference: None,
             style_blend_text: None,
+            rotation_ledger_text: None,
         };
         let prompt = bundle.to_prompt();
         assert!(prompt.contains("次要题材画像补充"));
@@ -1234,6 +1248,7 @@ mod tests {
             chase_debt_text: None,
             genre_reference: None,
             style_blend_text: None,
+            rotation_ledger_text: None,
         };
         let prompt = bundle.to_prompt();
         assert!(prompt.contains("【相关设定】"));
@@ -1284,6 +1299,7 @@ mod tests {
             chase_debt_text: None,
             genre_reference: None,
             style_blend_text: None,
+            rotation_ledger_text: None,
         };
         let prompt = bundle.to_prompt();
         let redline_pos = prompt.find("绝对红线内容").unwrap_or(usize::MAX);
@@ -1362,6 +1378,7 @@ mod tests {
             chase_debt_text: None,
             genre_reference: None,
             style_blend_text: None,
+            rotation_ledger_text: None,
         }
     }
 
@@ -1432,6 +1449,24 @@ mod tests {
         assert!(!prompt.contains("【追读力债务】"));
         assert!(!prompt.contains("【体裁元素参考】"));
         assert!(!prompt.contains("【风格混合"));
+    }
+
+    // ---- v0.34.0 弹性扩张：⑧e 轮换账本段 ----
+
+    #[test]
+    fn to_prompt_includes_rotation_ledger_when_present() {
+        let mut bundle = bundle_with_outline(None, None);
+        bundle.rotation_ledger_text =
+            Some("【场景与角色轮换账本（调度参考）】\n近 10 章场景使用：练功房×4".to_string());
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("轮换账本"));
+        assert!(prompt.contains("练功房×4"));
+    }
+
+    #[test]
+    fn to_prompt_omits_rotation_ledger_when_absent() {
+        let bundle = bundle_with_outline(None, None);
+        assert!(!bundle.to_prompt().contains("轮换账本"));
     }
 
     #[test]

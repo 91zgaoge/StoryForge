@@ -74,6 +74,8 @@ pub struct WriteTimeBundle {
     /// 风格混合 blend 文本（由 orchestrator 从 task.parameters
     /// 设置；渲染优先于单 DNA）
     pub style_blend_text: Option<String>,
+    /// v0.34.0: 场景与角色轮换账本（弹性扩张，expansion::ledger 渲染）
+    pub rotation_ledger_text: Option<String>,
 }
 
 #[derive(Debug, Clone)]
