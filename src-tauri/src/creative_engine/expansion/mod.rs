@@ -2,6 +2,8 @@
 //! 设计：docs/plans/2026-08-09-elastic-expansion-asset-fusion-design.md
 //! 纯 Rust 零 LLM 成本；产出注入 beat_planner 模板与 WriteTimeBundle。
 
+pub mod ledger;
+
 use serde::{Deserialize, Serialize};
 
 /// 近 10 章场景使用账（按地点聚合）
