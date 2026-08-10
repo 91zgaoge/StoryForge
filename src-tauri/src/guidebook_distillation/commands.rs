@@ -166,12 +166,15 @@ pub async fn list_all_methodologies(
 
 /// 更新自定义方法论（None 字段不动）
 #[command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_custom_methodology(
     id: String,
     name: Option<String>,
     description: Option<String>,
     steps: Option<Vec<MethodologyStep>>,
     enabled: Option<bool>,
+    patterns: Option<Vec<Technique>>,
+    cheatsheet: Option<Cheatsheet>,
     app_handle: AppHandle,
 ) -> Result<(), AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
@@ -182,8 +185,8 @@ pub async fn update_custom_methodology(
             description.as_deref(),
             steps.as_deref(),
             enabled,
-            None,
-            None,
+            patterns.as_deref(),
+            cheatsheet.as_ref(),
         )
         .map_err(AppError::from)
 }

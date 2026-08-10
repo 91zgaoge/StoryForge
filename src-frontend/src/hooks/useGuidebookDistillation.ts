@@ -8,6 +8,8 @@ import type {
   GuidebookStatusResponse,
   DistillationProgressEvent,
   MethodologyStep,
+  Technique,
+  Cheatsheet,
 } from '@/types/guidebook-distillation';
 
 const GUIDEBOOKS_KEY = 'guidebooks';
@@ -130,6 +132,21 @@ export function useCancelGuidebookDistillation() {
   });
 }
 
+export function useRetryGuidebookDistillation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (guidebookId: string) => {
+      await loggedInvoke<void>('retry_guidebook_distillation', {
+        guidebook_id: guidebookId,
+      });
+    },
+    onSuccess: (_, guidebookId) => {
+      queryClient.invalidateQueries({ queryKey: [DISTILL_STATUS_KEY, guidebookId] });
+      queryClient.invalidateQueries({ queryKey: [GUIDEBOOKS_KEY] });
+    },
+  });
+}
+
 export function useUpdateCustomMethodology() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -139,6 +156,8 @@ export function useUpdateCustomMethodology() {
       description?: string;
       steps?: MethodologyStep[];
       enabled?: boolean;
+      patterns?: Technique[];
+      cheatsheet?: Cheatsheet;
     }) => {
       const { id, ...rest } = input;
       await loggedInvoke<void>('update_custom_methodology', { id, ...rest });

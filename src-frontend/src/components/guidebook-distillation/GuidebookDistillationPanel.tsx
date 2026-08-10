@@ -9,6 +9,7 @@ import {
   Square,
   Save,
   Plus,
+  RotateCcw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -17,6 +18,7 @@ import {
   useDeleteGuidebook,
   useGuidebookDistillationStatus,
   useCancelGuidebookDistillation,
+  useRetryGuidebookDistillation,
   useGuidebookResult,
   useUpdateCustomMethodology,
   useDeleteCustomMethodology,
@@ -58,6 +60,17 @@ function GuidebookCard({ guidebook, selected, onSelect, onDelete }: GuidebookCar
   const isActive = ACTIVE_STATUSES.includes(guidebook.status);
   const liveStatus = useGuidebookDistillationStatus(isActive ? guidebook.id : null);
   const cancelMutation = useCancelGuidebookDistillation();
+  const retryMutation = useRetryGuidebookDistillation();
+
+  const handleRetry = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await retryMutation.mutateAsync(guidebook.id);
+      toast.success('已重新开始提炼');
+    } catch (error) {
+      toast.error(`重试失败: ${extractMessage(error)}`);
+    }
+  };
 
   const status = liveStatus?.status ?? guidebook.status;
   const progress = liveStatus?.progress ?? guidebook.progress;
@@ -105,6 +118,16 @@ function GuidebookCard({ guidebook, selected, onSelect, onDelete }: GuidebookCar
             <Loader2 className="w-4 h-4 text-cinema-gold animate-spin" />
           )}
           <span className="text-xs text-gray-500">{STATUS_LABELS[status] || status}</span>
+          {(status === 'failed' || status === 'cancelled') && (
+            <button
+              onClick={handleRetry}
+              disabled={retryMutation.isPending}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-cinema-gold/10 text-gray-500 hover:text-cinema-gold transition-colors text-xs disabled:opacity-50"
+            >
+              <RotateCcw className={cn('w-3.5 h-3.5', retryMutation.isPending && 'animate-spin')} />
+              重试提炼
+            </button>
+          )}
           {!ACTIVE_STATUSES.includes(status) && (
             <button
               onClick={e => {
@@ -162,6 +185,15 @@ function MethodologyEditor({ methodology }: MethodologyEditorProps) {
       checklist: s.checklist.join('\n'),
     }))
   );
+  const [patterns, setPatterns] = useState<
+    Array<{ name: string; when_to_use: string; how: string }>
+  >(methodology.patterns.map(t => ({ ...t })));
+  const [decisionRules, setDecisionRules] = useState(
+    methodology.cheatsheet.decision_rules.join('\n')
+  );
+  const [antiPatterns, setAntiPatterns] = useState<Array<{ what: string; why: string }>>(
+    methodology.cheatsheet.anti_patterns.map(a => ({ ...a }))
+  );
 
   const updateMutation = useUpdateCustomMethodology();
   const deleteMutation = useDeleteCustomMethodology();
@@ -182,6 +214,14 @@ function MethodologyEditor({ methodology }: MethodologyEditorProps) {
         description,
         steps: payload,
         enabled,
+        patterns: patterns.filter(t => t.name.trim().length > 0),
+        cheatsheet: {
+          decision_rules: decisionRules
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0),
+          anti_patterns: antiPatterns.filter(a => a.what.trim().length > 0),
+        },
       });
       toast.success('方法论已保存');
     } catch (error) {
@@ -272,6 +312,120 @@ function MethodologyEditor({ methodology }: MethodologyEditorProps) {
         >
           <Plus className="w-3.5 h-3.5" />
           添加步骤
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        <label className="block text-xs text-gray-400">技巧模式库（{patterns.length}）</label>
+        {patterns.map((t, idx) => (
+          <div
+            key={idx}
+            className="p-3 rounded-lg bg-cinema-800/50 border border-cinema-700 space-y-2"
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={t.name}
+                onChange={e =>
+                  setPatterns(prev =>
+                    prev.map((x, i) => (i === idx ? { ...x, name: e.target.value } : x))
+                  )
+                }
+                placeholder="技巧名称"
+                className="flex-1 px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-white text-sm focus:border-cinema-gold focus:outline-none"
+              />
+              <button
+                onClick={() => setPatterns(prev => prev.filter((_, i) => i !== idx))}
+                className="p-1.5 rounded hover:bg-red-500/10 text-gray-500 hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={t.when_to_use}
+              onChange={e =>
+                setPatterns(prev =>
+                  prev.map((x, i) => (i === idx ? { ...x, when_to_use: e.target.value } : x))
+                )
+              }
+              placeholder="何时使用"
+              className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-white text-sm focus:border-cinema-gold focus:outline-none"
+            />
+            <textarea
+              value={t.how}
+              onChange={e =>
+                setPatterns(prev =>
+                  prev.map((x, i) => (i === idx ? { ...x, how: e.target.value } : x))
+                )
+              }
+              placeholder="具体怎么做"
+              rows={2}
+              className="w-full px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
+            />
+          </div>
+        ))}
+        <button
+          onClick={() => setPatterns(prev => [...prev, { name: '', when_to_use: '', how: '' }])}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cinema-700 text-gray-400 hover:text-white hover:border-cinema-600 transition-colors text-xs"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          添加技巧
+        </button>
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">
+          决策速查（一行一条：当X时做Y，因为Z）
+        </label>
+        <textarea
+          value={decisionRules}
+          onChange={e => setDecisionRules(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2 bg-cinema-800 border border-cinema-700 rounded-lg text-white text-sm focus:border-cinema-gold focus:outline-none resize-y"
+        />
+      </div>
+
+      <div className="space-y-3">
+        <label className="block text-xs text-gray-400">反模式（{antiPatterns.length}）</label>
+        {antiPatterns.map((a, idx) => (
+          <div key={idx} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={a.what}
+              onChange={e =>
+                setAntiPatterns(prev =>
+                  prev.map((x, i) => (i === idx ? { ...x, what: e.target.value } : x))
+                )
+              }
+              placeholder="应避免的做法"
+              className="flex-1 px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-white text-sm focus:border-cinema-gold focus:outline-none"
+            />
+            <input
+              type="text"
+              value={a.why}
+              onChange={e =>
+                setAntiPatterns(prev =>
+                  prev.map((x, i) => (i === idx ? { ...x, why: e.target.value } : x))
+                )
+              }
+              placeholder="为什么会失败"
+              className="flex-1 px-2 py-1.5 bg-cinema-800 border border-cinema-700 rounded text-white text-sm focus:border-cinema-gold focus:outline-none"
+            />
+            <button
+              onClick={() => setAntiPatterns(prev => prev.filter((_, i) => i !== idx))}
+              className="p-1.5 rounded hover:bg-red-500/10 text-gray-500 hover:text-red-400 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={() => setAntiPatterns(prev => [...prev, { what: '', why: '' }])}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cinema-700 text-gray-400 hover:text-white hover:border-cinema-600 transition-colors text-xs"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          添加反模式
         </button>
       </div>
 

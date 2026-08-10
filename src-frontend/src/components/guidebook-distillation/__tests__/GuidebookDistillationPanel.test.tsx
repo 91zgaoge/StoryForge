@@ -13,9 +13,10 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
   <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 );
 
-const { subscriptionState, dialogOpenMock } = vi.hoisted(() => ({
+const { subscriptionState, dialogOpenMock, retryMock } = vi.hoisted(() => ({
   subscriptionState: { isPro: false },
   dialogOpenMock: vi.fn(),
+  retryMock: vi.fn(),
 }));
 
 vi.mock('@/hooks/useSubscription', () => ({
@@ -26,11 +27,12 @@ vi.mock('@/hooks/useSubscription', () => ({
 }));
 
 vi.mock('@/hooks/useGuidebookDistillation', () => ({
-  useGuidebooks: () => ({ data: [], isLoading: false }),
+  useGuidebooks: vi.fn(() => ({ data: [], isLoading: false })),
   useUploadGuidebook: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteGuidebook: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useGuidebookDistillationStatus: () => ({ data: null }),
   useCancelGuidebookDistillation: () => ({ mutateAsync: vi.fn() }),
+  useRetryGuidebookDistillation: () => ({ mutateAsync: retryMock, isPending: false }),
   useGuidebookResult: () => ({ data: null, isLoading: false }),
   useUpdateCustomMethodology: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteCustomMethodology: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -62,5 +64,60 @@ describe('GuidebookDistillationPanel - 免费可用（v0.36.0）', () => {
 
     await user.click(screen.getByText('上传指导书'));
     expect(dialogOpenMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('GuidebookCard - 失败重试（v0.36.0）', () => {
+  beforeEach(() => {
+    retryMock.mockReset();
+  });
+
+  it('失败状态的卡片显示重试按钮，点击调用 retry', async () => {
+    // 直接渲染卡片列表：mock useGuidebooks 返回一条 failed 记录
+    const failedBook = {
+      id: 'g-fail',
+      title: '失败的书',
+      author: null,
+      subject: null,
+      word_count: 1000,
+      file_format: 'txt',
+      methodology_id: null,
+      status: 'failed',
+      progress: 0,
+      created_at: '2026-08-09',
+    };
+    vi.mocked((await import('@/hooks/useGuidebookDistillation')).useGuidebooks).mockReturnValue({
+      data: [failedBook],
+      isLoading: false,
+    } as never);
+
+    const user = userEvent.setup();
+    render(<GuidebookDistillationPanel />, { wrapper });
+
+    const btn = screen.getByText('重试提炼');
+    await user.click(btn);
+    expect(retryMock).toHaveBeenCalledWith('g-fail');
+  });
+
+  it('completed 状态的卡片不显示重试按钮', async () => {
+    const doneBook = {
+      id: 'g-done',
+      title: '完成的书',
+      author: null,
+      subject: null,
+      word_count: 1000,
+      file_format: 'txt',
+      methodology_id: 'custom_x',
+      status: 'completed',
+      progress: 100,
+      created_at: '2026-08-09',
+    };
+    vi.mocked((await import('@/hooks/useGuidebookDistillation')).useGuidebooks).mockReturnValue({
+      data: [doneBook],
+      isLoading: false,
+    } as never);
+
+    render(<GuidebookDistillationPanel />, { wrapper });
+    expect(screen.queryByText('重试提炼')).not.toBeInTheDocument();
   });
 });

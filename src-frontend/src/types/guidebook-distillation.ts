@@ -4,6 +4,22 @@ export interface MethodologyStep {
   checklist: string[];
 }
 
+export interface Technique {
+  name: string;
+  when_to_use: string;
+  how: string;
+}
+
+export interface AntiPattern {
+  what: string;
+  why: string;
+}
+
+export interface Cheatsheet {
+  decision_rules: string[];
+  anti_patterns: AntiPattern[];
+}
+
 export interface CustomMethodology {
   id: string;
   guidebook_id: string | null;
@@ -11,6 +27,8 @@ export interface CustomMethodology {
   description: string | null;
   steps: MethodologyStep[];
   enabled: boolean;
+  patterns: Technique[];
+  cheatsheet: Cheatsheet;
   created_at: string;
   updated_at: string;
 }
