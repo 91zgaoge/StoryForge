@@ -13,6 +13,7 @@ pub mod cascade_rewriter;
 pub mod context_builder;
 pub mod context_prioritizer;
 pub mod continuity;
+pub mod expansion;
 pub mod foreshadowing;
 pub mod methodology;
 pub mod payoff_ledger;
