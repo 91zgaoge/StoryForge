@@ -2,6 +2,7 @@
 //! 设计：docs/plans/2026-08-09-elastic-expansion-asset-fusion-design.md
 //! 纯 Rust 零 LLM 成本；产出注入 beat_planner 模板与 WriteTimeBundle。
 
+pub mod asset_menu;
 pub mod debt;
 pub mod ledger;
 
