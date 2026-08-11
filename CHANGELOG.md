@@ -2,6 +2,18 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.36.1（2026-08-11）
+
+### 修复：指导书提炼 72% 卡死
+
+- **终态事件送达**：提炼失败/完成/取消时后端只写数据库、不发 `guidebook-distillation-progress` 终态事件，前端 liveStatus 优先于轮询且永不过期，卡片永远停在最后一个进度事件（如 72%「正在分类合并创作资产」）——executor 三个终态分支补发事件，失败立即显示失败态与重试按钮。
+- **merge 鲁棒性**：推理模型（deepseek 等）`max_tokens=4000` 预算被思维链烧光导致正文为空；merge prompt 12548 字符（实测 8248 tokens）超 8192 上下文模型报 400；长 JSON 输出被 4000 max_tokens 截断——merge 输入总量 12000→6000 字符，merge/foldin max_tokens 4000→8000，并补失败重试一次（与 generate_methodology 同模式）。
+
+### 测试
+
+- src-tauri `cargo test --lib`：**1287 passed / 2 ignored**（新增 merge 输入上限回归）。
+- src-frontend `npx vitest run`：**404 passed / 3 skipped**（新增 hook 终态事件回归 3 例）。
+
 ## v0.36.0（2026-08-11）
 
 ### 新增：技能书提炼结构化升级（借鉴 book-to-skill）
