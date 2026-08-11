@@ -2,6 +2,30 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.37.0（2026-08-11）
+
+### 修复：资产回流——后台资产 agent 对已生成正文生效
+
+此前后台资产 agent（IngestPipeline）从正文提取的角色/关系只写入 kg 记忆层，而续写 writer 只读生产资产表，两不相通；且提取 prompt 字段名与 schema 错配、新登场角色被丢弃、Agency 续写路径根本不跑提取。本版打通「正文 → 生产资产表」回流链路。
+
+- **提取 prompt 写作级升级**（`resources/prompts/memory/memory_content_analysis.md`）：字段与 schema 严格对齐——角色画像（含情感内核/触发/创伤/需求）、双向情感关系、世界观增量（规则/历史/文化）、场景大纲、故事增量（核心冲突/转折点）。
+- **新增资产桥**（`src-tauri/src/memory/asset_bridge.rs`）：提取结果 upsert 进生产资产表（characters / character_relationships / world_buildings / scenes.outline_content / story_outlines），新登场角色自动注册；源感知合并——只精炼机器来源（ingest/agency/auto_placeholder），用户手工编辑（user_created/manual）永不覆盖。
+- **Agency 续写路径接入**：每章正文落库后后台自动跑提取（`spawn_asset_ingest`，含 KG 持久化）；orchestrator/TriShot 路径经 `run_ingest` 自动生效。
+- **并发安全**：per-story 进程内锁 + `BACKGROUND_LLM_SEMAPHORE` 后台串行化；提取失败不致命，绝不影响正文落库。
+- **效果**：生成任一章节后，角色卡/关系/世界观/场景大纲/故事大纲自动从正文回流累积，下一次续写即强关联。
+
+### 已知问题（backlog，不阻塞发布）
+
+- `story_outlines` 无 source 列，机器提取的核心冲突/转折点会追加进手写大纲且 content 无界增长。
+- 关系按有向去重，反向关系会建第二行。
+- ingest tokens 不计入 AgencyBudget。
+- agency 取消不传播给已 spawn 的 ingest 任务。
+
+### 测试
+
+- src-tauri `cargo test --lib`：**1301 passed / 2 ignored**（+14）。
+- src-frontend `npx vitest run`：**404 passed / 3 skipped**（无前端逻辑变更）。
+
 ## v0.36.1（2026-08-11）
 
 ### 修复：指导书提炼 72% 卡死

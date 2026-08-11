@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.30.48)
+# 🧪 StoryMoss 自动化测试环境 (v0.37.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.37.0 变更说明
+
+- 资产回流：提取 prompt 写作级升级（`memory_content_analysis.md`）；新增资产桥 `memory/asset_bridge.rs`（memory 层 → 生产资产表源感知 upsert，手工编辑永不覆盖）；Agency 续写落库后后台 `spawn_asset_ingest`；per-story 进程内锁 + `BACKGROUND_LLM_SEMAPHORE` 后台串行化；失败不致命。
+- 测试调整：Rust +14（资产桥 upsert / 源感知合并 / 新角色注册 / 并发锁 / Agency 接入回归）。无前端逻辑变更。
+- 全量基线：`cargo test --lib` 1301 passed / 2 ignored（+14）；`npx vitest run` 404 passed / 3 skipped（未动）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` 全绿。
 
 ### v0.30.46-48 变更说明
 

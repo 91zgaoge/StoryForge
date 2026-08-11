@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.30.41-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.37.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -31,6 +31,7 @@
 | 🧠 | **越写越懂你** | 持续学习：从创作事件观察模式 → 提炼 instinct → 确认后晋升为可复用技能 |
 | 📝 | **PROBLEM 七元素** | 简单指令自动基于 Erik Bork 七元素增强为强力 Logline，驱动大纲与续写 |
 | 🌍 | **资产强关联** | 世界观 / 故事大纲 / 场景大纲 / 用户指令四位一体显式调和，剧情不跑偏 |
+| 🔄 | **资产回流** | 每章正文生成后自动提取角色 / 关系 / 世界观 / 大纲回流累积进资产库，手工编辑永不覆盖，续写越写越强关联 |
 | 🔌 | **多模型适配** | OpenAI / Anthropic / Ollama / 本地 API，角色 × 任务模型路由 |
 | 📚 | **全链路资产管理** | 角色 / 世界构建 / 场景 / 知识图谱 / 伏笔看板 / 叙事分析 / 拆书，AI 不「吃书」 |
 
@@ -103,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.37.0 · 资产回流：正文生成后资产自动累积
+
+修复后台资产 agent（IngestPipeline）对已生成正文不发挥作用的问题：此前提取的角色/关系只写 kg 记忆层，续写 writer 只读生产资产表，两不相通；且提取 prompt 字段名与 schema 错配、新登场角色被丢弃、Agency 续写路径不跑提取。本版：提取 prompt 升级为写作级字段并与 schema 严格对齐（角色情感画像 / 双向情感关系 / 世界观增量 / 场景与故事大纲）；新增资产桥（`memory/asset_bridge.rs`）将提取结果 upsert 进生产资产表，新角色自动注册，源感知合并——只精炼机器来源，手工编辑永不覆盖；Agency 续写每章落库后后台自动跑提取（per-story 进程内锁 + 后台串行化，失败不致命）。生成任一章节后，角色卡/关系/世界观/场景大纲/故事大纲自动从正文回流累积，下一次续写即强关联。
+
+测试：cargo test 1301 passed / 2 ignored（+14）；vitest 404 passed / 3 skipped（未动）。
 
 ### v0.30.46-48 · 创世持久化链路审计修复 + issue #13/#14/#15 批量修复
 

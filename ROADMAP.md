@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-07-31（v0.30.48 创世持久化链路审计修复 + issue #13/#14/#15 批量修复）
+> 最后更新: 2026-08-11（v0.37.0 资产回流——后台资产 agent 对已生成正文生效）
 
-## ✅ v0.27.x–v0.30.x 已实施完成
+## ✅ v0.27.x–v0.37.x 已实施完成
+
+### ✨ v0.37.0 - 资产回流：后台资产 agent 对已生成正文生效 ✅ (2026-08-11)
+
+- [x] 提取 prompt 写作级升级（`memory_content_analysis.md`）：角色情感画像 / 双向情感关系 / 世界观增量 / 场景大纲 / 故事增量，字段与 schema 严格对齐
+- [x] 新增资产桥 `memory/asset_bridge.rs`：提取结果 upsert 进生产资产表（characters / character_relationships / world_buildings / scenes.outline_content / story_outlines），新角色自动注册；源感知合并——只精炼机器来源，手工编辑永不覆盖
+- [x] Agency 续写路径接入：每章正文落库后后台自动跑提取（`spawn_asset_ingest`，含 KG 持久化）；orchestrator/TriShot 路径经 `run_ingest` 自动生效
+- [x] 并发安全：per-story 进程内锁 + `BACKGROUND_LLM_SEMAPHORE` 后台串行化；失败不致命，绝不影响正文落库
+- [x] 验证：`cargo test --lib` 1301 passed / 2 ignored（+14）；`npx vitest run` 404 passed / 3 skipped（未动）
 
 ### ✨ v0.30.46-48 - 创世持久化链路审计修复 + issue #13/#14/#15 批量修复 ✅ (2026-07-31)
 

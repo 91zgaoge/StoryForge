@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.34.0
+- **版本**: v0.37.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -95,9 +95,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1091 passed
+- `cargo test -p storymoss` ✅ 1301 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 352 passed / 3 skipped
+- `npx vitest run` ✅ 404 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 539（零新增）
@@ -105,6 +105,17 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.37.0 - 资产回流：后台资产 agent 对已生成正文生效
+
+修复 IngestPipeline 从正文提取的角色/关系只写 kg 记忆层、续写 writer 只读生产资产表两不相通的问题（且提取 prompt 字段名与 schema 错配、新登场角色被丢弃、Agency 续写路径不跑提取）。
+
+- **提取 prompt 写作级升级**（`resources/prompts/memory/memory_content_analysis.md`）：字段与 schema 严格对齐——角色画像（情感内核/触发/创伤/需求）、双向情感关系、世界观增量（规则/历史/文化）、场景大纲、故事增量（核心冲突/转折点）。
+- **新增资产桥**（`src-tauri/src/memory/asset_bridge.rs`）：提取结果 upsert 进生产资产表（characters / character_relationships / world_buildings / scenes.outline_content / story_outlines），新角色自动注册；源感知合并——只精炼机器来源（ingest/agency/auto_placeholder），手工编辑（user_created/manual）永不覆盖。
+- **Agency 续写接入**：每章正文落库后后台自动跑提取（`spawn_asset_ingest`，含 KG 持久化）；orchestrator/TriShot 路径经 `run_ingest` 自动生效。
+- **并发安全**：per-story 进程内锁 + `BACKGROUND_LLM_SEMAPHORE` 后台串行化；失败不致命，绝不影响正文落库。
+- **验证**：`cargo test --lib` 1301 passed / 2 ignored（+14）；`npx vitest run` 404 passed / 3 skipped（无前端逻辑变更）。
+- **已知问题（backlog）**：story_outlines 无 source 列（机器提取追加进手写大纲、content 无界增长）；关系按有向去重（反向建第二行）；ingest tokens 不计入 AgencyBudget；agency 取消不传播给已 spawn 的 ingest。
 
 ### v0.30.48 - 创世持久化链路审计修复 + issue #13/#14/#15 批量修复
 

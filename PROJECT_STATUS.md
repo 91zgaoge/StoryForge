@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.30.48 项目完成状态
+# StoryMoss (草苔) v0.37.0 项目完成状态
 
-> 最后更新: 2026-07-31（v0.30.48 创世持久化链路审计修复 + issue #13/#14/#15 批量修复）
+> 最后更新: 2026-08-11（v0.37.0 资产回流——后台资产 agent 对已生成正文生效）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.37.0 - 资产回流：后台资产 agent 对已生成正文生效（2026-08-11）
+
+- **问题**：IngestPipeline 从正文提取的角色/关系只写 kg 记忆层，续写 writer 只读生产资产表，两不相通；提取 prompt 字段名与 schema 错配、新登场角色被丢弃、Agency 续写路径不跑提取。
+- **提取 prompt 写作级升级**（`resources/prompts/memory/memory_content_analysis.md`）：角色画像（情感内核/触发/创伤/需求）、双向情感关系、世界观增量（规则/历史/文化）、场景大纲、故事增量（核心冲突/转折点），与 schema 严格对齐。
+- **新增资产桥**（`src-tauri/src/memory/asset_bridge.rs`）：提取结果 upsert 进生产资产表（characters / character_relationships / world_buildings / scenes.outline_content / story_outlines），新角色自动注册；源感知合并——只精炼机器来源（ingest/agency/auto_placeholder），手工编辑（user_created/manual）永不覆盖。
+- **Agency 续写接入**：每章正文落库后后台自动跑提取（`spawn_asset_ingest`，含 KG 持久化）；orchestrator/TriShot 路径经 `run_ingest` 自动生效。并发安全：per-story 进程内锁 + `BACKGROUND_LLM_SEMAPHORE` 后台串行化；失败不致命，绝不影响正文落库。
+- **验证**：`cargo test --lib` 1301 passed / 2 ignored（+14）；`npx vitest run` 404 passed / 3 skipped（无前端逻辑变更）。
 
 ### v0.30.46-48 - 创世持久化链路审计修复 + issue #13/#14/#15 批量修复（2026-07-31）
 
