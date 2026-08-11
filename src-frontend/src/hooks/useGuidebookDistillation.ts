@@ -19,8 +19,11 @@ const DISTILL_STATUS_KEY = 'guidebook-distill-status';
 export function useUploadGuidebook() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (filePath: string) => {
-      return await loggedInvoke<string>('upload_guidebook', { file_path: filePath });
+    mutationFn: async (input: { filePath: string; mergeInto?: string }) => {
+      return await loggedInvoke<string>('upload_guidebook', {
+        file_path: input.filePath,
+        merge_into: input.mergeInto ?? null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [GUIDEBOOKS_KEY] });

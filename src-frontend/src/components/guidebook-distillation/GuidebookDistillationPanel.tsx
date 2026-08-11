@@ -24,6 +24,7 @@ import {
   useUpdateCustomMethodology,
   useDeleteCustomMethodology,
 } from '@/hooks/useGuidebookDistillation';
+import { useAllMethodologies } from '@/hooks/useMethodologies';
 import type {
   CustomMethodology,
   GuidebookListItem,
@@ -108,6 +109,9 @@ function GuidebookCard({ guidebook, selected, onSelect, onDelete }: GuidebookCar
             <span className="text-xs text-gray-500">{guidebook.author || '未知作者'}</span>
             {guidebook.word_count && (
               <span className="text-xs text-gray-600">{formatWordCount(guidebook.word_count)}</span>
+            )}
+            {guidebook.merge_into_methodology_id && (
+              <span className="text-xs text-cinema-gold/70">增量融合</span>
             )}
           </div>
         </div>
@@ -519,10 +523,23 @@ function GuidebookResultView({ guidebookId }: { guidebookId: string }) {
 
 export function GuidebookDistillationPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<string | null>(null);
 
   const { data: guidebooks, isLoading } = useGuidebooks();
   const uploadMutation = useUploadGuidebook();
   const deleteMutation = useDeleteGuidebook();
+  const { data: methodologies } = useAllMethodologies();
+  const customMethodologies = (methodologies ?? []).filter(m => m.is_custom && m.enabled);
+
+  const doUpload = async (filePath: string, mergeInto?: string) => {
+    try {
+      const guidebookId = await uploadMutation.mutateAsync({ filePath, mergeInto });
+      setSelectedId(guidebookId);
+      toast.success(mergeInto ? '上传成功，开始增量融合...' : '上传成功，开始提炼...');
+    } catch (error) {
+      toast.error(`上传失败: ${extractMessage(error)}`);
+    }
+  };
 
   const handleUpload = async () => {
     try {
@@ -532,9 +549,11 @@ export function GuidebookDistillationPanel() {
         filters: [{ name: '指导书', extensions: ['txt', 'pdf', 'epub'] }],
       });
       if (selected && typeof selected === 'string') {
-        const guidebookId = await uploadMutation.mutateAsync(selected);
-        setSelectedId(guidebookId);
-        toast.success('上传成功，开始提炼...');
+        if (customMethodologies.length > 0) {
+          setPendingFile(selected);
+        } else {
+          await doUpload(selected);
+        }
       }
     } catch (error) {
       toast.error(`上传失败: ${extractMessage(error)}`);
@@ -576,6 +595,45 @@ export function GuidebookDistillationPanel() {
           上传指导书
         </button>
       </div>
+
+      {pendingFile && (
+        <div className="mb-6 max-w-3xl rounded-xl border border-cinema-gold/30 bg-cinema-gold/5 px-4 py-3 space-y-3">
+          <p className="text-sm text-gray-300">
+            已选择《{pendingFile.split(/[\\/]/).pop()}》——提炼为新方法论，还是合并进现有方法论？
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={async () => {
+                const f = pendingFile;
+                setPendingFile(null);
+                await doUpload(f);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-cinema-gold/20 text-cinema-gold text-sm hover:bg-cinema-gold/30 transition-colors"
+            >
+              新建方法论
+            </button>
+            {customMethodologies.map(m => (
+              <button
+                key={m.id}
+                onClick={async () => {
+                  const f = pendingFile;
+                  setPendingFile(null);
+                  await doUpload(f, m.id);
+                }}
+                className="px-3 py-1.5 rounded-lg border border-cinema-700 text-gray-400 hover:text-white hover:border-cinema-600 transition-colors text-sm"
+              >
+                合并到：{m.name}
+              </button>
+            ))}
+            <button
+              onClick={() => setPendingFile(null)}
+              className="px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-300 text-sm transition-colors"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center py-12 text-gray-500">加载中...</div>

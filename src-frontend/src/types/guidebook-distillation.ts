@@ -59,6 +59,7 @@ export interface GuidebookListItem {
   word_count: number | null;
   file_format: string | null;
   methodology_id: string | null;
+  merge_into_methodology_id: string | null;
   status: string;
   progress: number;
   created_at: string;
