@@ -857,6 +857,10 @@ pub struct AgencyCoordinator {
     /// tool_loop 每轮检查，剩余 <30s 时熔断保产出，避免硬超时砍掉无结果。
     /// None 表示不限制（测试/无超时场景）。run_genesis_with_sink 入口设置。
     run_deadline: Mutex<Option<std::time::Instant>>,
+    /// 测试用活动信号记录（app_handle=None 时 emit 静默，单测借此验证
+    /// 角色/action/detail 配对）。格式 "role|action|detail"。
+    #[cfg(test)]
+    activity_log: Mutex<Vec<String>>,
 }
 
 impl AgencyCoordinator {
@@ -868,6 +872,8 @@ impl AgencyCoordinator {
             progress_sink: Mutex::new(None),
             model_count_override: None,
             run_deadline: Mutex::new(None),
+            #[cfg(test)]
+            activity_log: Mutex::new(Vec::new()),
         }
     }
 
@@ -880,6 +886,8 @@ impl AgencyCoordinator {
             progress_sink: Mutex::new(None),
             model_count_override: None,
             run_deadline: Mutex::new(None),
+            #[cfg(test)]
+            activity_log: Mutex::new(Vec::new()),
         }
     }
 
@@ -1100,6 +1108,8 @@ impl AgencyCoordinator {
             progress_sink: Mutex::new(None),
             model_count_override: self.model_count_override,
             run_deadline: Mutex::new(None),
+            #[cfg(test)]
+            activity_log: Mutex::new(Vec::new()),
         }
     }
 
@@ -1324,6 +1334,11 @@ impl AgencyCoordinator {
 
     /// 代理活动事件（agency-agent-activity）：角色开始/完成某动作。
     fn emit_activity(&self, run_id: &str, role: AgentRole, action: &str, detail: &str) {
+        #[cfg(test)]
+        self.activity_log
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(format!("{}|{}|{}", role.as_str(), action, detail));
         if let Some(app) = &self.app_handle {
             let _ = app.emit(
                 EVENT_AGENT_ACTIVITY,
@@ -1335,6 +1350,15 @@ impl AgencyCoordinator {
                 }),
             );
         }
+    }
+
+    /// 测试用：取回本 coordinator 已发出的活动信号（"role|action|detail"）。
+    #[cfg(test)]
+    pub(crate) fn recorded_activities(&self) -> Vec<String> {
+        self.activity_log
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// 观察层埋点（best-effort、fire-and-forget）：无 app_handle（测试环境）
@@ -1436,6 +1460,8 @@ impl AgencyCoordinator {
         };
 
         // Phase A：概念单调用（快速路径与 legacy 共用此响应）
+        // 概念信号 start：快速路径与 legacy 均经此调用，单点覆盖两路径
+        self.emit_activity(run_id, AgentRole::Producer, "start", "概念");
         let result = match self.concept_pack(run_id, &effective_premise, budget).await {
             Ok(pack) if !pack.characters.is_empty() => {
                 match self
@@ -2163,7 +2189,7 @@ impl AgencyCoordinator {
             .and_then(|c| c.title.clone())
             .unwrap_or_else(|| premise.chars().take(12).collect::<String>());
         let genre = concept.as_ref().and_then(|c| c.genre.clone());
-        self.emit_activity(run_id, AgentRole::LeadWriter, "done", "概念");
+        self.emit_activity(run_id, AgentRole::Producer, "done", "概念");
 
         // 2) 建故事（快速路径回退时 story 可能已建——复用并跳过创建）
         let existing_story = {
@@ -2211,6 +2237,7 @@ impl AgencyCoordinator {
         // 3) 管理：资产生产
         self.update_phase(repo, run_id, "assets").await?;
         self.emit_progress(run_id, "assets", "running", "管理 Agent 正在生产创作资产");
+        self.emit_activity(run_id, AgentRole::Producer, "start", "资产");
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm_and_budget(
@@ -2318,6 +2345,7 @@ impl AgencyCoordinator {
             self.latest_draft(&board, run_id).await?
         };
         self.check_cancel(cancel)?;
+        self.emit_activity(run_id, AgentRole::LeadWriter, "done", "首章");
 
         // 5)+6) 装配（不等 editor）+ 后台质检（v0.30.35，与快速路径共用）
         // editor 质检后台 spawn：装配落库后立即返回，editor 独立 300s deadline
@@ -2456,7 +2484,7 @@ impl AgencyCoordinator {
                 story_id.clone(),
             ));
             let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
-            let board = BlackboardService::new(pool.clone());
+            let board = BlackboardService::with_events(pool.clone(), &app);
             let registry = Arc::new(ToolRegistry::agency_default());
             let _ = app.emit(
                 EVENT_AGENT_ACTIVITY,
@@ -2942,6 +2970,7 @@ impl AgencyCoordinator {
             .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
             if inserted == 0 {
                 // 仍无资产：producer 现场补齐
+                self.emit_activity(run_id, AgentRole::Producer, "start", "资产补齐");
                 let board = self.board();
                 let registry = Arc::new(ToolRegistry::agency_default());
                 let producer_out = self.run_role_with_llm_and_budget(
@@ -2967,6 +2996,7 @@ impl AgencyCoordinator {
                 })
                 .await
                 .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
+                self.emit_activity(run_id, AgentRole::Producer, "done", "资产补齐");
             }
         }
         // v0.30.21: 层级资产强制生成--角色存在但世界观/故事大纲缺失时补齐，
@@ -3749,6 +3779,7 @@ impl AgencyCoordinator {
         };
         // 装配：草稿 → Scene 真源
         self.update_phase(repo, run_id, "assembly").await?;
+        self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
         // v0.30.21: 读取本章大纲（write_chapter 的 generate_chapter_outline 写入黑板）
         let outline_key = format!("outline-第{}章", chapter_number);
         let board_c = board.clone();
@@ -3806,6 +3837,7 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
         // 资产回流（best-effort 后台）：对已落库正文跑 IngestPipeline 提取资产，
         // 桥接生产资产表 + KG 持久化。测试环境 no-op，失败不影响主流程。
         // 串行 run_continue_inner 与批量 run_batch_inner 均经本 handle_gate，单点覆盖。

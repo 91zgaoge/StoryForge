@@ -2953,3 +2953,172 @@ async fn test_continue_writer_maxturns_board_recovery() {
         .unwrap();
     assert_eq!(run.status, "completed", "MaxTurns 取回草稿后 run 应完成");
 }
+
+// ---- 阶段二（P1）：后端事件信号补齐——活动信号配对验证 ----
+// 测试环境 app_handle=None 时 emit 静默，信号经 cfg(test) activity_log
+// 记录（coordinator.recorded_activities()），借此断言角色/action/detail
+// 配对与先后序。
+
+/// 在信号日志中定位信号下标（缺失时 panic 并打印全量日志）。
+fn signal_pos(log: &[String], sig: &str) -> usize {
+    log.iter()
+        .position(|s| s == sig)
+        .unwrap_or_else(|| panic!("缺少活动信号 {}: {:?}", sig, log))
+}
+
+/// 断言一对 start/done 信号均存在且 start 先于 done。
+fn assert_signal_pair(log: &[String], start: &str, done: &str) {
+    let s = signal_pos(log, start);
+    let d = signal_pos(log, done);
+    assert!(s < d, "信号顺序错误：{} 应先于 {}: {:?}", start, done, log);
+}
+
+/// B-1/B-2/B-3/B-4：legacy 创世路径信号配对。
+/// concept 返回非 JSON → 回退 legacy：概念 start/done 均为 Producer
+/// （B-2 修角色标注 BUG），资产 start/done 配对（B-3 补 start），
+/// 首章 start/done 配对（B-4 补 done），装配沿用 assemble_only 配对。
+#[tokio::test]
+async fn test_legacy_genesis_activity_signals_paired() {
+    let pool = create_test_pool().unwrap();
+    let chapter = pass_grade_content("第一章正文：风沙中的拾荒者。");
+    let write = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"拾荒者登场"}}}}"#,
+        chapter
+    );
+    // 脚本与 test_fastpath_fallback_to_legacy 同构：concept 非 JSON →
+    // legacy producer(tool,final) → writer(tool,final) → editor(final)
+    let llm = MockLlm::scripted(vec![
+        "不是 JSON",
+        r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"world","key":"世界观","content":"双星废土","summary":"双星废土"}}"#,
+        r#"{"type":"final","content":"资产就绪"}"#,
+        write.as_str(),
+        r#"{"type":"final","content":"第一章完成"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#,
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm).with_model_count(2);
+    coordinator
+        .run_genesis("rf-sig-legacy", LONG_PREMISE)
+        .await
+        .unwrap();
+
+    let log = coordinator.recorded_activities();
+    assert_signal_pair(&log, "producer|start|概念", "producer|done|概念");
+    assert_signal_pair(&log, "producer|start|资产", "producer|done|资产");
+    assert_signal_pair(&log, "lead_writer|start|首章", "lead_writer|done|首章");
+    assert_signal_pair(&log, "producer|start|装配", "producer|done|装配");
+    assert!(
+        !log.iter().any(|s| s == "lead_writer|done|概念"),
+        "概念完成信号角色应为 Producer（B-2）: {:?}",
+        log
+    );
+}
+
+/// B-5：续写 ensure_assets 角色/历史资产均缺失时 producer 现场补齐，
+/// 资产补齐 start/done 信号配对。
+#[tokio::test]
+async fn test_ensure_assets_backfill_activity_signals() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "资产补齐信号测试".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    // 不预置任何角色/世界观/大纲，也无历史黑板条目 → producer 现场补齐
+    let repo = AgencyRepository::new(pool.clone());
+    repo.create_run(&AgencyRun::new("r-ea-sig", "前提"))
+        .unwrap();
+    let llm = MockLlm::scripted(vec![
+        // producer 资产补齐 tool_loop：写角色卡 → final
+        r#"{"type":"tool","name":"board_write","args":{"zone":"asset","item_type":"character","key":"阿苔","content":"{\"name\":\"阿苔\",\"background\":\"拾荒者\",\"personality\":\"坚韧\",\"goals\":\"找到星环\"}","summary":"拾荒者阿苔"}}"#,
+        r#"{"type":"final","content":"资产补齐完成"}"#,
+        // ensure_world_building（Producer 单调用）
+        "双星文明：资源匮乏的拾荒世界。星环崩塌后残存文明在废墟中争夺资源。",
+        // ensure_story_outline（Producer 单调用）
+        "核心冲突：阿苔寻找星环秘密。三幕：起因-发展-高潮。",
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .ensure_assets(&budget, &repo, "r-ea-sig", &story.id, "前提")
+        .await
+        .unwrap();
+
+    let log = coordinator.recorded_activities();
+    assert_signal_pair(&log, "producer|start|资产补齐", "producer|done|资产补齐");
+}
+
+/// B-6：续写 handle_gate 装配信号配对（单章路径；批量循环共用同一
+/// handle_gate，单点覆盖）。
+#[tokio::test]
+async fn test_handle_gate_assembly_activity_signals() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "装配信号测试".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+    }
+    let scene_repo = SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("第一章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
+    let write2 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"星舰苏醒"}}}}"#,
+        chapter2
+    );
+    let llm = MockLlm::scripted(vec![
+        // generate_chapter_outline（Producer 单调用）
+        "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。",
+        // writer: 写第 2 章 → final
+        write2.as_str(),
+        r#"{"type":"final","content":"第二章完成"}"#,
+        // editor: pass
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    coordinator
+        .run_continue("rc-sig-assembly", &story.id, 2)
+        .await
+        .unwrap();
+
+    let log = coordinator.recorded_activities();
+    assert_signal_pair(&log, "producer|start|装配", "producer|done|装配");
+}
