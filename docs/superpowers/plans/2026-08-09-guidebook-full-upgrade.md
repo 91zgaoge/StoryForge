@@ -22,7 +22,7 @@
 
 ---
 
-### Task U1: V126 迁移 + Guidebook 模型/Repository + upload merge_into 参数
+### Task 1: V126 迁移 + Guidebook 模型/Repository + upload merge_into 参数
 
 **Files:**
 - Create: `src-tauri/src/db/migrations/V126__guidebooks_merge_into.sql`
@@ -234,7 +234,7 @@ git commit -m "feat: fold-in 数据基础——guidebooks 记录合并目标（V
 
 ---
 
-### Task U2: fold-in 提炼流水线（prompt + distiller 分支 + CM 更新 + step clamp）
+### Task 2: fold-in 提炼流水线（prompt + distiller 分支 + CM 更新 + step clamp）
 
 **Files:**
 - Create: `resources/prompts/distillation/distill_foldin.md`
@@ -629,7 +629,7 @@ git commit -m "feat: fold-in 增量融合——新指导书资产并入现有方
 
 ---
 
-### Task U3: 提炼结果校验清洗器
+### Task 3: 提炼结果校验清洗器
 
 **Files:**
 - Create: `src-tauri/src/guidebook_distillation/validator.rs`
@@ -904,7 +904,7 @@ git commit -m "feat: 提炼产物落库前确定性校验清洗（对标 book-to
 
 ---
 
-### Task U4: SKILL.md 导出
+### Task 4: SKILL.md 导出
 
 **Files:**
 - Create: `src-tauri/src/guidebook_distillation/skill_export.rs`
@@ -1220,7 +1220,7 @@ git commit -m "feat: 自定义方法论导出 SKILL.md（book-to-skill 同款 Ag
 
 ---
 
-### Task U5: 前端 fold-in 上传 UI + 卡片合并标注
+### Task 5: 前端 fold-in 上传 UI + 卡片合并标注
 
 **Files:**
 - Modify: `src-frontend/src/types/guidebook-distillation.ts`（GuidebookListItem 加字段）
