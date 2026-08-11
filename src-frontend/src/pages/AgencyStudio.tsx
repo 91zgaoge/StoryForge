@@ -75,11 +75,12 @@ export default function AgencyStudio() {
   });
   const runs = runsQuery.data;
 
-  // 水合：runs 数据到达时由 store 守卫取最新 run（activeRunId 已存在则不覆盖；
-  // 实时事件仍可覆盖——新 run 启动时事件到达，切到新 run）。
+  // 水合：runs 数据到达时由 store 守卫取最新 run（同故事且 activeRunId 已存在
+  // 则不覆盖；实时事件仍可覆盖——新 run 启动时事件到达，切到新 run；
+  // 故事切换时 store 强制重置为当前故事最新 run）。
   useEffect(() => {
-    if (runs && runs.length > 0) hydrateFromRuns(runs);
-  }, [runs, hydrateFromRuns]);
+    if (runs && currentStory) hydrateFromRuns(runs, currentStory.id);
+  }, [runs, currentStory, hydrateFromRuns]);
 
   const boardQuery = useQuery({
     queryKey: ['agency-board', activeRunId],

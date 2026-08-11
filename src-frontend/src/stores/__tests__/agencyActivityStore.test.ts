@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useAgencyActivityStore } from '../agencyActivityStore';
 
 function resetStore() {
-  useAgencyActivityStore.setState({ activities: [], progress: [], activeRunId: null });
+  useAgencyActivityStore.setState({
+    activities: [],
+    progress: [],
+    activeRunId: null,
+    storyId: null,
+  });
 }
 
 describe('agencyActivityStore', () => {
@@ -56,19 +61,44 @@ describe('agencyActivityStore', () => {
   });
 
   it('hydrateFromRuns：activeRunId 为空时取最新 run', () => {
-    useAgencyActivityStore.getState().hydrateFromRuns([{ id: 'r9' }, { id: 'r8' }]);
+    useAgencyActivityStore.getState().hydrateFromRuns([{ id: 'r9' }, { id: 'r8' }], 's1');
     expect(useAgencyActivityStore.getState().activeRunId).toBe('r9');
   });
 
-  it('hydrateFromRuns：已有 activeRunId 时不覆盖（实时事件优先）', () => {
-    useAgencyActivityStore.getState().setActiveRunId('live-run');
-    useAgencyActivityStore.getState().hydrateFromRuns([{ id: 'r9' }]);
+  it('hydrateFromRuns：同故事已有 activeRunId 时不覆盖（实时事件优先）', () => {
+    const store = useAgencyActivityStore.getState();
+    store.hydrateFromRuns([{ id: 'r9' }], 's1'); // 建立 storyId=s1
+    store.setActiveRunId('live-run'); // 实时事件先行（run 尚未进 DB 列表）
+    store.hydrateFromRuns([{ id: 'r9' }], 's1');
     expect(useAgencyActivityStore.getState().activeRunId).toBe('live-run');
   });
 
-  it('hydrateFromRuns：runs 为空时不动', () => {
-    useAgencyActivityStore.getState().hydrateFromRuns([]);
-    expect(useAgencyActivityStore.getState().activeRunId).toBeNull();
+  it('hydrateFromRuns：同故事 runs 为空时不动', () => {
+    const store = useAgencyActivityStore.getState();
+    store.hydrateFromRuns([{ id: 'r9' }], 's1');
+    store.hydrateFromRuns([], 's1');
+    expect(useAgencyActivityStore.getState().activeRunId).toBe('r9');
+  });
+
+  it('hydrateFromRuns：故事切换时强制重置为当前故事最新 run', () => {
+    // 跨故事回归：store 全局单例，故事 A 跑过 run 后切到故事 B，
+    // activeRunId 不得停留在 A 的 run（否则 board/时间线显示他故事数据）
+    const store = useAgencyActivityStore.getState();
+    store.hydrateFromRuns([{ id: 'run-a1' }], 'story-a');
+    expect(useAgencyActivityStore.getState().activeRunId).toBe('run-a1');
+    store.hydrateFromRuns([{ id: 'run-b1' }, { id: 'run-b0' }], 'story-b');
+    const s = useAgencyActivityStore.getState();
+    expect(s.activeRunId).toBe('run-b1');
+    expect(s.storyId).toBe('story-b');
+  });
+
+  it('hydrateFromRuns：故事切换且当前故事无 run 时清空 activeRunId', () => {
+    const store = useAgencyActivityStore.getState();
+    store.hydrateFromRuns([{ id: 'run-a1' }], 'story-a');
+    store.hydrateFromRuns([], 'story-b');
+    const s = useAgencyActivityStore.getState();
+    expect(s.activeRunId).toBeNull();
+    expect(s.storyId).toBe('story-b');
   });
 
   it('setActiveRunId 直接切换当前 run', () => {
