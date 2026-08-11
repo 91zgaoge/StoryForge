@@ -26,10 +26,11 @@ fn new_service(app_handle: &AppHandle) -> Result<GuidebookDistillationService, A
     ))
 }
 
-/// 上传指导书并开始提炼
+/// 上传指导书并开始提炼；merge_into 非空时合并进指定自定义方法论（fold-in）
 #[command(rename_all = "snake_case")]
 pub async fn upload_guidebook(
     file_path: String,
+    merge_into: Option<String>,
     app_handle: AppHandle,
 ) -> Result<String, AppError> {
     let pool = app_handle.state::<DbPool>().inner().clone();
@@ -43,7 +44,7 @@ pub async fn upload_guidebook(
     }
     let service = new_service(&app_handle)?;
     service
-        .upload_and_distill(std::path::Path::new(&file_path))
+        .upload_and_distill(std::path::Path::new(&file_path), merge_into.as_deref())
         .await
         .map_err(AppError::from)
 }

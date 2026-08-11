@@ -65,6 +65,7 @@ pub struct Guidebook {
     pub progress: i32,
     pub error: Option<String>,
     pub task_id: Option<String>,
+    pub merge_into_methodology_id: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
 }
@@ -78,6 +79,7 @@ pub struct GuidebookListItem {
     pub word_count: Option<i64>,
     pub file_format: Option<String>,
     pub methodology_id: Option<String>,
+    pub merge_into_methodology_id: Option<String>,
     pub status: String,
     pub progress: i32,
     pub created_at: String,

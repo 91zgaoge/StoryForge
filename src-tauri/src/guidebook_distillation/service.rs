@@ -52,8 +52,31 @@ impl GuidebookDistillationService {
 
     // ==================== 上传并提炼 ====================
 
-    pub async fn upload_and_distill(&self, file_path: &Path) -> Result<String, ParseError> {
+    pub async fn upload_and_distill(
+        &self,
+        file_path: &Path,
+        merge_into: Option<&str>,
+    ) -> Result<String, ParseError> {
         self.validate_file(file_path)?;
+        // fold-in：合并目标必须是存在的自定义方法论
+        if let Some(target) = merge_into {
+            if !crate::domain::methodology::is_custom_methodology_id(target) {
+                return Err(ParseError::InvalidFormat(
+                    "合并目标必须是自定义方法论（custom_ 前缀）".to_string(),
+                ));
+            }
+            let exists = CustomMethodologyRepository::new(self.pool.clone())
+                .get_by_id(target)
+                .ok()
+                .flatten()
+                .is_some();
+            if !exists {
+                return Err(ParseError::StorageError(format!(
+                    "合并目标方法论 {} 不存在",
+                    target
+                )));
+            }
+        }
         let file_hash = self.compute_file_hash(file_path).await?;
 
         let repo = GuidebookRepository::new(self.pool.clone());
@@ -119,6 +142,7 @@ impl GuidebookDistillationService {
             progress: 0,
             error: None,
             task_id: None,
+            merge_into_methodology_id: merge_into.map(|s| s.to_string()),
             created_at: now,
             updated_at: now,
         };

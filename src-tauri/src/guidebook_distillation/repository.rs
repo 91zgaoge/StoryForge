@@ -24,8 +24,8 @@ impl GuidebookRepository {
         conn.execute(
             "INSERT INTO guidebooks (id, title, author, subject, word_count, file_format, \
              file_hash, file_path, methodology_id, status, progress, error, task_id, \
-             created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+             merge_into_methodology_id, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
             params![
                 book.id,
                 book.title,
@@ -40,6 +40,7 @@ impl GuidebookRepository {
                 book.progress,
                 book.error,
                 book.task_id,
+                book.merge_into_methodology_id,
                 book.created_at.to_rfc3339(),
                 book.updated_at.to_rfc3339(),
             ],
@@ -65,6 +66,7 @@ impl GuidebookRepository {
             progress: row.get("progress")?,
             error: row.get("error")?,
             task_id: row.get("task_id")?,
+            merge_into_methodology_id: row.get("merge_into_methodology_id")?,
             created_at: DateTime::parse_from_rfc3339(&created)
                 .map(|d| d.with_timezone(&Local))
                 .unwrap_or_else(|_| Local::now()),
@@ -92,7 +94,7 @@ impl GuidebookRepository {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(
             "SELECT id, title, author, subject, word_count, file_format, methodology_id, \
-             status, progress, created_at FROM guidebooks ORDER BY created_at DESC",
+             merge_into_methodology_id, status, progress, created_at FROM guidebooks ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(GuidebookListItem {
@@ -103,6 +105,7 @@ impl GuidebookRepository {
                 word_count: row.get("word_count")?,
                 file_format: row.get("file_format")?,
                 methodology_id: row.get("methodology_id")?,
+                merge_into_methodology_id: row.get("merge_into_methodology_id")?,
                 status: row.get("status")?,
                 progress: row.get("progress")?,
                 created_at: row.get("created_at")?,
@@ -371,6 +374,7 @@ mod tests {
             progress: 0,
             error: None,
             task_id: None,
+            merge_into_methodology_id: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         }
@@ -399,6 +403,30 @@ mod tests {
         assert_eq!(repo.list_all().unwrap().len(), 1);
         repo.delete("g1").unwrap();
         assert!(repo.get_by_id("g1").unwrap().is_none());
+    }
+
+    #[test]
+    fn guidebook_merge_into_roundtrip() {
+        let pool = create_test_pool().unwrap();
+        let repo = GuidebookRepository::new(pool);
+        let mut book = sample_guidebook("gm1");
+        book.merge_into_methodology_id = Some("custom_target".into());
+        repo.create(&book).unwrap();
+        let got = repo.get_by_id("gm1").unwrap().unwrap();
+        assert_eq!(
+            got.merge_into_methodology_id.as_deref(),
+            Some("custom_target")
+        );
+        // 列表项也带该字段
+        let items = repo.list_all().unwrap();
+        assert_eq!(
+            items[0].merge_into_methodology_id.as_deref(),
+            Some("custom_target")
+        );
+        // 普通上传为 None
+        repo.create(&sample_guidebook("gm2")).unwrap();
+        let got2 = repo.get_by_id("gm2").unwrap().unwrap();
+        assert!(got2.merge_into_methodology_id.is_none());
     }
 
     #[test]
