@@ -287,19 +287,31 @@ impl GuidebookDistiller {
         let prompt = self
             .render_prompt("distill_merge", &[("points", joined)])
             .ok_or_else(|| AnalysisError::LlmError("prompt distill_merge 未注册".into()))?;
-        let resp = call_llm(
-            &self.llm_service,
-            "guidebook_merge",
-            prompt,
-            Some(4000),
-            Some(0.3),
-        )
-        .await?;
-        let parsed: LlmDistillMergeResponse = parse_json_response(&resp)?;
-        if parsed.principles.is_empty() {
-            return Err(AnalysisError::LlmError("合并后原则为空".to_string()));
+        // max_tokens 8000：推理模型（deepseek 等）会把数千 token 烧在
+        // reasoning_content/CoT 上，4000 预算曾导致 content 为空直接解析失败
+        // （v0.36.0 merge 卡死案）。失败重试一次与 generate_methodology 同模式。
+        let attempt = || async {
+            let resp = call_llm(
+                &self.llm_service,
+                "guidebook_merge",
+                prompt.clone(),
+                Some(8000),
+                Some(0.3),
+            )
+            .await?;
+            let parsed: LlmDistillMergeResponse = parse_json_response(&resp)?;
+            if parsed.principles.is_empty() {
+                return Err(AnalysisError::LlmError("合并后原则为空".to_string()));
+            }
+            Ok(parsed)
+        };
+        match attempt().await {
+            Ok(m) => Ok(m),
+            Err(e) => {
+                log::warn!("[GuidebookDistiller] merge 首次失败，重试一次: {}", e);
+                attempt().await
+            }
         }
-        Ok(parsed)
     }
 
     /// fold-in：新资产与现有方法论资产融合（输出与 merge 同构）
@@ -319,25 +331,34 @@ impl GuidebookDistiller {
                 &[
                     (
                         "existing",
-                        clip_chars(&build_existing_assets_input(existing), 6000),
+                        clip_chars(&build_existing_assets_input(existing), 3000),
                     ),
-                    ("new", clip_chars(&build_merge_input(new_assets), 6000)),
+                    ("new", clip_chars(&build_merge_input(new_assets), 3000)),
                 ],
             )
             .ok_or_else(|| AnalysisError::LlmError("prompt distill_foldin 未注册".into()))?;
-        let resp = call_llm(
-            &self.llm_service,
-            "guidebook_foldin",
-            prompt,
-            Some(4000),
-            Some(0.3),
-        )
-        .await?;
-        let parsed: LlmDistillMergeResponse = parse_json_response(&resp)?;
-        if parsed.principles.is_empty() {
-            return Err(AnalysisError::LlmError("融合后原则为空".to_string()));
+        let attempt = || async {
+            let resp = call_llm(
+                &self.llm_service,
+                "guidebook_foldin",
+                prompt.clone(),
+                Some(8000),
+                Some(0.3),
+            )
+            .await?;
+            let parsed: LlmDistillMergeResponse = parse_json_response(&resp)?;
+            if parsed.principles.is_empty() {
+                return Err(AnalysisError::LlmError("融合后原则为空".to_string()));
+            }
+            Ok(parsed)
+        };
+        match attempt().await {
+            Ok(m) => Ok(m),
+            Err(e) => {
+                log::warn!("[GuidebookDistiller] foldin 首次失败，重试一次: {}", e);
+                attempt().await
+            }
         }
-        Ok(parsed)
     }
 
     async fn generate_methodology(
@@ -416,7 +437,9 @@ fn clip_chars(s: &str, max: usize) -> String {
     }
 }
 
-/// 构建 merge 输入：四类资产分区，单条 200 字、总量 12000 字截断
+/// 构建 merge 输入：四类资产分区，单条 200 字、总量 6000 字截断。
+/// 总量上限曾取 12000，实测 prompt 达 8248 tokens 超出 8192 ctx 模型
+/// （Gemma 等）直接 400（v0.36.0 merge 卡死案诱因之一），降至 6000。
 fn build_merge_input(assets: &ChunkAssets) -> String {
     let mut sections = Vec::new();
     if !assets.points.is_empty() {
@@ -460,7 +483,7 @@ fn build_merge_input(assets: &ChunkAssets) -> String {
             .join("\n");
         sections.push(format!("【反模式】\n{}", lines));
     }
-    clip_chars(&sections.join("\n\n"), 12000)
+    clip_chars(&sections.join("\n\n"), 6000)
 }
 
 /// 现有 CM 资产渲染为 foldin 输入（复用四类分区格式，复用 steps 的 principles
@@ -594,6 +617,20 @@ mod tests {
         assert!(input.contains("流水账"));
         // 单条 200 字截断：拼接行不含完整 300 字重复
         assert!(!input.contains(&"要点".repeat(300)));
+    }
+
+    #[test]
+    fn merge_input_total_capped_at_6000_chars() {
+        // v0.36.0 卡死案回归：merge prompt 总量 12000 字符（实测 8248 tokens）
+        // 超出 8192 ctx 模型直接 400，上限降至 6000 字符
+        let mut a = ChunkAssets::default();
+        for i in 0..200 {
+            a.points.push(format!("要点{}：{}", i, "长".repeat(150)));
+            a.decision_rules
+                .push(format!("规则{}：{}", i, "长".repeat(150)));
+        }
+        let input = build_merge_input(&a);
+        assert!(input.chars().count() <= 6000);
     }
 
     #[test]

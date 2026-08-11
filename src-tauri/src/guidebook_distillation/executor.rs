@@ -8,13 +8,16 @@ use std::sync::{
     Arc,
 };
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use super::service::GuidebookDistillationService;
 use crate::{
     book_deconstruction::{chunker::create_chunks, models::AnalysisError, parser::parse_book},
     db::DbPool,
-    guidebook_distillation::{models::DistillationStatus, repository::GuidebookRepository},
+    guidebook_distillation::{
+        models::{DistillationProgressEvent, DistillationStatus},
+        repository::GuidebookRepository,
+    },
     llm::LlmService,
     task_system::{
         executor::{TaskExecutionContext, TaskExecutor},
@@ -154,8 +157,26 @@ impl TaskExecutor for GuidebookDistillationExecutor {
         cancel_monitor.abort();
         let _ = cancel_monitor.await;
 
+        // 终态事件：前端卡片的 liveStatus 只认 guidebook-distillation-progress
+        // 事件流且优先于轮询结果，终态（completed/failed/cancelled）若只写 DB
+        // 不发事件，卡片会永远停在最后一个进度事件（v0.36.0 卡死表象根因）。
+        let emit_terminal = |status: &str, progress: i32, msg: &str| {
+            let _ = self.app_handle.emit(
+                "guidebook-distillation-progress",
+                DistillationProgressEvent {
+                    guidebook_id: guidebook_id.clone(),
+                    status: status.to_string(),
+                    progress,
+                    current_step: msg.to_string(),
+                    message: Some(msg.to_string()),
+                    active_threads: 0,
+                },
+            );
+        };
+
         match result {
             Ok(()) => {
+                emit_terminal("completed", 100, "提炼完成");
                 ctx.update_progress("completed", 100, "提炼完成");
                 Ok(TaskResult {
                     success: true,
@@ -174,9 +195,11 @@ impl TaskExecutor for GuidebookDistillationExecutor {
                         DistillationStatus::Cancelled,
                         0,
                     );
+                    emit_terminal("cancelled", 0, "已取消提炼");
                 } else {
                     let _ = GuidebookRepository::new(self.pool.clone())
                         .update_error(&guidebook_id, &e.to_string());
+                    emit_terminal("failed", 0, &format!("提炼失败: {}", e));
                 }
                 Ok(TaskResult {
                     success: false,
