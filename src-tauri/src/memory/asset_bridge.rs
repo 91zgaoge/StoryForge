@@ -12,12 +12,31 @@
 //! - 桥接单向：正文 → 生产资产表，不回写 kg 记忆层；
 //! - 任何单条失败只 log::warn，不中断整体 ingest。
 
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
+
 use rusqlite::params;
 
 use crate::{
     db::DbPool,
     memory::ingest::{AnalyzedEntity, AnalyzedRelation, ContentAnalysis, SceneOutlineDelta},
 };
+
+/// 进程内 per-story 互斥锁注册表。characters 表无 UNIQUE(story_id,name)
+/// 约束，同一 story 的并发 ingest（scene_service 每场景 spawn 一个）会对
+/// 同名新角色产生 SELECT-then-INSERT 的 TOCTOU 竞争、插入重复行；本应用
+/// 是单进程桌面应用，进程内锁即可保证同 story 的同步串行执行。
+static STORY_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn story_lock(story_id: &str) -> Arc<Mutex<()>> {
+    let registry = STORY_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
+    map.entry(story_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
 
 fn now() -> String {
     chrono::Local::now().to_rfc3339()
@@ -47,6 +66,11 @@ fn opt_str(s: &Option<String>) -> Option<&str> {
     s.as_deref()
 }
 
+/// 校验 LLM 给出的年龄：非正数或 >150 视为无效（不落库）
+fn sanitize_age(age: Option<i32>) -> Option<i32> {
+    age.filter(|a| (1..=150).contains(a))
+}
+
 /// 源感知文本合并：新值为空 → 保留旧值；旧值为空或行可精炼 →
 /// 取新值；否则保留旧值。
 fn merge_text(existing: &Option<String>, new: &str, refinable: bool) -> Option<String> {
@@ -65,6 +89,21 @@ fn merge_text(existing: &Option<String>, new: &str, refinable: bool) -> Option<S
     }
 }
 
+/// 关系强度合并：emotional_intensity 列有 DEFAULT 0.5（V124），读回永为
+/// Some(0.5)，单纯 `.or(new)` 是死分支、既有行强度会永远停在无意义的
+/// 0.5。当既有值等于默认 0.5、且对应 emotional_bond 为空（该行从未被
+/// 真正赋过强度）时，允许新值覆盖；其余情况保留既有值。
+fn merge_intensity(existing: Option<f64>, bond: &Option<String>, new: f64) -> Option<f64> {
+    let bond_filled = bond
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    match existing {
+        Some(v) if (v - 0.5).abs() < f64::EPSILON && !bond_filled => Some(new),
+        other => other.or(Some(new)),
+    }
+}
+
 /// 把 ContentAnalysis 同步到生产资产表，返回写入/更新的条目数。
 pub fn sync_assets_from_analysis(
     pool: &DbPool,
@@ -72,6 +111,10 @@ pub fn sync_assets_from_analysis(
     scene_id: Option<&str>,
     analysis: &ContentAnalysis,
 ) -> usize {
+    // 整个函数持有 per-story 锁：characters 的 SELECT-then-INSERT 依赖
+    // 同 story 串行，否则并发 ingest 会插入同名重复角色、关系挂错 id。
+    let lock = story_lock(story_id);
+    let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
     let conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
@@ -158,7 +201,7 @@ fn sync_characters(
                 let m_goals = merge_text(&goals, &e.goals, refinable);
                 let m_appearance = merge_text(&appearance, &e.appearance, refinable);
                 let m_gender = merge_text(&gender, &e.gender, refinable);
-                let m_age = match e.age {
+                let m_age = match sanitize_age(e.age) {
                     Some(a) if refinable || age.is_none() => Some(a),
                     _ => age,
                 };
@@ -222,7 +265,7 @@ fn sync_characters(
                         opt_str(&non_empty(&e.goals)),
                         opt_str(&non_empty(&e.appearance)),
                         opt_str(&non_empty(&e.gender)),
-                        e.age,
+                        sanitize_age(e.age),
                         opt_str(&non_empty(&e.emotional_core)),
                         opt_str(&non_empty(&e.emotional_trigger)),
                         opt_str(&non_empty(&e.emotional_wound)),
@@ -309,9 +352,12 @@ fn sync_relationships(
                 let m_dynamic = merge_text(&dynamic, &rel.dynamic, false);
                 let m_bond = merge_text(&bond, &rel.emotional_bond, false);
                 let m_rev_bond = merge_text(&rev_bond, &rel.reverse_emotional_bond, false);
-                let m_intensity = intensity.or(Some(rel.emotional_intensity as f64));
-                let m_rev_intensity =
-                    rev_intensity.or(Some(rel.reverse_emotional_intensity as f64));
+                let m_intensity = merge_intensity(intensity, &bond, rel.emotional_intensity as f64);
+                let m_rev_intensity = merge_intensity(
+                    rev_intensity,
+                    &rev_bond,
+                    rel.reverse_emotional_intensity as f64,
+                );
                 let changed = m_description != description
                     || m_dynamic != dynamic
                     || m_bond != bond
@@ -878,6 +924,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_sync_sanitizes_invalid_age() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let analysis = analysis_with_entities(vec![
+            character_entity("负年龄", serde_json::json!({"age": -5})),
+            character_entity("超长年龄", serde_json::json!({"age": 200})),
+            character_entity("正常年龄", serde_json::json!({"age": 19})),
+        ]);
+        assert_eq!(sync_assets_from_analysis(&pool, "s1", None, &analysis), 3);
+        let conn = pool.get().unwrap();
+        let age_of = |name: &str| -> Option<i32> {
+            conn.query_row(
+                "SELECT age FROM characters WHERE story_id='s1' AND name = ?1",
+                rusqlite::params![name],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        // 非正数 / >150 视为 None 不落库；合法值正常写入
+        assert_eq!(age_of("负年龄"), None);
+        assert_eq!(age_of("超长年龄"), None);
+        assert_eq!(age_of("正常年龄"), Some(19));
+    }
+
     // ---------- 关系 ----------
 
     #[test]
@@ -950,6 +1021,133 @@ mod tests {
 
         // 完全相同的重复同步：无任何变更
         assert_eq!(sync_assets_from_analysis(&pool, "s1", None, &analysis2), 0);
+    }
+
+    #[test]
+    fn test_sync_relationship_intensity_overrides_meaningless_default() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        insert_character(&pool, "s1", "甲", "user_created");
+        insert_character(&pool, "s1", "乙", "user_created");
+        // 既有关系行：bond 为空、intensity 停留在列默认 0.5（V124 DEFAULT），
+        // 等价于"从未被真正赋过强度"
+        {
+            let conn = pool.get().unwrap();
+            let (sid, tid): (String, String) = conn
+                .query_row(
+                    "SELECT (SELECT id FROM characters WHERE story_id='s1' AND name='甲'), \
+                            (SELECT id FROM characters WHERE story_id='s1' AND name='乙')",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            conn.execute(
+                "INSERT INTO character_relationships (id, story_id, source_character_id, \
+                 target_character_id, relationship_type, created_at) \
+                 VALUES ('rel1', 's1', ?1, ?2, '盟友', '2026-01-01')",
+                rusqlite::params![sid, tid],
+            )
+            .unwrap();
+        }
+        let analysis = analysis_from_json(serde_json::json!({
+            "relationships": [
+                {"source": "甲", "target": "乙", "relation_type": "盟友",
+                 "emotional_bond": "信任", "emotional_intensity": 0.9}
+            ],
+            "sentiment": {"overall": "neutral", "intensity": 0.5, "arc": []},
+        }));
+        // bond 原本为空且 intensity 是无意义默认 0.5：允许新值覆盖
+        assert_eq!(sync_assets_from_analysis(&pool, "s1", None, &analysis), 1);
+        let conn = pool.get().unwrap();
+        let (bond, intensity): (String, f64) = conn
+            .query_row(
+                "SELECT emotional_bond, emotional_intensity FROM character_relationships \
+                 WHERE id='rel1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(bond, "信任");
+        assert!((intensity - 0.9).abs() < 1e-6);
+        drop(conn);
+
+        // bond 已填之后：既有强度是有意义的值，新分析不再覆盖
+        let analysis2 = analysis_from_json(serde_json::json!({
+            "relationships": [
+                {"source": "甲", "target": "乙", "relation_type": "盟友",
+                 "description": "并肩作战", "emotional_intensity": 0.3}
+            ],
+            "sentiment": {"overall": "neutral", "intensity": 0.5, "arc": []},
+        }));
+        // 只填空字段 description
+        assert_eq!(sync_assets_from_analysis(&pool, "s1", None, &analysis2), 1);
+        let conn = pool.get().unwrap();
+        let (desc, intensity): (String, f64) = conn
+            .query_row(
+                "SELECT description, emotional_intensity FROM character_relationships \
+                 WHERE id='rel1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(desc, "并肩作战");
+        assert!((intensity - 0.9).abs() < 1e-6);
+    }
+
+    // ---------- 并发（TOCTOU 回归） ----------
+
+    #[test]
+    fn test_concurrent_sync_same_story_inserts_no_duplicates() {
+        // create_test_pool 的 :memory: 每连接一个独立库，无法验证并发；
+        // 用文件库让两个线程各自拿连接、真实并发（模拟 scene_service
+        // 每场景 spawn 一个 ingest）
+        let tmp = tempfile::tempdir().unwrap();
+        let pool = crate::db::init_db(tmp.path(), None).unwrap();
+        story(&pool, "s1");
+        let analysis_json = serde_json::json!({
+            "entities": [
+                character_entity("甲", serde_json::json!({})),
+                character_entity("乙", serde_json::json!({})),
+            ],
+            "relationships": [
+                {"source": "甲", "target": "乙", "relation_type": "师徒",
+                 "emotional_bond": "信任", "emotional_intensity": 0.8}
+            ],
+            "sentiment": {"overall": "neutral", "intensity": 0.5, "arc": []},
+        });
+        let mut handles = Vec::new();
+        for _ in 0..2 {
+            let pool = pool.clone();
+            let json = analysis_json.clone();
+            handles.push(std::thread::spawn(move || {
+                let analysis = analysis_from_json(json);
+                sync_assets_from_analysis(&pool, "s1", None, &analysis)
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let conn = pool.get().unwrap();
+        // 同名新角色只插入一行
+        for name in ["甲", "乙"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM characters WHERE story_id='s1' AND name = ?1",
+                    rusqlite::params![name],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "角色 {} 出现重复行", name);
+        }
+        // 关系只建一行
+        let rel_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM character_relationships WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rel_count, 1);
     }
 
     // ---------- 世界观 ----------
