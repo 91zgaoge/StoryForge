@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+pub mod asset_bridge;
 pub mod facade;
 pub mod health_daemon;
 pub mod hybrid_search;
