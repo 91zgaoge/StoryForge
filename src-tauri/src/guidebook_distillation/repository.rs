@@ -182,6 +182,16 @@ impl GuidebookRepository {
         Ok(())
     }
 
+    /// 回写合并意图（dedup 命中既有记录且旧记录未落 merge_into 时补写）
+    pub fn set_merge_into(&self, id: &str, methodology_id: &str) -> RepoResult<()> {
+        let conn = self.pool.get()?;
+        conn.execute(
+            "UPDATE guidebooks SET merge_into_methodology_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![methodology_id, Local::now().to_rfc3339(), id],
+        )?;
+        Ok(())
+    }
+
     pub fn delete(&self, id: &str) -> RepoResult<()> {
         let conn = self.pool.get()?;
         conn.execute("DELETE FROM guidebooks WHERE id = ?1", params![id])?;
@@ -427,6 +437,24 @@ mod tests {
         repo.create(&sample_guidebook("gm2")).unwrap();
         let got2 = repo.get_by_id("gm2").unwrap().unwrap();
         assert!(got2.merge_into_methodology_id.is_none());
+    }
+
+    #[test]
+    fn set_merge_into_backfills_merge_intent() {
+        let pool = create_test_pool().unwrap();
+        let repo = GuidebookRepository::new(pool);
+        repo.create(&sample_guidebook("gb1")).unwrap();
+        // 初始为空
+        assert!(repo
+            .get_by_id("gb1")
+            .unwrap()
+            .unwrap()
+            .merge_into_methodology_id
+            .is_none());
+        // 空记录回写合并意图
+        repo.set_merge_into("gb1", "custom_m1").unwrap();
+        let g = repo.get_by_id("gb1").unwrap().unwrap();
+        assert_eq!(g.merge_into_methodology_id.as_deref(), Some("custom_m1"));
     }
 
     #[test]

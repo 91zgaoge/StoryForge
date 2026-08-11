@@ -865,6 +865,7 @@ mod tests {
             "distill_chunk",
             "distill_merge",
             "distill_methodology",
+            "distill_foldin",
         ] {
             assert!(
                 resolve_prompt_default(id).is_some(),

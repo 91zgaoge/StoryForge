@@ -52,6 +52,7 @@ impl GuidebookDistiller {
         &self,
         guidebook_id: &str,
         chunks: &[TextChunk],
+        fold_in: Option<&CustomMethodology>,
         heartbeat_callback: Option<Box<dyn Fn() + Send + Sync>>,
         cancel_check: Option<Box<dyn Fn() -> bool + Send + Sync>>,
     ) -> Result<DistillationOutput, AnalysisError> {
@@ -111,10 +112,16 @@ impl GuidebookDistiller {
         heartbeat();
         check_cancel()?;
 
-        // Step 3: 合并去重（→85%）
-        self.emit_progress(guidebook_id, "merging", 72, "正在分类合并创作资产...")
-            .await;
-        let merged = self.merge_assets(&assets).await?;
+        // Step 3: 合并去重（→85%）；fold-in 时与现有方法论资产融合
+        let merged = if let Some(existing_cm) = fold_in {
+            self.emit_progress(guidebook_id, "merging", 72, "正在与现有方法论融合...")
+                .await;
+            self.foldin_assets(existing_cm, &assets).await?
+        } else {
+            self.emit_progress(guidebook_id, "merging", 72, "正在分类合并创作资产...")
+                .await;
+            self.merge_assets(&assets).await?
+        };
         heartbeat();
         check_cancel()?;
 
@@ -295,6 +302,44 @@ impl GuidebookDistiller {
         Ok(parsed)
     }
 
+    /// fold-in：新资产与现有方法论资产融合（输出与 merge 同构）
+    async fn foldin_assets(
+        &self,
+        existing: &CustomMethodology,
+        new_assets: &ChunkAssets,
+    ) -> Result<LlmDistillMergeResponse, AnalysisError> {
+        if new_assets.is_empty() {
+            return Err(AnalysisError::LlmError(
+                "全书未提炼出任何创作要点".to_string(),
+            ));
+        }
+        let prompt = self
+            .render_prompt(
+                "distill_foldin",
+                &[
+                    (
+                        "existing",
+                        clip_chars(&build_existing_assets_input(existing), 6000),
+                    ),
+                    ("new", clip_chars(&build_merge_input(new_assets), 6000)),
+                ],
+            )
+            .ok_or_else(|| AnalysisError::LlmError("prompt distill_foldin 未注册".into()))?;
+        let resp = call_llm(
+            &self.llm_service,
+            "guidebook_foldin",
+            prompt,
+            Some(4000),
+            Some(0.3),
+        )
+        .await?;
+        let parsed: LlmDistillMergeResponse = parse_json_response(&resp)?;
+        if parsed.principles.is_empty() {
+            return Err(AnalysisError::LlmError("融合后原则为空".to_string()));
+        }
+        Ok(parsed)
+    }
+
     async fn generate_methodology(
         &self,
         principles: &[String],
@@ -418,6 +463,32 @@ fn build_merge_input(assets: &ChunkAssets) -> String {
     clip_chars(&sections.join("\n\n"), 12000)
 }
 
+/// 现有 CM 资产渲染为 foldin 输入（复用四类分区格式，复用 steps 的 principles
+/// 位）
+fn build_existing_assets_input(cm: &CustomMethodology) -> String {
+    let assets = ChunkAssets {
+        points: cm
+            .steps
+            .iter()
+            .map(|s| format!("{}：{}", s.title, s.instruction))
+            .collect(),
+        techniques: cm.patterns.clone(),
+        decision_rules: cm.cheatsheet.decision_rules.clone(),
+        anti_patterns: cm.cheatsheet.anti_patterns.clone(),
+    };
+    build_merge_input(&assets)
+}
+
+/// foldin 完整输入（带两大段标题，总量 12000 字截断）
+fn build_foldin_input(existing: &CustomMethodology, new_assets: &ChunkAssets) -> String {
+    let combined = format!(
+        "【现有方法论资产】\n{}\n\n【新提炼资产】\n{}",
+        build_existing_assets_input(existing),
+        build_merge_input(new_assets)
+    );
+    clip_chars(&combined, 12000)
+}
+
 /// 校验提炼产物：名称非空、至少一个步骤、每个步骤有 instruction
 fn validate_methodology(
     m: LlmMethodologyResponse,
@@ -537,6 +608,69 @@ mod tests {
             }],
         };
         assert!(validate_methodology(m).is_ok());
+    }
+
+    fn sample_cm() -> CustomMethodology {
+        CustomMethodology {
+            id: "custom_t".into(),
+            guidebook_id: None,
+            name: "旧方法论".into(),
+            description: None,
+            steps: vec![MethodologyStep {
+                title: "旧步骤".into(),
+                instruction: "旧指令".into(),
+                checklist: vec![],
+            }],
+            patterns: vec![Technique {
+                name: "旧技巧".into(),
+                when_to_use: "w".into(),
+                how: "h".into(),
+            }],
+            cheatsheet: Cheatsheet {
+                decision_rules: vec!["旧规则".into()],
+                anti_patterns: vec![AntiPattern {
+                    what: "旧反模式".into(),
+                    why: "why".into(),
+                }],
+            },
+            enabled: true,
+            created_at: chrono::Local::now(),
+            updated_at: chrono::Local::now(),
+        }
+    }
+
+    #[test]
+    fn foldin_input_contains_existing_and_new_sections() {
+        let cm = sample_cm();
+        let mut new_assets = ChunkAssets::default();
+        new_assets.points.push("新要点".into());
+        new_assets.techniques.push(Technique {
+            name: "新技巧".into(),
+            when_to_use: String::new(),
+            how: String::new(),
+        });
+        let input = build_foldin_input(&cm, &new_assets);
+        assert!(input.contains("【现有方法论资产】"));
+        assert!(input.contains("旧技巧"));
+        assert!(input.contains("旧规则"));
+        assert!(input.contains("旧反模式"));
+        assert!(input.contains("【新提炼资产】"));
+        assert!(input.contains("新要点"));
+        assert!(input.contains("新技巧"));
+    }
+
+    #[test]
+    fn foldin_input_truncates_to_budget() {
+        let mut cm = sample_cm();
+        cm.patterns = (0..200)
+            .map(|i| Technique {
+                name: format!("技巧{}", i),
+                when_to_use: "w".repeat(100),
+                how: "h".repeat(200),
+            })
+            .collect();
+        let input = build_foldin_input(&cm, &ChunkAssets::default());
+        assert!(input.chars().count() <= 12050); // 12000 + 段标题余量
     }
 
     #[test]

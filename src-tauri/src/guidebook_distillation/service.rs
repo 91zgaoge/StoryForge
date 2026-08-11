@@ -82,16 +82,35 @@ impl GuidebookDistillationService {
         let repo = GuidebookRepository::new(self.pool.clone());
         // 先取出 id 与去重决策，避免把非 Send 的 RepoResult 临时量带过 await
         let dedup = match repo.get_by_hash(&file_hash) {
-            Ok(Some(existing)) => Some((existing.id, dedup_decision(&existing.status))),
+            Ok(Some(existing)) => Some((
+                existing.id,
+                existing.merge_into_methodology_id,
+                dedup_decision(&existing.status),
+            )),
             _ => None,
         };
-        if let Some((existing_id, decision)) = dedup {
+        if let Some((existing_id, existing_merge, decision)) = dedup {
+            // 重复文件带合并目标且旧记录未落合并意图时回写，避免合并意图静默丢失
+            let backfill_merge_intent = || {
+                if let Some(target) = merge_into {
+                    if existing_merge.is_none() {
+                        if let Err(e) = repo.set_merge_into(&existing_id, target) {
+                            log::warn!(
+                                "[GuidebookDistillation] 回写合并意图失败 {}: {}",
+                                existing_id,
+                                e
+                            );
+                        }
+                    }
+                }
+            };
             match decision {
                 DedupDecision::ReturnExisting => {
                     log::info!(
                         "[GuidebookDistillation] File already exists: {}",
                         existing_id
                     );
+                    backfill_merge_intent();
                     return Ok(existing_id);
                 }
                 DedupDecision::RetryExisting => {
@@ -101,6 +120,8 @@ impl GuidebookDistillationService {
                         existing_id
                     );
                     self.retry_distillation(&existing_id).await?;
+                    // reset_for_retry 之后回写合并意图
+                    backfill_merge_intent();
                     return Ok(existing_id);
                 }
             }
@@ -227,9 +248,82 @@ impl GuidebookDistillationService {
             self.pool.clone(),
             concurrency,
         );
+
+        // fold-in：从 guidebook 记录读合并意图（重试路径同样生效）
+        let fold_target = repo
+            .get_by_id(guidebook_id)
+            .ok()
+            .flatten()
+            .and_then(|g| g.merge_into_methodology_id);
+        let fold_cm = fold_target.as_deref().and_then(|mid| {
+            CustomMethodologyRepository::new(self.pool.clone())
+                .get_by_id(mid)
+                .ok()
+                .flatten()
+        });
+        if fold_target.is_some() && fold_cm.is_none() {
+            return Err(AnalysisError::StorageError(
+                "合并目标方法论已不存在".to_string(),
+            ));
+        }
+
         let output = distiller
-            .distill(guidebook_id, chunks, heartbeat, cancel_check)
+            .distill(
+                guidebook_id,
+                chunks,
+                fold_cm.as_ref(),
+                heartbeat,
+                cancel_check,
+            )
             .await?;
+
+        if let Some(target_cm) = fold_cm {
+            // fold-in：更新现有 CM（name/description/enabled 保留），替换
+            // steps/patterns/cheatsheet
+            let new_steps: Vec<MethodologyStep> = output
+                .methodology
+                .steps
+                .iter()
+                .map(|s| MethodologyStep {
+                    title: s.title.clone(),
+                    instruction: s.instruction.clone(),
+                    checklist: s.checklist.clone(),
+                })
+                .collect();
+            let cm_repo = CustomMethodologyRepository::new(self.pool.clone());
+            cm_repo
+                .update(
+                    &target_cm.id,
+                    None,
+                    None,
+                    Some(&new_steps),
+                    None,
+                    Some(&output.techniques),
+                    Some(&output.cheatsheet),
+                )
+                .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
+            // 引用故事的 step 顶格 clamp 到新 max_steps
+            let max_steps = (new_steps.len() as i32).max(1);
+            clamp_stories_step_in(&self.pool, &target_cm.id, max_steps)
+                .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
+            repo.update_distilled(
+                guidebook_id,
+                output.metadata.title.as_deref(),
+                output.metadata.author.as_deref(),
+                output.metadata.subject.as_deref(),
+                &target_cm.id,
+            )
+            .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
+            repo.update_status(guidebook_id, DistillationStatus::Completed, 100)
+                .map_err(|e| AnalysisError::StorageError(e.to_string()))?;
+            log::info!(
+                "[GuidebookDistillation] {} fold-in 完成 → 合并进 {}（{}）",
+                guidebook_id,
+                target_cm.id,
+                target_cm.name
+            );
+            return Ok(());
+        }
 
         // 落库：自定义方法论
         let methodology_id = format!("custom_{}", Uuid::new_v4());
@@ -562,6 +656,22 @@ pub(crate) fn dedup_decision(status: &DistillationStatus) -> DedupDecision {
     }
 }
 
+/// 引用某方法论的故事 methodology_step 顶格 clamp（fold-in 后 steps
+/// 数可能变少）
+pub(crate) fn clamp_stories_step_in(
+    pool: &DbPool,
+    methodology_id: &str,
+    max_steps: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = pool.get()?;
+    conn.execute(
+        "UPDATE stories SET methodology_step = ?1 \
+         WHERE methodology_id = ?2 AND methodology_step > ?1",
+        rusqlite::params![max_steps, methodology_id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod extension_tests {
     use super::*;
@@ -651,6 +761,41 @@ mod extension_tests {
                 updated_at: chrono::Local::now(),
             })
             .unwrap();
+    }
+
+    #[test]
+    fn clamp_stories_step_caps_to_new_max() {
+        use crate::db::{dto::CreateStoryRequest, repositories::StoryRepository};
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "clamp 测试".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "UPDATE stories SET methodology_id = 'custom_clamp', methodology_step = 5 WHERE id = ?1",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        clamp_stories_step_in(&pool, "custom_clamp", 3).unwrap();
+        let conn = pool.get().unwrap();
+        let step: i32 = conn
+            .query_row(
+                "SELECT methodology_step FROM stories WHERE id = ?1",
+                rusqlite::params![story.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(step, 3);
     }
 
     #[test]
