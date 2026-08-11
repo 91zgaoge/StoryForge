@@ -281,6 +281,22 @@ impl GuidebookDistillationService {
             )
             .await?;
 
+        // 落库前确定性清洗（剔除空条目/去重/截断）
+        let (output, clean_report) =
+            crate::guidebook_distillation::validator::validate_and_clean(output);
+        log::info!(
+            "[GuidebookDistillation] {} 清洗: 技巧 {}（剔 {} 重 {}）规则 {}（剔 {}）反模式 {}（剔 {}）截断 {} 处",
+            guidebook_id,
+            output.techniques.len(),
+            clean_report.removed_techniques,
+            clean_report.deduped_techniques,
+            output.cheatsheet.decision_rules.len(),
+            clean_report.removed_rules,
+            output.cheatsheet.anti_patterns.len(),
+            clean_report.removed_anti_patterns,
+            clean_report.truncated_fields,
+        );
+
         if let Some(target_cm) = fold_cm {
             // fold-in：更新现有 CM（name/description/enabled 保留），替换
             // steps/patterns/cheatsheet
