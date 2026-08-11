@@ -35,6 +35,11 @@ import { useWorkflowNodes } from '@/hooks/useWorkflowNodes';
 import { useWebViewRedrawFix } from '@/hooks/useWebViewRedrawFix';
 import { LoginModal } from '@/pages/Login';
 import { useAppStore } from '@/stores/appStore';
+import {
+  useAgencyActivityStore,
+  type AgentActivityEvent,
+  type AgentProgressEvent,
+} from '@/stores/agencyActivityStore';
 import type { ViewType, Story } from '@/types';
 import toast from 'react-hot-toast';
 
@@ -269,6 +274,38 @@ function App() {
     return () => {
       if (unlistenShown) unlistenShown();
       window.removeEventListener('backstage-window-restored', handleWindowRestored);
+    };
+  }, [queryClient]);
+
+  // 全局捕获 agency 三 agent 事件到 store（P0 修复）：
+  // AgencyStudio 仅在 currentView==='agency-studio' 时挂载，组件内监听随卸载销毁，
+  // 创世/续写期间（页面未开）事件全丢 -> 打开页面只能空白等 10s 轮询。
+  // 监听器提升到常驻顶层后事件流持续进 store，页面打开即可见实时动态。
+  useEffect(() => {
+    let unActivity: (() => void) | undefined;
+    let unProgress: (() => void) | undefined;
+    let unBoard: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unActivity = await listen<Omit<AgentActivityEvent, 'at'>>('agency-agent-activity', e => {
+          useAgencyActivityStore.getState().appendActivity(e.payload);
+        });
+        unProgress = await listen<Omit<AgentProgressEvent, 'at'>>('agency-run-progress', e => {
+          useAgencyActivityStore.getState().appendProgress(e.payload);
+        });
+        unBoard = await listen<{ run_id: string }>('agency-board-changed', e => {
+          useAgencyActivityStore.getState().setActiveRunId(e.payload.run_id);
+          queryClient.invalidateQueries({ queryKey: ['agency-board', e.payload.run_id] });
+        });
+      } catch (e) {
+        createLogger('ui:App').error('Failed to setup agency event listeners', { error: e });
+      }
+    };
+    setup();
+    return () => {
+      unActivity?.();
+      unProgress?.();
+      unBoard?.();
     };
   }, [queryClient]);
 

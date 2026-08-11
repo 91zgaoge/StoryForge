@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock('@/services/api/agency', () => ({
   listBoard: vi.fn().mockResolvedValue([]),
   getRun: vi.fn().mockResolvedValue(null),
@@ -15,6 +14,7 @@ vi.mock('@/stores/appStore', () => ({
 
 import AgencyStudio from '../AgencyStudio';
 import { listBoard, getRun, listRuns } from '@/services/api/agency';
+import { useAgencyActivityStore } from '@/stores/agencyActivityStore';
 
 const RUN_1 = {
   id: 'run-1',
@@ -55,6 +55,8 @@ function renderStudio() {
 
 describe('AgencyStudio', () => {
   beforeEach(() => {
+    // 重置全局事件 store（真实 store，无 persist/副作用，测试间需清理）
+    useAgencyActivityStore.setState({ activities: [], progress: [], activeRunId: null });
     vi.mocked(listRuns).mockResolvedValue([]);
     vi.mocked(listBoard).mockResolvedValue([]);
     vi.mocked(getRun).mockResolvedValue(null);

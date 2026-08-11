@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
+import { AGENCY_ROLES, useAgencyActivityStore } from '@/stores/agencyActivityStore';
 import { getRun, listBoard, listRuns } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
 
 /** 角色事件流中的 role 值（AgentRole::as_str）-> 显示名 */
-const ROLES: { key: string; name: string }[] = [
-  { key: 'lead_writer', name: '主创' },
-  { key: 'producer', name: '管理' },
-  { key: 'editor_auditor', name: '编辑审计' },
-];
+const ROLES = AGENCY_ROLES;
 
 /** 扩展角色名映射（board items 的 producer 可能是 writer/inspector 等） */
 const ROLE_NAMES: Record<string, string> = {
@@ -30,22 +27,6 @@ const ZONES: { key: BoardItem['zone']; name: string }[] = [
 ];
 
 const ZONE_NAMES: Record<string, string> = Object.fromEntries(ZONES.map(z => [z.key, z.name]));
-
-interface ActivityEvent {
-  run_id: string;
-  role: string;
-  action: string;
-  detail: string;
-  at: number;
-}
-
-interface ProgressEvent {
-  run_id: string;
-  phase: string;
-  status: string;
-  message: string;
-  at: number;
-}
 
 function hhmmss(at: number) {
   const d = new Date(at);
@@ -76,35 +57,13 @@ function runStatusLabel(status: string): string {
 
 export default function AgencyStudio() {
   const currentStory = useAppStore(s => s.currentStory);
-  const qc = useQueryClient();
-  const [activities, setActivities] = useState<ActivityEvent[]>([]);
-  const [progress, setProgress] = useState<ProgressEvent[]>([]);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-
-  // 事件接入：activity/progress 驱动时间线与角色卡；board-changed 失效黑板查询。
-  useEffect(() => {
-    let un1: (() => void) | undefined, un2: (() => void) | undefined, un3: (() => void) | undefined;
-    (async () => {
-      const { listen } = await import('@tauri-apps/api/event');
-      un1 = await listen<Omit<ActivityEvent, 'at'>>('agency-agent-activity', e => {
-        setActivities(prev => [...prev.slice(-99), { ...e.payload, at: Date.now() }]);
-        setActiveRunId(e.payload.run_id);
-      });
-      un2 = await listen<Omit<ProgressEvent, 'at'>>('agency-run-progress', e => {
-        setProgress(prev => [...prev.slice(-99), { ...e.payload, at: Date.now() }]);
-        setActiveRunId(e.payload.run_id);
-      });
-      un3 = await listen<BoardItem>('agency-board-changed', e => {
-        setActiveRunId(e.payload.run_id);
-        qc.invalidateQueries({ queryKey: ['agency-board', e.payload.run_id] });
-      });
-    })();
-    return () => {
-      un1?.();
-      un2?.();
-      un3?.();
-    };
-  }, [qc]);
+  // 实时事件由 App.tsx 常驻监听器写入 agencyActivityStore
+  //（本组件条件挂载，组件内监听会随卸载销毁）。
+  const activities = useAgencyActivityStore(s => s.activities);
+  const progress = useAgencyActivityStore(s => s.progress);
+  const activeRunId = useAgencyActivityStore(s => s.activeRunId);
+  const hydrateFromRuns = useAgencyActivityStore(s => s.hydrateFromRuns);
+  const setActiveRunId = useAgencyActivityStore(s => s.setActiveRunId);
 
   // Run 发现：页面打开时从 DB 水合最新 run（不依赖实时事件）。
   // 此前 activeRunId 仅从事件捕获 -> 页面后开时恒 null -> 空白。
@@ -116,13 +75,11 @@ export default function AgencyStudio() {
   });
   const runs = runsQuery.data;
 
-  // 水合：runs 数据到达且当前无 activeRunId 时，取最新 run。
-  // 实时事件仍可覆盖（新 run 启动时事件到达，切到新 run）。
+  // 水合：runs 数据到达时由 store 守卫取最新 run（activeRunId 已存在则不覆盖；
+  // 实时事件仍可覆盖——新 run 启动时事件到达，切到新 run）。
   useEffect(() => {
-    if (!activeRunId && runs && runs.length > 0) {
-      setActiveRunId(runs[0].id);
-    }
-  }, [runs, activeRunId]);
+    if (runs && runs.length > 0) hydrateFromRuns(runs);
+  }, [runs, hydrateFromRuns]);
 
   const boardQuery = useQuery({
     queryKey: ['agency-board', activeRunId],
@@ -145,7 +102,11 @@ export default function AgencyStudio() {
   // 用户无法区分"无数据"与"出错"）。
   const queryError = runsQuery.error ?? boardQuery.error ?? runQuery.error;
 
-  const latestProgress = progress.length > 0 ? progress[progress.length - 1] : null;
+  // 仅看当前 run 的实时事件（store 全局缓存多 run 事件流，需按 activeRunId 过滤）
+  const runActivities = activeRunId ? activities.filter(a => a.run_id === activeRunId) : [];
+  const runProgress = activeRunId ? progress.filter(p => p.run_id === activeRunId) : [];
+
+  const latestProgress = runProgress.length > 0 ? runProgress[runProgress.length - 1] : null;
   const runStatus = latestProgress
     ? `${latestProgress.phase} · ${runStatusLabel(latestProgress.status)}`
     : run
@@ -155,7 +116,7 @@ export default function AgencyStudio() {
         : '-';
   const lastAction = (role: string) => {
     // 1. 实时事件优先（页面打开后收到的 agency-agent-activity）
-    const a = [...activities].reverse().find(x => x.role === role);
+    const a = [...runActivities].reverse().find(x => x.role === role);
     if (a) return `${a.action} ${a.detail}`;
     // 2. 历史重建：页面后开时从黑板条目推导该角色最近动作
     //    （与时间线同一数据源；board.producer 实测仅有三个主角色）
@@ -174,11 +135,11 @@ export default function AgencyStudio() {
   // 2. 历史重建（board items 的 created_at + producer + zone + key + summary）
   // 3. Run 生命周期（created_at 启动 + updated_at 终态）
   const liveTimeline = [
-    ...activities.map(a => ({
+    ...runActivities.map(a => ({
       at: a.at,
       text: `${roleName(a.role)} ${a.action} ${a.detail}`,
     })),
-    ...progress.map(p => ({
+    ...runProgress.map(p => ({
       at: p.at,
       text: `${p.phase} ${p.status} ${p.message}`,
     })),

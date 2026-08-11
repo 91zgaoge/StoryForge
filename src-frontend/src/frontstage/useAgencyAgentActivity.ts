@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { AgentActivityEvent } from '@/stores/agencyActivityStore';
 
 /**
  * v0.30.17: 监听 Agency 三 agent（主创/管理/编辑审计）的活动事件，
@@ -23,14 +24,6 @@ const DETAIL_VERB: Record<string, string> = {
   审查: '质检',
   装配: '装配最终稿',
 };
-
-export interface AgentActivityEvent {
-  run_id: string;
-  role: string;
-  action: string; // "start" | "done"
-  detail: string; // 概念/首章/深度资产/审查/装配
-  at: number;
-}
 
 function friendlyText(role: string, action: string, detail: string): string {
   const name = ROLES.find(r => r.key === role)?.name ?? role;
