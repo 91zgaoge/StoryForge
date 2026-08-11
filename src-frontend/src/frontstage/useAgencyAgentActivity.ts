@@ -23,15 +23,33 @@ const DETAIL_VERB: Record<string, string> = {
   深度资产: '生成深度资产',
   审查: '质检',
   装配: '装配最终稿',
+  资产: '生成资产',
+  资产补齐: '补齐资产',
+  后台审查: '后台质检',
 };
 
-function friendlyText(role: string, action: string, detail: string): string {
+/** 带动态章节号的 detail -> 动词短语（"第3章"/"第3章草稿"/"审查第3章"） */
+const CHAPTER_DETAIL_VERB: [RegExp, (chapter: string) => string][] = [
+  [/^审查(第\d+章)$/, c => `质检${c}`],
+  [/^(第\d+章)草稿$/, c => `写${c}草稿`],
+  [/^(第\d+章)$/, c => `写${c}`],
+];
+
+function detailVerb(detail: string): string {
+  if (DETAIL_VERB[detail]) return DETAIL_VERB[detail];
+  for (const [re, verb] of CHAPTER_DETAIL_VERB) {
+    const m = detail.match(re);
+    if (m) return verb(m[1]);
+  }
+  return detail;
+}
+
+export function friendlyText(role: string, action: string, detail: string): string {
   const name = ROLES.find(r => r.key === role)?.name ?? role;
   // 已完成：直接用阶段名作宾语（"已完成首章" / "已完成深度资产"），更自然；
   // 进行中：用动词短语（"正在写第一章" / "正在生成深度资产"）。
   if (action === 'done') return `${name}已完成${detail}`;
-  const verb = DETAIL_VERB[detail] ?? detail;
-  return `${name}正在${verb}`;
+  return `${name}正在${detailVerb(detail)}`;
 }
 
 export function useAgencyAgentActivity() {

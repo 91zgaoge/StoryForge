@@ -153,4 +153,42 @@ describe('AgencyStudio', () => {
     expect(await screen.findByText(/代理状态获取失败/)).toBeInTheDocument();
     expect(await screen.findByText(/IPC boom/)).toBeInTheDocument();
   });
+
+  it('同一业务事件重复发（时间戳不同）时时间线只显示一次（业务键去重）', async () => {
+    vi.mocked(listRuns).mockResolvedValue([RUN_1]);
+    vi.mocked(getRun).mockResolvedValue(RUN_1);
+    // 快速路径失败回退 legacy 时会重复发同一 done/概念事件：
+    // live 条目的 at 是 Date.now，两次发的 at 必不同，旧 at|text key 去重失效。
+    useAgencyActivityStore.setState({
+      storyId: 's1',
+      activeRunId: 'run-1',
+      activities: [
+        { run_id: 'run-1', role: 'producer', action: 'done', detail: '概念', at: 1000 },
+        { run_id: 'run-1', role: 'producer', action: 'done', detail: '概念', at: 2000 },
+        // 业务键不同（action 不同）的条目应保留
+        { run_id: 'run-1', role: 'producer', action: 'start', detail: '概念', at: 1500 },
+      ],
+      progress: [
+        {
+          run_id: 'run-1',
+          phase: 'concept',
+          status: 'running',
+          message: '正在构思故事概念',
+          at: 1100,
+        },
+        {
+          run_id: 'run-1',
+          phase: 'concept',
+          status: 'running',
+          message: '正在构思故事概念',
+          at: 1300,
+        },
+      ],
+    });
+
+    renderStudio();
+    expect((await screen.findAllByText('管理 done 概念')).length).toBe(1);
+    expect((await screen.findAllByText('管理 start 概念')).length).toBe(1);
+    expect((await screen.findAllByText('concept running 正在构思故事概念')).length).toBe(1);
+  });
 });

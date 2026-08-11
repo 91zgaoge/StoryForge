@@ -55,6 +55,25 @@ function runStatusLabel(status: string): string {
   }
 }
 
+/**
+ * 时间线条目：text 为显示文案；role/action/detail/phase/status 为业务键字段
+ * （来源没有的字段缺省，构造 key 时以空串占位）。
+ */
+interface TimelineEntry {
+  at: number;
+  text: string;
+  role?: string;
+  action?: string;
+  detail?: string;
+  phase?: string;
+  status?: string;
+}
+
+/** 业务键：同一业务事件跨 live/historical 来源产生相同 key（不依赖 at） */
+function timelineKey(t: TimelineEntry): string {
+  return `${t.role ?? ''}|${t.action ?? ''}|${t.detail ?? ''}|${t.phase ?? ''}|${t.status ?? ''}`;
+}
+
 export default function AgencyStudio() {
   const currentStory = useAppStore(s => s.currentStory);
   // 实时事件由 App.tsx 常驻监听器写入 agencyActivityStore
@@ -135,18 +154,24 @@ export default function AgencyStudio() {
   // 1. Live 事件（activities + progress）--实时新事件
   // 2. 历史重建（board items 的 created_at + producer + zone + key + summary）
   // 3. Run 生命周期（created_at 启动 + updated_at 终态）
-  const liveTimeline = [
+  const liveTimeline: TimelineEntry[] = [
     ...runActivities.map(a => ({
       at: a.at,
       text: `${roleName(a.role)} ${a.action} ${a.detail}`,
+      role: a.role,
+      action: a.action,
+      detail: a.detail,
     })),
     ...runProgress.map(p => ({
       at: p.at,
       text: `${p.phase} ${p.status} ${p.message}`,
+      detail: p.message,
+      phase: p.phase,
+      status: p.status,
     })),
   ];
 
-  const historicalTimeline: { at: number; text: string }[] = [];
+  const historicalTimeline: TimelineEntry[] = [];
   if (board) {
     for (const item of board) {
       const ts = new Date(item.created_at).getTime();
@@ -154,6 +179,9 @@ export default function AgencyStudio() {
         historicalTimeline.push({
           at: ts,
           text: `${roleName(item.producer)} 创建 ${ZONE_NAMES[item.zone] ?? item.zone}：${item.key}${item.summary ? ' - ' + item.summary : ''}`,
+          role: item.producer,
+          action: '创建',
+          detail: `${item.zone}:${item.key}`,
         });
       }
     }
@@ -161,25 +189,30 @@ export default function AgencyStudio() {
   if (run) {
     const startTs = new Date(run.created_at).getTime();
     if (!isNaN(startTs)) {
-      historicalTimeline.push({
-        at: startTs,
-        text: `运行启动 - ${run.premise.slice(0, 50)}`,
-      });
+      const text = `运行启动 - ${run.premise.slice(0, 50)}`;
+      historicalTimeline.push({ at: startTs, text, detail: text });
     }
     const endTs = new Date(run.updated_at).getTime();
     if (!isNaN(endTs) && run.status !== 'pending' && run.status !== 'running') {
+      const text = `运行${runStatusLabel(run.status)} - ${run.phase}`;
       historicalTimeline.push({
         at: endTs,
-        text: `运行${runStatusLabel(run.status)} - ${run.phase}`,
+        text,
+        detail: text,
+        phase: run.phase,
+        status: run.status,
       });
     }
   }
 
-  // 合并 + 去重 + 排序（最新在前）
+  // 合并 + 去重 + 排序（最新在前）。
+  // 去重用业务键而非 at|text：live 的 at 是 Date.now、historical 是 created_at，
+  // 同一业务事件（如快速路径失败回退 legacy 重复发的 done/概念）时间戳不同，
+  // 用 at 作 key 会显示两次；缺省字段以空串占位，同事件跨来源产生相同 key。
   const seen = new Set<string>();
   const timeline = [...liveTimeline, ...historicalTimeline]
     .filter(t => {
-      const key = `${t.at}|${t.text}`;
+      const key = timelineKey(t);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
