@@ -200,3 +200,31 @@ pub async fn delete_custom_methodology(id: String, app_handle: AppHandle) -> Res
     repo.clear_story_references(&id).map_err(AppError::from)?;
     repo.delete(&id).map_err(AppError::from)
 }
+
+/// 导出自定义方法论为 SKILL.md 文本（book-to-skill 同款格式）
+#[command(rename_all = "snake_case")]
+pub async fn export_methodology_skill(
+    id: String,
+    app_handle: AppHandle,
+) -> Result<String, AppError> {
+    let pool = app_handle.state::<DbPool>().inner().clone();
+    let cm_repo = CustomMethodologyRepository::new(pool.clone());
+    let cm = cm_repo
+        .get_by_id(&id)
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("custom_methodology", &id))?;
+    let source_book = cm
+        .guidebook_id
+        .as_deref()
+        .and_then(|gid| {
+            super::repository::GuidebookRepository::new(pool)
+                .get_by_id(gid)
+                .ok()
+                .flatten()
+        })
+        .map(|g| g.title);
+    Ok(super::skill_export::render_skill_md(
+        &cm,
+        source_book.as_deref(),
+    ))
+}

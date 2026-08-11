@@ -213,6 +213,7 @@ tauri::generate_handler! {
     guidebook_distillation::commands::list_all_methodologies,
     guidebook_distillation::commands::update_custom_methodology,
     guidebook_distillation::commands::delete_custom_methodology,
+    guidebook_distillation::commands::export_methodology_skill,
     // Task system commands
     task_system::commands::create_task,
     task_system::commands::update_task,

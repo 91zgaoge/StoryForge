@@ -6,6 +6,7 @@ pub mod executor;
 pub mod models;
 pub mod repository;
 pub mod service;
+pub mod skill_export;
 pub mod validator;
 
 pub use models::*;

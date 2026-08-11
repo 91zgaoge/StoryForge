@@ -10,6 +10,7 @@ import {
   Save,
   Plus,
   RotateCcw,
+  FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -239,6 +240,30 @@ function MethodologyEditor({ methodology }: MethodologyEditorProps) {
     }
   };
 
+  const [exporting, setExporting] = useState(false);
+  const handleExportSkill = async () => {
+    setExporting(true);
+    try {
+      const { loggedInvoke } = await import('@/services/tauri');
+      const markdown = await loggedInvoke<string>('export_methodology_skill', {
+        id: methodology.id,
+      });
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const { writeFile } = await import('@tauri-apps/plugin-fs');
+      const filePath = await save({
+        filters: [{ name: 'SKILL.md', extensions: ['md'] }],
+        defaultPath: `${methodology.name}.md`,
+      });
+      if (!filePath) return;
+      await writeFile(filePath, new TextEncoder().encode(markdown));
+      toast.success(`SKILL.md 已导出: ${filePath.split(/[\\/]/).pop()}`);
+    } catch (error) {
+      toast.error(`导出失败: ${extractMessage(error)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const updateStep = (idx: number, patch: Partial<(typeof steps)[number]>) => {
     setSteps(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
   };
@@ -440,6 +465,19 @@ function MethodologyEditor({ methodology }: MethodologyEditorProps) {
       </label>
 
       <div className="flex items-center justify-end gap-3 pt-3 border-t border-cinema-800">
+        <button
+          onClick={handleExportSkill}
+          disabled={exporting}
+          title="导出为 book-to-skill 同款 SKILL.md，可在 Claude Code / Copilot CLI 中加载"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-cinema-700 text-gray-400 hover:text-white hover:border-cinema-600 transition-colors text-sm disabled:opacity-50"
+        >
+          {exporting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <FileDown className="w-3.5 h-3.5" />
+          )}
+          导出 SKILL.md
+        </button>
         <button
           onClick={handleDelete}
           disabled={deleteMutation.isPending}
