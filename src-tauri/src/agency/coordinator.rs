@@ -2542,6 +2542,17 @@ impl AgencyCoordinator {
         let scene_id = scene_id.to_string();
         let content = content.to_string();
         tauri::async_runtime::spawn(async move {
+            // 后台 LLM 串行化：与所有其他后台任务（scene ingest/audit/insight）
+            // 共享 BACKGROUND_LLM_SEMAPHORE（permit=1），避免批量续写时第 n 章
+            // ingest 与第 n+1 章写作/editor_qc 直接并发争抢本地模型。
+            // 获取顺序对齐 scene_service.rs:136-156：先 BG_LLM 再 MEMORY_WRITER。
+            let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
+            if bg_permit.is_err() {
+                log::warn!("agency: 资产回流未获取到后台 LLM 串行许可 (run={})", run_id);
+                return;
+            }
+            let _bg_permit = bg_permit.unwrap();
+
             // 全局并发背压：与 orchestrator 后台 ingest 共享信号量（最多 2 个并发）
             let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
                 .acquire()
