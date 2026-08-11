@@ -119,9 +119,13 @@ impl GuidebookDistillationService {
                         "[GuidebookDistillation] Retrying failed/cancelled distillation: {}",
                         existing_id
                     );
-                    self.retry_distillation(&existing_id).await?;
-                    // reset_for_retry 之后回写合并意图
+                    // 回写必须先于重试调度：retry_distillation 的 fallback 会
+                    // 立即 spawn run_distillation，后者开头即从 DB 读
+                    // merge_into_methodology_id，先调度再回写存在竞态丢失。
+                    // reset_for_retry 只清 status/progress/error，不动 merge_into，
+                    // 提前回写安全。
                     backfill_merge_intent();
+                    self.retry_distillation(&existing_id).await?;
                     return Ok(existing_id);
                 }
             }
