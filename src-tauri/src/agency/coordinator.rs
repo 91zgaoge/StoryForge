@@ -2525,6 +2525,100 @@ impl AgencyCoordinator {
         });
     }
 
+    /// 后台资产回流（best-effort）：对刚落库的正文跑 IngestPipeline。
+    /// run_ingest 内部自动桥接生产资产表（characters/relationships/
+    /// world_buildings/scenes.outline_content/story_outlines），此处再补
+    /// KG 持久化（entities/relations，对齐 orchestrator 后台 ingest 做法）。
+    /// 测试环境（app_handle=None）no-op；失败仅 log::warn，绝不影响主流程。
+    fn spawn_asset_ingest(&self, run_id: &str, story_id: &str, scene_id: &str, content: &str) {
+        let Some(app) = self.app_handle.clone() else {
+            // 测试环境无 app_handle，跳过后台资产回流
+            log::info!("agency: 测试环境跳过后台资产回流 (run={})", run_id);
+            return;
+        };
+        let pool = self.pool.clone();
+        let run_id = run_id.to_string();
+        let story_id = story_id.to_string();
+        let scene_id = scene_id.to_string();
+        let content = content.to_string();
+        tauri::async_runtime::spawn(async move {
+            // 全局并发背压：与 orchestrator 后台 ingest 共享信号量（最多 2 个并发）
+            let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
+                .acquire()
+                .await;
+            if permit.is_err() {
+                log::warn!("agency: 资产回流未获取到 ingest 并发许可 (run={})", run_id);
+                return;
+            }
+            let _permit = permit.unwrap();
+
+            // 独立取消令牌 + 独立 deadline 300s：不与 writer 主流程共享取消
+            // 令牌或 deadline，超时仅中止本次后台 ingest，不影响正文落库。
+            let cancel = tokio_util::sync::CancellationToken::new();
+            let timer_cancel = cancel.clone();
+            let timer = tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                timer_cancel.cancel();
+            });
+
+            let _ = app.emit(
+                EVENT_AGENT_ACTIVITY,
+                serde_json::json!({
+                    "run_id": run_id,
+                    "role": AgentRole::Producer.as_str(),
+                    "action": "start",
+                    "detail": "资产回流",
+                }),
+            );
+            let llm_service = LlmService::new(app.clone());
+            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+                .with_pool(pool.clone())
+                .with_app_handle(app.clone());
+            let ingest_content = crate::memory::ingest::IngestContent {
+                text: content,
+                source: format!("agency:scene:{}", scene_id),
+                story_id: story_id.clone(),
+                scene_id: Some(scene_id.clone()),
+            };
+            match pipeline
+                .ingest_with_cancel(&ingest_content, Some(&cancel))
+                .await
+            {
+                Ok(result) => {
+                    // KG 持久化：agency 路径此前完全没有，对齐 orchestrator.rs 做法
+                    let kg_repo =
+                        crate::db::repositories::KnowledgeGraphRepository::new(pool.clone());
+                    if let Err(e) = kg_repo.save_entities_batch(&result.entities) {
+                        log::warn!("agency: 资产回流 KG 实体落库失败 (run={}): {}", run_id, e);
+                    }
+                    if let Err(e) = kg_repo.save_relations_batch(&result.relations) {
+                        log::warn!("agency: 资产回流 KG 关系落库失败 (run={}): {}", run_id, e);
+                    }
+                    log::info!(
+                        "agency: 资产回流完成 (run={}, story={}): {} entities, {} relations",
+                        run_id,
+                        story_id,
+                        result.entities.len(),
+                        result.relations.len()
+                    );
+                }
+                Err(e) => {
+                    log::warn!("agency: 后台资产回流失败 (run={}): {}", run_id, e);
+                }
+            }
+            timer.abort();
+            let _ = app.emit(
+                EVENT_AGENT_ACTIVITY,
+                serde_json::json!({
+                    "run_id": run_id,
+                    "role": AgentRole::Producer.as_str(),
+                    "action": "done",
+                    "detail": "资产回流",
+                }),
+            );
+        });
+    }
+
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
     pub async fn run_continue(
         &self,
@@ -3673,6 +3767,8 @@ impl AgencyCoordinator {
                 chapter_number
             )));
         }
+        // 资产回流用副本（content 随后 move 进落库闭包）
+        let ingest_text = content.clone();
         let title_c = format!("第{}章", chapter_number);
         // v0.30.46 fix: create 与 update 合成单事务，避免 update 失败残留空场景。
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
@@ -3699,6 +3795,10 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        // 资产回流（best-effort 后台）：对已落库正文跑 IngestPipeline 提取资产，
+        // 桥接生产资产表 + KG 持久化。测试环境 no-op，失败不影响主流程。
+        // 串行 run_continue_inner 与批量 run_batch_inner 均经本 handle_gate，单点覆盖。
+        self.spawn_asset_ingest(run_id, story_id, &scene.id, &ingest_text);
         // chapter 里程碑检查点（best-effort；gate_scores 含本章末轮 weighted）
         self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
             .await;

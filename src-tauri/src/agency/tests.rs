@@ -2400,6 +2400,62 @@ async fn test_checkpoints_written_at_milestones() {
     assert!(weighted > 0.75, "本章 weighted 应过阈值: {}", weighted);
 }
 
+/// 资产回流（Task 2）：handle_gate 装配落库后触发后台 spawn_asset_ingest；
+/// 测试环境（app_handle=None）no-op——正文落库不受影响，KG/ingest_jobs 无写入。
+#[tokio::test]
+async fn test_spawn_asset_ingest_noop_in_test_env() {
+    let pool = create_test_pool().unwrap();
+    let story_id = seed_story_with_assets(&pool);
+    let write1 = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
+        pass_grade_content("第1章正文。")
+    );
+    let llm = MockLlm::scripted(vec![
+        // v0.30.21: generate_chapter_outline（Producer 单调用）
+        "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
+        write1.as_str(),
+        r#"{"type":"final","content":"完成"}"#,
+        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let result = coordinator
+        .run_continue("ingest-noop", &story_id, 1)
+        .await
+        .unwrap();
+    // 正文落库不受后台资产回流影响（ingest 是后台任务，不阻塞主流程）
+    let scene = SceneRepository::new(pool.clone())
+        .get_by_id(&result.scene_id)
+        .unwrap()
+        .unwrap();
+    let content = scene.content.unwrap_or_default();
+    assert!(
+        content.contains("第1章正文"),
+        "scenes.content 应与装配正文一致: {}",
+        &content[..content.len().min(100)]
+    );
+    // 测试环境 no-op：KG 表与 ingest_jobs 均无写入
+    let (kg_count, job_count): (i64, i64) = {
+        let conn = pool.get().unwrap();
+        let kg = conn
+            .query_row(
+                "SELECT COUNT(*) FROM kg_entities WHERE story_id = ?1",
+                rusqlite::params![story_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let jobs = conn
+            .query_row(
+                "SELECT COUNT(*) FROM ingest_jobs WHERE story_id = ?1",
+                rusqlite::params![story_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        (kg, jobs)
+    };
+    assert_eq!(kg_count, 0, "测试环境资产回流应 no-op，kg_entities 无写入");
+    assert_eq!(job_count, 0, "测试环境资产回流应 no-op，ingest_jobs 无写入");
+}
+
 /// v0.30.21: ensure_world_building 在世界观缺失时强制生成并落库。
 #[tokio::test]
 async fn test_ensure_world_building_generates_when_missing() {
