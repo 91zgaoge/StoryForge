@@ -9,6 +9,7 @@ describe('friendlyText（DETAIL_VERB 映射）', () => {
     expect(friendlyText('producer', 'start', '装配')).toBe('管理正在装配最终稿');
     expect(friendlyText('producer', 'start', '资产')).toBe('管理正在生成资产');
     expect(friendlyText('producer', 'start', '资产补齐')).toBe('管理正在补齐资产');
+    expect(friendlyText('producer', 'start', '资产回流')).toBe('管理正在回流资产到记忆');
     expect(friendlyText('editor_auditor', 'start', '后台审查')).toBe('编辑审计正在后台质检');
   });
 
