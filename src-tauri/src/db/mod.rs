@@ -1,3 +1,4 @@
+pub mod chapter_split;
 pub mod connection;
 pub mod dto;
 pub mod migrations;

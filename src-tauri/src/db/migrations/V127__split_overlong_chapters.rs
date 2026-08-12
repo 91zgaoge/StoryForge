@@ -2,8 +2,10 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
     config::DEFAULT_CHAPTER_SPLIT_MAX_CHARS,
-    db::migrations::RustMigration,
-    story_system::chapter_splitter::{plan_split, split_chapter_in_tx, ChapterSplitMode},
+    db::{
+        chapter_split::{plan_split, split_chapter_in_tx, ChapterSplitMode},
+        migrations::RustMigration,
+    },
     utils::text::TextUtils,
 };
 
