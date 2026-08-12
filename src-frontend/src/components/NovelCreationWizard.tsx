@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { AiLoading } from '@/components/ui/ai/AiLoading';
+import { AiApprovalCard } from '@/components/ui/ai/AiApprovalCard';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
@@ -349,16 +350,27 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
           <ChevronLeft className="w-4 h-4 mr-1" />
           上一步
         </Button>
-        <Button
-          variant="primary"
-          onClick={handleConfirmStrategy}
-          disabled={!selectedStrategy || isGenerating}
-          isLoading={isGenerating}
-        >
-          <Sparkles className="w-4 h-4 mr-2" />
-          确认策略，生成世界观
-        </Button>
       </div>
+
+      {selectedStrategy && !isGenerating && (
+        <AiApprovalCard
+          questions={[
+            {
+              key: 'strategy',
+              title: '确认采用 AI 推荐的创作策略？',
+              type: 'radio',
+              options: [
+                {
+                  key: 'accept',
+                  label: '采用推荐策略，生成世界观',
+                  description: selectedStrategy.rationale || '未提供推荐理由',
+                },
+              ],
+            },
+          ]}
+          onSubmit={() => handleConfirmStrategy()}
+        />
+      )}
     </div>
   );
 
@@ -366,48 +378,24 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
     <div className="space-y-6">
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">选择世界观</h2>
-        <p className="text-gray-400">双击可编辑，点击选择</p>
+        <p className="text-gray-400">选择后自动开始生成角色谱</p>
       </div>
 
-      <div className="grid gap-4">
-        {worldOptions.map((world, index) => (
-          <Card
-            key={world.id}
-            hover
-            className={`cursor-pointer transition-all ${
-              selectedWorld === index ? 'ring-2 ring-cinema-gold' : ''
-            }`}
-            onClick={() => handleSelectWorld(index)}
-          >
-            <CardContent className="p-5">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
-                  <Globe className="w-6 h-6 text-cinema-gold" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-white mb-2">{world.concept}</h3>
-                  <div className="space-y-2">
-                    <div>
-                      <span className="text-xs text-gray-500">核心规则：</span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {world.rules.map((rule, i) => (
-                          <span
-                            key={i}
-                            className="px-2 py-0.5 text-xs bg-cinema-800 rounded text-gray-300"
-                          >
-                            {rule.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-400 line-clamp-2">{world.history}</p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <AiApprovalCard
+        questions={[
+          {
+            key: 'world',
+            title: '选择世界观',
+            type: 'radio',
+            options: worldOptions.map((world, index) => ({
+              key: String(index),
+              label: world.concept,
+              description: world.history?.slice(0, 60),
+            })),
+          },
+        ]}
+        onSubmit={answers => handleSelectWorld(Number(answers.world[0]))}
+      />
 
       <div className="flex justify-between">
         <Button variant="ghost" onClick={handleBack}>
@@ -425,46 +413,24 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
         <p className="text-gray-400">选择一组核心角色配置</p>
       </div>
 
-      <div className="grid gap-4">
-        {characterSets.map((characterSet, index) => (
-          <Card
-            key={index}
-            hover
-            className={`cursor-pointer transition-all ${
-              selectedCharacters === index ? 'ring-2 ring-cinema-gold' : ''
-            }`}
-            onClick={() => handleSelectCharacters(index)}
-          >
-            <CardContent className="p-5">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
-                  <Users className="w-6 h-6 text-cinema-gold" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {characterSet.map(char => (
-                      <span
-                        key={char.id}
-                        className="px-2.5 py-1 rounded-lg bg-cinema-800 text-gray-300 text-sm"
-                      >
-                        {char.name}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="space-y-1">
-                    {characterSet.map(char => (
-                      <p key={char.id} className="text-sm text-gray-400">
-                        <span className="text-gray-300">{char.name}：</span>
-                        {char.personality} · {char.goals}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <AiApprovalCard
+        questions={[
+          {
+            key: 'characters',
+            title: '选择一组核心角色配置',
+            type: 'radio',
+            options: characterSets.map((characterSet, index) => ({
+              key: String(index),
+              label: characterSet.map(c => c.name).join('、'),
+              description: characterSet
+                .map(c => `${c.name}：${c.personality} · ${c.goals}`)
+                .join('；')
+                .slice(0, 80),
+            })),
+          },
+        ]}
+        onSubmit={answers => handleSelectCharacters(Number(answers.characters[0]))}
+      />
 
       <div className="flex justify-between">
         <Button variant="ghost" onClick={handleBack}>
@@ -482,31 +448,21 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
         <p className="text-gray-400">选择适合你故事的文字风格</p>
       </div>
 
-      <div className="grid gap-4">
-        {styleOptions.map((style, index) => (
-          <Card
-            key={style.id}
-            hover
-            className={`cursor-pointer transition-all ${
-              selectedStyle === index ? 'ring-2 ring-cinema-gold' : ''
-            }`}
-            onClick={() => handleSelectStyle(index)}
-          >
-            <CardContent className="p-5">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-cinema-gold/10 flex items-center justify-center flex-shrink-0">
-                  <PenTool className="w-6 h-6 text-cinema-gold" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-white mb-1">{style.name}</h3>
-                  <p className="text-sm text-gray-400 mb-2">{style.description}</p>
-                  <p className="text-xs text-gray-500 italic line-clamp-2">"{style.sample_text}"</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <AiApprovalCard
+        questions={[
+          {
+            key: 'style',
+            title: '选择适合你故事的文字风格',
+            type: 'radio',
+            options: styleOptions.map((style, index) => ({
+              key: String(index),
+              label: style.name,
+              description: `${style.description}（示例：${style.sample_text.slice(0, 40)}…）`,
+            })),
+          },
+        ]}
+        onSubmit={answers => handleSelectStyle(Number(answers.style[0]))}
+      />
 
       <div className="flex justify-between">
         <Button variant="ghost" onClick={handleBack}>
