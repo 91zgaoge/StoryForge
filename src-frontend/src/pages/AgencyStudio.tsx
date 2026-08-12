@@ -7,6 +7,7 @@ import {
   type AgentActivityEvent,
   type AgentProgressEvent,
 } from '@/stores/agencyActivityStore';
+import { AiThinking } from '@/components/ui/ai/AiThinking';
 import { getRun, listActivities, listBoard, listRuns } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
 
@@ -354,6 +355,20 @@ export default function AgencyStudio() {
 
       <section>
         <h2 className="mb-2 font-medium">时间线</h2>
+        {runActivities.length > 0 && (
+          <div className="mb-3">
+            <AiThinking
+              title="当前执行轨迹"
+              doneTitle="执行轨迹（已结束）"
+              working={run?.status === 'running'}
+              rows={runActivities.slice(-12).map(a => ({
+                primary: `${roleName(a.role)} ${a.action}`,
+                secondary: a.detail || undefined,
+              }))}
+              defaultExpanded={run?.status === 'running'}
+            />
+          </div>
+        )}
         {timeline.length === 0 ? (
           <p className="text-sm text-gray-400">暂无记录</p>
         ) : (
