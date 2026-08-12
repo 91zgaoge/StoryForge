@@ -3122,3 +3122,142 @@ async fn test_handle_gate_assembly_activity_signals() {
     let log = coordinator.recorded_activities();
     assert_signal_pair(&log, "producer|start|装配", "producer|done|装配");
 }
+
+// ---- 阶段三（P2）C-1：续写「熔断不丢稿」流程级验证 ----
+// handle_gate 两处 GateOutcome::Failed 分支经 salvage_failed_gate 降级：
+// 草稿 ≥600 字符合成降级 EditorVerdict 放行装配落库；<600 保留 Err 丢稿。
+// 流程搭建沿用 test_handle_gate_assembly_activity_signals / E3 的预置资产方式。
+
+/// C-1 流程测试的公共故事脚手架：预置角色/世界观/大纲（ensure_assets 不消费
+/// mock 队列）+ 第一章正文，返回 (pool, story_id)。
+fn setup_c1_continue_story(title: &str) -> (crate::db::DbPool, String) {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: title.into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        ).unwrap();
+    }
+    let scene_repo = SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("第一章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    (pool, story.id)
+}
+
+/// C-1 流程测试的公共 mock 脚本：outline + writer 写草稿 + editor 完全失败
+/// （tool_loop 连续 3 次散文 ParseFailures 熔断 -> salvage 无果 -> 散文回退
+/// 仍非裁决 JSON -> GateOutcome::Failed）。
+fn editor_total_failure_script(chapter_content: &str) -> Arc<MockLlm> {
+    let write = format!(
+        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"星舰苏醒"}}}}"#,
+        chapter_content
+    );
+    MockLlm::scripted(vec![
+        // generate_chapter_outline（Producer 单调用）
+        "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区。",
+        // writer: 写第 2 章 → final
+        write.as_str(),
+        r#"{"type":"final","content":"第二章完成"}"#,
+        // editor tool_loop: 连续 3 次散文（非 JSON action）-> ParseFailures 熔断
+        "这不是JSON工具动作，只是审查意见散文。",
+        "依然不是JSON action，本地模型不遵从。",
+        "第三次散文，触发连续解析失败熔断。",
+        // editor 散文回退：仍非裁决 JSON -> GateOutcome::Failed
+        "散文回退也无法给出裁决 JSON，质检完全失败。",
+    ])
+}
+
+/// C-1：质检完全失败 + 草稿 ≥600 字符 -> salvage_failed_gate 命中，降级
+/// EditorVerdict 放行装配落库，run 不失败（熔断不丢稿）。
+#[tokio::test]
+async fn test_handle_gate_editor_failure_salvages_substantive_draft() {
+    let (pool, story_id) = setup_c1_continue_story("C-1 降级放行测试");
+    let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
+    assert!(
+        chapter2.chars().count() >= 600,
+        "前置：草稿须达 substantive 阈值"
+    );
+    let coordinator =
+        AgencyCoordinator::for_test(pool.clone(), editor_total_failure_script(&chapter2));
+    let result = coordinator
+        .run_continue("rc-c1-salvage", &story_id, 2)
+        .await
+        .expect("editor 完全失败但草稿 substantive，应降级放行而非丢稿");
+    assert_eq!(result.chapter_number, 2);
+    let scene = SceneRepository::new(pool.clone())
+        .get_by_id(&result.scene_id)
+        .unwrap()
+        .unwrap();
+    assert!(
+        scene
+            .content
+            .as_deref()
+            .unwrap_or("")
+            .contains("第二章正文"),
+        "降级放行后第二章草稿应装配落库"
+    );
+    let run = AgencyRepository::new(pool.clone())
+        .get_run("rc-c1-salvage")
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.status, "completed", "降级放行后 run 应完成");
+}
+
+/// C-1：质检完全失败 + 草稿 <600 字符 -> salvage_failed_gate 未命中，保留
+/// Err 丢稿（真垃圾稿照丢）。
+#[tokio::test]
+async fn test_handle_gate_editor_failure_drops_short_draft() {
+    let (pool, story_id) = setup_c1_continue_story("C-1 短稿丢稿测试");
+    let short = "第二章正文：只有短短一句，远不足六百字符阈值。";
+    assert!(short.chars().count() < 600, "前置：草稿须低于 salvage 阈值");
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), editor_total_failure_script(short));
+    let err = coordinator
+        .run_continue("rc-c1-drop", &story_id, 2)
+        .await
+        .expect_err("editor 完全失败且草稿过短，应丢稿报错");
+    assert!(
+        err.to_string().contains("质量门未通过"),
+        "错误应为质量门未通过: {}",
+        err
+    );
+    let conn = pool.get().unwrap();
+    let cnt: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM chapters WHERE story_id = ?1 AND chapter_number = 2",
+            rusqlite::params![story_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cnt, 0, "短稿丢稿后不应有第二章落库");
+}
