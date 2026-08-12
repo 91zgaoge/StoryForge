@@ -1,6 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  Send,
   X,
   Activity,
   RefreshCw,
@@ -14,6 +13,7 @@ import {
   ClipboardCheck,
 } from 'lucide-react';
 import { StatusIcon } from './StatusIcon';
+import { AiPromptBar } from '@/components/ui/ai/AiPromptBar';
 import { useBackendActivityStore } from '@/stores/backendActivityStore';
 import type { BackendActivity } from '@/stores/backendActivityStore';
 import type { ModelHealthSnapshot, ModelConfig } from '@/types/llm';
@@ -41,6 +41,17 @@ interface FrontstageBottomBarProps {
   loglineHint?: string;
   loglineHintLoading?: boolean;
 }
+
+/** 与 RichTextEditor slash 输入一致的真实命令集（handleSlashSubmit）：
+ *  自动续写/审校 走专属通道，其余统一由后端意图识别路由（smart_execute）。
+ *  选中后作为纯文本插入输入框，提交路径与手打指令完全一致。 */
+const PROMPT_COMMANDS = [
+  { key: 'auto_write', name: '/自动续写', desc: '从当前位置自动续写' },
+  { key: 'auto_revise', name: '/审校', desc: '审校当前章节' },
+  { key: 'revise', name: '/AI修稿', desc: '按指令修改正文' },
+  { key: 'review', name: '/AI审稿', desc: '审阅当前章节并给出意见' },
+  { key: 'finalize', name: '/定稿', desc: '将当前章节定稿' },
+];
 
 function abbreviateApiBase(url: string): string {
   try {
@@ -112,21 +123,6 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
 
   // A4-1.9: 移除 1s setInterval 心跳；进度条/脉冲动画改用 CSS @keyframes 驱动，
   // 避免每秒强制 React 重渲染。
-
-  // v0.30.27: textarea 自适应高度，根据输入值 + 幽灵提示动态调整。
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const MAX_TEXTAREA_HEIGHT = 200;
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-
-    el.style.height = 'auto';
-    const scrollHeight = el.scrollHeight;
-    const newHeight = Math.min(scrollHeight, MAX_TEXTAREA_HEIGHT);
-    el.style.height = `${newHeight}px`;
-    el.style.overflowY = scrollHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden';
-  }, [inputValue, ghostHint, loglineHint]);
 
   if (isZenMode) return null;
 
@@ -379,56 +375,35 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 )}
               </span>
             )}
-            <textarea
-              ref={textareaRef}
-              className={[
-                'relative z-10 w-full bg-transparent border-0 outline-none resize-none',
-                'text-ink-900 placeholder-ink-500 font-body text-sm leading-normal',
-                'min-h-[24px] max-h-[200px] overflow-y-hidden',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-              ].join(' ')}
-              placeholder={ghostHint ? '' : '输入任意指令…'}
+            <AiPromptBar
               value={inputValue}
-              onChange={e => onInputChange(e.target.value)}
+              onChange={onInputChange}
+              onSend={onInputSubmit}
+              placeholder={ghostHint ? '' : '输入任意指令…'}
+              disabled={isGenerating}
+              commands={PROMPT_COMMANDS}
               onKeyDown={onInputKeyDown}
               onFocus={onInputFocus}
-              disabled={isGenerating}
-              rows={1}
+              trailingAction={
+                isGenerating ? (
+                  <button
+                    className={[
+                      'w-7 h-7 rounded-[8px] flex items-center justify-center p-0 flex-shrink-0',
+                      'bg-status-danger/15 text-status-danger',
+                      'hover:bg-status-danger/25',
+                      'transition-colors duration-150',
+                      'animate-pulse',
+                    ].join(' ')}
+                    onClick={onCancelGeneration}
+                    title="取消生成"
+                    aria-label="取消生成"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : undefined
+              }
             />
           </div>
-
-          {isGenerating ? (
-            <button
-              className={[
-                'w-8 h-8 rounded-md flex items-center justify-center p-0 flex-shrink-0',
-                'bg-status-danger/15 text-status-danger',
-                'hover:bg-status-danger/25',
-                'transition-colors duration-150',
-                'animate-pulse',
-              ].join(' ')}
-              onClick={onCancelGeneration}
-              title="取消生成"
-              aria-label="取消生成"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              className={[
-                'w-8 h-8 rounded-md flex items-center justify-center p-0 flex-shrink-0',
-                'bg-terracotta/10 text-terracotta',
-                'hover:bg-terracotta/20',
-                'transition-colors duration-150',
-                'disabled:bg-paper-200 disabled:text-ink-500/50 disabled:cursor-not-allowed',
-              ].join(' ')}
-              onClick={onInputSubmit}
-              disabled={!inputValue.trim()}
-              title="发送"
-              aria-label="发送"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          )}
         </div>
 
         {/* v0.10.1: 统一后台活动 / 本地生成状态栏 — 与整体 parchment 风格一致 */}
