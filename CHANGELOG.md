@@ -19,6 +19,16 @@ v0.38.0 将 agency 事件监听提升到常驻 `App.tsx` 顶层 + 全局 `agency
 - src-tauri `cargo test --lib`：**1326 passed / 2 ignored**（+1：`test_log_and_list_activities`）。
 - src-frontend `npx vitest run`：**455 passed / 3 skipped**（无前端测试变更）。
 
+### 功能：幕后工作台深色调主题（beautifului AI 原生改造 P0）
+
+用户要求对幕后界面也像幕前那样提供可选颜色样式。本版落地幕后主题底座：4 套深色调主题，与幕前色调（warm/cool/amber/indigo）同 id、同 localStorage key（`storymoss-color-theme`），选一处两边同步切换。
+
+- **主题定义（`backstageThemes.ts`）**：4 套深色调——暖金（warm，与现状色值完全一致，零视觉回归）/ 冷青（cool）/ 琥珀（amber）/ 靛紫（indigo）；每套覆盖 16 个 `--cinema-*`/`--status-*` 变量，`applyBackstageTheme` 运行时重写 `documentElement` 同名变量（Tailwind cinema 色已映射 `var(--cinema-*)`，无需改组件）。
+- **全局接线（`useBackstageTheme`）**：幕后根组件挂载即应用当前主题，并监听 storage 事件（跨窗口）+ Tauri `color-theme-changed`（同窗口）双通道实时切换；listen unlisten 竞态加 cancelled 标志防 StrictMode 双挂载泄漏。
+- **设置页入口（`ColorThemeSelector`）**：每个色调选项渲染幕前/幕后双预览色点，选择即同时应用幕前浅色调与幕后深色调；文案改为「选择后即时生效，同步影响幕前写作界面与幕后工作台」。
+- **清理**：`tokens.css` 注释对齐（值为 warm 默认值、运行时按色调重写）；删除死代码 `frontstage/hooks/useWritingStyle.ts`（全库无引用，同名 hook 在 `hooks/useWorldBuilding.ts` 不受影响）。
+- **验证**：新增 vitest 11 项（主题完整性双向检查/warm 全量 16 值零回归/apply 注入/未知 id 回退/挂载应用/双通道切换/cleanup/双预览色点/选择同步）；`npx tsc --noEmit` / `format:check` 全绿。
+
 ## v0.38.0（2026-08-12）
 
 ### 修复：代理工作室实时显示与三 Agent 完善

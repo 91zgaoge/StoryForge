@@ -1,6 +1,6 @@
 # StoryMoss (草苔) v0.38.2 项目完成状态
 
-> 最后更新: 2026-08-12（v0.38.2 代理工作室实时动态持久化 + 前端轮询）
+> 最后更新: 2026-08-12（v0.38.2 幕后深色调主题 + 代理工作室实时动态持久化）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -15,8 +15,9 @@
 
 ## ✅ 最近完成功能
 
-### v0.38.2 - 代理工作室实时动态持久化 + 前端轮询（2026-08-12）
+### v0.38.2 - 幕后工作台深色调主题 + 代理工作室实时动态持久化（2026-08-12）
 
+- **幕后主题底座（beautifului AI 原生改造 P0）**：4 套深色调主题（暖金/冷青/琥珀/靛紫）与幕前色调同 id 同 localStorage key 双向同步；`backstageThemes.ts` 16 变量运行时重写 + `useBackstageTheme` 全局接线（storage/Tauri 双通道）+ 设置页双预览色点选择器；warm 与现状色值逐一核对零视觉回归；删除 `useWritingStyle` 死代码。
 - **问题**：v0.38.0 将 agency 事件监听提升到常驻顶层 + 全局 store，但用户仍看不到实时动态。根因：活动事件纯内存（Zustand 无 persist），macOS 隐藏 WKWebView 窗口事件送达不可靠，事件丢失即永久丢失。
 - **DB 持久化**：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 后 fire-and-forget 写 DB（`spawn_blocking`，不阻塞创世，失败仅 warn）。
 - **后端命令**：新增 `agency_list_activities`（`run_id` -> 按 `id ASC` 返回活动日志，limit 200）。

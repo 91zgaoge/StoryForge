@@ -106,9 +106,17 @@ type:
 
 ## 最近完成的功能
 
-### v0.38.2 - 代理工作室实时动态持久化 + 前端轮询
+### v0.38.2 - 幕后深色调主题 + 代理工作室实时动态持久化
 
-v0.38.0 将 agency 事件监听提升到常驻 `App.tsx` 顶层 + 全局 `agencyActivityStore`，接线正确但用户仍看不到实时动态。根因：活动事件（`agency-agent-activity` / `agency-run-progress`）纯内存（Zustand store 无 persist），macOS 隐藏 WKWebView 窗口事件送达不可靠，事件丢失即永久丢失。本版将活动事件持久化到 DB + 前端 3s 轮询，使实时显示不再依赖 Tauri 事件到达隐藏窗口。
+**幕后主题底座（beautifului AI 原生改造 P0）**：4 套深色调主题（暖金 warm/冷青 cool/琥珀 amber/靛紫 indigo），与幕前色调同 id、同 localStorage key（`storymoss-color-theme`）双向同步。
+
+- **主题定义**：`src-frontend/src/styles/backstageThemes.ts`——`BACKSTAGE_THEME_VARS`（16 个 `--cinema-*`/`--status-*` 变量）+ `backstageThemes` + `applyBackstageTheme`（运行时重写 `documentElement` 同名变量，未知 id 回退 warm）；warm 与 tokens.css 现状值全量一致（零视觉回归）。
+- **全局接线**：`src-frontend/src/hooks/useBackstageTheme.ts`——挂载即应用 + storage（跨窗口）/ Tauri `color-theme-changed`（同窗口）双通道；listen unlisten 竞态加 cancelled 标志。在 `App.tsx` 顶层调用一次。
+- **设置页入口**：`GeneralSettings.tsx` 的 `ColorThemeSelector`（已 export）——幕前/幕后双预览色点（`theme-swatch-frontstage-/backstage-{id}`），选择即同时 `applyColorTheme` + `applyBackstageTheme`。
+- **清理**：删除死代码 `frontstage/hooks/useWritingStyle.ts`（注意：`hooks/useWorldBuilding.ts` 有同名 hook，不受影响）。
+- **验证**：vitest 新增 11 项，全套 455 passed / 3 skipped；tsc / prettier 全绿。
+
+**代理工作室实时动态持久化**：v0.38.0 将 agency 事件监听提升到常驻 `App.tsx` 顶层 + 全局 `agencyActivityStore`，接线正确但用户仍看不到实时动态。根因：活动事件（`agency-agent-activity` / `agency-run-progress`）纯内存（Zustand store 无 persist），macOS 隐藏 WKWebView 窗口事件送达不可靠，事件丢失即永久丢失。本版将活动事件持久化到 DB + 前端 3s 轮询，使实时显示不再依赖 Tauri 事件到达隐藏窗口。
 
 - **DB 持久化**：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 后 `tokio::task::spawn_blocking` fire-and-forget 写 DB（不阻塞创世流程，失败仅 `log::warn!` 不致命）；测试环境（`app_handle=None`）不进入此块。
 - **后端命令**：新增 `agency_list_activities` Tauri 命令（`run_id` -> 按 `id ASC` 返回 `Vec<AgencyActivityLogEntry>`，limit 200）。
