@@ -301,8 +301,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       phase: AiSelectionPhase;
       resultText?: string;
     }>({ phase: 'idle' });
-    // thinking 开始后锁定选区范围，用户后续改动选区不影响替换目标
-    const selectionActionRangeRef = useRef<{ from: number; to: number } | null>(null);
+    // thinking 开始后锁定选区范围与选文快照，用户后续改动选区不影响替换目标；
+    // 快照用于「保留」前校验选区内容未被改动（P2 Task5 评审整改 I2②）
+    const selectionActionRangeRef = useRef<{ from: number; to: number; text: string } | null>(null);
 
     // ===== 编辑器内 Slash 指令输入框 =====
     const [showSlashInput, setShowSlashInput] = useState(false);
@@ -725,6 +726,20 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       };
     }, [editor]);
 
+    // 选区变化/塌陷时重置划词浮条状态（P2 Task5 评审整改 I2①）：
+    // 清锁使在飞 smartExecute 的迟到结果被丢弃（见 handleSelectionRun 守卫），
+    // 防止旧 result 在新选区上复活、「保留」把旧 resultText 插到过期 from/to。
+    // 以 from:to:text 原始字符串为键，避免 selectionUpdate 产生同值新对象导致误重置。
+    const selectionActionKey = selectedRange
+      ? `${selectedRange.from}:${selectedRange.to}:${selectedRange.text}`
+      : null;
+    useEffect(() => {
+      selectionActionRangeRef.current = null;
+      setSelectionAction(prev =>
+        prev.phase === 'idle' && !prev.resultText ? prev : { phase: 'idle' }
+      );
+    }, [selectionActionKey]);
+
     // 处理角色名点击
     useEffect(() => {
       if (!editor || !containerRef.current || !characters || characters.length === 0) return;
@@ -978,7 +993,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         const instruction =
           action === 'custom' ? customInstruction?.trim() || '' : PRESET_INSTRUCTIONS[action];
         if (!instruction) return;
-        selectionActionRangeRef.current = { from: selectedRange.from, to: selectedRange.to };
+        selectionActionRangeRef.current = {
+          from: selectedRange.from,
+          to: selectedRange.to,
+          text: selectedRange.text,
+        };
         setSelectionAction({ phase: 'thinking' });
         try {
           const result = await smartExecute({
@@ -986,6 +1005,10 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             current_content: editor.getHTML() || '',
             selected_text: selectedRange.text,
           });
+          // 等待期间选区已变化/被重置（锁被清空或被新动作替换）→ 丢弃迟到结果
+          const locked = selectionActionRangeRef.current;
+          if (!locked || locked.from !== selectedRange.from || locked.to !== selectedRange.to)
+            return;
           const text = (result.final_content || '').replace(/<[^>]*>/g, '').trim();
           if (text) {
             setSelectionAction({ phase: 'result', resultText: text });
@@ -1006,8 +1029,17 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       const range = selectionActionRangeRef.current;
       const text = selectionAction.resultText;
       if (editor && range && text) {
-        editor.commands.insertContentAt({ from: range.from, to: range.to }, text);
-        onShowStatus?.('已替换为改写内容');
+        // I2②: 替换前校验锁定选区仍在文档内且内容与快照一致，不符则放弃替换
+        const inDoc = range.from >= 0 && range.to <= editor.state.doc.content.size;
+        const current = inDoc
+          ? editor.state.doc.textBetween(range.from, range.to, '\n').trim()
+          : '';
+        if (inDoc && current === range.text) {
+          editor.commands.insertContentAt({ from: range.from, to: range.to }, text);
+          onShowStatus?.('已替换为改写内容');
+        } else {
+          onShowStatus?.('选区内容已变化，已放弃替换');
+        }
       }
       selectionActionRangeRef.current = null;
       setSelectionAction({ phase: 'idle' });

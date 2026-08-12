@@ -107,6 +107,8 @@ export function AiSelectionActions({
   const [expanded, setExpanded] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [lastAction, setLastAction] = useState<AiSelectionActionKey>('polish');
+  // 重试时携带上次自定义指令（M2：否则 custom 重试静默无效）
+  const [lastCustomInstruction, setLastCustomInstruction] = useState('');
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
 
   const barRef = useRef<HTMLDivElement>(null);
@@ -206,6 +208,7 @@ export function AiSelectionActions({
 
   const run = (action: AiSelectionActionKey, customInstruction?: string) => {
     setLastAction(action);
+    if (action === 'custom') setLastCustomInstruction(customInstruction ?? '');
     setExpanded(false);
     onRun(action, customInstruction);
   };
@@ -235,6 +238,9 @@ export function AiSelectionActions({
         onMouseDown={e => {
           e.preventDefault();
           e.stopPropagation();
+          // preventDefault 会取消 input 的默认焦点转移（真实浏览器中永远无法聚焦），
+          // 手动恢复；选区仍因 preventDefault 不塌陷
+          if (e.target instanceof HTMLInputElement) e.target.focus();
         }}
         className={cn(
           'flex h-9 w-fit max-w-[calc(100vw-48px)] items-center justify-center gap-0.5 overflow-hidden rounded-full border border-ai-line bg-ai-surface p-1 text-ai-ink shadow-float antialiased',
@@ -263,7 +269,9 @@ export function AiSelectionActions({
               <button
                 type="button"
                 aria-label="重试"
-                onClick={() => run(lastAction)}
+                onClick={() =>
+                  run(lastAction, lastAction === 'custom' ? lastCustomInstruction : undefined)
+                }
                 className="flex size-7 shrink-0 items-center justify-center rounded-full text-ai-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-ai-hover-2 hover:text-ai-ink-2 active:scale-[0.96]"
               >
                 <RefreshCw size={14} strokeWidth={1.8} aria-hidden />
@@ -287,7 +295,8 @@ export function AiSelectionActions({
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
                   onKeyDown={e => {
-                    if (e.key === 'Enter') {
+                    // IME 组词中 Enter 是上屏键，不得提交（同 AiPromptBar isComposing 守卫先例）
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                       e.preventDefault();
                       submitCustom();
                     }

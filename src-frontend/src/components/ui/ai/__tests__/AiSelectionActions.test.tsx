@@ -125,4 +125,51 @@ describe('AiSelectionActions', () => {
     bar.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
+
+  it('mousedown 落在自定义指令 input 上时手动恢复焦点（C1：preventDefault 不阻断聚焦）', async () => {
+    renderBar();
+    await flushPlace();
+    const input = screen.getByLabelText('描述修改要求');
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true); // 防选区塌陷仍生效
+    expect(input).toHaveFocus(); // 但焦点被手动恢复
+  });
+
+  it('IME 组词中按 Enter 不提交自定义指令（I3：isComposing 守卫）', async () => {
+    const onRun = vi.fn();
+    renderBar({ onRun });
+    await flushPlace();
+    const input = screen.getByLabelText('描述修改要求');
+    fireEvent.change(input, { target: { value: '改成古文腔' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(onRun).not.toHaveBeenCalled();
+  });
+
+  it('自定义动作后点重试携带上次自定义指令（M2）', async () => {
+    const onRun = vi.fn();
+    const containerRef = createRef<HTMLElement>();
+    const renderWith = (phase: 'idle' | 'result', resultText?: string) => (
+      <div ref={containerRef as React.RefObject<HTMLDivElement>}>
+        <AiSelectionActions
+          containerRef={containerRef as React.RefObject<HTMLElement>}
+          selectedText="被选中的文字"
+          phase={phase}
+          resultText={resultText}
+          onRun={onRun}
+          onAccept={() => {}}
+          onDiscard={() => {}}
+        />
+      </div>
+    );
+    const { rerender } = render(renderWith('idle'));
+    await flushPlace();
+    const input = screen.getByLabelText('描述修改要求');
+    fireEvent.change(input, { target: { value: '改成古文腔' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onRun).toHaveBeenCalledWith('custom', '改成古文腔');
+    rerender(renderWith('result', '改写后的文字'));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(onRun).toHaveBeenLastCalledWith('custom', '改成古文腔');
+  });
 });
