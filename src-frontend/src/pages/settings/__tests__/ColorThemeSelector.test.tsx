@@ -18,9 +18,11 @@ describe('ColorThemeSelector', () => {
   it('选择 cool 后幕后 cinema 变量切换为 cool 深色调', () => {
     render(<ColorThemeSelector />);
     fireEvent.click(screen.getByText('冷青'));
-    expect(document.documentElement.style.getPropertyValue('--cinema-gold')).toBe(
-      backstageThemes.cool.vars['--cinema-gold']
-    );
+    for (const key of BACKSTAGE_THEME_VARS) {
+      expect(document.documentElement.style.getPropertyValue(key), `变量 ${key}`).toBe(
+        backstageThemes.cool.vars[key]
+      );
+    }
     expect(localStorage.getItem(COLOR_THEME_STORAGE_KEY)).toBe('cool');
   });
 
