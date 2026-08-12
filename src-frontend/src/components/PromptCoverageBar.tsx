@@ -3,7 +3,7 @@
  * 数据来自 generation_traces 中 name=prompt_coverage 步骤的 details。
  */
 
-import { cn } from '@/utils/cn';
+import { AiContextCards } from '@/components/ui/ai/AiContextCards';
 
 export type PromptCoverageDetails = {
   contract_redlines?: boolean;
@@ -64,24 +64,22 @@ export function PromptCoverageBar({ details }: { details: PromptCoverageDetails 
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        {SLOT_LABELS.map(slot => {
+      <AiContextCards
+        title="上下文槽位"
+        count={filled}
+        items={SLOT_LABELS.map(slot => {
           const on = isFilled(details, slot.key);
-          return (
-            <span
-              key={slot.key}
-              className={cn(
-                'text-[10px] px-1.5 py-0.5 rounded border',
-                on
-                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                  : 'bg-cinema-800/50 text-gray-600 border-cinema-700'
-              )}
-            >
-              {slot.label}
-            </span>
-          );
+          return {
+            key: slot.key,
+            title: slot.label,
+            source: {
+              label: on ? '已注入 prompt' : '未注入',
+              badge: on ? '✓' : '✗',
+              tone: on ? ('green' as const) : ('neutral' as const),
+            },
+          };
         })}
-      </div>
+      />
     </div>
   );
 }
