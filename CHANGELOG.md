@@ -18,6 +18,10 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 - src-tauri `cargo test --lib`：**1306 passed / 2 ignored**（+5）。
 - src-frontend `npx vitest run`：**421 passed / 3 skipped**（+17）。
 
+### 修复（2026-08-12）：flaky 测试 split-auto-switch
+
+v0.38.0 标签 CI `frontend-check` 失败（run `31550682166`）。根因：`FrontstageApp.split-auto-switch.test.tsx` 分章自动切换测试用 `toContain('溢出段落')` 作门控，但旧全文 `FULL_TEXT` 本就含此词，切换前即通过，未等待 `selectChapter -> setContent` 完成；紧 runner 上 `waitFor` 默认 1000ms 超时不足（同 commit master 2m2s 通过、标签 1m15s 失败 = flaky）。改为 `chapterId === 'ch-2'` 确定性状态门控 + 内容替换门超时 3000ms。不改 FrontstageApp 源码（分章逻辑正确，问题在测试断言选错门控）。
+
 ## v0.37.0（2026-08-11）
 
 ### 修复：资产回流——后台资产 agent 对已生成正文生效

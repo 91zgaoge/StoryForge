@@ -245,9 +245,16 @@ describe('自动分章：chapterCreated(split_from_chapter_id) 命中当前编�
       syncStoreOptions.current!.onChapterCreated!('story-1', 'ch-2', '第二章', 'ch-1');
     });
 
-    // 编辑器切换到新章：显示溢出内容，不再显示旧章独有开头
-    await waitFor(() => expect(captured.content).toContain('溢出段落'));
-    await waitFor(() => expect(captured.content).not.toContain('旧章独有开头段落'));
+    // 编辑器切换到新章：先用 store 状态确认切换动作已发生，再等待内容替换完成
+    // 注意：不能仅用 toContain('溢出段落') 作门控——旧全文 FULL_TEXT 本就含「溢出段落」，
+    // 切换前即满足，会立即通过而未真正等待 setContent 替换，导致下一行 not.toContain
+    // 在异步链未完成时超时失败（flaky）。
+    await waitFor(() => expect(useFrontstageStore.getState().chapterId).toBe('ch-2'));
+    await waitFor(() => expect(captured.content).not.toContain('旧章独有开头段落'), {
+      timeout: 3000,
+    });
+    // 切换后编辑器显示新章溢出内容
+    expect(captured.content).toContain('溢出段落');
 
     // 章节列表已重载，新章被拉取
     expect(chapterListReloadCalls().length).toBeGreaterThan(0);
