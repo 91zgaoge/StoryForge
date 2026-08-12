@@ -33,6 +33,7 @@ import { useUpdater } from '@/hooks/useUpdater';
 import { useSyncStore } from '@/hooks/useSyncStore';
 import { useWorkflowNodes } from '@/hooks/useWorkflowNodes';
 import { useWebViewRedrawFix } from '@/hooks/useWebViewRedrawFix';
+import { useBackstageTheme } from '@/hooks/useBackstageTheme';
 import { LoginModal } from '@/pages/Login';
 import { useAppStore } from '@/stores/appStore';
 import {
@@ -308,6 +309,9 @@ function App() {
       unBoard?.();
     };
   }, [queryClient]);
+
+  // 幕后深色调主题：挂载即应用，并监听 storage / Tauri 双通道实时切换
+  useBackstageTheme();
 
   const renderView = () => {
     switch (currentView) {
