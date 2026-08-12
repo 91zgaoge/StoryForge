@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.38.2 项目完成状态
+# StoryMoss (草苔) v0.39.0 项目完成状态
 
-> 最后更新: 2026-08-12（v0.38.2 幕后深色调主题 + 代理工作室实时动态持久化）
+> 最后更新: 2026-08-12（v0.39.0 AI 原生组件库 P1+P2 共 10 组件 + 保存 UNIQUE 修复）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -15,18 +15,12 @@
 
 ## ✅ 最近完成功能
 
-### Unreleased - beautifului AI 原生组件 P2（代理与任务五件套）（2026-08-12）
+### v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复（2026-08-12）
 
-- **五组件入库** `components/ui/ai/`：AiContextCards（PromptCoverageBar 槽位清单）、AiToolChips（Tasks/Skills 筛选条）、AiRecommendationCard（级联改写逐段确认卡）、AiTaskRows（Tasks 任务行外壳）、AiSelectionActions（幕前划词浮条，smartExecute + insertContentAt 选区替换）。
-- **修复**：frontstage.css 补 `--shadow-float`（P1 幕前组件弹出层阴影变量此前未定义）。
-- **验证**：`npx tsc --noEmit` / `npx vitest run`（523 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动。版本号未动，发版另行进行。
-
-### Unreleased - beautifului AI 原生组件 P1（生成体验五件套）（2026-08-12）
-
-- **令牌桥**：`--ai-*` 语义令牌 16 个双窗口各自定义（幕后 tokens.css/幕前 frontstage.css），tailwind 注册 ai 色组 + 9 个动画工具，reduced-motion 冻结。
-- **五组件入库** `components/ui/ai/`：AiLoading（幕后 3 处加载指示）、AiThinking（AgencyStudio 当前执行轨迹）、AiStreamingText（幕前幽灵续写，中文词级分词）、AiPromptBar（幕前底部指令条 + / 命令菜单）、AiApprovalCard（创建向导四选项步骤）。
-- **清理**：删除幕前死代码 `StreamingText.tsx` + `useStreamingGeneration.ts`。
-- **验证**：`npx tsc --noEmit` / `npx vitest run`（487 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿。版本号未动，发版另行进行。
+- **P1 生成体验五件套**入库 `components/ui/ai/`：AiLoading（幕后 3 处加载指示）、AiThinking（AgencyStudio 当前执行轨迹）、AiStreamingText（幕前幽灵续写，中文词级分词）、AiPromptBar（幕前底部指令条 + / 命令菜单）、AiApprovalCard（创建向导四选项步骤）；`--ai-*` 语义令牌 16 个双窗口各自定义，tailwind 注册 ai 色组 + 9 个动画工具；删除幕前死代码 `StreamingText.tsx` + `useStreamingGeneration.ts`。
+- **P2 代理与任务五件套**入库 `components/ui/ai/`：AiContextCards（PromptCoverageBar 槽位清单）、AiToolChips（Tasks/Skills 筛选条）、AiRecommendationCard（级联改写逐段确认卡）、AiTaskRows（Tasks 任务行外壳）、AiSelectionActions（幕前划词浮条，smartExecute + insertContentAt 选区替换）；frontstage.css 补 `--shadow-float`。
+- **保存修复**：幕前保存 UNIQUE 失败（scenes.story_id, sequence_number）根因修复——scene 自愈补建重定向既有关联 scene（不再补建重复行），序号被占时取 MAX+1 避让。
+- **验证**：`cargo test --lib` 1328 passed / 2 ignored（+2）；`npx vitest run` 523 passed / 3 skipped（+68）；`npx tsc --noEmit` / `format:check` / `architecture_guard.py` 全绿。
 
 ### v0.38.2 - 幕后工作台深色调主题 + 代理工作室实时动态持久化（2026-08-12）
 

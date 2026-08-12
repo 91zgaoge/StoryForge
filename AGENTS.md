@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.38.2
+- **版本**: v0.39.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -96,9 +96,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1326 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1328 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 455 passed / 3 skipped
+- `npx vitest run` ✅ 523 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 545（零新增；+6 来自既有 V127 chapter_splitter 层违例）
@@ -106,6 +106,15 @@ type:
 - `python3 scripts/architecture_guard.py` ⚠️ V127 chapter_splitter 层违例（既有，非本版引入）
 
 ## 最近完成的功能
+
+### v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复
+
+**beautifului AI 原生组件库（P1 生成体验 + P2 代理与任务）**：10 个组件适配为受控组件入库 `src-frontend/src/components/ui/ai/`，逐点接入幕后/幕前落点；只引用 `--ai-*` 语义令牌（双窗口各自定义），不引新依赖，纯前端无后端改动。
+
+- **P1 生成体验**：令牌桥（16 个 `--ai-*` 变量 + tailwind ai 色组/9 动画工具）；AiLoading（幕后 3 处加载指示）、AiThinking（AgencyStudio 当前执行轨迹）、AiStreamingText（幕前幽灵续写，Intl.Segmenter 中文词级分词）、AiPromptBar（幕前底部指令条 + / 命令菜单）、AiApprovalCard（创建向导四选项步骤）；删除幕前死代码 `StreamingText.tsx` + `useStreamingGeneration.ts`。
+- **P2 代理与任务**：AiContextCards（PromptCoverageBar 槽位清单）、AiToolChips（Tasks/Skills 筛选条）、AiRecommendationCard（级联改写逐段确认卡）、AiTaskRows（Tasks 任务行外壳）、AiSelectionActions（幕前划词浮条，smartExecute + insertContentAt 选区替换）；frontstage.css 补 `--shadow-float`。
+- **保存修复**：幕前保存 UNIQUE 失败（scenes.story_id, sequence_number）根因——自愈补建逻辑在章节已有关联 scene 时盲目 INSERT 重复行、序号被占时硬撞约束；`heal_missing_scene_in_tx` 改为重定向既有关联 scene + 序号被占取 MAX+1。
+- **验证**：`cargo test --lib` 1328 passed / 2 ignored（+2）；`npx vitest run` 523 passed / 3 skipped（+68）；`tsc` / `format:check` / `architecture_guard.py` 全绿。
 
 ### v0.38.2 - 幕后深色调主题 + 代理工作室实时动态持久化
 

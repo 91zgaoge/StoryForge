@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-12（v0.38.2 代理工作室实时动态持久化 + 前端轮询）
+> 最后更新: 2026-08-12（v0.39.0 AI 原生组件库 P1+P2 共 10 组件 + 保存 UNIQUE 修复）
 
-## ✅ v0.27.x–v0.38.x 已实施完成
+## ✅ v0.27.x–v0.39.x 已实施完成
+
+### ✨ v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复 ✅ (2026-08-12)
+
+- [x] P1 生成体验五件套：AiLoading / AiThinking / AiStreamingText / AiPromptBar / AiApprovalCard 入库 `components/ui/ai/` 并逐点接入幕后/幕前落点；`--ai-*` 语义令牌桥（16 变量）双窗口各自定义，tailwind 注册 ai 色组 + 9 个动画工具
+- [x] P2 代理与任务五件套：AiContextCards / AiToolChips / AiRecommendationCard / AiTaskRows / AiSelectionActions 入库并接入落点；frontstage.css 补 `--shadow-float`
+- [x] 保存修复：scene 自愈补建重定向既有关联 scene（不再补建重复行）+ 序号被占取 MAX+1 避让，根治幕前保存 UNIQUE 失败
+- [x] 验证：`cargo test --lib` 1328 passed / 2 ignored（+2）；`npx vitest run` 523 passed / 3 skipped（+68）
 
 ### ✨ v0.38.2 - 代理工作室实时动态持久化 + 前端轮询 ✅ (2026-08-12)
 
