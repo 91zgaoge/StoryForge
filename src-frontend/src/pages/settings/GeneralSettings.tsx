@@ -27,6 +27,7 @@ import {
   COLOR_THEME_STORAGE_KEY,
   type ColorThemeId,
 } from '@/frontstage/config/colorThemes';
+import { applyBackstageTheme, backstageThemes } from '@/styles/backstageThemes';
 import { cn } from '@/utils/cn';
 import { normalizeFloat, formatDisplayFloat } from '@/utils/numberFormat';
 import type { WritingStrategy } from '@/types/llm';
@@ -40,12 +41,13 @@ const DEFAULT_WRITING_STRATEGY: WritingStrategy = {
 };
 
 // 颜色主题选择器组件
-function ColorThemeSelector() {
+export function ColorThemeSelector() {
   const [currentTheme, setCurrentTheme] = useState<ColorThemeId>(() => loadColorTheme());
 
   const handleSelect = (themeId: ColorThemeId) => {
     setCurrentTheme(themeId);
     applyColorTheme(themeId);
+    applyBackstageTheme(themeId);
     saveColorTheme(themeId);
   };
 
@@ -54,6 +56,7 @@ function ColorThemeSelector() {
     const handleThemeChange = (themeId: ColorThemeId) => {
       setCurrentTheme(themeId);
       applyColorTheme(themeId);
+      applyBackstageTheme(themeId);
     };
 
     const handleStorageChange = (e: StorageEvent) => {
@@ -96,15 +99,25 @@ function ColorThemeSelector() {
             )}
             title={theme.description}
           >
-            <div
-              className="w-5 h-5 rounded-full border border-white/10"
-              style={{ backgroundColor: theme.terracotta }}
-            />
+            <div className="flex items-center gap-1">
+              <div
+                data-testid={`theme-swatch-frontstage-${theme.id}`}
+                className="w-5 h-5 rounded-full border border-white/10"
+                style={{ backgroundColor: theme.terracotta }}
+                title="幕前色调"
+              />
+              <div
+                data-testid={`theme-swatch-backstage-${theme.id}`}
+                className="w-5 h-5 rounded-full border border-white/10"
+                style={{ backgroundColor: backstageThemes[theme.id].vars['--cinema-gold'] }}
+                title="幕后色调"
+              />
+            </div>
             <span className="text-sm text-white">{theme.name}</span>
           </button>
         ))}
       </div>
-      <p className="text-xs text-gray-500">选择后即时生效，同步影响幕前写作界面</p>
+      <p className="text-xs text-gray-500">选择后即时生效，同步影响幕前写作界面与幕后工作台</p>
     </div>
   );
 }
