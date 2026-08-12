@@ -18,6 +18,21 @@
 //! 直到溢出章字数 ≤ 阈值或找不到切分点为止——粘贴恢复的大段正文（如
 //! 9 万字）可在一次触发内分章完成。安全上限 `MAX_SPLIT_ITERATIONS`（50），
 //! 且单轮无进展（新溢出章字数不小于上一轮）时中断并告警。
+//!
+//! 并发与数据契约：
+//! - 章号在事务内读取（I-1），以事务内值为准做重排；另有进程内 per-story split
+//!   互斥（`story_split_lock`，沿用 `memory::asset_bridge::STORY_LOCKS`
+//!   惯例）做第二道保险，同一 story 同时只跑一个
+//!   split，拿锁失败直接跳过（下个防抖窗口再来）。
+//! - 合约跟随内容（I-2）：切中间章时，`chapter_number > N` 的 CHAPTER
+//!   合约随其章一并顺延 +1；新溢出章 N+1 必无合约，标题回退 `第{N+1}章`。
+//! - 多场景守卫（I-3）：章关联 scene 数 > 1 时告警并跳过（不截断、
+//!   不新建）——章内容是全场景拼接，截断只写首场景会造成正文重复。
+
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use chrono::Local;
 use rusqlite::{params, OptionalExtension};
@@ -26,11 +41,25 @@ use uuid::Uuid;
 
 use crate::{
     config::{AppConfig, DEFAULT_CHAPTER_SPLIT_MAX_CHARS},
-    db::{ChapterRepository, DbPool, StoryContractRepository},
+    db::{ChapterRepository, DbPool},
     domain::contracts::ChapterContract,
     state_sync::StateSync,
     utils::text::TextUtils,
 };
+
+/// 进程内 per-story split 互斥注册表（沿用
+/// `memory::asset_bridge::STORY_LOCKS` 惯例）。章号已在事务内读取
+/// （I-1），本锁是第二道保险：本应用是单进程桌面应用，进程内锁即可
+/// 保证同一 story 的 split 串行执行，拿锁失败直接跳过（下个防抖窗口再来）。
+static STORY_SPLIT_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn story_split_lock(story_id: &str) -> Arc<Mutex<()>> {
+    let registry = STORY_SPLIT_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = registry.lock().unwrap_or_else(|p| p.into_inner());
+    map.entry(story_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
 
 /// 划分方式（与 AppConfig.chapter_split_mode 对齐）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -296,15 +325,6 @@ pub fn plan_split(
     })
 }
 
-/// 新章标题：优先取**该章号**对应章节合约（CHAPTER）的 `goal`
-/// （截断至 30 个字符、按字符边界切），无合约 / 空 goal 时回退 `第{N}章`。
-fn resolve_new_chapter_title(pool: &DbPool, story_id: &str, chapter_number: i32) -> String {
-    title_from_goal(
-        chapter_contract_goal_for(pool, story_id, chapter_number).as_deref(),
-        chapter_number,
-    )
-}
-
 /// 纯函数：由合约 goal 推导章节标题（可单测）。
 fn title_from_goal(goal: Option<&str>, chapter_number: i32) -> String {
     const MAX_TITLE_CHARS: usize = 30;
@@ -314,25 +334,44 @@ fn title_from_goal(goal: Option<&str>, chapter_number: i32) -> String {
     }
 }
 
-/// 查询**指定章号**的章节合约 goal；查询失败时告警并返回 None。
+/// 事务内查询**指定章号**的章节合约 goal；查询失败时告警并返回 None。
 /// v0.33.7 fix：此前取"最新（chapter_number 最大）合约"的 goal 作为所有
 /// 新切章的标题——循环切分时合约不随新章更新，导致一次切出的几十个新章
 /// 全部共用同一个标题。合约按章号精确匹配，没有对应合约就回退 `第{N}章`。
-fn chapter_contract_goal_for(pool: &DbPool, story_id: &str, chapter_number: i32) -> Option<String> {
-    let repo = StoryContractRepository::new(pool.clone());
-    let contracts = match repo.get_by_story(story_id) {
-        Ok(c) => c,
+///
+/// 合约跟随内容（I-2）：`split_chapter_in_tx` 重排后章号 N+1 必无合约，
+/// 本查询自然落空、回退 `第{N+1}章`；保留查询仅为兼容未参与重排的残留
+/// 数据（如解析失败未被顺延的合约行）。
+fn chapter_contract_goal_in_tx(
+    tx: &rusqlite::Transaction,
+    story_id: &str,
+    chapter_number: i32,
+) -> Option<String> {
+    let mut stmt = match tx.prepare(
+        "SELECT contract_json FROM story_contracts \
+         WHERE story_id = ?1 AND contract_type = 'CHAPTER'",
+    ) {
+        Ok(s) => s,
         Err(e) => {
             log::warn!("[ChapterSplitter] 查询章节合约失败，回退默认命名: {}", e);
             return None;
         }
     };
-    contracts
-        .iter()
-        .filter(|c| c.contract_type == "CHAPTER")
-        .filter_map(|c| serde_json::from_str::<ChapterContract>(&c.contract_json).ok())
-        .find(|c| c.chapter_number == chapter_number)
-        .map(|c| c.chapter_directive.goal)
+    let rows = match stmt.query_map(params![story_id], |r| r.get::<_, String>(0)) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("[ChapterSplitter] 查询章节合约失败，回退默认命名: {}", e);
+            return None;
+        }
+    };
+    for row in rows.flatten() {
+        if let Ok(c) = serde_json::from_str::<ChapterContract>(&row) {
+            if c.chapter_number == chapter_number {
+                return Some(c.chapter_directive.goal);
+            }
+        }
+    }
+    None
 }
 
 /// 单次触发内循环切分的安全上限。
@@ -354,25 +393,47 @@ struct SplitOutcome {
 
 /// 事务内执行一刀切分（与 V127 修复迁移共用；调用方负责提交/回滚）：
 ///
+/// 0. 多场景守卫（I-3）：章关联 scene 数 > 1 时告警并返回 `Ok(None)`
+///    （不截断、不新建）——章内容是全场景拼接，截断只写首场景会造成 正文重复；
 /// 1. 重排：`chapter_number > N` 的章逐行 +1（按章号降序，避开
 ///    `UNIQUE(story_id, chapter_number)` 冲突），并同步重排 story 内
 ///    `sequence_number > N` 的 scenes（同样降序）；
-/// 2. 新章插入 `N + 1`（重排后必无冲突），溢出内容写入其新建场景；
-/// 3. 截断原章首场景为 `plan.keep`，更新原章 `word_count`。
+/// 2. 合约跟随内容（I-2）：`chapter_number > N` 的 CHAPTER 合约随其章
+///    一并顺延——读出 contract_json、把 JSON 内的 `chapter_number` 字段 +1
+///    后写回（按章号降序逐条处理，保持顺序清晰）；
+/// 3. 新章插入 `N + 1`（重排后必无冲突），溢出内容写入其新建场景。 新溢出章 N+1
+///    必无合约（> N 的合约已随内容顺延），标题经 `chapter_contract_goal_in_tx`
+///    查询落空后回退 `第{N+1}章`；
+/// 4. 截断原章首场景为 `plan.keep`，更新原章 `word_count`。
 ///
 /// 先重排/插入再写截断，且全部在同一事务内：任何一步失败整体回滚，
-/// 不留半切分状态。返回 `(新章 id, 被重排的旧章 id 列表)`。
+/// 不留半切分状态。返回 `Some((新章 id, 被重排的旧章 id 列表, 新章标题))`；
+/// 多场景章跳过时返回 `None`。
 pub(crate) fn split_chapter_in_tx(
     tx: &rusqlite::Transaction,
     story_id: &str,
     chapter_id: &str,
     chapter_number: i32,
     plan: &ChapterSplitPlan,
-    new_title: &str,
     first_scene_id: &str,
-) -> Result<(String, Vec<String>), rusqlite::Error> {
+) -> Result<Option<(String, Vec<String>, String)>, rusqlite::Error> {
     let now = Local::now().to_rfc3339();
     let new_number = chapter_number + 1;
+
+    // 0. 多场景守卫：章关联 scene 数 > 1 时跳过（I-3）
+    let scene_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM scenes WHERE chapter_id = ?1",
+        [chapter_id],
+        |r| r.get(0),
+    )?;
+    if scene_count > 1 {
+        log::warn!(
+            "[ChapterSplitter] chapter {} 关联 {} 个场景，多场景章不支持切分，跳过",
+            chapter_id,
+            scene_count
+        );
+        return Ok(None);
+    }
 
     // 1. 重排后续章（降序逐行 +1）
     let renumbered_chapter_ids: Vec<String> = {
@@ -416,7 +477,47 @@ pub(crate) fn split_chapter_in_tx(
         )?;
     }
 
-    // 2. 新章插入 N+1（内容写入其场景，与 ChapterRepository::create 同构）
+    // 2. 合约跟随内容（I-2）：chapter_number > N 的 CHAPTER 合约随其章 顺延
+    //    +1。chapter_number 存于 contract_json 内部而非独立列， 需读出 → 改字段 →
+    //    写回；解析失败的合约行不动。
+    let shifted_contracts: Vec<(String, ChapterContract)> = {
+        let mut stmt = tx.prepare(
+            "SELECT id, contract_json FROM story_contracts \
+             WHERE story_id = ?1 AND contract_type = 'CHAPTER'",
+        )?;
+        let rows = stmt.query_map(params![story_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, json) = row?;
+            if let Ok(contract) = serde_json::from_str::<ChapterContract>(&json) {
+                if contract.chapter_number > chapter_number {
+                    out.push((id, contract));
+                }
+            }
+        }
+        // JSON 无唯一约束，降序仅保持处理顺序与章重排一致、清晰可读
+        out.sort_by_key(|(_, c)| std::cmp::Reverse(c.chapter_number));
+        out
+    };
+    for (id, mut contract) in shifted_contracts {
+        contract.chapter_number += 1;
+        let json = serde_json::to_string(&contract)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        tx.execute(
+            "UPDATE story_contracts SET contract_json = ?2, version = version + 1, \
+             updated_at = ?3 WHERE id = ?1",
+            params![id, json, now],
+        )?;
+    }
+
+    // 3. 新章插入 N+1（内容写入其场景，与 ChapterRepository::create 同构）。
+    //    标题：重排后 N+1 必无合约（合约跟随内容），自然回退 `第{N+1}章`。
+    let new_title = title_from_goal(
+        chapter_contract_goal_in_tx(tx, story_id, new_number).as_deref(),
+        new_number,
+    );
     let new_chapter_id = Uuid::new_v4().to_string();
     tx.execute(
         "INSERT INTO chapters (id, story_id, chapter_number, title, outline, word_count, \
@@ -426,7 +527,7 @@ pub(crate) fn split_chapter_in_tx(
             &new_chapter_id,
             story_id,
             new_number,
-            new_title,
+            &new_title,
             plan.overflow.len() as i32,
             now
         ],
@@ -441,14 +542,14 @@ pub(crate) fn split_chapter_in_tx(
             &new_scene_id,
             story_id,
             new_number,
-            new_title,
+            &new_title,
             plan.overflow,
             &new_chapter_id,
             now
         ],
     )?;
 
-    // 3. 截断原章首场景 + 更新原章字数
+    // 4. 截断原章首场景 + 更新原章字数
     let keep_wc = TextUtils::chinese_word_count(&plan.keep) as i32;
     tx.execute(
         "UPDATE scenes SET content = ?2, updated_at = ?3 WHERE id = ?1",
@@ -459,13 +560,16 @@ pub(crate) fn split_chapter_in_tx(
         params![chapter_id, keep_wc, now],
     )?;
 
-    Ok((new_chapter_id, renumbered_chapter_ids))
+    Ok(Some((new_chapter_id, renumbered_chapter_ids, new_title)))
 }
 
 /// 对指定章（任意位置，不限最新章）执行一次切分；无需/不可切分时返回
 /// `Ok(None)`。
 ///
 /// 重排 + 插入新章 + 截断全部在一个事务内完成（见 `split_chapter_in_tx`）。
+/// 章号在**事务内**读取（I-1），以事务内读到的值为准做重排——事务外
+/// 预读会在并发 split 时拿到过期章号导致静默错序（另有 per-story split
+/// 互斥做第二道保险，见 `maybe_split_latest_chapter`）。
 /// 不发射事件（便于单测）；事件由调用方按 `SplitOutcome` 补发。
 fn split_latest_chapter_once(
     pool: &DbPool,
@@ -474,24 +578,21 @@ fn split_latest_chapter_once(
     mode: ChapterSplitMode,
     max_chars: usize,
 ) -> Result<Option<SplitOutcome>, String> {
-    // 章必须属于本故事；任意位置均可切分
-    let chapter_number = {
-        let conn = pool.get().map_err(|e| e.to_string())?;
-        conn.query_row(
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    // 章必须属于本故事；任意位置均可切分。事务内读章号（I-1）。
+    let chapter_number: Option<i32> = tx
+        .query_row(
             "SELECT chapter_number FROM chapters WHERE id = ?1 AND story_id = ?2",
             params![chapter_id, story_id],
-            |r| r.get::<_, i32>(0),
+            |r| r.get(0),
         )
         .optional()
-        .map_err(|e| e.to_string())?
-    };
+        .map_err(|e| e.to_string())?;
     let Some(chapter_number) = chapter_number else {
         return Ok(None);
     };
-    let new_title = resolve_new_chapter_title(pool, story_id, chapter_number + 1);
-
-    let mut conn = pool.get().map_err(|e| e.to_string())?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let content: String = {
         let mut stmt = tx
@@ -525,16 +626,13 @@ fn split_latest_chapter_once(
         return Ok(None);
     };
 
-    let (new_chapter_id, renumbered_chapter_ids) = split_chapter_in_tx(
-        &tx,
-        story_id,
-        chapter_id,
-        chapter_number,
-        &plan,
-        &new_title,
-        &scene_id,
-    )
-    .map_err(|e| e.to_string())?;
+    // None = 多场景章被守卫跳过（不截断、不新建；守卫内已告警）
+    let Some((new_chapter_id, renumbered_chapter_ids, new_title)) =
+        split_chapter_in_tx(&tx, story_id, chapter_id, chapter_number, &plan, &scene_id)
+            .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
     tx.commit().map_err(|e| e.to_string())?;
 
     log::info!(
@@ -625,7 +723,8 @@ fn split_latest_until_within_threshold(
 /// `DataRefresh("chapters")`，避免前端缓存的章号/列表过期。
 ///
 /// 返回 `Ok(Some(last_new_chapter_id))`：多次切分时返回**最后一次**切出的章
-/// id（当前唯一调用方 scene_service 仅用于日志）；`Ok(None)` 表示无需切分。
+/// id（当前唯一调用方 scene_service 仅用于日志）；`Ok(None)` 表示无需切分
+/// 或同 story 已有 split 进行中（per-story 互斥跳过，I-1）。
 pub fn maybe_split_latest_chapter(
     pool: &DbPool,
     app_handle: &AppHandle,
@@ -635,6 +734,18 @@ pub fn maybe_split_latest_chapter(
 ) -> Result<Option<String>, String> {
     let mode = ChapterSplitMode::parse(&config.chapter_split_mode);
     let max_chars = resolve_max_chars(config.chapter_split_max_chars);
+
+    // I-1 保险：进程内 per-story split 互斥（沿用 memory::asset_bridge
+    // STORY_LOCKS 惯例）。章号已在事务内读取，本锁防并发 split 任务交错；
+    // 拿锁失败直接跳过，下个 30s 防抖窗口再来。
+    let lock = story_split_lock(story_id);
+    let Ok(_split_guard) = lock.try_lock() else {
+        log::info!(
+            "[ChapterSplitter] story {} 已有 split 进行中，本次跳过（下个防抖窗口再试）",
+            story_id
+        );
+        return Ok(None);
+    };
 
     let outcomes =
         split_latest_until_within_threshold(pool, story_id, chapter_id, mode, max_chars)?;
@@ -768,7 +879,7 @@ mod tests {
 
     use crate::db::{
         create_test_pool, CreateChapterRequest, CreateStoryRequest, SceneRepository,
-        StoryRepository,
+        StoryContractRepository, StoryRepository,
     };
 
     /// 种一个故事 + 第一章（内容写入其场景），返回 (story_id, chapter_id)。
@@ -912,13 +1023,50 @@ mod tests {
         assert_eq!(chapter_repo.get_by_story(&story_id).unwrap().len(), 1);
     }
 
-    // ==================== 新章命名（v0.33.7 fix） ====================
+    // ==================== 合约跟随内容（I-2） ====================
 
-    /// 循环切分时：只有存在**对应章号**合约的新章才用合约 goal 命名；
-    /// 无合约的新章回退 `第{N}章`。回归 v0.33.x bug：此前取"最新合约"
-    /// 的 goal 给所有新章命名，一次切分出的章节全部同名。
+    fn chapter_contract(
+        chapter_number: i32,
+        goal: &str,
+    ) -> crate::domain::contracts::ChapterContract {
+        crate::domain::contracts::ChapterContract {
+            schema_version: "1".to_string(),
+            contract_type: "CHAPTER".to_string(),
+            generator_version: "test".to_string(),
+            chapter_number,
+            chapter_directive: crate::domain::contracts::ChapterDirective {
+                goal: goal.to_string(),
+                must_cover_nodes: vec![],
+                forbidden_zones: vec![],
+                time_anchor: None,
+                chapter_span: None,
+            },
+        }
+    }
+
+    /// 该 story 全部 CHAPTER 合约解析后的 chapter_number（升序）。
+    fn chapter_contract_numbers(pool: &DbPool, story_id: &str) -> Vec<i32> {
+        let repo = StoryContractRepository::new(pool.clone());
+        let mut numbers: Vec<i32> = repo
+            .get_by_story(story_id)
+            .unwrap()
+            .iter()
+            .filter(|c| c.contract_type == "CHAPTER")
+            .filter_map(|c| {
+                serde_json::from_str::<crate::domain::contracts::ChapterContract>(&c.contract_json)
+                    .ok()
+            })
+            .map(|c| c.chapter_number)
+            .collect();
+        numbers.sort_unstable();
+        numbers
+    }
+
+    /// 合约跟随内容：循环切分最新章时，`chapter_number > N` 的合约随内容
+    /// 顺延 +1，新溢出章必无合约、标题回退 `第{N}章`。回归 v0.33.x bug：
+    /// 一次切分出的章节全部同名——现在所有新章回退默认命名，互不相同。
     #[test]
-    fn split_names_new_chapters_by_matching_contract_only() {
+    fn split_shifts_contracts_with_content_and_falls_back_titles() {
         let pool = create_test_pool().unwrap();
         // 3 段 × 1800 字 → 切出第 2、3 章
         let para = chinese_repeat('文', 1800);
@@ -926,25 +1074,12 @@ mod tests {
         let (story_id, chapter_id) = seed_story_with_chapter(&pool, &content);
 
         // 仅第 2 章有合约
-        let contract = crate::domain::contracts::ChapterContract {
-            schema_version: "1".to_string(),
-            contract_type: "CHAPTER".to_string(),
-            generator_version: "test".to_string(),
-            chapter_number: 2,
-            chapter_directive: crate::domain::contracts::ChapterDirective {
-                goal: "潜入敌营救出同伴".to_string(),
-                must_cover_nodes: vec![],
-                forbidden_zones: vec![],
-                time_anchor: None,
-                chapter_span: None,
-            },
-        };
         let contract_repo = StoryContractRepository::new(pool.clone());
         contract_repo
             .create(
                 &story_id,
                 "CHAPTER",
-                &serde_json::to_string(&contract).unwrap(),
+                &serde_json::to_string(&chapter_contract(2, "潜入敌营救出同伴")).unwrap(),
             )
             .unwrap();
 
@@ -958,6 +1093,9 @@ mod tests {
         .unwrap();
         assert_eq!(outcomes.len(), 2, "5400 字应切出 2 章");
 
+        // 合约跟随内容：切第 1 章时合约 2→3，切第 2 章时再 3→4
+        assert_eq!(chapter_contract_numbers(&pool, &story_id), vec![4]);
+
         let chapter_repo = ChapterRepository::new(pool.clone());
         let chapters = chapter_repo.get_by_story(&story_id).unwrap();
         let title_of = |n: i32| {
@@ -967,13 +1105,140 @@ mod tests {
                 .and_then(|c| c.title.clone())
                 .unwrap_or_default()
         };
-        assert_eq!(title_of(2), "潜入敌营救出同伴");
+        // 新溢出章无合约 → 回退默认命名
+        assert_eq!(title_of(2), "第2章");
         assert_eq!(title_of(3), "第3章");
         // 三章标题互不相同
         let mut titles: Vec<String> = chapters.iter().filter_map(|c| c.title.clone()).collect();
         titles.sort();
         titles.dedup();
         assert_eq!(titles.len(), chapters.len());
+    }
+
+    /// 中间章切分：> N 的合约随其章顺延（ch3 合约 → ch4），== N 的合约
+    /// 不动（ch2 合约留在 ch2）；新溢出章 ch3 无合约，标题回退 `第3章`。
+    #[test]
+    fn middle_chapter_split_shifts_contracts_with_content() {
+        let pool = create_test_pool().unwrap();
+        let ch2_content = format!(
+            "{}\n\n{}",
+            chinese_repeat('中', 1800),
+            chinese_repeat('间', 1800)
+        );
+        let (story_id, ids) =
+            seed_story_with_chapters(&pool, &["第一章内容", &ch2_content, "第三章内容"]);
+        let ch2_id = ids[1].clone();
+        let ch3_id = ids[2].clone();
+
+        let contract_repo = StoryContractRepository::new(pool.clone());
+        for (n, goal) in [(2, "第二章合约"), (3, "第三章合约")] {
+            contract_repo
+                .create(
+                    &story_id,
+                    "CHAPTER",
+                    &serde_json::to_string(&chapter_contract(n, goal)).unwrap(),
+                )
+                .unwrap();
+        }
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &ch2_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+        assert_eq!(outcomes.len(), 1, "3600 字应切 1 刀");
+        assert_eq!(
+            outcomes[0].new_chapter_title.as_deref(),
+            Some("第3章"),
+            "新溢出章 N+1 无合约，标题应回退默认命名"
+        );
+
+        // 合约跟随内容：ch2 合约（== N）不动，ch3 合约（> N）顺延为 4
+        assert_eq!(chapter_contract_numbers(&pool, &story_id), vec![2, 4]);
+
+        // 旧 ch3 的内容随章号顺延到 ch4，未被篡改
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        let chapters = chapter_repo.get_by_story(&story_id).unwrap();
+        let old3 = chapters.iter().find(|c| c.id == ch3_id).unwrap();
+        assert_eq!(old3.chapter_number, 4);
+        assert!(chapter_repo
+            .get_content(&ch3_id)
+            .unwrap()
+            .contains("第三章内容"));
+    }
+
+    // ==================== 多场景章守卫（I-3） ====================
+
+    /// 章关联 scene 数 > 1 时跳过切分：不截断、不新建，两场景内容原样保留。
+    #[test]
+    fn multi_scene_chapter_is_skipped_without_split() {
+        let pool = create_test_pool().unwrap();
+        let (story_id, chapter_id) = seed_story_with_chapter(&pool, &chinese_repeat('首', 2000));
+        // 给该章追加第二个场景（合计 4000 字 > 阈值 3000）
+        {
+            let conn = pool.get().unwrap();
+            let now = chrono::Local::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO scenes (id, story_id, sequence_number, title, content, \
+                 characters_present, character_conflicts, execution_stage, chapter_id, \
+                 created_at, updated_at) \
+                 VALUES ('sc-extra', ?1, 100, '续', ?2, '[]', '[]', 'drafting', ?3, ?4, ?4)",
+                params![&story_id, chinese_repeat('续', 2000), &chapter_id, now],
+            )
+            .unwrap();
+        }
+
+        let outcomes = split_latest_until_within_threshold(
+            &pool,
+            &story_id,
+            &chapter_id,
+            ChapterSplitMode::WordCount,
+            3000,
+        )
+        .unwrap();
+        assert!(outcomes.is_empty(), "多场景章应跳过切分");
+
+        // 章数不变、两场景内容均未截断
+        let chapter_repo = ChapterRepository::new(pool.clone());
+        assert_eq!(chapter_repo.get_by_story(&story_id).unwrap().len(), 1);
+        let conn = pool.get().unwrap();
+        let contents: Vec<String> = conn
+            .prepare(
+                "SELECT COALESCE(content, '') FROM scenes WHERE chapter_id = ?1 \
+                 ORDER BY sequence_number",
+            )
+            .unwrap()
+            .query_map([&chapter_id], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            contents,
+            vec![chinese_repeat('首', 2000), chinese_repeat('续', 2000)]
+        );
+    }
+
+    // ==================== per-story split 互斥（I-1） ====================
+
+    #[test]
+    fn per_story_split_lock_is_exclusive_per_story() {
+        let lock_a = story_split_lock("lock-test-a");
+        let guard = lock_a.try_lock().expect("首个 split 应拿到锁");
+        assert!(
+            lock_a.try_lock().is_err(),
+            "同 story 并发 split 应被互斥（拿锁失败跳过）"
+        );
+        // 同一注册表多次取锁返回同一实例
+        let lock_a2 = story_split_lock("lock-test-a");
+        assert!(lock_a2.try_lock().is_err());
+        // 不同 story 互不影响
+        let lock_b = story_split_lock("lock-test-b");
+        assert!(lock_b.try_lock().is_ok(), "不同 story 的 split 互不影响");
+        drop(guard);
+        assert!(lock_a.try_lock().is_ok(), "释放后可再次拿锁");
     }
 
     // ==================== 中间章切分 + 后续章重排 ====================
