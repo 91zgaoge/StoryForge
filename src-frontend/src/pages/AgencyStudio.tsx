@@ -8,6 +8,7 @@ import {
   type AgentProgressEvent,
 } from '@/stores/agencyActivityStore';
 import { AiThinking } from '@/components/ui/ai/AiThinking';
+import { AiContextCards } from '@/components/ui/ai/AiContextCards';
 import { getRun, listActivities, listBoard, listRuns } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
 
@@ -332,21 +333,23 @@ export default function AgencyStudio() {
           <div className="grid grid-cols-4 gap-3">
             {ZONES.map(z => (
               <div key={z.key} className="rounded border p-3">
-                <div className="mb-2 text-sm font-medium text-gray-500">{z.name}</div>
-                {byZone(z.key).length === 0 && <p className="text-xs text-gray-400">（空）</p>}
-                <div className="space-y-2">
-                  {byZone(z.key).map(item => (
-                    <div key={item.id} className="rounded bg-gray-50 p-2 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{item.key}</span>
-                        <span className="text-xs text-gray-400">
-                          v{item.version} · {item.status}
-                        </span>
-                      </div>
-                      <div className="truncate text-xs text-gray-500">{item.summary}</div>
-                    </div>
-                  ))}
-                </div>
+                {byZone(z.key).length === 0 ? (
+                  <>
+                    <div className="mb-2 text-sm font-medium text-gray-500">{z.name}</div>
+                    <p className="text-xs text-gray-400">（空）</p>
+                  </>
+                ) : (
+                  <AiContextCards
+                    title={z.name}
+                    count={byZone(z.key).length}
+                    items={byZone(z.key).map(item => ({
+                      key: item.id,
+                      title: item.key,
+                      meta: `v${item.version} · ${item.status}`,
+                      body: item.summary,
+                    }))}
+                  />
+                )}
               </div>
             ))}
           </div>
