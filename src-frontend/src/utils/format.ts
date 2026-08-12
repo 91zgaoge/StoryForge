@@ -38,6 +38,8 @@ export function truncateText(text: string, maxLength: number): string {
  * 只合并闭合向字符：" ' ’ ” 」 』 ） 】 》 〉 ] }；
  * 开向字符（「 『 （ 【 《 〈 [ {）不合并。
  * 边界：上一行不存在（文本以换行+闭合标点开头）时不合并。
+ * 已知限制：直引号 " ' 无方向信息，刻意以闭合引号开场的段落或
+ * 跨段引语（每段以 " 开场）会被误并——中文小说语料下罕见，属启发式取舍。
  */
 export function mergeHangingClosingPunct(text: string): string {
   if (!text) return text;

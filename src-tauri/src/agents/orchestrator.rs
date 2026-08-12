@@ -2114,6 +2114,7 @@ impl AgentOrchestrator {
                         "[TriShot-DIAG] 续写自重复检测到 (ratio={:.2}) 但剩余预算不足 ({}s)，跳过重试，使用清理结果",
                         trim_ratio, remaining
                     );
+                    content = cleaned;
                 }
             } else if trim_ratio > 0.0 {
                 // 有轻微自重复但未达闸门，仍用清理结果
