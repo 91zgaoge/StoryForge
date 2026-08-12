@@ -82,6 +82,7 @@ import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 // Phase 4: SceneDividerNode 不再在幕前编辑器中渲染
 // import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
+import { AiStreamingText } from '@/components/ui/ai/AiStreamingText';
 
 interface RichTextEditorProps {
   content: string;
@@ -1373,7 +1374,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
                   data-testid="ghost-paragraph"
                   style={{ userSelect: 'none' }}
                 >
-                  {generatedText}
+                  <AiStreamingText text={generatedText} done={!isGenerating} />
                 </p>
               )}
               {generatedText && (
