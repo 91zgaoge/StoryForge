@@ -49,6 +49,27 @@ describe('AiTaskRows', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
+  it('trailing 内按钮键盘 Enter 不触发行 toggle', () => {
+    const onToggle = vi.fn();
+    const onTrailing = vi.fn();
+    render(
+      <AiTaskRows
+        rows={[
+          {
+            key: 't1',
+            status: 'pending',
+            index: 1,
+            label: 'x',
+            trailing: <button onClick={onTrailing}>执行</button>,
+          },
+        ]}
+        onToggle={onToggle}
+      />
+    );
+    fireEvent.keyDown(screen.getByText('执行'), { key: 'Enter' });
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
   it('expandedKey 行展开 renderDetail 内容（grid 1fr），其余 0fr', () => {
     const { container } = render(
       <AiTaskRows

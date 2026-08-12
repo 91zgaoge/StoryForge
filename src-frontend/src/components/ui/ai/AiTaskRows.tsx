@@ -28,7 +28,7 @@ export interface AiTaskRowItem<T = unknown> {
   label: string;
   meta?: string;
   pill?: React.ReactNode;
-  /** 行尾操作区（chevron 之前）；组件侧已统一 stopPropagation，点击不触发行 toggle */
+  /** 行尾操作区（chevron 之前）；组件侧已统一 stopPropagation，点击/键盘均不触发行 toggle */
   trailing?: React.ReactNode;
   details?: AiTaskRowDetail[];
   payload?: T;
@@ -177,10 +177,11 @@ export function AiTaskRows<T = unknown>({
               )}
               {row.pill}
               {row.trailing && (
-                /* trailing 插槽点击不触发行 toggle（组件侧统一拦截） */
+                /* trailing 插槽点击/键盘均不触发行 toggle（组件侧统一拦截） */
                 <span
                   className="flex shrink-0 items-center gap-1"
                   onClick={e => e.stopPropagation()}
+                  onKeyDown={e => e.stopPropagation()}
                 >
                   {row.trailing}
                 </span>
