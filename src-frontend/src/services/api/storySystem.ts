@@ -37,9 +37,38 @@ export interface ContractTree {
   reviews: Record<string, StoryContract>;
 }
 
+/** MASTER_SETTING 合同解析后的领域结构（后端 get_runtime_contract 返回的是解析结果，非 DB 行） */
+export interface MasterSettingContract {
+  schema_version: string;
+  contract_type: string;
+  generator_version: string;
+  genre: string;
+  core_tone: string;
+  pacing_strategy: string;
+  anti_patterns: string[];
+  world_rules: string[];
+}
+
+export interface ChapterDirective {
+  goal: string;
+  must_cover_nodes: string[];
+  forbidden_zones: string[];
+  time_anchor?: string | null;
+  chapter_span?: string | null;
+}
+
+/** CHAPTER 合同解析后的领域结构 */
+export interface ChapterContract {
+  schema_version: string;
+  contract_type: string;
+  generator_version: string;
+  chapter_number: number;
+  chapter_directive: ChapterDirective;
+}
+
 export interface RuntimeContract {
-  master_setting: StoryContract;
-  chapter_contract: StoryContract | null;
+  master_setting: MasterSettingContract;
+  chapter_contract: ChapterContract | null;
 }
 
 export const createMasterSetting = (params: {

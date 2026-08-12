@@ -69,7 +69,14 @@ export function ContractsTab({ storyId, selectedChapter, onChapterChange }: Cont
   }, [storyId, selectedChapter]);
 
   const hasMaster = !!contractTree?.master_setting;
-  const hasChapter1 = !!contractTree?.chapters['1'];
+  // 后端 chapters 以合同 id（UUID）为 key，需解析 contract_json 里的 chapter_number 判断第 1 章是否已播种
+  const hasChapter1 = Object.values(contractTree?.chapters ?? {}).some(c => {
+    try {
+      return (JSON.parse(c.contract_json) as { chapter_number?: number }).chapter_number === 1;
+    } catch {
+      return false;
+    }
+  });
 
   const handleCreateMaster = async () => {
     if (!currentStory) return;
@@ -253,17 +260,14 @@ export function ContractsTab({ storyId, selectedChapter, onChapterChange }: Cont
             {runtimeContract ? (
               <div className="space-y-2 text-sm">
                 <p className="text-gray-400">
-                  核心基调:{' '}
-                  {JSON.parse(runtimeContract.master_setting.contract_json).core_tone || 'N/A'}
+                  核心基调: {runtimeContract.master_setting.core_tone || 'N/A'}
                 </p>
                 <p className="text-gray-400">
-                  体裁: {JSON.parse(runtimeContract.master_setting.contract_json).genre || 'N/A'}
+                  体裁: {runtimeContract.master_setting.genre || 'N/A'}
                 </p>
                 {runtimeContract.chapter_contract && (
                   <p className="text-gray-400">
-                    章节目标:{' '}
-                    {JSON.parse(runtimeContract.chapter_contract.contract_json).chapter_directive
-                      ?.goal || 'N/A'}
+                    章节目标: {runtimeContract.chapter_contract.chapter_directive?.goal || 'N/A'}
                   </p>
                 )}
               </div>
