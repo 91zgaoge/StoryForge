@@ -12,7 +12,7 @@
   --terracotta-light: #d9896e;
   --terracotta-dark: #a85539;
 
-  /* 幕后「机械」 */
+  /* 幕后「机械」——值为 warm 主题默认值；运行时由 backstageThemes.ts 按色调重写 */
   --cinema-950: #050508;
   --cinema-900: #0a0a0f;
   --cinema-850: #0f0f16;
