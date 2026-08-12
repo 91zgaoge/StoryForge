@@ -16,6 +16,7 @@ import {
   Activity,
   FileText,
 } from 'lucide-react';
+import { AiLoading } from '@/components/ui/ai/AiLoading';
 import { cn } from '@/utils/cn';
 import { usePipelineProgress } from '@/hooks/usePipelineProgress';
 import {
@@ -443,9 +444,8 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
               {/* Current Step Live Log */}
               {isCurrent && isRunning && progress && (
                 <div className="px-2.5 pb-2.5 pt-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Loader2 className="w-2.5 h-2.5 text-cinema-gold animate-spin" />
-                    <span className="text-[10px] text-cinema-gold/70">{progress.message}</span>
+                  <div className="mb-1">
+                    <AiLoading label={progress.message} variant="drive" />
                   </div>
                   <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
                     <div

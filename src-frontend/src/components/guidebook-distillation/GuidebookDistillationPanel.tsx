@@ -30,6 +30,7 @@ import type {
   GuidebookListItem,
   MethodologyStep,
 } from '@/types/guidebook-distillation';
+import { AiLoading } from '@/components/ui/ai/AiLoading';
 import { cn } from '@/utils/cn';
 import { extractMessage } from '@/utils/errorHandler';
 
@@ -119,10 +120,11 @@ function GuidebookCard({ guidebook, selected, onSelect, onDelete }: GuidebookCar
           {status === 'completed' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
           {status === 'failed' && <AlertCircle className="w-4 h-4 text-red-500" />}
           {status === 'cancelled' && <AlertCircle className="w-4 h-4 text-orange-500" />}
-          {ACTIVE_STATUSES.includes(status) && (
-            <Loader2 className="w-4 h-4 text-cinema-gold animate-spin" />
+          {ACTIVE_STATUSES.includes(status) ? (
+            <AiLoading label={STATUS_LABELS[status] || status} variant="dots" />
+          ) : (
+            <span className="text-xs text-gray-500">{STATUS_LABELS[status] || status}</span>
           )}
-          <span className="text-xs text-gray-500">{STATUS_LABELS[status] || status}</span>
           {(status === 'failed' || status === 'cancelled') && (
             <button
               onClick={handleRetry}
@@ -150,7 +152,7 @@ function GuidebookCard({ guidebook, selected, onSelect, onDelete }: GuidebookCar
       {ACTIVE_STATUSES.includes(status) && (
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span>{currentStep || '正在提炼...'}</span>
+            <AiLoading label={currentStep || '正在提炼…'} variant="drive" />
             <span className="font-mono">{progress}%</span>
           </div>
           <div className="w-full h-2 bg-cinema-800 rounded-full overflow-hidden">

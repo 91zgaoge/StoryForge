@@ -10,6 +10,7 @@ import {
   Check,
   RefreshCw,
 } from 'lucide-react';
+import { AiLoading } from '@/components/ui/ai/AiLoading';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import {
@@ -256,12 +257,9 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
 
   const renderGenerating = (message: string) => (
     <div className="text-center py-12">
-      <div className="relative w-20 h-20 mx-auto mb-6">
-        <div className="absolute inset-0 border-4 border-cinema-700 rounded-full" />
-        <div className="absolute inset-0 border-4 border-cinema-gold rounded-full border-t-transparent animate-spin" />
-        <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-cinema-gold" />
+      <div className="flex justify-center mb-6">
+        <AiLoading label={message} variant="orbit" />
       </div>
-      <h3 className="text-xl font-semibold text-white mb-2">{message}</h3>
       <p className="text-gray-400">AI正在发挥创意...</p>
     </div>
   );
