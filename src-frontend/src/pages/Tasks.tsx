@@ -1,24 +1,11 @@
 import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { loggedInvoke } from '@/services/tauri';
-import {
-  ListChecks,
-  Play,
-  Square,
-  Trash2,
-  Clock,
-  Heart,
-  AlertCircle,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Plus,
-  ChevronDown,
-  ChevronUp,
-} from 'lucide-react';
+import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiRecommendationCard } from '@/components/ui/ai/AiRecommendationCard';
+import { AiTaskRows, type AiTaskRowItem } from '@/components/ui/ai/AiTaskRows';
 import {
   useTasks,
   useCreateTask,
@@ -37,12 +24,12 @@ import toast from 'react-hot-toast';
 
 type StatusFilter = 'all' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
-const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  pending: { label: '等待中', color: 'text-gray-400', icon: Clock },
-  running: { label: '执行中', color: 'text-blue-400', icon: Loader2 },
-  completed: { label: '已完成', color: 'text-green-400', icon: CheckCircle2 },
-  failed: { label: '失败', color: 'text-red-400', icon: XCircle },
-  cancelled: { label: '已取消', color: 'text-orange-400', icon: AlertCircle },
+const statusConfig: Record<string, { label: string }> = {
+  pending: { label: '等待中' },
+  running: { label: '执行中' },
+  completed: { label: '已完成' },
+  failed: { label: '失败' },
+  cancelled: { label: '已取消' },
 };
 
 const scheduleTypeLabels: Record<string, string> = {
@@ -88,7 +75,6 @@ function TaskRow({
   const [isDeleting, setIsDeleting] = useState(false);
 
   const status = statusConfig[task.status] || statusConfig.pending;
-  const StatusIcon = status.icon;
   const heartbeat = getHeartbeatStatus(task);
 
   const handleDelete = async () => {
@@ -131,125 +117,85 @@ function TaskRow({
     }
   };
 
-  return (
-    <div className="border-b border-cinema-800 last:border-b-0">
-      <div
-        className="flex items-center gap-3 px-4 py-3 hover:bg-cinema-800/30 transition-colors cursor-pointer"
-        onClick={onToggleExpand}
+  const metaParts = [
+    scheduleTypeLabels[task.schedule_type] || task.schedule_type,
+    task.cron_pattern || null,
+    task.status === 'running' && task.progress > 0 ? `${task.progress}%` : null,
+    task.retry_count > 0 ? `重试 ${task.retry_count}/${task.max_retries}` : null,
+    task.status === 'running' ? `心跳${heartbeat.text}` : null,
+  ].filter(Boolean);
+
+  const statusPill: Record<string, string> = {
+    running: 'bg-ai-accent-tint text-ai-accent-ink',
+    completed: 'bg-ai-green/10 text-ai-green',
+    failed: 'bg-ai-red/10 text-ai-red',
+    cancelled: 'bg-ai-orange/10 text-ai-orange',
+    pending: 'bg-ai-hover text-ai-ink-2',
+  };
+
+  const item: AiTaskRowItem<Task> = {
+    key: task.id,
+    status: task.status in statusPill ? task.status : 'pending',
+    progress: task.status === 'running' ? task.progress : undefined,
+    label: task.name,
+    meta: metaParts.join(' · '),
+    pill: (
+      <span
+        className={cn(
+          'inline-flex h-[22px] items-center rounded-full px-2 text-[11.5px] font-medium',
+          statusPill[task.status] || statusPill.pending
+        )}
       >
-        <StatusIcon
-          className={cn(
-            'w-4 h-4 flex-shrink-0',
-            status.color,
-            task.status === 'running' && 'animate-spin'
-          )}
-        />
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm text-white truncate">{task.name}</span>
-            <span
-              className={cn(
-                'text-xs px-1.5 py-0.5 rounded',
-                status.color.replace('text-', 'bg-').replace('400', '500/20')
-              )}
-            >
-              {status.label}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
-            <span>{scheduleTypeLabels[task.schedule_type] || task.schedule_type}</span>
-            {task.cron_pattern && <span className="font-mono">{task.cron_pattern}</span>}
-            {task.progress > 0 && task.status === 'running' && (
-              <span className="text-blue-400">{task.progress}%</span>
-            )}
-            {task.retry_count > 0 && (
-              <span className="text-orange-400">
-                重试 {task.retry_count}/{task.max_retries}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Heartbeat indicator */}
-        {task.status === 'running' && (
-          <div className="flex items-center gap-1 text-xs">
-            <Heart
-              className={cn(
-                'w-3 h-3',
-                heartbeat.status === 'ok' && 'text-green-400 fill-green-400',
-                heartbeat.status === 'warning' && 'text-yellow-400',
-                heartbeat.status === 'dead' && 'text-red-400'
-              )}
-            />
-            <span
-              className={cn(
-                heartbeat.status === 'ok' && 'text-green-400',
-                heartbeat.status === 'warning' && 'text-yellow-400',
-                heartbeat.status === 'dead' && 'text-red-400'
-              )}
-            >
-              {heartbeat.text}
-            </span>
-          </div>
-        )}
-
-        {/* Progress bar */}
-        {task.status === 'running' && (
-          <div className="w-24 h-1.5 bg-cinema-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-300"
-              style={{ width: `${task.progress}%` }}
-            />
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-          {task.status === 'running' ? (
-            <button
-              onClick={handleCancel}
-              className="p-1.5 rounded hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
-              title="取消"
-            >
-              <Square className="w-3.5 h-3.5" />
-            </button>
-          ) : task.status === 'failed' ? (
-            <button
-              onClick={handleRetry}
-              className="p-1.5 rounded hover:bg-yellow-500/20 text-gray-400 hover:text-yellow-400 transition-colors"
-              title="重试"
-            >
-              <Play className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <button
-              onClick={handleTrigger}
-              className="p-1.5 rounded hover:bg-green-500/20 text-gray-400 hover:text-green-400 transition-colors"
-              title="执行"
-            >
-              <Play className="w-3.5 h-3.5" />
-            </button>
-          )}
+        {status.label}
+      </span>
+    ),
+    trailing: (
+      <>
+        {task.status === 'running' ? (
           <button
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="p-1.5 rounded hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
-            title="删除"
+            onClick={handleCancel}
+            className="p-1.5 rounded hover:bg-ai-red/10 text-ai-ink-3 hover:text-ai-red transition-colors"
+            title="取消"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Square className="w-3.5 h-3.5" />
           </button>
-          {isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-500" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-gray-500" />
-          )}
-        </div>
-      </div>
+        ) : task.status === 'failed' ? (
+          <button
+            onClick={handleRetry}
+            className="p-1.5 rounded hover:bg-ai-orange/10 text-ai-ink-3 hover:text-ai-orange transition-colors"
+            title="重试"
+          >
+            <Play className="w-3.5 h-3.5" />
+          </button>
+        ) : (
+          <button
+            onClick={handleTrigger}
+            className="p-1.5 rounded hover:bg-ai-green/10 text-ai-ink-3 hover:text-ai-green transition-colors"
+            title="执行"
+          >
+            <Play className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button
+          onClick={handleDelete}
+          disabled={isDeleting}
+          className="p-1.5 rounded hover:bg-ai-red/10 text-ai-ink-3 hover:text-ai-red transition-colors"
+          title="删除"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </>
+    ),
+    payload: task,
+  };
 
-      {/* Expanded detail */}
-      {isExpanded && <TaskDetail task={task} />}
-    </div>
+  return (
+    <AiTaskRows
+      rows={[item]}
+      expandedKey={isExpanded ? task.id : null}
+      onToggle={() => onToggleExpand()}
+      renderDetail={() => <TaskDetail task={task} />}
+    />
   );
 }
 
@@ -675,7 +621,7 @@ export function Tasks() {
 
       {/* Task list */}
       {!isLoading && filteredTasks.length > 0 && (
-        <div className="bg-cinema-900/50 rounded-lg border border-cinema-800 overflow-hidden">
+        <div>
           {filter === 'all' ? (
             // Grouped by status
             <>
