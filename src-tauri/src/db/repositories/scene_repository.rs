@@ -148,8 +148,7 @@ impl SceneRepository {
             // 若 id 命中 chapters，按章节信息补建 scene（沿用该 id 并建立
             // chapter_id 关联）后重放 update；id 既非 scene 也非 chapter 时
             // 返回明确错误，杜绝"看似保存成功实则丢失"。
-            self.heal_missing_scene_in_tx(&tx, id)?;
-            self.update_in_tx(&tx, id, updates)?
+            self.heal_missing_scene_in_tx(&tx, id, updates)?
         } else {
             count
         };
@@ -158,12 +157,21 @@ impl SceneRepository {
     }
 
     /// v0.30.50: update 命中 0 行时的自愈——id 实为 chapter.id 时补建关联
-    /// scene。
+    /// scene。返回重放 update 后的影响行数。
+    ///
+    /// v0.38.x: 修复 heal 两处盲区（现网保存 36/38 失败根因）——
+    /// 1. 章节已有按 chapter_id 关联的 scene 时（自动分章后幕前仍持过期
+    ///    chapter.id），不再盲目 INSERT 同 sequence_number 的第二行（必撞
+    ///    UNIQUE(story_id, sequence_number)，每次保存必失败），改为重定向
+    ///    update 到既有 scene；
+    /// 2. 无关联 scene 但 chapter_number 对应序号已被占用时，取空闲序号
+    ///    （MAX+1）而不是硬撞约束。
     fn heal_missing_scene_in_tx(
         &self,
         tx: &rusqlite::Transaction,
         id: &str,
-    ) -> Result<(), rusqlite::Error> {
+        updates: &SceneUpdate,
+    ) -> Result<usize, rusqlite::Error> {
         let chapter = tx
             .query_row(
                 "SELECT story_id, chapter_number, title FROM chapters WHERE id = ?1",
@@ -181,18 +189,48 @@ impl SceneRepository {
             // id 既不是 scene 也不是 chapter——明确报错而不是静默 0 行
             return Err(rusqlite::Error::QueryReturnedNoRows);
         };
+        // 盲区 1：章节已有按 chapter_id 关联的 scene——重定向到它，不补建
+        // 重复行（重复行必撞 UNIQUE(story_id, sequence_number)）。
+        let linked_scene_id: Option<String> = tx
+            .query_row("SELECT id FROM scenes WHERE chapter_id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        if let Some(scene_id) = linked_scene_id {
+            log::warn!(
+                "[SceneRepository] update 命中 0 行，id={} 实为 chapter.id 且章节已有关联 scene {}——重定向 update（此前会撞 UNIQUE 导致保存必失败）",
+                id,
+                scene_id
+            );
+            return self.update_in_tx(tx, &scene_id, updates);
+        }
+        // 盲区 2：序号被占时取空闲序号（MAX+1），避免硬撞 UNIQUE。
+        let sequence_taken: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM scenes WHERE story_id = ?1 AND sequence_number = ?2)",
+            params![&story_id, chapter_number],
+            |row| row.get(0),
+        )?;
+        let sequence_number = if sequence_taken {
+            tx.query_row(
+                "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM scenes WHERE story_id = ?1",
+                [&story_id],
+                |row| row.get(0),
+            )?
+        } else {
+            chapter_number
+        };
         let now = Local::now().to_rfc3339();
         tx.execute(
             "INSERT INTO scenes (id, story_id, sequence_number, title, characters_present, \
              character_conflicts, execution_stage, chapter_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, '[]', '[]', 'drafting', ?5, ?6, ?7)",
-            params![id, story_id, chapter_number, title, id, now, now],
+            params![id, story_id, sequence_number, title, id, now, now],
         )?;
         log::warn!(
             "[SceneRepository] update 命中 0 行，已按章节补建 scene（id={}）——此前此类保存会静默丢失",
             id
         );
-        Ok(())
+        self.update_in_tx(tx, id, updates)
     }
 
     pub fn get_by_story(&self, story_id: &str) -> Result<Vec<Scene>, rusqlite::Error> {

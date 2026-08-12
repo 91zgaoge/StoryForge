@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## Unreleased（保存修复：scenes UNIQUE 约束）
+
+### 修复：幕前保存 36/38 失败（UNIQUE constraint failed: scenes.story_id, scenes.sequence_number）
+
+- **根因**：幕前在自动分章等场景持有过期 `chapter.id` 作为 sceneId，保存打到不存在的 scene；`SceneRepository::update` 的 v0.30.50 自愈补建逻辑存在两处盲区——①章节已有按 `chapter_id` 关联的 scene 时仍盲目 INSERT 同 `sequence_number` 的第二行，必撞 `UNIQUE(story_id, sequence_number)`（事务回滚 → UPDATE 仍 0 行 → 下次保存重蹈覆辙，36/38 次调用失败且重试无效）；②无关联 scene 但 `chapter_number` 对应序号已被占用时同样硬撞约束。
+- **修复**（`scene_repository.rs::heal_missing_scene_in_tx`）：①章节已有关联 scene 时重定向 update 到该 scene，不再补建重复行；②序号被占时取空闲序号（MAX+1）补建。
+- **测试**：`repositories_tests.rs` 新增 2 例（重定向到既有关联 scene 不产生重复行；序号被占取 MAX+1），rust 基线 1326 → **1328 passed / 2 ignored**。
+
 ## Unreleased（P2 AI 原生组件库 · 代理与任务）
 
 ### 功能：beautifului AI 原生组件第二批（设计文档 P2 范围）

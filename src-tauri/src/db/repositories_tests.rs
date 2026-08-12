@@ -1095,4 +1095,131 @@ mod tests {
         assert_eq!(healed.chapter_id.as_deref(), Some(chapter_id.as_str()));
         assert_eq!(healed.story_id, story.id);
     }
+
+    /// v0.38.x（保存 36/38 失败根因）：章节已有按 chapter_id 关联的 scene，
+    /// 但幕前仍持有 chapter.id 作为 sceneId（自动分章等场景的过期 id）——
+    /// heal 盲目 INSERT 同 sequence_number 的第二 scene，触发
+    /// UNIQUE(story_id, sequence_number)，每次保存必失败、重试无效。
+    /// 修复后 heal 应重定向到既有 scene 而不是补建重复行。
+    #[test]
+    fn test_scene_update_heal_redirects_to_existing_linked_scene() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "重定向测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+
+        // 章节 + 已关联 scene（sequence_number 与 chapter_number 相同，正如现网数据）
+        let chapter_id = uuid::Uuid::new_v4().to_string();
+        let scene_id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO chapters (id, story_id, chapter_number, title, outline, \
+                 word_count, model_used, cost, created_at, updated_at)
+                 VALUES (?1, ?2, 1, '第一章', '', 0, '', 0.0, \
+                 '2026-08-12T00:00:00+08:00', '2026-08-12T00:00:00+08:00')",
+                rusqlite::params![&chapter_id, &story.id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO scenes (id, story_id, sequence_number, title, \
+                 characters_present, character_conflicts, execution_stage, chapter_id, \
+                 created_at, updated_at)
+                 VALUES (?1, ?2, 1, '第一章', '[]', '[]', 'drafting', ?3, \
+                 '2026-08-12T00:00:00+08:00', '2026-08-12T00:00:00+08:00')",
+                rusqlite::params![&scene_id, &story.id, &chapter_id],
+            )
+            .unwrap();
+        }
+
+        let updates = SceneUpdate {
+            content: Some("<p>打到过期 chapter.id 的正文</p>".to_string()),
+            ..Default::default()
+        };
+        let updated = scene_repo.update(&chapter_id, &updates).unwrap();
+        assert_eq!(updated, 1, "重定向到既有 scene 后 update 应影响 1 行");
+
+        // 正文落在既有 scene 上，且未产生第二行 scene
+        let healed = scene_repo.get_by_id(&scene_id).unwrap().unwrap();
+        assert_eq!(
+            healed.content.as_deref(),
+            Some("<p>打到过期 chapter.id 的正文</p>")
+        );
+        assert_eq!(
+            scene_repo.get_by_story(&story.id).unwrap().len(),
+            1,
+            "不得补建重复 scene"
+        );
+    }
+
+    /// v0.38.x：章节无关联 scene，但 chapter_number 对应的 sequence_number
+    /// 已被其他 scene 占用——heal 应选空闲序号（MAX+1）而不是撞 UNIQUE。
+    #[test]
+    fn test_scene_update_heal_picks_free_sequence_when_taken() {
+        let pool = create_test_pool().unwrap();
+        let story_repo = StoryRepository::new(pool.clone());
+        let scene_repo = SceneRepository::new(pool.clone());
+
+        let story = story_repo
+            .create(CreateStoryRequest {
+                title: "序号冲突测试".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+
+        let chapter_id = uuid::Uuid::new_v4().to_string();
+        let other_scene_id = uuid::Uuid::new_v4().to_string();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO chapters (id, story_id, chapter_number, title, outline, \
+                 word_count, model_used, cost, created_at, updated_at)
+                 VALUES (?1, ?2, 1, '第一章', '', 0, '', 0.0, \
+                 '2026-08-12T00:00:00+08:00', '2026-08-12T00:00:00+08:00')",
+                rusqlite::params![&chapter_id, &story.id],
+            )
+            .unwrap();
+            // 序号 1 被无关联 scene 占用
+            conn.execute(
+                "INSERT INTO scenes (id, story_id, sequence_number, title, \
+                 characters_present, character_conflicts, execution_stage, \
+                 created_at, updated_at)
+                 VALUES (?1, ?2, 1, '既有场景', '[]', '[]', 'drafting', \
+                 '2026-08-12T00:00:00+08:00', '2026-08-12T00:00:00+08:00')",
+                rusqlite::params![&other_scene_id, &story.id],
+            )
+            .unwrap();
+        }
+
+        let updates = SceneUpdate {
+            content: Some("<p>正文</p>".to_string()),
+            ..Default::default()
+        };
+        let updated = scene_repo.update(&chapter_id, &updates).unwrap();
+        assert_eq!(updated, 1);
+
+        let healed = scene_repo
+            .get_by_id(&chapter_id)
+            .unwrap()
+            .expect("scene 应已补建");
+        assert_eq!(healed.sequence_number, 2, "序号被占时应取 MAX+1");
+        assert_eq!(healed.content.as_deref(), Some("<p>正文</p>"));
+        assert_eq!(scene_repo.get_by_story(&story.id).unwrap().len(), 2);
+    }
 }
