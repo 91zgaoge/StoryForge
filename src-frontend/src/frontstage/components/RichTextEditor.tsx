@@ -83,6 +83,11 @@ import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 // import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
 import { AiStreamingText } from '@/components/ui/ai/AiStreamingText';
+import {
+  AiSelectionActions,
+  type AiSelectionActionKey,
+  type AiSelectionPhase,
+} from '@/components/ui/ai/AiSelectionActions';
 
 interface RichTextEditorProps {
   content: string;
@@ -290,6 +295,14 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       to: number;
       text: string;
     } | null>(null);
+
+    // 划词 AI 操作浮条状态（P2 Task5）：phase 由浮条动作驱动，结果经 insertContentAt 替换选区
+    const [selectionAction, setSelectionAction] = useState<{
+      phase: AiSelectionPhase;
+      resultText?: string;
+    }>({ phase: 'idle' });
+    // thinking 开始后锁定选区范围，用户后续改动选区不影响替换目标
+    const selectionActionRangeRef = useRef<{ from: number; to: number } | null>(null);
 
     // ===== 编辑器内 Slash 指令输入框 =====
     const [showSlashInput, setShowSlashInput] = useState(false);
@@ -951,6 +964,60 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setSlashInputText('');
     }, []);
 
+    // ===== 划词 AI 操作浮条（P2 Task5）=====
+    // 与 inline suggestion（L857-907）同一 smartExecute agent 入口；
+    // 结果不走幽灵管线（光标追加语义不符），由用户「保留」时 insertContentAt 直接替换选区。
+    const handleSelectionRun = useCallback(
+      async (action: AiSelectionActionKey, customInstruction?: string) => {
+        if (!editor || !selectedRange) return;
+        const PRESET_INSTRUCTIONS: Record<Exclude<AiSelectionActionKey, 'custom'>, string> = {
+          polish: '润色这段文字，保持原意与篇幅',
+          expand: '扩写这段文字，丰富细节与画面感',
+          rewrite: '改写这段文字，换一种表达方式',
+        };
+        const instruction =
+          action === 'custom' ? customInstruction?.trim() || '' : PRESET_INSTRUCTIONS[action];
+        if (!instruction) return;
+        selectionActionRangeRef.current = { from: selectedRange.from, to: selectedRange.to };
+        setSelectionAction({ phase: 'thinking' });
+        try {
+          const result = await smartExecute({
+            user_input: instruction,
+            current_content: editor.getHTML() || '',
+            selected_text: selectedRange.text,
+          });
+          const text = (result.final_content || '').replace(/<[^>]*>/g, '').trim();
+          if (text) {
+            setSelectionAction({ phase: 'result', resultText: text });
+          } else {
+            setSelectionAction({ phase: 'idle' });
+            onShowStatus?.('未获得改写结果');
+          }
+        } catch (err) {
+          rtEditorLogger.error('Selection action failed', { error: err });
+          onShowStatus?.(`划词改写失败：${extractMessage(err)}`);
+          setSelectionAction({ phase: 'idle' });
+        }
+      },
+      [editor, selectedRange, onShowStatus]
+    );
+
+    const handleSelectionAccept = useCallback(() => {
+      const range = selectionActionRangeRef.current;
+      const text = selectionAction.resultText;
+      if (editor && range && text) {
+        editor.commands.insertContentAt({ from: range.from, to: range.to }, text);
+        onShowStatus?.('已替换为改写内容');
+      }
+      selectionActionRangeRef.current = null;
+      setSelectionAction({ phase: 'idle' });
+    }, [editor, selectionAction.resultText, onShowStatus]);
+
+    const handleSelectionDiscard = useCallback(() => {
+      selectionActionRangeRef.current = null;
+      setSelectionAction({ phase: 'idle' });
+    }, []);
+
     // 关闭 slash 输入框并插入 /
     const handleSlashInsertSlash = useCallback(() => {
       setShowSlashInput(false);
@@ -1404,6 +1471,20 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
             </div>
           )}
         </div>
+
+        {/* 划词 AI 操作浮条（P2 Task5）：生成中/幽灵文本显示中/禅模式不出现，
+            避免与 ghost 树（L1369-1389）和萤火提示抢占视觉焦点 */}
+        {selectedRange && !generatedText && !isGenerating && !isZenMode && (
+          <AiSelectionActions
+            containerRef={containerRef}
+            selectedText={selectedRange.text}
+            phase={selectionAction.phase}
+            resultText={selectionAction.resultText}
+            onRun={handleSelectionRun}
+            onAccept={handleSelectionAccept}
+            onDiscard={handleSelectionDiscard}
+          />
+        )}
 
         {/* 编辑器右键菜单 */}
         <EditorContextMenu

@@ -87,6 +87,12 @@ vi.mock('lucide-react', () => ({
   Sparkles: () => null,
   X: () => null,
   Check: () => null,
+  // P2 Task5: AiSelectionActions 引入的图标（RichTextEditor 传递依赖）
+  Type: () => null,
+  Scissors: () => null,
+  ArrowUp: () => null,
+  ChevronRight: () => null,
+  RefreshCw: () => null,
 }));
 
 // 必须在 mock 之后动态导入被测组件，确保 mock 生效

@@ -77,6 +77,10 @@
   --ai-green: oklch(50% 0.18 145);
   --ai-red: oklch(50% 0.18 25);
   --ai-orange: #f59e0b;
+  /* P2 Task5：幕前浮动层阴影。shadow-float 工具（tailwind.config.js L71）的变量此前仅
+     幕后 tokens.css 定义，幕前解析为空导致 P1 AiPromptBar 弹出层无阴影；补齐后
+     AiSelectionActions 浮条/结果面板与 P1 幕前组件同步获得预期阴影（属修复）。 */
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 /* ===== Global Reset ===== */
