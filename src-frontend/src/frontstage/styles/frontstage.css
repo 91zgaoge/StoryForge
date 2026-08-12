@@ -59,6 +59,24 @@
   --fs-ink-color: var(--ink);
   --fs-accent-color: var(--terracotta);
   --text-on-accent: oklch(100% 0 0);
+
+  /* ===== AI 原生组件语义令牌（P1）——幕前值；幕后同名变量在 tokens.css ===== */
+  --ai-surface: var(--ivory);
+  --ai-inset: var(--warm-sand);
+  --ai-field: var(--border-cream);
+  --ai-hover: var(--parchment-dark);
+  --ai-hover-2: var(--warm-sand);
+  --ai-ink: var(--charcoal);
+  --ai-ink-2: var(--olive-gray);
+  --ai-ink-3: var(--stone-gray);
+  --ai-line: var(--border-cream);
+  --ai-line-strong: var(--stone-gray);
+  --ai-accent: var(--terracotta);
+  --ai-accent-ink: var(--terracotta-dark);
+  --ai-accent-tint: oklch(58% 0.13 45 / 0.12);
+  --ai-green: oklch(50% 0.18 145);
+  --ai-red: oklch(50% 0.18 25);
+  --ai-orange: #f59e0b;
 }
 
 /* ===== Global Reset ===== */
@@ -3524,4 +3542,19 @@ body.force-hide-ghost .ghost-paragraph {
 .model-tooltip-fallback .model-tooltip-value {
   color: oklch(60% 0.22 25);
   font-weight: 600;
+}
+
+/* ===== AI 组件动画冻结（P1，与 tokens.css 幕后同款） ===== */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pixel-on,
+  .animate-shimmer-text,
+  .animate-ai-fade-up,
+  .animate-pop-in,
+  .animate-stream-in,
+  .animate-ai-spin,
+  .animate-eq-bounce,
+  .animate-ai-sweep,
+  .animate-ai-blink {
+    animation: none !important;
+  }
 }
