@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
+import { AiRecommendationCard } from '@/components/ui/ai/AiRecommendationCard';
 import {
   useTasks,
   useCreateTask,
@@ -347,54 +348,35 @@ function CascadeRewriteDetail({ task }: { task: Task }) {
 
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {result.segments.map((segment, idx) => (
-          <div key={idx} className="p-2 bg-cinema-900 rounded border border-cinema-700">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-gray-500">
-                场景 {segment.scene_id.slice(0, 8)}... · 段落 {segment.paragraph_index + 1}
-              </span>
-              <span
-                className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded',
-                  segment.user_decision === 'pending' && 'bg-yellow-500/20 text-yellow-400',
-                  segment.user_decision === 'accepted' && 'bg-green-500/20 text-green-400',
-                  segment.user_decision === 'rejected' && 'bg-gray-500/20 text-gray-400'
-                )}
-              >
-                {segment.user_decision === 'pending' && '待确认'}
-                {segment.user_decision === 'accepted' && '已接受'}
-                {segment.user_decision === 'rejected' && '已拒绝'}
-              </span>
-            </div>
-            <p className="text-[10px] text-cinema-gold mb-1">{segment.change_reason}</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-1.5 bg-red-500/10 rounded">
-                <p className="text-[10px] text-red-400 mb-0.5">原文</p>
-                <p className="text-[11px] text-gray-400 line-through">{segment.original_text}</p>
-              </div>
-              <div className="p-1.5 bg-green-500/10 rounded">
-                <p className="text-[10px] text-green-400 mb-0.5">改写</p>
-                <p className="text-[11px] text-gray-300">{segment.rewritten_text}</p>
-              </div>
-            </div>
-            {segment.user_decision === 'pending' && (
-              <div className="flex gap-2 mt-1.5">
-                <button
-                  onClick={() => handleAccept(idx)}
-                  disabled={applyMutation.isPending}
-                  className="px-2 py-0.5 text-[10px] bg-green-500/20 text-green-400 rounded hover:bg-green-500/30 transition-colors disabled:opacity-50"
-                >
-                  接受
-                </button>
-                <button
-                  onClick={() => handleReject(idx)}
-                  disabled={rejectMutation.isPending}
-                  className="px-2 py-0.5 text-[10px] bg-gray-500/20 text-gray-400 rounded hover:bg-gray-500/30 transition-colors disabled:opacity-50"
-                >
-                  拒绝
-                </button>
-              </div>
-            )}
-          </div>
+          <AiRecommendationCard
+            key={idx}
+            title={`场景 ${segment.scene_id.slice(0, 8)}… · 段落 ${segment.paragraph_index + 1}：${segment.change_reason}`}
+            status={segment.user_decision}
+            options={[
+              {
+                key: String(idx),
+                short: segment.change_reason,
+                signal: 0,
+                label: 'AI 改写建议',
+                body: (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-[8px] bg-ai-red/10 p-1.5">
+                      <p className="mb-0.5 text-[10px] text-ai-red">原文</p>
+                      <p className="text-[11px] text-ai-ink-3 line-through">
+                        {segment.original_text}
+                      </p>
+                    </div>
+                    <div className="rounded-[8px] bg-ai-green/10 p-1.5">
+                      <p className="mb-0.5 text-[10px] text-ai-green">改写</p>
+                      <p className="text-[11px] text-ai-ink">{segment.rewritten_text}</p>
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
+            onAccept={() => handleAccept(idx)}
+            onReject={() => handleReject(idx)}
+          />
         ))}
       </div>
     </div>
