@@ -6,7 +6,7 @@
  * allowCustom 时提供「自定义回答…」输入；提交后显示绿色对勾「已提交」。
  * answers 以 question.key -> option.key[] 上报（自定义回答以文本为数组元素）。
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 export interface AiApprovalOption {
@@ -40,6 +40,14 @@ export function AiApprovalCard({
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [sent, setSent] = useState(false);
+  // 480ms 自动前进/提交定时器：卸载或再次点击前取消，防止卸载后提交与双击重复提交
+  const autoTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (autoTimerRef.current !== null) window.clearTimeout(autoTimerRef.current);
+    },
+    []
+  );
   const question = questions[qi];
   const last = qi === questions.length - 1;
   const selected = answers[question.key] ?? [];
@@ -59,17 +67,29 @@ export function AiApprovalCard({
   };
 
   const submit = (finalAnswers?: Record<string, string[]>) => {
+    if (sent) return; // 防重复提交（480ms 自动提交与手动点击竞争）
     setSent(true);
     onSubmit(finalAnswers ?? buildAnswers());
   };
 
+  /* 手动翻题：取消待触发的自动前进/提交，避免与手动导航竞争 */
+  const gotoQuestion = (next: number | ((c: number) => number)) => {
+    if (autoTimerRef.current !== null) {
+      window.clearTimeout(autoTimerRef.current);
+      autoTimerRef.current = null;
+    }
+    setQi(next);
+  };
+
   const toggle = (optionKey: string) => {
     if (question.type === 'radio') {
+      if (autoTimerRef.current !== null) return; // 已有待触发的自动前进/提交——忽略连击
       const next = { ...answers, [question.key]: [optionKey] };
       setAnswers(next);
       setCustom(c => ({ ...c, [question.key]: '' }));
       // 单选自动前进；最后一题自动提交（extra 透传避免读到旧 state）
-      window.setTimeout(() => {
+      autoTimerRef.current = window.setTimeout(() => {
+        autoTimerRef.current = null;
         if (last) submit(buildAnswers({ [question.key]: [optionKey] }));
         else setQi(c => Math.min(questions.length - 1, c + 1));
       }, 480);
@@ -187,7 +207,7 @@ export function AiApprovalCard({
             type="button"
             aria-label="上一题"
             disabled={qi === 0 || sent}
-            onClick={() => setQi(c => Math.max(0, c - 1))}
+            onClick={() => gotoQuestion(c => Math.max(0, c - 1))}
             className="flex size-6 items-center justify-center rounded-[5px] text-ai-ink-3 transition-colors duration-100 enabled:hover:bg-ai-hover enabled:hover:text-ai-ink-2 disabled:opacity-35"
           >
             <ChevronLeft className="size-3.5" />
@@ -200,7 +220,7 @@ export function AiApprovalCard({
                 aria-label={`第 ${i + 1} 题`}
                 aria-current={i === qi && !sent ? 'step' : undefined}
                 disabled={sent}
-                onClick={() => setQi(i)}
+                onClick={() => gotoQuestion(i)}
                 className="rounded-full transition-all duration-300 disabled:cursor-default"
                 style={
                   i === qi && !sent
@@ -216,7 +236,7 @@ export function AiApprovalCard({
             type="button"
             aria-label="下一题"
             disabled={last || sent}
-            onClick={() => setQi(c => Math.min(questions.length - 1, c + 1))}
+            onClick={() => gotoQuestion(c => Math.min(questions.length - 1, c + 1))}
             className="flex size-6 items-center justify-center rounded-[5px] text-ai-ink-3 transition-colors duration-100 enabled:hover:bg-ai-hover enabled:hover:text-ai-ink-2 disabled:opacity-35"
           >
             <ChevronRight className="size-3.5" />
@@ -227,7 +247,7 @@ export function AiApprovalCard({
             type="button"
             aria-label={last ? submitLabel : '继续'}
             disabled={!hasAnswer}
-            onClick={() => (last ? submit() : setQi(c => c + 1))}
+            onClick={() => (last ? submit() : gotoQuestion(c => c + 1))}
             className="-mr-0.5 flex size-7 items-center justify-center rounded-[8px] transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.96] disabled:cursor-not-allowed"
             style={{
               background: hasAnswer ? 'var(--ai-ink)' : 'var(--ai-field)',
