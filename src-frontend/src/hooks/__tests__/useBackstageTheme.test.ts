@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
+import { listen } from '@tauri-apps/api/event';
 import { useBackstageTheme } from '../useBackstageTheme';
 import { BACKSTAGE_THEME_VARS, backstageThemes } from '@/styles/backstageThemes';
 import { COLOR_THEME_STORAGE_KEY } from '@/frontstage/config/colorThemes';
@@ -35,5 +36,28 @@ describe('useBackstageTheme', () => {
       new StorageEvent('storage', { key: COLOR_THEME_STORAGE_KEY, newValue: 'indigo' })
     );
     expect(readVars()).toEqual(BACKSTAGE_THEME_VARS.map(k => backstageThemes.indigo.vars[k]));
+  });
+
+  it('Tauri color-theme-changed 事件触发主题切换', async () => {
+    renderHook(() => useBackstageTheme());
+    // 等 listen() promise 注册完成，取出注册的事件回调
+    await act(async () => {});
+    const callback = vi.mocked(listen).mock.calls[0]?.[1] as
+      | ((e: { payload: string }) => void)
+      | undefined;
+    expect(callback).toBeTypeOf('function');
+    act(() => callback!({ payload: 'amber' }));
+    expect(readVars()).toEqual(BACKSTAGE_THEME_VARS.map(k => backstageThemes.amber.vars[k]));
+  });
+
+  it('卸载后再触发 storage 不再改主题（cleanup 生效）', () => {
+    const { unmount } = renderHook(() => useBackstageTheme());
+    unmount();
+    for (const k of BACKSTAGE_THEME_VARS) document.documentElement.style.removeProperty(k);
+    localStorage.setItem(COLOR_THEME_STORAGE_KEY, 'cool');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: COLOR_THEME_STORAGE_KEY, newValue: 'cool' })
+    );
+    expect(readVars()).toEqual(BACKSTAGE_THEME_VARS.map(() => ''));
   });
 });

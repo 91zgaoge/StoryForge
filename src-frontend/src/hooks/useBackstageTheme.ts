@@ -12,7 +12,7 @@ import {
 } from '@/frontstage/config/colorThemes';
 import { applyBackstageTheme } from '@/styles/backstageThemes';
 
-export function useBackstageTheme() {
+export function useBackstageTheme(): void {
   useEffect(() => {
     applyBackstageTheme(loadColorTheme());
 
@@ -23,18 +23,23 @@ export function useBackstageTheme() {
     };
     window.addEventListener('storage', handleStorage);
 
+    // cancelled 标志防止 cleanup 先于 listen() promise resolve 时监听器泄漏
+    // （StrictMode 双挂载场景：首次挂载的 cleanup 跑完后 promise 才 resolve）
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     void listen<ColorThemeId>('color-theme-changed', event => {
       applyBackstageTheme(event.payload);
     })
       .then(fn => {
-        unlisten = fn;
+        if (cancelled) fn();
+        else unlisten = fn;
       })
       .catch(() => {
         /* non-Tauri / test env */
       });
 
     return () => {
+      cancelled = true;
       window.removeEventListener('storage', handleStorage);
       unlisten?.();
     };
