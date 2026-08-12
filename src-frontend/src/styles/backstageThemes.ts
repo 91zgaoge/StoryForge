@@ -123,7 +123,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
 };
 
 /** 将幕后主题应用到 documentElement；未知 id 回退 warm */
-export function applyBackstageTheme(themeId: ColorThemeId) {
+export function applyBackstageTheme(themeId: ColorThemeId): void {
   const theme = backstageThemes[themeId] ?? backstageThemes.warm;
   const root = document.documentElement;
   for (const key of BACKSTAGE_THEME_VARS) {
