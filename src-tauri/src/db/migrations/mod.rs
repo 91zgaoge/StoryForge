@@ -904,6 +904,7 @@ pub mod V118__unify_foreshadowing_thread;
 pub mod V120__guidebooks_custom_methodologies;
 pub mod V121__repair_duplicate_chapter_titles;
 pub mod V127__split_overlong_chapters;
+pub mod V128__merge_lone_closing_punct_paragraphs;
 
 /// Returns all Rust-coded migrations (versions 28-103, 115-117) ordered by
 /// version.
@@ -987,5 +988,6 @@ pub fn all_rust_migrations() -> Vec<Box<dyn RustMigration>> {
         Box::new(V120__guidebooks_custom_methodologies::Migration),
         Box::new(V121__repair_duplicate_chapter_titles::Migration),
         Box::new(V127__split_overlong_chapters::Migration),
+        Box::new(V128__merge_lone_closing_punct_paragraphs::Migration),
     ]
 }
