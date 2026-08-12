@@ -4,6 +4,10 @@ import { getMockTauriInitScript } from './mock-tauri';
 /**
  * Backstage 各页面加载测试
  * 验证每个页面能正确渲染且无控制台报错
+ *
+ * 导航结构（v0.38.x）：
+ * - 仪表盘/设置视图渲染 StudioNavRail（<nav>，按钮带 aria-label）
+ * - 其余视图渲染 Sidebar（<aside>，内含分组导航按钮）
  */
 test.describe('Backstage 页面加载测试', () => {
   test.beforeEach(async ({ page }) => {
@@ -20,8 +24,10 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('main')).toBeVisible();
+    // 仪表盘渲染 StudioNavRail（nav）而非 Sidebar（aside）
+    await expect(page.locator('nav')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('main').first()).toBeVisible();
+    await expect(page.locator('aside')).toHaveCount(0);
 
     // 仪表盘应正常渲染
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
@@ -37,10 +43,11 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 点击故事导航
-    await page.locator('nav').locator('text=故事').first().click();
-    await page.waitForTimeout(1000);
+    // 通过导航轨点击故事导航
+    await page.locator('nav').getByRole('button', { name: '故事', exact: true }).click();
 
+    // 非仪表盘/设置视图渲染 Sidebar（aside）
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('h1')).toContainText('故事库');
 
     // 断言至少有一个故事卡片或空状态提示
@@ -60,12 +67,13 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 点击角色导航
-    await page.locator('nav').locator('text=角色').first().click();
-    await page.waitForTimeout(1000);
+    // 通过导航轨点击角色导航
+    await page.locator('nav').getByRole('button', { name: '角色', exact: true }).click();
+
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
 
     // 角色页面在故事已选择时显示角色管理
-    await expect(page.locator('main')).toContainText('角色管理');
+    await expect(page.locator('main').first()).toContainText('角色管理');
 
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
@@ -80,9 +88,10 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 点击场景导航
-    await page.locator('nav').locator('text=场景').first().click();
-    await page.waitForTimeout(1200);
+    // 通过导航轨点击场景导航
+    await page.locator('nav').getByRole('button', { name: '场景', exact: true }).click();
+
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
 
     // 场景页面在故事已选择时显示场景管理界面
     await expect(page.locator('body')).toContainText('选择一个场景');
@@ -100,24 +109,27 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 点击设置导航
-    await page.locator('nav').locator('text=设置').first().click();
-    await page.waitForTimeout(1000);
+    // 通过导航轨点击设置导航
+    await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
 
-    await expect(page.locator('h1')).toContainText('工作室配置');
+    // 设置视图同样渲染 StudioNavRail（nav），无 Sidebar（aside）
+    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+    await expect(page.locator('aside')).toHaveCount(0);
+
+    const settingsTabs = page.getByTestId('settings-tabs');
 
     // 断言标签页按钮存在（v0.26.40 八 Tab：模型 | Agent | 写作 | 提示词 | 扩展 | 外观 | 关于 | 账号）
-    await expect(page.locator('text=模型').first()).toBeVisible();
-    await expect(page.locator('text=Agent').first()).toBeVisible();
-    await expect(page.locator('text=写作').first()).toBeVisible();
-    await expect(page.locator('text=提示词').first()).toBeVisible();
-    await expect(page.locator('text=扩展').first()).toBeVisible();
-    await expect(page.locator('text=外观').first()).toBeVisible();
-    await expect(page.locator('text=关于').first()).toBeVisible();
-    await expect(page.locator('text=账号').first()).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '模型', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: 'Agent', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '写作', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '提示词', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '扩展', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '外观', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '关于', exact: true })).toBeVisible();
+    await expect(settingsTabs.getByRole('button', { name: '账号', exact: true })).toBeVisible();
 
     // 默认选中模型标签
-    await expect(page.locator('main')).toContainText('模型管理');
+    await expect(page.locator('main').first()).toContainText('模型管理');
 
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
@@ -126,19 +138,19 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 进入设置页面
-    await page.locator('nav').locator('text=设置').first().click();
-    await page.waitForTimeout(1000);
+    // 通过导航轨进入设置页面
+    await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
+
+    const settingsTabs = page.getByTestId('settings-tabs');
 
     // 切换到外观（包含编辑器通用设置）
-    await page.locator('text=外观').first().click();
-    await page.waitForTimeout(500);
-    await expect(page.locator('main')).toContainText('外观');
+    await settingsTabs.getByRole('button', { name: '外观', exact: true }).click();
+    await expect(page.locator('main').first()).toContainText('外观');
 
     // 切换到账号
-    await page.locator('text=账号').first().click();
-    await page.waitForTimeout(500);
-    await expect(page.locator('main')).toContainText('账号');
+    await settingsTabs.getByRole('button', { name: '账号', exact: true }).click();
+    await expect(page.locator('main').first()).toContainText('账号');
   });
 
   test('世界构建页面加载无报错', async ({ page }) => {
@@ -151,11 +163,14 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 点击世界构建导航
-    await page.locator('nav').locator('text=世界构建').first().click();
-    await page.waitForTimeout(1000);
+    // 导航轨没有世界构建入口，先进入故事视图显示 Sidebar
+    await page.locator('nav').getByRole('button', { name: '故事', exact: true }).click();
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
 
-    await expect(page.locator('main')).toBeVisible();
+    // 通过 Sidebar 点击世界构建导航
+    await page.locator('aside').getByRole('button', { name: '世界构建' }).click();
+
+    await expect(page.locator('main').first()).toBeVisible();
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
 
@@ -169,11 +184,11 @@ test.describe('Backstage 页面加载测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    // 点击知识图谱导航
-    await page.locator('nav').locator('text=知识图谱').first().click();
-    await page.waitForTimeout(1000);
+    // 通过导航轨点击知识图谱导航
+    await page.locator('nav').getByRole('button', { name: '知识图谱', exact: true }).click();
 
-    await expect(page.locator('main')).toBeVisible();
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('main').first()).toBeVisible();
     expect(consoleErrors.filter(e => !e.includes('enablePersistence'))).toHaveLength(0);
   });
 });

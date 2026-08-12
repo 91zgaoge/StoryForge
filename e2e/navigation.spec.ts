@@ -14,10 +14,10 @@ test.describe('导航与路由测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    await page.locator('nav').locator('text=故事').first().click();
-    await page.waitForTimeout(1000);
+    await page.locator('nav').getByRole('button', { name: '故事', exact: true }).click();
 
-    await expect(page.locator('main')).toContainText('故事库');
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('main').first()).toContainText('故事库');
     await expect(page.locator('h1')).toContainText('故事库');
   });
 
@@ -25,19 +25,19 @@ test.describe('导航与路由测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    await page.locator('nav').locator('text=角色').first().click();
-    await page.waitForTimeout(1000);
+    await page.locator('nav').getByRole('button', { name: '角色', exact: true }).click();
 
-    await expect(page.locator('main')).toContainText('角色管理');
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('main').first()).toContainText('角色管理');
   });
 
   test('幕后通过导航栏跳转到场景页面', async ({ page }) => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    await page.locator('nav').locator('text=场景').first().click();
-    await page.waitForTimeout(1200);
+    await page.locator('nav').getByRole('button', { name: '场景', exact: true }).click();
 
+    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('body')).toContainText('选择一个场景');
   });
 
@@ -45,10 +45,9 @@ test.describe('导航与路由测试', () => {
     await page.addInitScript(getMockTauriInitScript());
     await page.goto('/index.html');
 
-    await page.locator('nav').locator('text=设置').first().click();
-    await page.waitForTimeout(1000);
+    await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
 
-    await expect(page.locator('main')).toContainText('工作室配置');
+    await expect(page.locator('main').first()).toContainText('工作室配置', { timeout: 10000 });
     await expect(page.locator('h1')).toContainText('工作室配置');
   });
 

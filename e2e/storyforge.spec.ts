@@ -55,18 +55,18 @@ test.describe('StoryMoss 应用测试', () => {
       await page.addInitScript(getMockTauriInitScript());
       await page.goto('/index.html');
 
-      // 断言侧边栏存在
-      const sidebar = page.locator('aside');
-      await expect(sidebar).toBeVisible({ timeout: 10000 });
+      // 仪表盘渲染 StudioNavRail（nav），Sidebar（aside）仅在非仪表盘/设置视图出现
+      const navRail = page.locator('nav');
+      await expect(navRail).toBeVisible({ timeout: 10000 });
 
-      // 断言导航项存在
-      await expect(page.locator('nav')).toContainText('故事');
-      await expect(page.locator('nav')).toContainText('角色');
-      await expect(page.locator('nav')).toContainText('场景');
-      await expect(page.locator('nav')).toContainText('设置');
+      // 断言导航项存在（导航轨按钮带 aria-label）
+      await expect(navRail.getByRole('button', { name: '故事', exact: true })).toBeVisible();
+      await expect(navRail.getByRole('button', { name: '角色', exact: true })).toBeVisible();
+      await expect(navRail.getByRole('button', { name: '场景', exact: true })).toBeVisible();
+      await expect(navRail.getByRole('button', { name: '设置', exact: true })).toBeVisible();
 
-      // 断言“开幕前写作”按钮存在
-      await expect(page.locator('text=开幕前写作')).toBeVisible();
+      // 断言“开幕前写作”启动器按钮存在
+      await expect(page.getByRole('button', { name: '开幕前', exact: true })).toBeVisible();
     });
 
     test('幕后仪表盘截图回归测试', async ({ page }) => {
@@ -79,19 +79,18 @@ test.describe('StoryMoss 应用测试', () => {
         fullPage: true,
       });
 
-      await expect(page.locator('aside')).toBeVisible();
+      await expect(page.locator('nav')).toBeVisible();
     });
 
     test('设置页面加载并显示标签页', async ({ page }) => {
       await page.addInitScript(getMockTauriInitScript());
       await page.goto('/index.html');
 
-      // 点击设置导航
-      await page.locator('nav').locator('text=设置').first().click();
-      await page.waitForTimeout(800);
+      // 点击设置导航（导航轨按钮带 aria-label）
+      await page.locator('nav').getByRole('button', { name: '设置', exact: true }).click();
 
       // 断言页面标题
-      await expect(page.locator('h1')).toContainText('工作室配置');
+      await expect(page.locator('h1')).toContainText('工作室配置', { timeout: 10000 });
 
       // 断言设置标签页存在（v0.26.40 八 Tab，使用 first 避免 strict mode 冲突）
       await expect(page.locator('text=模型').first()).toBeVisible();
@@ -114,12 +113,16 @@ test.describe('StoryMoss 应用测试', () => {
       ];
 
       for (const route of routes) {
-        // 点击导航
-        await page.locator('nav').locator(`text=${route.navText}`).first().click();
+        // 点击导航：仪表盘/设置视图在 StudioNavRail（aria-label 精确匹配），
+        // 其余视图在 Sidebar（按钮名含影响徽章，如 "故事 热"，用前缀正则避免误配 "故事资产" 组标题）
+        await page
+          .locator('nav')
+          .getByRole('button', { name: new RegExp(`^${route.navText}(\\s|$)`) })
+          .click();
         await page.waitForTimeout(800);
 
-        // 断言页面内容变化
-        await expect(page.locator('main')).toContainText(route.headingText);
+        // 断言页面内容变化（设置视图存在嵌套 main，取外层）
+        await expect(page.locator('main').first()).toContainText(route.headingText);
       }
     });
   });

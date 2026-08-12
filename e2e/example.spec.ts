@@ -27,6 +27,7 @@ test.describe('StoryMoss 基本冒烟测试', () => {
     await page.goto('/index.html');
 
     await expect(page.locator('body')).toBeVisible();
-    await expect(page.locator('aside')).toBeVisible({ timeout: 10000 });
+    // 仪表盘渲染 StudioNavRail（nav），Sidebar（aside）仅在非仪表盘/设置视图出现
+    await expect(page.locator('nav')).toBeVisible({ timeout: 10000 });
   });
 });
