@@ -1314,11 +1314,13 @@ body {
    Tailwind 工具类，由本段 CSS 作为唯一样式来源。 */
 .frontstage-input-ghost {
   position: absolute;
-  top: 3px;
-  left: 0;
+  /* v0.38.x P1：对齐 AiPromptBar 内文本框位置——composer p-1.5(6px) +
+     border(1px) + textarea py-[5px]/px-1(4px)，字号行高与 textarea 一致 */
+  top: 12px;
+  left: 11px;
   font-family: var(--font-serif);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 18px;
   color: var(--stone-gray);
   opacity: 0.5;
   pointer-events: none;

@@ -319,6 +319,8 @@ export function AiPromptBar({
                 return;
               }
               if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+                // IME 组合输入中 Enter 是上屏键，不得劫持为菜单选中（中文输入法）
+                if (e.nativeEvent.isComposing) return;
                 e.preventDefault();
                 pick(rows[active]);
                 return;
