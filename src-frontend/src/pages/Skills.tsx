@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { extractMessage } from '@/utils/errorHandler';
 import {
   getSkills,
@@ -274,18 +275,12 @@ export function Skills() {
       )}
 
       {/* Categories */}
-      <div className="flex flex-wrap gap-2">
-        {categories.map(cat => (
-          <Button
-            key={cat.id}
-            variant={selectedCategory === cat.id ? 'primary' : 'secondary'}
-            size="sm"
-            onClick={() => setSelectedCategory(cat.id)}
-          >
-            {cat.label}
-          </Button>
-        ))}
-      </div>
+      <AiToolChips
+        ariaLabel="技能分类筛选"
+        activeKey={selectedCategory}
+        onSelect={key => setSelectedCategory(key as SkillCategory | 'all')}
+        items={categories.map(cat => ({ key: cat.id, label: cat.label }))}
+      />
 
       {/* Skills Grid */}
       {loading ? (

@@ -17,6 +17,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import {
   useTasks,
   useCreateTask,
@@ -658,25 +659,19 @@ export function Tasks() {
       )}
 
       {/* Filter tabs */}
-      <div className="flex gap-1 mb-4">
-        {(['all', 'running', 'pending', 'completed', 'failed'] as StatusFilter[]).map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-              filter === f
-                ? 'bg-cinema-gold/20 text-cinema-gold'
-                : 'text-gray-500 hover:text-gray-300 hover:bg-cinema-800/50'
-            )}
-          >
-            {f === 'all' && '全部'}
-            {f === 'running' && '执行中'}
-            {f === 'pending' && '等待中'}
-            {f === 'completed' && '已完成'}
-            {f === 'failed' && '失败'}
-          </button>
-        ))}
+      <div className="mb-4">
+        <AiToolChips
+          ariaLabel="任务状态筛选"
+          activeKey={filter}
+          onSelect={key => setFilter(key as StatusFilter)}
+          items={[
+            { key: 'all', label: '全部' },
+            { key: 'running', label: '执行中' },
+            { key: 'pending', label: '等待中' },
+            { key: 'completed', label: '已完成' },
+            { key: 'failed', label: '失败' },
+          ]}
+        />
       </div>
 
       {/* Loading */}
