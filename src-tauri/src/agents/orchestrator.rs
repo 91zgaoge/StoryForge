@@ -1986,6 +1986,8 @@ impl AgentOrchestrator {
         let mut content = content;
         if !is_genesis_first_chapter {
             let cleaned = crate::utils::text::TextUtils::trim_self_repetition(&content);
+            // 悬挂闭合标点（LLM 软换行把闭合引号单独成行）源头并回上一行
+            let cleaned = crate::utils::text::TextUtils::merge_hanging_closing_punct(&cleaned);
             let raw_chars = content.chars().count();
             let cleaned_chars = cleaned.chars().count();
             let trim_ratio =
@@ -2060,6 +2062,10 @@ impl AgentOrchestrator {
                                 let retry_cleaned =
                                     crate::utils::text::TextUtils::trim_self_repetition(
                                         &retry_content,
+                                    );
+                                let retry_cleaned =
+                                    crate::utils::text::TextUtils::merge_hanging_closing_punct(
+                                        &retry_cleaned,
                                     );
                                 let retry_raw_chars = retry_content.chars().count();
                                 let retry_cleaned_chars = retry_cleaned.chars().count();

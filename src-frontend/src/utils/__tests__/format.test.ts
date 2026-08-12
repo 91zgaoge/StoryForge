@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { countWords, autoFormatText, formatDate, formatNumber, truncateText } from '../format';
+import {
+  countWords,
+  autoFormatText,
+  formatDate,
+  formatNumber,
+  truncateText,
+  mergeHangingClosingPunct,
+  mergeLoneClosingPunctParagraphs,
+  textToParagraphsHtml,
+} from '../format';
 
 describe('countWords', () => {
   it('should count Chinese characters', () => {
@@ -77,6 +86,128 @@ describe('autoFormatText', () => {
     const result = autoFormatText(input);
     const resultPlain = result.replace(/<[^>]+>/g, '').replace(/\s+/g, '');
     expect(resultPlain).toBe(input.replace(/\s+/g, ''));
+  });
+
+  it('plain-text path: hanging closing quote on its own line is merged back', () => {
+    // LLM 软换行把闭合引号单独成行，分段前必须并回上一行
+    const input =
+      '他缓缓地喊道：「快走吧，别再回头看了。\n」\n\n第二段其实也很长，超过十五个字符没问题。';
+    const result = autoFormatText(input);
+    expect(result).not.toContain('<p>」</p>');
+    expect(result).toContain('」</p>');
+    expect(result).toContain('别再回头看了。」');
+  });
+
+  it('passthrough path: existing <p>"</p> lone closing-punct paragraph is merged', () => {
+    // DB 存量 HTML 中的孤闭合引号段落，在显示层并入上一段
+    const input =
+      '<p>他控制着局面，缓缓说道：「就这样吧。</p><p>”</p><p>第二段有足够长的内容保留在此。</p>';
+    const result = autoFormatText(input);
+    expect(result).not.toContain('<p>”</p>');
+    expect(result).toContain('就这样吧。”</p>');
+    expect(result).toContain('<p>第二段有足够长的内容保留在此。</p>');
+  });
+});
+
+describe('mergeHangingClosingPunct', () => {
+  it('merges a closing quote hanging on its own line back to previous line', () => {
+    expect(mergeHangingClosingPunct('他喊道："快走吧。\n"')).toBe('他喊道："快走吧。"');
+    expect(mergeHangingClosingPunct("……控制'。\n”")).toBe("……控制'。”");
+    expect(mergeHangingClosingPunct('段落结束\n')).toBe('段落结束\n');
+  });
+
+  it('merges across multiple consecutive newlines', () => {
+    expect(mergeHangingClosingPunct('上一行\n\n\n」')).toBe('上一行」');
+  });
+
+  it('merges every closing-direction punct in the set', () => {
+    for (const c of ['"', "'", '’', '”', '」', '』', '）', '】', '》', '〉', ']', '}']) {
+      expect(mergeHangingClosingPunct(`上一行\n${c}`), `closing ${c}`).toBe(`上一行${c}`);
+    }
+  });
+
+  it('does NOT merge opening-direction punct', () => {
+    for (const c of ['「', '『', '（', '【', '《', '〈', '[', '{']) {
+      expect(mergeHangingClosingPunct(`上一行\n${c}对话`), `opening ${c}`).toBe(`上一行\n${c}对话`);
+    }
+  });
+
+  it('does NOT merge when there is no previous line', () => {
+    expect(mergeHangingClosingPunct('\n"开头')).toBe('\n"开头');
+    expect(mergeHangingClosingPunct('\n\n”开头')).toBe('\n\n”开头');
+  });
+
+  it('returns empty input unchanged', () => {
+    expect(mergeHangingClosingPunct('')).toBe('');
+  });
+});
+
+describe('mergeLoneClosingPunctParagraphs', () => {
+  it('merges a paragraph containing only a closing quote into the previous one', () => {
+    expect(mergeLoneClosingPunctParagraphs('<p>他控制着局面。</p><p>”</p>')).toBe(
+      '<p>他控制着局面。”</p>'
+    );
+  });
+
+  it('merges entity-form lone closing punct paragraphs', () => {
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p>&rdquo;</p>')).toBe(
+      '<p>段落。&rdquo;</p>'
+    );
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p>&quot;</p>')).toBe(
+      '<p>段落。&quot;</p>'
+    );
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p>&#x201D;</p>')).toBe(
+      '<p>段落。&#x201D;</p>'
+    );
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p>&#8221;</p>')).toBe(
+      '<p>段落。&#8221;</p>'
+    );
+  });
+
+  it('merges lone punct paragraph with surrounding whitespace inside', () => {
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p> ” </p>')).toBe('<p>段落。 ” </p>');
+  });
+
+  it('merges consecutive lone closing-punct paragraphs', () => {
+    expect(mergeLoneClosingPunctParagraphs('<p>甲。</p><p>”</p><p>’</p>')).toBe('<p>甲。”’</p>');
+  });
+
+  it('does NOT merge when there is no previous paragraph', () => {
+    expect(mergeLoneClosingPunctParagraphs('<p>”</p><p>段落。</p>')).toBe('<p>”</p><p>段落。</p>');
+  });
+
+  it('does NOT merge paragraphs that contain more than closing punct', () => {
+    expect(mergeLoneClosingPunctParagraphs('<p>甲。</p><p>”他说</p>')).toBe(
+      '<p>甲。</p><p>”他说</p>'
+    );
+    // 纯空白段（无闭合标点）不动
+    expect(mergeLoneClosingPunctParagraphs('<p>甲。</p><p> </p>')).toBe('<p>甲。</p><p> </p>');
+  });
+
+  it('returns input without <p> tags unchanged', () => {
+    expect(mergeLoneClosingPunctParagraphs('纯文本\n"无段落')).toBe('纯文本\n"无段落');
+    expect(mergeLoneClosingPunctParagraphs('')).toBe('');
+  });
+});
+
+describe('textToParagraphsHtml', () => {
+  it('wraps each non-empty line in <p> and merges hanging closing punct', () => {
+    expect(textToParagraphsHtml('第一行\n他说："你好。\n"\n第三行')).toBe(
+      '<p>第一行</p><p>他说："你好。"</p><p>第三行</p>'
+    );
+  });
+
+  it('skips empty lines', () => {
+    expect(textToParagraphsHtml('甲\n\n\n乙')).toBe('<p>甲</p><p>乙</p>');
+  });
+
+  it('wraps a single line', () => {
+    expect(textToParagraphsHtml('单行')).toBe('<p>单行</p>');
+  });
+
+  it('returns empty string for empty/blank input', () => {
+    expect(textToParagraphsHtml('')).toBe('');
+    expect(textToParagraphsHtml('\n\n')).toBe('');
   });
 });
 

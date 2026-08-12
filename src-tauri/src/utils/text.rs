@@ -233,6 +233,120 @@ impl TextUtils {
         }
     }
 
+    /// 闭合向标点字符集（与前端 `format.ts` 对齐；开向字符不在其列）。
+    const CLOSING_PUNCT: &[char] = &[
+        '"', '\'', '\u{2019}', '\u{201D}', '」', '』', '）', '】', '》', '〉', ']', '}',
+    ];
+
+    /// 合并「换行后紧跟闭合标点」的悬挂闭合标点回上一行。
+    ///
+    /// 与前端 `format.ts::mergeHangingClosingPunct` 同规则同字符集：
+    /// LLM 生成长对话时软换行，闭合引号（" ' 」 』 等）单独占一行，
+    /// 落库/分段后会产生只含闭合引号的孤段落。只合并闭合向字符
+    /// （" ' ’ ” 」 』 ） 】 》 〉 ] }），开向字符（「 『 （ 【 《 〈 [
+    /// {）不合并。 边界：上一行不存在（文本以换行+闭合标点开头）时不合并。
+    pub fn merge_hanging_closing_punct(text: &str) -> String {
+        if !text.contains('\n') {
+            return text.to_string();
+        }
+        let mut out = String::with_capacity(text.len());
+        let mut pending_newlines = 0usize;
+        for c in text.chars() {
+            if c == '\n' {
+                pending_newlines += 1;
+                continue;
+            }
+            if pending_newlines > 0 {
+                // out 中不会有换行（换行一律缓冲），非空即说明上一行存在
+                let merge = Self::CLOSING_PUNCT.contains(&c) && !out.is_empty();
+                if !merge {
+                    out.push_str(&"\n".repeat(pending_newlines));
+                }
+                pending_newlines = 0;
+            }
+            out.push(c);
+        }
+        out.push_str(&"\n".repeat(pending_newlines));
+        out
+    }
+
+    /// HTML 级：把「整段内容仅为闭合标点+空白」的 `<p>` 并入上一段。
+    ///
+    /// 与前端 `format.ts::mergeLoneClosingPunctParagraphs` 同规则：覆盖段落内是
+    /// 字符或 HTML 实体（&rdquo; &quot; &#x201D; &#8221; 等）与首尾空白；
+    /// 仅当前面存在可并入的段落（</p>）时才合并；无 </p> 的输入原样返回。
+    /// 供 V128 迁移复用。手写扫描，不引入新 crate；仅匹配小写 <p>/</p>。
+    pub fn merge_lone_closing_punct_paragraphs(html: &str) -> String {
+        if !html.contains("</p>") {
+            return html.to_string();
+        }
+        let mut out = String::with_capacity(html.len());
+        let mut rest = html;
+        loop {
+            // out 以 </p> 结尾且 rest 起始（跳过空白）是孤闭合标字段 → 并入上一段。
+            // 回到循环顶部可继续覆盖连续多个孤闭合标字段。
+            let trimmed = rest.trim_start();
+            if out.ends_with("</p>") && trimmed.starts_with("<p>") {
+                if let Some(inner_end) = trimmed[3..].find("</p>") {
+                    let inner = &trimmed[3..3 + inner_end];
+                    if Self::is_lone_closing_punct(inner) {
+                        out.truncate(out.len() - 4);
+                        out.push_str(inner);
+                        out.push_str("</p>");
+                        rest = &trimmed[3 + inner_end + 4..];
+                        continue;
+                    }
+                }
+            }
+            match rest.find("</p>") {
+                Some(idx) => {
+                    out.push_str(&rest[..idx + 4]);
+                    rest = &rest[idx + 4..];
+                }
+                None => {
+                    out.push_str(rest);
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    /// 判断 `<p>` 段内是否仅为闭合标点（字符或 HTML 实体）+
+    /// 空白，且至少一个标点。
+    fn is_lone_closing_punct(inner: &str) -> bool {
+        // 闭合标点的实体形态（含数据里误编码的开向实体 &ldquo;/&lsquo;，
+        // 以及只算空白的 &nbsp;），与前端 format.ts 对齐。
+        const PUNCT_ENTITIES: &[&str] = &[
+            "&rdquo;", "&ldquo;", "&quot;", "&apos;", "&rsquo;", "&lsquo;", "&#x201D;", "&#x201d;",
+            "&#x2019;", "&#8221;", "&#8217;", "&#34;", "&#39;",
+        ];
+        let mut found_punct = false;
+        let mut rest = inner;
+        while !rest.is_empty() {
+            let c = rest.chars().next().unwrap();
+            if c.is_whitespace() {
+                rest = &rest[c.len_utf8()..];
+            } else if Self::CLOSING_PUNCT.contains(&c) {
+                found_punct = true;
+                rest = &rest[c.len_utf8()..];
+            } else if let Some(stripped) = rest.strip_prefix("&nbsp;") {
+                rest = stripped;
+            } else if c == '&' {
+                match PUNCT_ENTITIES.iter().find(|e| rest.starts_with(**e)) {
+                    Some(e) => {
+                        found_punct = true;
+                        rest = &rest[e.len()..];
+                    }
+                    None => return false,
+                }
+            } else {
+                return false;
+            }
+        }
+        found_punct
+    }
+
     /// v0.26.24: 检测并裁剪散布式句子块重复。
     ///
     /// 把文本按句末标点（。！？\n）切成句子序列，归一化后查找在文中出现 ≥2 次
@@ -793,5 +907,111 @@ mod tests {
                 case.id, case.description, case.input, case.expected, actual
             );
         }
+    }
+
+    #[test]
+    fn test_merge_hanging_closing_punct_merges_hanging_quote() {
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("他喊道：\"快走吧。\n\""),
+            "他喊道：\"快走吧。\""
+        );
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("……控制'。\n”"),
+            "……控制'。”"
+        );
+        // 连续多个换行也并回
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("上一行\n\n\n」"),
+            "上一行」"
+        );
+        // 闭合字符集全员
+        for c in [
+            '"', '\'', '\u{2019}', '\u{201D}', '」', '』', '）', '】', '》', '〉', ']', '}',
+        ] {
+            let input = format!("上一行\n{c}");
+            let expected = format!("上一行{c}");
+            assert_eq!(
+                TextUtils::merge_hanging_closing_punct(&input),
+                expected,
+                "closing {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_merge_hanging_closing_punct_opening_not_merged() {
+        for c in ['「', '『', '（', '【', '《', '〈', '[', '{'] {
+            let input = format!("上一行\n{c}对话");
+            assert_eq!(
+                TextUtils::merge_hanging_closing_punct(&input),
+                input,
+                "opening {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_merge_hanging_closing_punct_no_previous_line() {
+        // 上一行不存在（文本以换行+闭合标点开头）时不合并
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("\n\"开头"),
+            "\n\"开头"
+        );
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("\n\n”开头"),
+            "\n\n”开头"
+        );
+        assert_eq!(TextUtils::merge_hanging_closing_punct(""), "");
+        assert_eq!(TextUtils::merge_hanging_closing_punct("无换行"), "无换行");
+    }
+
+    #[test]
+    fn test_merge_lone_closing_punct_paragraphs_basic() {
+        assert_eq!(
+            TextUtils::merge_lone_closing_punct_paragraphs("<p>他控制着局面。</p><p>”</p>"),
+            "<p>他控制着局面。”</p>"
+        );
+        // 连续孤闭合标字段
+        assert_eq!(
+            TextUtils::merge_lone_closing_punct_paragraphs("<p>甲。</p><p>”</p><p>’</p>"),
+            "<p>甲。”’</p>"
+        );
+        // 段内首尾空白
+        assert_eq!(
+            TextUtils::merge_lone_closing_punct_paragraphs("<p>段落。</p><p> ” </p>"),
+            "<p>段落。 ” </p>"
+        );
+    }
+
+    #[test]
+    fn test_merge_lone_closing_punct_paragraphs_entities() {
+        for entity in ["&rdquo;", "&quot;", "&#x201D;", "&#8221;"] {
+            let input = format!("<p>段落。</p><p>{entity}</p>");
+            let expected = format!("<p>段落。{entity}</p>");
+            assert_eq!(
+                TextUtils::merge_lone_closing_punct_paragraphs(&input),
+                expected,
+                "entity {entity}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_merge_lone_closing_punct_paragraphs_no_preceding_paragraph() {
+        let input = "<p>”</p><p>段落。</p>";
+        assert_eq!(TextUtils::merge_lone_closing_punct_paragraphs(input), input);
+    }
+
+    #[test]
+    fn test_merge_lone_closing_punct_paragraphs_non_lone_unchanged() {
+        // 段内不止闭合标点 → 不动
+        let input = "<p>甲。</p><p>”他说</p>";
+        assert_eq!(TextUtils::merge_lone_closing_punct_paragraphs(input), input);
+        // 纯空白段（无标点）→ 不动
+        let input = "<p>甲。</p><p> </p>";
+        assert_eq!(TextUtils::merge_lone_closing_punct_paragraphs(input), input);
+        // 无 <p> → 原样返回
+        let input = "纯文本\n\"无段落";
+        assert_eq!(TextUtils::merge_lone_closing_punct_paragraphs(input), input);
     }
 }

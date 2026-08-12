@@ -25,6 +25,7 @@ import Highlight from '@tiptap/extension-highlight';
 import { Sparkles, X, Check } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { extractMessage } from '@/utils/errorHandler';
+import { textToParagraphsHtml } from '@/utils/format';
 import { useAppStore } from '@/stores/appStore';
 import type { Character } from '@/types/index';
 import { CharacterCardPopup } from './CharacterCardPopup';
@@ -915,7 +916,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setIsAiThinking(true);
       try {
         const formatted = await formatText(text);
-        editor.commands.setContent(`<p>${formatted.replace(/\n/g, '</p><p>')}</p>`);
+        editor.commands.setContent(textToParagraphsHtml(formatted));
         onShowStatus?.('排版完成');
       } catch (error) {
         rtEditorLogger.error('Format text error', { error });
@@ -1148,7 +1149,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           try {
             isExternalSyncRef.current = true;
             const safeText = text || '';
-            editor.commands.setContent(`<p>${safeText.replace(/\n/g, '</p><p>')}</p>`);
+            editor.commands.setContent(textToParagraphsHtml(safeText));
             queueMicrotask(() => {
               isExternalSyncRef.current = false;
             });

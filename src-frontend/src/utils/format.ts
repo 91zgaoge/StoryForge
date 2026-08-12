@@ -28,6 +28,68 @@ export function truncateText(text: string, maxLength: number): string {
   return text.slice(0, maxLength) + '...';
 }
 
+// ==================== 悬挂闭合标点合并 ====================
+
+/**
+ * 纯文本级：删除「换行后紧跟闭合标点」的换行，把闭合标点并回上一行。
+ *
+ * 根因：LLM 生成长对话时软换行，闭合引号（" ' 」 』 等）单独占一行，
+ * 后续按 \n 分段会产生只含闭合引号的孤段落。
+ * 只合并闭合向字符：" ' ’ ” 」 』 ） 】 》 〉 ] }；
+ * 开向字符（「 『 （ 【 《 〈 [ {）不合并。
+ * 边界：上一行不存在（文本以换行+闭合标点开头）时不合并。
+ */
+export function mergeHangingClosingPunct(text: string): string {
+  if (!text) return text;
+  return text.replace(/([^\n])\n+(?=["'’”」』）】》〉\]}])/g, '$1');
+}
+
+/** 闭合标点的 HTML 实体形态（含数据里误编码的开向实体 &ldquo;/&lsquo;） */
+const CLOSING_PUNCT_ENTITY =
+  '&(?:rdquo|ldquo|quot|apos|rsquo|lsquo|#x201[dD]|#x2019|#8221|#8217|#34|#39);';
+const CLOSING_PUNCT_CHAR = '["\'’”」』）】》〉\\]\\}]';
+/** 孤闭合标字段内允许出现的空白 token（&nbsp; 只算空白，不算标点） */
+const LONE_WS = '(?:\\s|&nbsp;)';
+/** 孤闭合标字段内允许出现的 token：闭合标点（字符或实体）或空白 */
+const LONE_TOKEN = `(?:${CLOSING_PUNCT_ENTITY}|${CLOSING_PUNCT_CHAR}|${LONE_WS})`;
+const LONE_PUNCT = `(?:${CLOSING_PUNCT_ENTITY}|${CLOSING_PUNCT_CHAR})`;
+/** 整段内容仅为闭合标点+空白（至少一个标点）的 <p>，且前面存在可并入的段落 */
+const LONE_CLOSING_PARA_RE = new RegExp(
+  `</p>\\s*<p>(${LONE_TOKEN}*${LONE_PUNCT}${LONE_TOKEN}*)</p>`,
+  'g'
+);
+
+/**
+ * HTML 级：把「整段内容仅为闭合标点+空白」的 <p> 并入上一段。
+ * 覆盖段落内是字符或 HTML 实体（&rdquo; &quot; &#x201D; &#8221; 等）与首尾空白；
+ * 只有当前面存在可并入的段落（</p>）时才合并。
+ * 对无 <p> 的输入原样返回。
+ */
+export function mergeLoneClosingPunctParagraphs(html: string): string {
+  if (!html || !html.includes('<p>')) return html;
+  let result = html;
+  // 连续多个孤闭合标字段需要循环到不动点（每次替换会产生新的 </p><p> 边界）
+  for (;;) {
+    const next = result.replace(LONE_CLOSING_PARA_RE, '$1</p>');
+    if (next === result) return result;
+    result = next;
+  }
+}
+
+/**
+ * 纯文本 → 段落 HTML：先合并悬挂闭合标点，再按 \n+ 切行，非空行各包 <p>。
+ * 替换 naive 的 `<p>${text.replace(/\n/g, '</p><p>')}</p>` 写法。
+ */
+export function textToParagraphsHtml(text: string): string {
+  if (!text) return '';
+  const merged = mergeHangingClosingPunct(text);
+  return merged
+    .split(/\n+/)
+    .filter(line => line.trim().length > 0)
+    .map(line => `<p>${line}</p>`)
+    .join('');
+}
+
 // ==================== 中文引号规范化（借鉴 heti _variables.scss）====================
 
 /** 直引号 → 中文弯引号（common 规范：「」『』） */
@@ -76,10 +138,13 @@ export function autoFormatText(input: string): string {
     let text = input.replace(/<br\s*\/?>/gi, '\n');
     text = text.replace(/<[^>]+>/g, '');
     text = normalizeQuotes(text);
-    // 已有段落结构，不需要重新分段，但替换回原有结构
-    return input.replace(/(?!<)[^\u003c]+(?=<)/g, match => {
-      return normalizeQuotes(match);
-    });
+    // 已有段落结构，不需要重新分段，但替换回原有结构；
+    // 顺带修复 DB 存量里的孤闭合标字段（<p>"</p>），并入上一段
+    return mergeLoneClosingPunctParagraphs(
+      input.replace(/(?!<)[^\u003c]+(?=<)/g, match => {
+        return normalizeQuotes(match);
+      })
+    );
   }
 
   // 2. 去除现有的 HTML 标签，提取纯文本
@@ -91,6 +156,9 @@ export function autoFormatText(input: string): string {
 
   // 3. 引号规范化
   text = normalizeQuotes(text);
+
+  // 3.5 悬挂闭合标点（LLM 软换行把闭合引号单独成行）并回上一行，避免产生孤闭合引号段
+  text = mergeHangingClosingPunct(text);
 
   // 4. 按 \n\n 空行拆分（LLM 有时会用空行分段）
   const rawParagraphs = text

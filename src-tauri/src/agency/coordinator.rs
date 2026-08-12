@@ -2366,7 +2366,9 @@ impl AgencyCoordinator {
     }
 
     /// 落库前抗重复清理（对齐 C 链路 orchestrator ②③④三件套）：
-    /// `trim_self_repetition` 去自重复 -> `strip_existing_overlap` 剥离复述已有
+    /// `trim_self_repetition` 去自重复 -> `merge_hanging_closing_punct` 合并
+    /// 悬挂闭合标点（LLM 软换行把闭合引号单独成行）->
+    /// `strip_existing_overlap` 剥离复述已有
     /// 正文（取最新场景全文，无则跳过；函数内部只比对尾部 3000 字）->
     /// `trim_dangling_tail` 裁截断末句。`spawn_blocking` join 失败时回退原文。
     ///
@@ -2381,6 +2383,7 @@ impl AgencyCoordinator {
         tokio::task::spawn_blocking(move || -> String {
             use crate::{db::repositories::SceneRepository, utils::text::TextUtils};
             let mut t = TextUtils::trim_self_repetition(&raw_content);
+            t = TextUtils::merge_hanging_closing_punct(&t);
             if let Ok(scenes) = SceneRepository::new(pool).get_by_story(&sid) {
                 if let Some(existing) = scenes
                     .iter()

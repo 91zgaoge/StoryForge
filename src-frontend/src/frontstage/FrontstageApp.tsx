@@ -20,7 +20,7 @@ import type { WritingIntentClassification } from '@/services/tauri';
 import { extractMessage, parseStructuredError } from '@/utils/errorHandler';
 import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
-import { autoFormatText } from '@/utils/format';
+import { autoFormatText, textToParagraphsHtml } from '@/utils/format';
 import { isTextDuplicate, normalizeForDuplicateCheck } from './utils/isTextDuplicate';
 import { trimSelfRepetition } from './utils/trimSelfRepetition';
 import { sanitizeContinuationOutput, stripInstructionEcho } from '@/utils/textCleanup';
@@ -2791,7 +2791,7 @@ const FrontstageApp: React.FC = () => {
           error: e,
           content_length: chapter.content?.length,
         });
-        formattedContent = `<p>${(chapter.content || '').replace(/\n/g, '</p><p>')}</p>`;
+        formattedContent = textToParagraphsHtml(chapter.content || '');
       }
       if (!skipContent) {
         // v0.26.18 fix (Gap C) + v0.26.19 Phase 4.4:
