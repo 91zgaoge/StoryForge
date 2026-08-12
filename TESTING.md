@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.38.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.38.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.38.1 变更说明
+
+- 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）：`foreshadowing_service.rs` title 截取从字节语义（`&content[..30]`）改字符语义（`chars().take(30)`）；`post_process.rs` 两处 + `intent.rs` 一处同类字节切片改 `floor_char_boundary`。
+- 测试调整：Rust +1（`service_ledger_title_multibyte_no_panic` 回归测试，用报错原文验证 `get_ledger` 不 panic）。
+- 全量基线：`cargo test --lib` 1325 passed / 2 ignored（+1）；`npx vitest run` 421 passed / 3 skipped（无前端变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` 全绿。
 
 ### v0.38.0 变更说明
 

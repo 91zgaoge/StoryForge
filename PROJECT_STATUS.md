@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.38.0 项目完成状态
+# StoryMoss (草苔) v0.38.1 项目完成状态
 
-> 最后更新: 2026-08-12（v0.38.0 代理工作室实时显示修复与三 Agent 完善）
+> 最后更新: 2026-08-12（v0.38.1 修复续写伏笔账本多字节中文切片 panic）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.38.1 - 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）（2026-08-12）
+
+- **问题**：文思活跃模式续写弹 Fatal `[TimeSliced] bundle 加载任务失败: ... "end byte index 30 is not a char boundary; it is inside '指' (bytes 29..32)"`。
+- **根因**：`foreshadowing_service.rs` 构造伏笔账本 title 预览用 `&content[..30]` 按字节切片，中文 content 的 byte 30 落在三字节字符「指」内部 -> Rust UTF-8 panic -> 续写 bundle 加载失败。文思活跃连续续写读伏笔账本，每次必炸。
+- **主修复**：title 截取从字节语义改字符语义（`chars().count() > 30` + `chars().take(30).collect()`）。
+- **同类预防**：`post_process.rs` 两处 `&draft_content[..8000/6000]` + `intent.rs` `&content[..min(200)]` 改 `floor_char_boundary`（保留字节预算，切点回退最近字符边界）。
+- **回归测试**：`service_ledger_title_multibyte_no_panic` 用报错原文验证不 panic。
+- **验证**：`cargo test --lib` 1325 passed / 2 ignored（+1）；`cargo +nightly fmt` ✅。纯 Rust 修复。
 
 ### v0.38.0 - 代理工作室实时显示修复与三 Agent 完善（2026-08-12）
 

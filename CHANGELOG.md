@@ -22,6 +22,16 @@ All notable changes to StoryMoss (草苔) project will be documented in this fil
 
 v0.38.0 标签 CI `frontend-check` 失败（run `31550682166`）。根因：`FrontstageApp.split-auto-switch.test.tsx` 分章自动切换测试用 `toContain('溢出段落')` 作门控，但旧全文 `FULL_TEXT` 本就含此词，切换前即通过，未等待 `selectChapter -> setContent` 完成；紧 runner 上 `waitFor` 默认 1000ms 超时不足（同 commit master 2m2s 通过、标签 1m15s 失败 = flaky）。改为 `chapterId === 'ch-2'` 确定性状态门控 + 内容替换门超时 3000ms。不改 FrontstageApp 源码（分章逻辑正确，问题在测试断言选错门控）。
 
+### 修复（2026-08-12）：续写伏笔账本多字节中文切片 panic（文思活跃模式）
+
+用户报告文思活跃模式续写弹出 Fatal 诊断：`[TimeSliced] bundle 加载任务失败: task ... panicked with message "end byte index 30 is not a char boundary; it is inside '指' (bytes 29..32)"`。根因：`foreshadowing_service.rs` 构造伏笔账本 title 预览时用 `&content[..30]` 按**字节**切片，伏笔 content 含中文时 byte 30 恰落在三字节字符「指」内部 -> Rust UTF-8 安全检查 panic -> 整个续写 bundle 加载失败。文思活跃模式连续续写会读伏笔账本（`load_write_time_bundle -> pending/overdue_foreshadowings`），故每次续写必炸。
+
+- **主修复·`foreshadowing_service.rs`**：title 截取从字节语义改字符语义--`content.chars().count() > 30` 判定 + `content.chars().take(30).collect::<String>()` 截取。伏笔 title 是给用户看的预览，按字符数（30 字）比按字节数（30 byte = 10 个汉字）更合理。
+- **同类预防·`post_process.rs`**：两处 prompt 注入预览 `&draft_content[..8000]` / `&draft_content[..6000]` 改 `floor_char_boundary(8000/6000)`--保留字节预算（控制上下文长度），仅把切点回退到最近的字符边界，不 panic。
+- **同类预防·`intent.rs`**：JSON 解析失败日志 `&content[..content.len().min(200)]` 改 `floor_char_boundary(content.len().min(200))`。
+- **回归测试·`foreshadowing_service.rs`**：新增 `service_ledger_title_multibyte_no_panic`--用报错原文「老王爷遗言'看草料'，指向草料车夹层中的血桉」（22 字符/64 字节，byte 30 在「指」内）验证 `get_ledger` 不 panic 且 title 完整；另测 >30 字符内容按字符截断 + 省略号。
+- **验证**：`cargo test --lib` **1325 passed / 2 ignored**（+1）；`cargo +nightly fmt -- --check` ✅。纯 Rust 修复，前端基线不变。
+
 ## v0.37.0（2026-08-11）
 
 ### 修复：资产回流——后台资产 agent 对已生成正文生效

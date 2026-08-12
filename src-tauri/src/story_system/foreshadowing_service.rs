@@ -952,4 +952,47 @@ mod tests {
         assert_eq!(unresolved.len(), 1);
         assert_eq!(unresolved[0].risk_signals_score, Some(0.75));
     }
+
+    #[test]
+    fn service_ledger_title_multibyte_no_panic() {
+        // 回归：伏笔 content 含多字节中文字符时，get_ledger 构造 title 预览不能 panic。
+        // 旧实现 &content[..30] 按**字节**切片，当 byte 30 落在某个三字节中文字符内部
+        // （如「指」bytes 29..32）时触发 "end byte index 30 is not a char boundary"
+        // panic，直接炸垮续写 bundle 加载（文思活跃模式连续续写会读伏笔账本）。
+        let pool = in_memory_pool();
+        seed_story_and_scenes(&pool, "story-1");
+        let service = ForeshadowingServiceImpl::new(pool);
+
+        // 场景一：content 字节数 > 30 但字符数 < 30。
+        // 「老王爷遗言'看草料'，指向草料车夹层中的血桉」共 22 字符、约 64 字节，
+        // byte 30 恰在「指」（bytes 29..32）内部 -> 旧代码 panic，新代码不截断。
+        let id_short = service
+            .create(
+                "story-1",
+                "老王爷遗言'看草料'，指向草料车夹层中的血桉",
+                Some("s1"),
+                8,
+            )
+            .unwrap();
+        let ledger = service.get_ledger("story-1").unwrap();
+        let item_short = ledger.iter().find(|i| i.id == id_short).unwrap();
+        // 字符数 < 30 -> title 为完整 content（不截断、不 panic）
+        assert_eq!(
+            item_short.title,
+            "老王爷遗言'看草料'，指向草料车夹层中的血桉"
+        );
+
+        // 场景二：content 字符数 > 30（截断分支），验证按字符截取不 panic 且补省略号。
+        let long_content = "这是一段超过三十个字符的伏笔内容用于验证按字符数截取标题预览不会在中文字符中间切断导致panic";
+        let id_long = service
+            .create("story-1", long_content, Some("s2"), 5)
+            .unwrap();
+        let ledger = service.get_ledger("story-1").unwrap();
+        let item_long = ledger.iter().find(|i| i.id == id_long).unwrap();
+        assert!(item_long.title.ends_with("..."));
+        // title 去掉省略号后应为前 30 个字符
+        let prefix = &item_long.title[..item_long.title.len() - 3];
+        assert_eq!(prefix.chars().count(), 30);
+        assert_eq!(prefix, long_content.chars().take(30).collect::<String>());
+    }
 }

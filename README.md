@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.38.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.38.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.38.1 · 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）
+
+文思活跃模式续写弹 Fatal `end byte index 30 is not a char boundary; it is inside '指'`：`foreshadowing_service.rs` 构造伏笔账本 title 预览时 `&content[..30]` 按字节切片，中文 content 的 byte 30 落在三字节字符内部 -> Rust UTF-8 panic -> 续写 bundle 加载失败。改为按字符数截取（`chars().take(30)`）；同类 `post_process.rs` 两处 + `intent.rs` 一处字节切片改 `floor_char_boundary`（保留字节预算，切点回退最近字符边界）。新增回归测试用报错原文验证不 panic。
+
+测试：cargo test 1325 passed / 2 ignored（+1）；纯 Rust 修复。
 
 ### v0.38.0 · 代理工作室实时显示修复与三 Agent 完善
 

@@ -1,8 +1,14 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-12（v0.38.0 代理工作室实时显示修复与三 Agent 完善）
+> 最后更新: 2026-08-12（v0.38.1 修复续写伏笔账本多字节中文切片 panic）
 
 ## ✅ v0.27.x–v0.38.x 已实施完成
+
+### ✨ v0.38.1 - 修复续写伏笔账本多字节中文切片 panic（文思活跃模式） ✅ (2026-08-12)
+
+- [x] 主修复：`foreshadowing_service.rs` title 截取从字节语义（`&content[..30]`）改字符语义（`chars().take(30)`），中文 content 不再 panic
+- [x] 同类预防：`post_process.rs` 两处 `&draft_content[..8000/6000]` + `intent.rs` `&content[..min(200)]` 改 `floor_char_boundary`
+- [x] 回归测试：`service_ledger_title_multibyte_no_panic` 用报错原文验证 `get_ledger` 不 panic
 
 ### ✨ v0.38.0 - 代理工作室实时显示修复与三 Agent 完善 ✅ (2026-08-12)
 

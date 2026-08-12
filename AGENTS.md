@@ -95,7 +95,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1306 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1325 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 421 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -105,6 +105,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.38.1 - 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）
+
+用户报告文思活跃模式续写弹 Fatal：`[TimeSliced] bundle 加载任务失败: ... "end byte index 30 is not a char boundary; it is inside '指' (bytes 29..32)"`。根因：`foreshadowing_service.rs` 构造伏笔账本 title 预览用 `&content[..30]` 按字节切片，中文 content 的 byte 30 落在三字节字符「指」内部 -> Rust UTF-8 panic -> 续写 bundle 加载失败。文思活跃连续续写读伏笔账本（`load_write_time_bundle -> pending/overdue_foreshadowings`），每次必炸。
+
+- **主修复·`foreshadowing_service.rs`**：title 截取从字节语义改字符语义（`chars().count() > 30` + `chars().take(30).collect()`）；伏笔 title 是用户预览，按 30 字符比 30 字节（10 汉字）更合理。
+- **同类预防·`post_process.rs`**：两处 `&draft_content[..8000/6000]` 改 `floor_char_boundary`--保留字节预算（控制上下文长度），切点回退最近字符边界。
+- **同类预防·`intent.rs`**：JSON 解析失败日志 `&content[..min(200)]` 改 `floor_char_boundary`。
+- **回归测试**：`service_ledger_title_multibyte_no_panic`--用报错原文验证 `get_ledger` 不 panic。
+- **验证**：`cargo test --lib` 1325 passed / 2 ignored（+1）；`cargo +nightly fmt` ✅。纯 Rust 修复。
 
 ### v0.38.0 - 代理工作室实时显示修复与三 Agent 完善
 
