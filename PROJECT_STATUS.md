@@ -15,6 +15,12 @@
 
 ## ✅ 最近完成功能
 
+### Unreleased - beautifului AI 原生组件 P2（代理与任务五件套）（2026-08-12）
+
+- **五组件入库** `components/ui/ai/`：AiContextCards（PromptCoverageBar 槽位清单）、AiToolChips（Tasks/Skills 筛选条）、AiRecommendationCard（级联改写逐段确认卡）、AiTaskRows（Tasks 任务行外壳）、AiSelectionActions（幕前划词浮条，smartExecute + insertContentAt 选区替换）。
+- **修复**：frontstage.css 补 `--shadow-float`（P1 幕前组件弹出层阴影变量此前未定义）。
+- **验证**：`npx tsc --noEmit` / `npx vitest run`（523 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动。版本号未动，发版另行进行。
+
 ### Unreleased - beautifului AI 原生组件 P1（生成体验五件套）（2026-08-12）
 
 - **令牌桥**：`--ai-*` 语义令牌 16 个双窗口各自定义（幕后 tokens.css/幕前 frontstage.css），tailwind 注册 ai 色组 + 9 个动画工具，reduced-motion 冻结。

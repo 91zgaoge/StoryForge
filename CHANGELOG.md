@@ -2,6 +2,22 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## Unreleased（P2 AI 原生组件库 · 代理与任务）
+
+### 功能：beautifului AI 原生组件第二批（设计文档 P2 范围）
+
+将 beautifului.dev 的 5 个代理与任务组件适配为受控组件入库 `src-frontend/src/components/ui/ai/`，并逐点接入幕后/幕前落点。沿用 P1 令牌桥（`--ai-*` 双窗口各自定义），不引新依赖（图标 lucide-react，iconoir 10 图标已映射）；纯前端阶段，无后端改动。
+
+- **AiContextCards（Task1）**：检索上下文卡片列表（标题/正文/来源 chip 三层，纯 CSS 错峰入场），替换 PromptCoverageBar 上下文槽位勾叉清单（SLOT_LABELS 10 项数据零改造）；可选接入 AgencyStudio 黑板条目。
+- **AiToolChips（Task2）**：单选筛选 chips 组（提取参考 chip 视觉语法：pop-in 交错入场 + active 实心反白 + radiogroup 语义），替换 Tasks 状态筛选条与 Skills 分类筛选条。
+- **AiRecommendationCard（Task3）**：AI 建议确认卡（信号条 + Alternatives 抽屉 + 接受/拒绝双动作，status 受控），替换级联改写 CascadeRewriteDetail 逐段确认卡，语义 1:1。
+- **AiTaskRows（Task4）**：任务行列表（状态徽章/进度环/pill/trailing 插槽 + 受控展开），替换 Tasks 任务行外壳；展开区原样挂 TaskDetail/CascadeRewriteDetail，操作按钮与 mutations 不变。
+- **AiSelectionActions（Task5）**：划词 AI 操作浮条（润色/扩写/改写 + 自定义指令，selection.getClientRects 定位 + 宽度动画 + mousedown 防选区塌陷），新增挂载 RichTextEditor；结果经既有 smartExecute 通路生成，浮条下面板流式显现，「保留」insertContentAt 替换选区；frontstage.css 补 `--shadow-float`（修复 P1 幕前组件阴影变量缺失）。
+
+### 测试
+
+- src-frontend `npx vitest run`：**523 passed / 3 skipped**（基线 487 + 本批新增 36）。
+
 ## Unreleased（P1 AI 原生组件库 · 生成体验）
 
 ### 功能：beautifului AI 原生组件第一批（设计文档 P1 范围）

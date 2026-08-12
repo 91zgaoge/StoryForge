@@ -22,6 +22,33 @@ export type {
   AiApprovalQuestion,
   AiApprovalOption,
 } from './ui/ai/AiApprovalCard';
+// P2 - AI Native Components（代理与任务）
+export { AiContextCards } from './ui/ai/AiContextCards';
+export { AiToolChips } from './ui/ai/AiToolChips';
+export { AiRecommendationCard } from './ui/ai/AiRecommendationCard';
+export { AiTaskRows } from './ui/ai/AiTaskRows';
+export { AiSelectionActions } from './ui/ai/AiSelectionActions';
+export type {
+  AiContextCardsProps,
+  AiContextCardItem,
+  AiContextCardSource,
+} from './ui/ai/AiContextCards';
+export type { AiToolChipsProps, AiToolChipItem } from './ui/ai/AiToolChips';
+export type {
+  AiRecommendationCardProps,
+  AiRecommendationOption,
+} from './ui/ai/AiRecommendationCard';
+export type {
+  AiTaskRowsProps,
+  AiTaskRowItem,
+  AiTaskRowDetail,
+  AiTaskRowStatus,
+} from './ui/ai/AiTaskRows';
+export type {
+  AiSelectionActionsProps,
+  AiSelectionActionKey,
+  AiSelectionPhase,
+} from './ui/ai/AiSelectionActions';
 export { DataLoader } from './DataLoader';
 export { MonacoEditor as Editor } from './Editor';
 export { EditorSettings } from './EditorSettings';
