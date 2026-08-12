@@ -8,6 +8,9 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export interface AiThinkingRow {
+  /** 稳定 key（可选）：数据源的稳定标识。不传时回退 `primary-index`，
+   *  滚动窗口（如 slice(-N)）场景必须传，否则索引移位导致全部行重放动画。 */
+  id?: string;
   primary: string;
   secondary?: string;
   mono?: boolean;
@@ -168,10 +171,11 @@ export function AiThinking({
                 // 交错入场：index 封顶 8 档，避免长列表尾部行延迟过大
                 const style = { animationDelay: `${Math.min(i, 8) * 80}ms` };
 
+                const rowKey = row.id ?? `${row.primary}-${i}`;
                 if (row.href) {
                   return (
                     <a
-                      key={`${row.primary}-${i}`}
+                      key={rowKey}
                       href={row.href}
                       target="_blank"
                       rel="noreferrer"
@@ -183,7 +187,7 @@ export function AiThinking({
                   );
                 }
                 return (
-                  <div key={`${row.primary}-${i}`} className={rowClass} style={style}>
+                  <div key={rowKey} className={rowClass} style={style}>
                     {content}
                   </div>
                 );

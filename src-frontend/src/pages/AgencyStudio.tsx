@@ -362,6 +362,7 @@ export default function AgencyStudio() {
               doneTitle="执行轨迹（已结束）"
               working={run?.status === 'running'}
               rows={runActivities.slice(-12).map(a => ({
+                id: `${a.role}|${a.action}|${a.detail}|${a.at}`,
                 primary: `${roleName(a.role)} ${a.action}`,
                 secondary: a.detail || undefined,
               }))}
