@@ -2,6 +2,23 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## Unreleased（P1 AI 原生组件库 · 生成体验）
+
+### 功能：beautifului AI 原生组件第一批（设计文档 P1 范围）
+
+将 beautifului.dev 的 5 个生成体验组件适配为受控组件入库 `src-frontend/src/components/ui/ai/`，并逐点接入幕后/幕前落点。全部组件只引用 `--ai-*` 语义令牌（幕后 tokens.css / 幕前 frontstage.css 双窗口各自定义，同一组件代码两侧正确着色），不引新依赖（图标 lucide-react，动画手写 CSS keyframes）。
+
+- **令牌桥（Task1）**：新增 16 个 `--ai-*` 变量（surface/inset/field/hover/hover-2/ink×3/line×2/accent×3/green/red/orange），幕后取 cinema/status 系、幕前取 ivory/terracotta/oklch 徽章色系；tailwind.config.js 注册 `ai-*` 色组与 9 个 keyframes/动画工具（pixel-on/shimmer-text/ai-fade-up/pop-in/stream-in/ai-spin/eq-bounce/ai-sweep/ai-blink）；两窗口 CSS 均加 prefers-reduced-motion 动画冻结。
+- **AiLoading（Task2）**：像素格点加载器（drive/dots/orbit + shimmer 标签 + startedAt 起算的 mono 计时），替换 GenesisPanel 当前步 spinner、GuidebookDistillationPanel 状态图标与进度块文案、NovelCreationWizard renderGenerating。
+- **AiThinking（Task3）**：数据驱动的可展开执行轨迹（grid 0fr/1fr、行交错 fade-up、生长竖线、working 末行 spinner），接入 AgencyStudio 时间线顶部「当前执行轨迹」（runActivities 最近 12 条，稳定 key 防滚动窗口全量重放），原时间线保留为历史。
+- **AiStreamingText（Task4）**：中文词级分词（Intl.Segmenter，逐字回退）的流式渲染，新单位 stream-in 模糊入场 + 闪烁光标，包裹幕前幽灵续写段落；删除死代码 frontstage `StreamingText.tsx` + `useStreamingGeneration.ts`。
+- **AiPromptBar（Task5）**：受控指令输入条（自动增高、/ 命令菜单滑动高亮 + 键盘导航 + IME 守卫、可选模型选择器 + ai-sweep CSS 扫光），替换 FrontstageBottomBar 主输入区；命令集 = RichTextEditor slash 真实命令（自动续写/审校/AI修稿/AI审稿/定稿）；@ 数据源与模型选择器 P1 不接（P2）。
+- **AiApprovalCard（Task6）**：一题一页审批卡（ring-dot 分页、radio 480ms 自动前进、自定义回答、已提交态、定时器清理与防重复提交），替换创建向导策略确认/世界观/角色谱/文风四个选项步骤，既有 handler 不变。
+
+### 测试
+
+- src-frontend `npx vitest run`：**487 passed / 3 skipped**（基线 455 + 本批新增 32）。
+
 ## v0.38.2（2026-08-12）
 
 ### 修复：代理工作室实时动态持久化 + 前端轮询

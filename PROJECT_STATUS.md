@@ -15,6 +15,13 @@
 
 ## ✅ 最近完成功能
 
+### Unreleased - beautifului AI 原生组件 P1（生成体验五件套）（2026-08-12）
+
+- **令牌桥**：`--ai-*` 语义令牌 16 个双窗口各自定义（幕后 tokens.css/幕前 frontstage.css），tailwind 注册 ai 色组 + 9 个动画工具，reduced-motion 冻结。
+- **五组件入库** `components/ui/ai/`：AiLoading（幕后 3 处加载指示）、AiThinking（AgencyStudio 当前执行轨迹）、AiStreamingText（幕前幽灵续写，中文词级分词）、AiPromptBar（幕前底部指令条 + / 命令菜单）、AiApprovalCard（创建向导四选项步骤）。
+- **清理**：删除幕前死代码 `StreamingText.tsx` + `useStreamingGeneration.ts`。
+- **验证**：`npx tsc --noEmit` / `npx vitest run`（487 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿。版本号未动，发版另行进行。
+
 ### v0.38.2 - 幕后工作台深色调主题 + 代理工作室实时动态持久化（2026-08-12）
 
 - **幕后主题底座（beautifului AI 原生改造 P0）**：4 套深色调主题（暖金/冷青/琥珀/靛紫）与幕前色调同 id 同 localStorage key 双向同步；`backstageThemes.ts` 16 变量运行时重写 + `useBackstageTheme` 全局接线（storage/Tauri 双通道）+ 设置页双预览色点选择器；warm 与现状色值逐一核对零视觉回归；删除 `useWritingStyle` 死代码。
