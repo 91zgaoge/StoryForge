@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.38.0
+- **版本**: v0.38.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -95,16 +95,26 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1325 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1326 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 421 passed / 3 skipped
+- `npx vitest run` ✅ 455 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 539（零新增）
+- `cargo clippy --lib` ✅ 545（零新增；+6 来自既有 V127 chapter_splitter 层违例）
 - `npm run format:check` ✅
-- `python3 scripts/architecture_guard.py` ✅
+- `python3 scripts/architecture_guard.py` ⚠️ V127 chapter_splitter 层违例（既有，非本版引入）
 
 ## 最近完成的功能
+
+### v0.38.2 - 代理工作室实时动态持久化 + 前端轮询
+
+v0.38.0 将 agency 事件监听提升到常驻 `App.tsx` 顶层 + 全局 `agencyActivityStore`，接线正确但用户仍看不到实时动态。根因：活动事件（`agency-agent-activity` / `agency-run-progress`）纯内存（Zustand store 无 persist），macOS 隐藏 WKWebView 窗口事件送达不可靠，事件丢失即永久丢失。本版将活动事件持久化到 DB + 前端 3s 轮询，使实时显示不再依赖 Tauri 事件到达隐藏窗口。
+
+- **DB 持久化**：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 后 `tokio::task::spawn_blocking` fire-and-forget 写 DB（不阻塞创世流程，失败仅 `log::warn!` 不致命）；测试环境（`app_handle=None`）不进入此块。
+- **后端命令**：新增 `agency_list_activities` Tauri 命令（`run_id` -> 按 `id ASC` 返回 `Vec<AgencyActivityLogEntry>`，limit 200）。
+- **前端轮询**：`AgencyStudio.tsx` 新增 `useQuery(['agency-activities', activeRunId], listActivities, { refetchInterval: 3000 })`，DB 活动事件为主源，live store 事件补充轮询间隔内新事件（按业务键 `role|action|detail` / `phase|status|message` 去重）。
+- **live 事件监听保留**：`App.tsx` 事件监听 + `agencyActivityStore` 不变，提供轮询间隔内的即时更新（双保险）。
+- **验证**：`cargo test --lib` 1326 passed / 2 ignored（+1：`test_log_and_list_activities`）；`npx vitest run` 455 passed / 3 skipped（无前端测试变更）；`cargo +nightly fmt` / `tsc` / `format:check` 全绿。
 
 ### v0.38.1 - 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）
 

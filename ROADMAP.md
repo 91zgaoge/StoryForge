@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-12（v0.38.1 修复续写伏笔账本多字节中文切片 panic）
+> 最后更新: 2026-08-12（v0.38.2 代理工作室实时动态持久化 + 前端轮询）
 
 ## ✅ v0.27.x–v0.38.x 已实施完成
+
+### ✨ v0.38.2 - 代理工作室实时动态持久化 + 前端轮询 ✅ (2026-08-12)
+
+- [x] DB 持久化：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 后 fire-and-forget 写 DB（`spawn_blocking`，不阻塞创世，失败仅 warn）
+- [x] 后端命令：新增 `agency_list_activities`（`run_id` -> 按 `id ASC` 返回活动日志，limit 200）
+- [x] 前端轮询：`AgencyStudio.tsx` 新增 3s 轮询 `useQuery`，DB 活动事件为主源，live store 事件补充轮询间隔内新事件（按业务键去重）
+- [x] live 事件监听保留：`App.tsx` 事件监听 + `agencyActivityStore` 不变，提供轮询间隔内的即时更新（双保险）
+- [x] 验证：`cargo test --lib` 1326 passed / 2 ignored（+1）；`npx vitest run` 455 passed / 3 skipped（无前端测试变更）
 
 ### ✨ v0.38.1 - 修复续写伏笔账本多字节中文切片 panic（文思活跃模式） ✅ (2026-08-12)
 

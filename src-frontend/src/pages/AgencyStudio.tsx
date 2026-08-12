@@ -1,8 +1,13 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
-import { AGENCY_ROLES, useAgencyActivityStore } from '@/stores/agencyActivityStore';
-import { getRun, listBoard, listRuns } from '@/services/api/agency';
+import {
+  AGENCY_ROLES,
+  useAgencyActivityStore,
+  type AgentActivityEvent,
+  type AgentProgressEvent,
+} from '@/stores/agencyActivityStore';
+import { getRun, listActivities, listBoard, listRuns } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
 
 /** 角色事件流中的 role 值（AgentRole::as_str）-> 显示名 */
@@ -116,15 +121,61 @@ export default function AgencyStudio() {
   });
   const run = runQuery.data;
 
+  // DB 活动日志轮询（3s）：不依赖 Tauri 事件到达隐藏窗口。
+  // live store 事件仍保留，补充轮询间隔内的即时更新。
+  const activitiesQuery = useQuery({
+    queryKey: ['agency-activities', activeRunId],
+    queryFn: () => listActivities(activeRunId!),
+    enabled: !!activeRunId,
+    refetchInterval: 3_000,
+  });
+  const dbLogs = activitiesQuery.data ?? [];
+
   if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
 
   // 查询失败时给出可见错误（此前 react-query 静默重试后失败，卡片恒为 "-"，
   // 用户无法区分"无数据"与"出错"）。
-  const queryError = runsQuery.error ?? boardQuery.error ?? runQuery.error;
+  const queryError = runsQuery.error ?? boardQuery.error ?? runQuery.error ?? activitiesQuery.error;
 
-  // 仅看当前 run 的实时事件（store 全局缓存多 run 事件流，需按 activeRunId 过滤）
-  const runActivities = activeRunId ? activities.filter(a => a.run_id === activeRunId) : [];
-  const runProgress = activeRunId ? progress.filter(p => p.run_id === activeRunId) : [];
+  // DB 活动事件转为 store 兼容格式
+  const dbActivities: AgentActivityEvent[] = dbLogs
+    .filter(a => a.event_type === 'activity')
+    .map(a => ({
+      run_id: a.run_id,
+      role: a.role ?? '',
+      action: a.action ?? '',
+      detail: a.detail ?? '',
+      at: new Date(a.created_at).getTime(),
+    }));
+  const dbProgress: AgentProgressEvent[] = dbLogs
+    .filter(a => a.event_type === 'progress')
+    .map(a => ({
+      run_id: a.run_id,
+      phase: a.phase ?? '',
+      status: a.status ?? '',
+      message: a.message ?? '',
+      at: new Date(a.created_at).getTime(),
+    }));
+
+  // 合并去重：DB 事件为主，live store 事件补充轮询间隔内的新事件
+  // （按业务键 role|action|detail / phase|status|message 去重，与时间线逻辑一致）
+  const seenActKeys = new Set(dbActivities.map(a => `${a.role}|${a.action}|${a.detail}`));
+  const liveActExtra = activeRunId
+    ? activities.filter(a => {
+        if (a.run_id !== activeRunId) return false;
+        return !seenActKeys.has(`${a.role}|${a.action}|${a.detail}`);
+      })
+    : [];
+  const runActivities = [...dbActivities, ...liveActExtra];
+
+  const seenProgKeys = new Set(dbProgress.map(p => `${p.phase}|${p.status}|${p.message}`));
+  const liveProgExtra = activeRunId
+    ? progress.filter(p => {
+        if (p.run_id !== activeRunId) return false;
+        return !seenProgKeys.has(`${p.phase}|${p.status}|${p.message}`);
+      })
+    : [];
+  const runProgress = [...dbProgress, ...liveProgExtra];
 
   const latestProgress = runProgress.length > 0 ? runProgress[runProgress.length - 1] : null;
   const runStatus = latestProgress

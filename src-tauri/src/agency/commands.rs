@@ -4,7 +4,7 @@ use crate::{
     agency::{
         board::BlackboardService,
         coordinator::{cancel_agency_run, AgencyCheckpoint, AgencyCoordinator},
-        models::{AgencyRun, BoardItem},
+        models::{AgencyActivityLogEntry, AgencyRun, BoardItem},
         repository::AgencyRepository,
     },
     db::DbPool,
@@ -683,6 +683,22 @@ pub async fn agency_learning_overview(
     })
     .await
     .map_err(|e| AppError::from(format!("learning overview join error: {}", e)))?
+}
+
+/// 列出某 run 的全部活动日志（activity + progress），供前端轮询拉取。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn agency_list_activities(
+    run_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<Vec<AgencyActivityLogEntry>, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        AgencyRepository::new(pool)
+            .list_activities(&run_id, 200)
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|e| AppError::from(format!("agency_list_activities join error: {}", e)))?
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.38.1 项目完成状态
+# StoryMoss (草苔) v0.38.2 项目完成状态
 
-> 最后更新: 2026-08-12（v0.38.1 修复续写伏笔账本多字节中文切片 panic）
+> 最后更新: 2026-08-12（v0.38.2 代理工作室实时动态持久化 + 前端轮询）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.38.2 - 代理工作室实时动态持久化 + 前端轮询（2026-08-12）
+
+- **问题**：v0.38.0 将 agency 事件监听提升到常驻顶层 + 全局 store，但用户仍看不到实时动态。根因：活动事件纯内存（Zustand 无 persist），macOS 隐藏 WKWebView 窗口事件送达不可靠，事件丢失即永久丢失。
+- **DB 持久化**：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 后 fire-and-forget 写 DB（`spawn_blocking`，不阻塞创世，失败仅 warn）。
+- **后端命令**：新增 `agency_list_activities`（`run_id` -> 按 `id ASC` 返回活动日志，limit 200）。
+- **前端轮询**：`AgencyStudio.tsx` 新增 3s 轮询 `useQuery(['agency-activities', runId], listActivities)`；DB 活动事件为主源，live store 事件补充轮询间隔内新事件（按业务键去重）。
+- **验证**：`cargo test --lib` 1326 passed / 2 ignored（+1）；`npx vitest run` 455 passed / 3 skipped（无前端测试变更）。
 
 ### v0.38.1 - 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）（2026-08-12）
 

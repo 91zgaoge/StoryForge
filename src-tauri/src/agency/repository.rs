@@ -434,6 +434,73 @@ impl AgencyRepository {
         )
         .optional()
     }
+
+    // ── 活动日志（agency_activity_log）──────────────────────────
+
+    /// 持久化一条 activity 事件（agency-agent-activity）。
+    pub fn log_activity(
+        &self,
+        run_id: &str,
+        role: &str,
+        action: &str,
+        detail: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "INSERT INTO agency_activity_log (run_id, event_type, role, action, detail)
+             VALUES (?1, 'activity', ?2, ?3, ?4)",
+            params![run_id, role, action, detail],
+        )?;
+        Ok(())
+    }
+
+    /// 持久化一条 progress 事件（agency-run-progress）。
+    pub fn log_progress(
+        &self,
+        run_id: &str,
+        phase: &str,
+        status: &str,
+        message: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "INSERT INTO agency_activity_log (run_id, event_type, phase, status, message)
+             VALUES (?1, 'progress', ?2, ?3, ?4)",
+            params![run_id, phase, status, message],
+        )?;
+        Ok(())
+    }
+
+    /// 列出某 run 的全部活动日志（activity + progress），按 id ASC（时序）。
+    pub fn list_activities(
+        &self,
+        run_id: &str,
+        limit: i32,
+    ) -> Result<Vec<AgencyActivityLogEntry>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, event_type, role, action, detail, phase, status, message, created_at
+             FROM agency_activity_log
+             WHERE run_id = ?1
+             ORDER BY id ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![run_id, limit], |row| {
+            Ok(AgencyActivityLogEntry {
+                id: row.get(0)?,
+                run_id: row.get(1)?,
+                event_type: row.get(2)?,
+                role: row.get(3)?,
+                action: row.get(4)?,
+                detail: row.get(5)?,
+                phase: row.get(6)?,
+                status: row.get(7)?,
+                message: row.get(8)?,
+                created_at: row.get(9)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+    }
 }
 
 fn map_session(
@@ -845,5 +912,65 @@ mod tests {
             repo.get_run("u2").unwrap().unwrap().story_id.as_deref(),
             Some("s1")
         );
+    }
+
+    #[test]
+    fn test_log_and_list_activities() {
+        let (repo, _) = repo();
+        repo.create_run(&sample_run()).unwrap();
+
+        // 3 activity 事件
+        repo.log_activity("run-1", "producer", "start", "概念")
+            .unwrap();
+        repo.log_activity("run-1", "lead_writer", "start", "首章")
+            .unwrap();
+        repo.log_activity("run-1", "producer", "done", "概念")
+            .unwrap();
+        // 2 progress 事件
+        repo.log_progress("run-1", "concept", "running", "正在构思故事概念")
+            .unwrap();
+        repo.log_progress("run-1", "concept", "completed", "概念生成完成")
+            .unwrap();
+
+        let activities = repo.list_activities("run-1", 200).unwrap();
+        assert_eq!(
+            activities.len(),
+            5,
+            "应有 5 条日志（3 activity + 2 progress）"
+        );
+
+        // 验证 id ASC 顺序（时序）
+        assert!(activities[0].id < activities[1].id);
+        assert!(activities[1].id < activities[2].id);
+
+        // 验证 activity 事件字段
+        let first = &activities[0];
+        assert_eq!(first.event_type, "activity");
+        assert_eq!(first.role.as_deref(), Some("producer"));
+        assert_eq!(first.action.as_deref(), Some("start"));
+        assert_eq!(first.detail.as_deref(), Some("概念"));
+        assert!(first.phase.is_none());
+        assert!(first.status.is_none());
+        assert!(first.message.is_none());
+
+        // 验证 progress 事件字段（第 4 条是第一个 progress）
+        let fourth = &activities[3];
+        assert_eq!(fourth.event_type, "progress");
+        assert_eq!(fourth.phase.as_deref(), Some("concept"));
+        assert_eq!(fourth.status.as_deref(), Some("running"));
+        assert_eq!(fourth.message.as_deref(), Some("正在构思故事概念"));
+        assert!(fourth.role.is_none());
+        assert!(fourth.action.is_none());
+        assert!(fourth.detail.is_none());
+
+        // 验证 run_id 过滤
+        repo.create_run(&AgencyRun::new("run-2", "另一个故事"))
+            .unwrap();
+        repo.log_activity("run-2", "lead_writer", "start", "首章")
+            .unwrap();
+        let run1_acts = repo.list_activities("run-1", 200).unwrap();
+        assert_eq!(run1_acts.len(), 5, "run-1 仍应只有 5 条");
+        let run2_acts = repo.list_activities("run-2", 200).unwrap();
+        assert_eq!(run2_acts.len(), 1, "run-2 应有 1 条");
     }
 }

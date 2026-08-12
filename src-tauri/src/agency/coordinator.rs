@@ -1349,6 +1349,20 @@ impl AgencyCoordinator {
                     "detail": detail,
                 }),
             );
+            // 持久化到 DB（best-effort，fire-and-forget）：幕后代理工作室
+            // 3s 轮询拉取，不依赖 Tauri 事件到达隐藏窗口。
+            let pool = self.pool.clone();
+            let run_id_s = run_id.to_string();
+            let role_s = role.as_str().to_string();
+            let action_s = action.to_string();
+            let detail_s = detail.to_string();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = AgencyRepository::new(pool)
+                    .log_activity(&run_id_s, &role_s, &action_s, &detail_s)
+                {
+                    log::warn!("agency: failed to persist activity log: {}", e);
+                }
+            });
         }
     }
 
@@ -4521,6 +4535,19 @@ impl AgencyCoordinator {
                     "message": message,
                 }),
             );
+            // 持久化到 DB（best-effort，fire-and-forget）
+            let pool = self.pool.clone();
+            let run_id_s = run_id.to_string();
+            let phase_s = phase.to_string();
+            let status_s = status.to_string();
+            let message_s = message.to_string();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = AgencyRepository::new(pool)
+                    .log_progress(&run_id_s, &phase_s, &status_s, &message_s)
+                {
+                    log::warn!("agency: failed to persist progress log: {}", e);
+                }
+            });
         }
         // 进度回调（Task 7 smart_execute 用）：(phase, status, message)
         let sink = self

@@ -212,3 +212,26 @@ impl AgencyMessage {
         }
     }
 }
+
+/// 代理活动日志条目：持久化 agency-agent-activity / agency-run-progress 事件。
+/// 幕后代理工作室轮询拉取，不依赖 Tauri 实时事件到达隐藏窗口。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgencyActivityLogEntry {
+    pub id: i64,
+    pub run_id: String,
+    /// 'activity' | 'progress'
+    pub event_type: String,
+    /// activity 事件的角色（lead_writer/producer/editor_auditor）
+    pub role: Option<String>,
+    /// activity 事件的动作（start/done）
+    pub action: Option<String>,
+    /// activity 事件的详情（概念/首章/深度资产/审查/装配）
+    pub detail: Option<String>,
+    /// progress 事件的阶段（concept/assets/writing/review/assembly）
+    pub phase: Option<String>,
+    /// progress 事件的状态（running/completed/failed）
+    pub status: Option<String>,
+    /// progress 事件的描述文案
+    pub message: Option<String>,
+    pub created_at: String,
+}

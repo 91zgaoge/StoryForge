@@ -185,3 +185,21 @@ export function listRuns(storyId: string) {
 export function listBoard(runId: string) {
   return loggedInvoke<BoardItem[]>('agency_list_board', { run_id: runId });
 }
+
+/** 代理活动日志条目（activity + progress 事件持久化到 DB） */
+export interface AgencyActivity {
+  id: number;
+  run_id: string;
+  event_type: 'activity' | 'progress';
+  role: string | null;
+  action: string | null;
+  detail: string | null;
+  phase: string | null;
+  status: string | null;
+  message: string | null;
+  created_at: string;
+}
+
+export function listActivities(runId: string) {
+  return loggedInvoke<AgencyActivity[]>('agency_list_activities', { run_id: runId });
+}

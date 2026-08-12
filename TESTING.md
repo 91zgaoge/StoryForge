@@ -1,14 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.38.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.38.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
 
-### v0.38.1 变更说明
+### v0.38.2 变更说明
 
-- 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）：`foreshadowing_service.rs` title 截取从字节语义（`&content[..30]`）改字符语义（`chars().take(30)`）；`post_process.rs` 两处 + `intent.rs` 一处同类字节切片改 `floor_char_boundary`。
-- 测试调整：Rust +1（`service_ledger_title_multibyte_no_panic` 回归测试，用报错原文验证 `get_ledger` 不 panic）。
-- 全量基线：`cargo test --lib` 1325 passed / 2 ignored（+1）；`npx vitest run` 421 passed / 3 skipped（无前端变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` 全绿。
+- 代理工作室实时动态持久化 + 前端轮询：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` fire-and-forget 写 DB；新增 `agency_list_activities` 命令；前端 3s 轮询 + DB/live 合并去重。
+- 测试调整：Rust +1（`test_log_and_list_activities`：log_activity x3 + log_progress x2 -> list_activities 返回 5 条，验证字段 + id ASC 顺序 + run_id 过滤）。
+- 全量基线：`cargo test --lib` 1326 passed / 2 ignored（+1）；`npx vitest run` 455 passed / 3 skipped（无前端测试变更）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` 全绿。
 
 ### v0.38.0 变更说明
 

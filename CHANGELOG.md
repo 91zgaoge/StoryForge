@@ -2,6 +2,23 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.38.2（2026-08-12）
+
+### 修复：代理工作室实时动态持久化 + 前端轮询
+
+v0.38.0 将 agency 事件监听提升到常驻 `App.tsx` 顶层 + 全局 `agencyActivityStore`，接线正确，但用户仍看不到实时动态。根因：活动事件（`agency-agent-activity` / `agency-run-progress`）是纯内存的--Zustand store 无 persist、无 DB 持久化、无回放机制。Tauri `app.emit()` 虽广播到所有窗口，但 macOS 上隐藏 WKWebView 窗口的事件送达不可靠（隐藏窗口可能节流 JS 事件循环），一旦事件丢失就永久丢失。本版将活动事件持久化到 DB + 前端 3s 轮询拉取，使实时显示不再依赖 Tauri 事件到达隐藏窗口。
+
+- **DB 持久化**：新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 之后 fire-and-forget 写入 DB（`spawn_blocking`，不阻塞创世流程，失败仅 warn 不致命）。
+- **后端命令**：新增 `agency_list_activities` Tauri 命令（`run_id` -> 按 `id ASC` 返回活动日志列表，limit 200）。
+- **前端轮询**：`AgencyStudio.tsx` 新增 `useQuery(['agency-activities', activeRunId], listActivities, { refetchInterval: 3000 })`，3s 轮询从 DB 拉取活动事件。
+- **DB + live 合并去重**：DB 活动事件为主源（保证历史完整性），live store 事件补充轮询间隔内的新事件（按业务键 `role|action|detail` / `phase|status|message` 去重）。
+- **live 事件监听保留**：`App.tsx` 事件监听 + `agencyActivityStore` 不变，提供轮询间隔内的即时更新（双保险）。
+
+### 测试
+
+- src-tauri `cargo test --lib`：**1326 passed / 2 ignored**（+1：`test_log_and_list_activities`）。
+- src-frontend `npx vitest run`：**455 passed / 3 skipped**（无前端测试变更）。
+
 ## v0.38.0（2026-08-12）
 
 ### 修复：代理工作室实时显示与三 Agent 完善
