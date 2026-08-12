@@ -170,7 +170,7 @@ async fn run_chapter_notes(
     );
 
     let content_preview = if draft_content.len() > 8000 {
-        &draft_content[..8000]
+        &draft_content[..draft_content.floor_char_boundary(8000)]
     } else {
         draft_content
     };
@@ -256,7 +256,7 @@ async fn run_character_cards(
         .unwrap_or_default();
 
     let content_preview = if draft_content.len() > 6000 {
-        &draft_content[..6000]
+        &draft_content[..draft_content.floor_char_boundary(6000)]
     } else {
         draft_content
     };

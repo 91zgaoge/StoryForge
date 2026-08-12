@@ -194,8 +194,10 @@ impl ForeshadowingServiceImpl {
                         .unwrap_or_default();
 
                     let ledger_key = ledger_key_opt.unwrap_or_else(|| id.clone());
-                    let title = if content.len() > 30 {
-                        format!("{}...", &content[..30])
+                    // 按字符数（非字节数）截取 title 预览，避免 &content[..30]
+                    // 在中文字符中间切分导致 panic（byte index not a char boundary）。
+                    let title = if content.chars().count() > 30 {
+                        format!("{}...", content.chars().take(30).collect::<String>())
                     } else {
                         content.clone()
                     };

@@ -452,7 +452,7 @@ JSON Schema:
                         None => {
                             log::warn!(
                             "[IntentParser] classify_writing_intent JSON 解析失败，兜底。raw: {}",
-                            &content[..content.len().min(200)]
+                            &content[..content.floor_char_boundary(content.len().min(200))]
                         );
                             (
                                 WritingIntentClassification::conservative_fallback_with_input(
