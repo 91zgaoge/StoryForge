@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.37.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.38.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.38.0 变更说明
+
+- 代理工作室实时显示修复与三 Agent 完善：agency 事件监听提升到常驻 `App.tsx` 顶层 + 新增全局 `agencyActivityStore`（cap 200）；三 Agent start/done 全路径配对；legacy 概念完成信号角色标注修复；后台质检实时推 `agency-board-changed`；幕前动词映射补全；幕后时间线业务键去重；续写熔断不丢稿流程级测试补齐（行为已由 65d90b5/v0.30.30 实现）。
+- 测试调整：Rust +5（coordinator 事件信号配对 + 续写熔断流程级测试）；vitest +17（agencyActivityStore 单测 + AgencyStudio 订阅 store 重构 + 动词映射/时间线去重）。
+- 全量基线：`cargo test --lib` 1306 passed / 2 ignored（+5）；`npx vitest run` 421 passed / 3 skipped（+17）；`npx tsc --noEmit` ✅；`cargo +nightly fmt` 全绿。
 
 ### v0.37.0 变更说明
 

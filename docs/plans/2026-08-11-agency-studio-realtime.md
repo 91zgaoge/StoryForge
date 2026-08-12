@@ -37,6 +37,7 @@ AgentRole 已 glob 导入、emit_activity 为 &self 方法，无需新增导入�
 ## 阶段三（P2）：健壮性
 
 - C-1 续写「熔断不丢稿」（**行为改变，需用户确认**）：handle_gate 两处 salvage_failed_gate 返回 None 时 return Err → 草稿 ≥600 字符改为降级 EditorVerdict 放行装配落库；<600 保留 Err
+  - **终审核实**：行为已由 65d90b5（v0.30.30）落地（≥600 降级放行/<600 丢稿），2745da4 补齐流程级测试，本档无行为变更
 - C-2 DETAIL_VERB 补全（useAgencyAgentActivity.ts）：第N章/第N章草稿/审查第N章/资产补齐/后台审查/资产
 - C-3 timeline 去重 key 改业务键 ${role}|${action}|${detail}|${phase}|${status}
 - C-4 幕前终态清空按 run_id 过滤（可选，**默认跳过**）

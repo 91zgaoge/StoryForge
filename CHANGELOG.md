@@ -2,6 +2,22 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.38.0（2026-08-12）
+
+### 修复：代理工作室实时显示与三 Agent 完善
+
+幕后代理工作室（AgencyStudio）未打开时创世/续写事件丢失、打开后空白等待——事件监听此前挂在条件挂载的页面上，随卸载销毁。本版把监听提升到常驻顶层并新增全局 store 缓存事件流，同时补齐三 Agent 全路径活动信号与前端展示打磨。
+
+- **实时显示修复**：agency 事件监听从条件挂载的 AgencyStudio 提升到常驻 `App.tsx` 顶层；新增全局 `agencyActivityStore`（activities/progress cap 200，对标 backendActivityStore 单例无 persist），页面未开不再丢实时动态，打开即见；跨故事切换时 activeRunId 按 storyId 校正。
+- **三 Agent（主创/管理/编辑审计）事件信号补齐**：概念/资产/首章/资产补齐/装配的 start/done 全路径配对（含 legacy 与快速路径单点覆盖）；修复 legacy 概念完成信号角色标注（LeadWriter→Producer）；后台质检黑板写入现在实时推 `agency-board-changed`。
+- **前端打磨**：幕前文案动词映射补全（概念/装配/资产补齐/资产回流/第N章草稿/审查第N章等）；幕后时间线去重改业务键，同源重复事件不再显示两次。
+- **续写熔断不丢稿（测试补齐）**：经核实行为已由 v0.30.30（65d90b5）实现（草稿 ≥600 字符降级放行装配落库/<600 丢稿），本档补齐流程级测试。
+
+### 测试
+
+- src-tauri `cargo test --lib`：**1306 passed / 2 ignored**（+5）。
+- src-frontend `npx vitest run`：**421 passed / 3 skipped**（+17）。
+
 ## v0.37.0（2026-08-11）
 
 ### 修复：资产回流——后台资产 agent 对已生成正文生效

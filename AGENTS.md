@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.37.0
+- **版本**: v0.38.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -95,9 +95,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1301 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1306 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 404 passed / 3 skipped
+- `npx vitest run` ✅ 421 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 539（零新增）
@@ -105,6 +105,16 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.38.0 - 代理工作室实时显示修复与三 Agent 完善
+
+修复幕后代理工作室（AgencyStudio）未打开时创世/续写事件丢失、打开后空白等待的问题——事件监听此前挂在条件挂载的页面上，随卸载销毁。
+
+- **实时显示修复**：agency 事件监听提升到常驻 `App.tsx` 顶层；新增全局 `src-frontend/src/stores/agencyActivityStore.ts`（activities/progress cap 200，对标 backendActivityStore 单例无 persist），页面未开不再丢实时动态，打开即见；跨故事切换时 activeRunId 按 storyId 校正。
+- **三 Agent（主创/管理/编辑审计）事件信号补齐**（`agency/coordinator.rs`）：概念/资产/首章/资产补齐/装配的 start/done 全路径配对（含 legacy 与快速路径单点覆盖）；修复 legacy 概念完成信号角色标注（LeadWriter→Producer）；后台质检黑板写入实时推 `agency-board-changed`。
+- **前端打磨**：幕前 DETAIL_VERB 补全（概念/装配/资产补齐/资产回流/第N章草稿/审查第N章等）；幕后时间线去重改业务键（role|action|detail|phase|status），同源重复事件不再显示两次。
+- **续写熔断不丢稿（测试补齐）**：行为已由 65d90b5（v0.30.30）实现（草稿 ≥600 字符降级放行/<600 丢稿），本档补齐流程级测试。
+- **验证**：`cargo test --lib` 1306 passed / 2 ignored（+5）；`npx vitest run` 421 passed / 3 skipped（+17）。
 
 ### v0.37.0 - 资产回流：后台资产 agent 对已生成正文生效
 

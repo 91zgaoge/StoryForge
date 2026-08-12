@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.37.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.38.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.38.0 · 代理工作室实时显示修复与三 Agent 完善
+
+修复幕后代理工作室（AgencyStudio）未打开时创世/续写事件丢失、打开后空白等待的问题：事件监听从条件挂载的页面提升到常驻 `App.tsx` 顶层，新增全局 `agencyActivityStore` 缓存事件流（cap 200），页面未开不再丢实时动态，打开即见；跨故事切换时自动校正当前 run。同时补齐三 Agent（主创/管理/编辑审计）活动信号——概念/资产/首章/资产补齐/装配的开始与完成全路径配对，后台质检结论实时出现在看板；修复 legacy 概念完成信号角色标注；幕前文案动词映射补全，幕后时间线同源重复事件不再显示两次。续写熔断不丢稿行为经核实已由 v0.30.30 实现，本版补齐流程级测试。
+
+测试：cargo test 1306 passed / 2 ignored（+5）；vitest 421 passed / 3 skipped（+17）。
 
 ### v0.37.0 · 资产回流：正文生成后资产自动累积
 
