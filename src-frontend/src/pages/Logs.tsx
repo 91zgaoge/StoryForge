@@ -21,6 +21,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
+import { AiFilterChipsBar } from '@/components/ui/ai/AiFilterTable';
 import { toast } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
 
@@ -164,22 +165,21 @@ export function Logs() {
 
           {/* Level Filter (workflow only) */}
           {source === 'workflow' && (
-            <div className="flex rounded-lg border border-cinema-700 overflow-hidden">
-              {(['ALL', 'INFO', 'WARN', 'ERROR'] as LogLevel[]).map(l => (
-                <button
-                  key={l}
-                  onClick={() => setLevel(l)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-mono transition-colors',
-                    level === l
-                      ? 'bg-cinema-gold/20 text-cinema-gold'
-                      : 'text-cinema-400 hover:bg-cinema-800'
-                  )}
-                >
-                  {l}
-                </button>
-              ))}
-            </div>
+            <AiFilterChipsBar
+              ariaLabel="日志级别筛选"
+              activeKey={level}
+              onSelect={key => setLevel(key as LogLevel)}
+              items={(['ALL', 'INFO', 'WARN', 'ERROR'] as LogLevel[]).map(l => ({
+                key: l,
+                label: l,
+                mono: true,
+                count: workflowLogs.data
+                  ? l === 'ALL'
+                    ? workflowLogs.data.length
+                    : workflowLogs.data.filter(e => e.level === l).length
+                  : undefined,
+              }))}
+            />
           )}
 
           {/* Search */}
