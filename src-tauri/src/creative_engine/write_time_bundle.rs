@@ -23,9 +23,9 @@ pub use crate::domain::write_time_bundle::*;
 use crate::{
     creative_engine::asset_snapshot::CreativeAssetSnapshot,
     db::{
-        repositories_narrative::NarrativeSceneRepository, Character, CharacterRepository, DbPool,
-        GenreProfileRepository, SceneRepository, StoryContractRepository, StoryOutlineRepository,
-        StyleDnaRepository,
+        repositories_narrative::NarrativeSceneRepository, Character,
+        CharacterRelationshipRepository, CharacterRepository, DbPool, GenreProfileRepository,
+        SceneRepository, StoryContractRepository, StoryOutlineRepository, StyleDnaRepository,
     },
     domain::narrative_elements::SceneElement,
 };
@@ -96,35 +96,71 @@ impl WriteTimeBundle {
 
         // 3. 角色核心
         let char_repo = CharacterRepository::new(pool.clone());
-        let core_characters: Vec<CoreCharacter> = match char_repo.get_by_story(story_id) {
-            Ok(chars) => {
-                let states = char_repo
-                    .get_character_states_by_story(story_id)
-                    .map_err(|e| {
-                        log::warn!("[WriteTimeBundle] 加载角色状态失败: {}", e);
-                        e
-                    })
-                    .unwrap_or_default();
-                chars
-                    .iter()
-                    .map(|c: &Character| {
-                        let state = states.get(&c.id);
-                        CoreCharacter {
-                            name: c.name.clone(),
-                            identity: c.background.clone(),
-                            physical_state: state.and_then(|s| s.physical_state.clone()),
-                            mental_state: state.and_then(|s| s.mental_state.clone()),
-                            location: state.and_then(|s| s.location.clone()),
-                            personality: c.personality.clone(),
-                        }
-                    })
-                    .collect()
-            }
+        let chars = match char_repo.get_by_story(story_id) {
+            Ok(c) => c,
             Err(e) => {
                 log::warn!("[WriteTimeBundle] 查询角色失败: {}", e);
                 vec![]
             }
         };
+        let states = char_repo
+            .get_character_states_by_story(story_id)
+            .map_err(|e| {
+                log::warn!("[WriteTimeBundle] 加载角色状态失败: {}", e);
+                e
+            })
+            .unwrap_or_default();
+        let core_characters: Vec<CoreCharacter> = chars
+            .iter()
+            .map(|c: &Character| {
+                let state = states.get(&c.id);
+                CoreCharacter {
+                    name: c.name.clone(),
+                    identity: c.background.clone(),
+                    physical_state: state.and_then(|s| s.physical_state.clone()),
+                    mental_state: state.and_then(|s| s.mental_state.clone()),
+                    location: state.and_then(|s| s.location.clone()),
+                    personality: c.personality.clone(),
+                    emotional_core: c.emotional_core.as_ref().filter(|s| !s.is_empty()).cloned(),
+                    emotional_trigger: c
+                        .emotional_trigger
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                        .cloned(),
+                    emotional_wound: c
+                        .emotional_wound
+                        .as_ref()
+                        .filter(|s| !s.is_empty())
+                        .cloned(),
+                    emotional_need: c.emotional_need.as_ref().filter(|s| !s.is_empty()).cloned(),
+                }
+            })
+            .collect();
+
+        let relationship_lines: Vec<String> =
+            match CharacterRelationshipRepository::new(pool.clone()).get_by_story(story_id) {
+                Ok(rels) => rels
+                    .iter()
+                    .map(|r| {
+                        let src_name = chars
+                            .iter()
+                            .find(|c| c.id == r.source_character_id)
+                            .map(|c| c.name.as_str())
+                            .unwrap_or("?");
+                        let tgt_name = r.target_character_name.as_deref().unwrap_or("?");
+                        let bond = r.emotional_bond.as_deref().unwrap_or("未明");
+                        let intensity = r.emotional_intensity.unwrap_or(0.5);
+                        format!(
+                            "{} -> {}：社会关系={} ｜ 情感={}[{:.1}]",
+                            src_name, tgt_name, r.relationship_type, bond, intensity
+                        )
+                    })
+                    .collect(),
+                Err(e) => {
+                    log::warn!("[WriteTimeBundle] 查询角色关系失败: {}", e);
+                    vec![]
+                }
+            };
 
         // 4. 场景大纲
         let scene_repo = SceneRepository::new(pool.clone());
@@ -436,6 +472,7 @@ impl WriteTimeBundle {
         Ok(WriteTimeBundle {
             contract_redlines,
             core_characters,
+            relationship_lines,
             scene_outline,
             story_outline,
             world_setting,
@@ -650,12 +687,31 @@ impl WriteTimeBundle {
                     if let Some(ref p) = c.personality {
                         parts.push(format!("性格：{}", p));
                     }
+                    if let Some(ref v) = c.emotional_core {
+                        parts.push(format!("情感内核：{}", v));
+                    }
+                    if let Some(ref v) = c.emotional_trigger {
+                        parts.push(format!("情感触发：{}", v));
+                    }
+                    if let Some(ref v) = c.emotional_wound {
+                        parts.push(format!("情感创伤：{}", v));
+                    }
+                    if let Some(ref v) = c.emotional_need {
+                        parts.push(format!("情感需求：{}", v));
+                    }
                     format!("- {}", parts.join(" | "))
                 })
                 .collect();
             sections.push(format!(
                 "【登场角色（必须严格遵循其当前状态）】\n{}",
                 char_lines.join("\n")
+            ));
+        }
+
+        if !self.relationship_lines.is_empty() {
+            sections.push(format!(
+                "【角色情感关系（真实情感，可与表面关系不一致）】\n{}\n要求：言行须与情感关系一致。",
+                self.relationship_lines.join("\n")
             ));
         }
 
@@ -1169,6 +1225,7 @@ mod tests {
         let bundle = WriteTimeBundle {
             contract_redlines: None,
             core_characters: vec![],
+            relationship_lines: vec![],
             scene_outline: None,
             story_outline: None,
             world_setting: None,
@@ -1215,6 +1272,7 @@ mod tests {
         let bundle = WriteTimeBundle {
             contract_redlines: None,
             core_characters: vec![],
+            relationship_lines: vec![],
             scene_outline: None,
             story_outline: None,
             world_setting: None,
@@ -1268,7 +1326,12 @@ mod tests {
                 mental_state: None,
                 location: None,
                 personality: None,
+                emotional_core: None,
+                emotional_trigger: None,
+                emotional_wound: None,
+                emotional_need: None,
             }],
+            relationship_lines: vec![],
             scene_outline: None,
             story_outline: None,
             world_setting: None,
@@ -1348,6 +1411,7 @@ mod tests {
         WriteTimeBundle {
             contract_redlines: redlines,
             core_characters: vec![],
+            relationship_lines: vec![],
             scene_outline: None,
             story_outline,
             world_setting: None,
@@ -1418,6 +1482,33 @@ mod tests {
         let bundle = bundle_with_outline(None, None);
         let prompt = bundle.to_prompt();
         assert!(!prompt.contains("本场景必须围绕此大纲展开"));
+    }
+
+    fn empty_bundle() -> WriteTimeBundle {
+        bundle_with_outline(None, None)
+    }
+
+    #[test]
+    fn to_prompt_includes_emotional_fields_and_relationships() {
+        let mut bundle = empty_bundle();
+        bundle.core_characters = vec![CoreCharacter {
+            name: "沈炼".into(),
+            identity: None,
+            physical_state: None,
+            mental_state: None,
+            location: None,
+            personality: Some("隐忍".into()),
+            emotional_core: Some("压抑的悲愤".into()),
+            emotional_trigger: Some("被背叛".into()),
+            emotional_wound: Some("师父之死".into()),
+            emotional_need: Some("讨回公道".into()),
+        }];
+        bundle.relationship_lines = vec!["沈炼 -> 顾长夜：社会关系=同僚 ｜ 情感=仇恨[0.9]".into()];
+        let prompt = bundle.to_prompt();
+        assert!(prompt.contains("情感内核：压抑的悲愤"));
+        assert!(prompt.contains("情感创伤：师父之死"));
+        assert!(prompt.contains("角色情感关系"));
+        assert!(prompt.contains("顾长夜"));
     }
 
     // ---- 设计第一节：续写链路资产贯通，新段落注入 ----

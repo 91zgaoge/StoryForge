@@ -5092,6 +5092,7 @@ mod tests {
         WriteTimeBundle {
             contract_redlines: None,
             core_characters: vec![],
+            relationship_lines: vec![],
             scene_outline: Some(SceneOutline {
                 dramatic_goal: None,
                 conflict_type: None,

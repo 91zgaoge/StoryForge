@@ -28,6 +28,10 @@ mod integration_tests {
             mental_state: None,
             location: None,
             personality: None,
+            emotional_core: None,
+            emotional_trigger: None,
+            emotional_wound: None,
+            emotional_need: None,
         });
         bundle.overdue_foreshadowings.push("测试伏笔".into());
 
@@ -48,6 +52,7 @@ mod integration_tests {
         WriteTimeBundle {
             contract_redlines: None,
             core_characters: vec![],
+            relationship_lines: vec![],
             scene_outline: None,
             story_outline: None,
             world_setting: None,

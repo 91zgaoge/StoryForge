@@ -374,6 +374,7 @@ mod tests {
         WriteTimeBundle {
             contract_redlines: None,
             core_characters: vec![],
+            relationship_lines: vec![],
             scene_outline: None,
             story_outline: None,
             world_setting: None,
@@ -429,6 +430,10 @@ mod tests {
             mental_state: None,
             location: None,
             personality: None,
+            emotional_core: None,
+            emotional_trigger: None,
+            emotional_wound: None,
+            emotional_need: None,
         }];
         bundle.overdue_foreshadowings = vec!["神秘玉佩的来历".into()];
 

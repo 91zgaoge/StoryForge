@@ -15,6 +15,8 @@ pub struct WriteTimeBundle {
     pub contract_redlines: Option<String>,
     /// 当前章节出场角色核心（姓名 + 当前状态）
     pub core_characters: Vec<CoreCharacter>,
+    /// 角色间情感关系行（可与表面社会关系不一致）
+    pub relationship_lines: Vec<String>,
     /// 当前 scene 大纲（dramatic_goal + conflict_type + setting）
     pub scene_outline: Option<SceneOutline>,
     /// v0.30.15: 完整故事大纲（story_outlines.content）--writer
@@ -86,6 +88,10 @@ pub struct CoreCharacter {
     pub mental_state: Option<String>,
     pub location: Option<String>,
     pub personality: Option<String>,
+    pub emotional_core: Option<String>,
+    pub emotional_trigger: Option<String>,
+    pub emotional_wound: Option<String>,
+    pub emotional_need: Option<String>,
 }
 
 #[derive(Debug, Clone)]
