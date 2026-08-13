@@ -6,7 +6,6 @@ import {
   RotateCcw,
   Save,
   Search,
-  X,
   AlertTriangle,
   Download,
   Upload,
@@ -19,6 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { extractMessage } from '@/utils/errorHandler';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
+import { AiSearchList } from '@/components/ui/ai/AiSearchList';
 import toast from 'react-hot-toast';
 
 const VAR_TAG_OPEN = '{' + '{';
@@ -411,10 +411,6 @@ export function PromptsPanel() {
     e.target.value = '';
   };
 
-  const handleClearSearch = useCallback(() => {
-    setSearchQuery('');
-  }, []);
-
   const handleOpenDirectory = async () => {
     try {
       const path = await loggedInvoke<string>('open_prompts_directory');
@@ -610,29 +606,21 @@ export function PromptsPanel() {
       )}
 
       {/* Search and Filter */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-          <input
-            type="text"
-            placeholder="搜索提示词 ID、名称、描述或内容..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-9 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white placeholder-gray-500"
-          />
-          {searchQuery && (
-            <button
-              onClick={handleClearSearch}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+      <div className="flex items-start gap-3 flex-wrap">
+        <AiSearchList
+          className="flex-1 min-w-[200px]"
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="搜索提示词 ID、名称、描述或内容..."
+          ariaLabel="搜索提示词"
+          resultCount={filteredEntries.length}
+          emptyText="未找到匹配的提示词"
+          emptyHint="尝试调整搜索条件或分类筛选"
+        />
         <select
           value={activeCategory}
           onChange={e => setActiveCategory(e.target.value as PromptCategory | 'all')}
-          className="px-3 py-2 bg-cinema-900 border border-cinema-700 rounded text-sm text-white"
+          className="h-10 px-3 bg-cinema-900 border border-cinema-700 rounded text-sm text-white"
         >
           <option value="all">全部分类</option>
           {CATEGORY_ORDER.map(cat => (
@@ -642,12 +630,6 @@ export function PromptsPanel() {
           ))}
         </select>
       </div>
-
-      {searchQuery && (
-        <div className="text-sm text-gray-400">
-          搜索 "{searchQuery}" 找到 {filteredEntries.length} 条结果
-        </div>
-      )}
 
       {/* Prompt Entries */}
       {Object.entries(grouped).map(([category, list]) => {
@@ -776,7 +758,7 @@ export function PromptsPanel() {
         );
       })}
 
-      {filteredEntries.length === 0 && (
+      {filteredEntries.length === 0 && !searchQuery && (
         <div className="text-center py-12 text-gray-500">
           <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <p>未找到匹配的提示词</p>
