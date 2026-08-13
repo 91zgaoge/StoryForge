@@ -29,11 +29,23 @@
 | Modify `src-tauri/src/planner/{mod,executor}.rs` | 续写不再 TimeSliced/beat 链 |
 | Modify `src-frontend/src/services/api/intent.ts` | `smartExecute()` 封装透传 `scene_id`（直接 invoke 点在此，不在 FrontstageApp） |
 | Modify `src-frontend/src/frontstage/FrontstageApp.tsx` | 两处 `smartExecute({...})` 调用点（约 :3513/:4505）传当前 `sceneId` |
+| Modify `src-frontend/src/frontstage/components/RichTextEditor.tsx` | 划词改写/内联建议：传 `selected_text`，禁止走 Agency Append |
+| Modify `src-tauri/src/agency/eval_harness.rs` | `run_continue` 新签名 |
 | Modify `src-frontend/src/pages/settings/GeneralSettings.tsx` | 去掉续写 generation_mode 语义 |
 | Modify `src-frontend/src/pages/settings/UnifiedModelManager.tsx` | `plan_mode`（约 :493）标注已废弃或隐藏 |
 | Test `src-tauri/src/agency/tests.rs` 与各模块 `#[cfg(test)]` | 契约测试 |
 
 改写/审稿的 planner Full/Fast **不动**。
+
+**漏网入口（实施时必改，否则续写/改写会串路）：**
+
+| 文件 | 原因 |
+|---|---|
+| `src-frontend/src/frontstage/components/RichTextEditor.tsx` :893 / :1003 | 另两处 `smartExecute`：内联建议（:893）/ 划词改写（:1003），均传 `selected_text`，**禁止**走 Agency Append |
+| `src-tauri/src/agency/eval_harness.rs` :256 | `run_continue(&run_id, &story_id, chapter)` 旧三参，Task 2 必须改 |
+| `src-tauri/src/agency/coordinator.rs` `run_continue_batch` | 仍调 `write_chapter`；Task 3 只改单章续写默认路径，batch 改为调 `write_beat_once` 或暂时保留 tool_loop 但必须编译通过 |
+
+`python3 scripts/verify-ipc-manifest.py` **只核对命令名**，不核对参数。`scene_id` 必须同时加进 Tauri 命令签名与 `intent.ts` 透传，否则前端字段会被静默丢弃。
 
 ---
 
@@ -54,6 +66,10 @@ mod tests {
     use super::*;
     use crate::db::connection::create_test_pool;
     use crate::db::repositories::{CreateStoryRequest, SceneRepository, StoryRepository};
+
+    fn long_increment() -> String {
+        "续写增量正文。".repeat(30) // 7 * 30 = 210 字，满足 ≥200 落库门槛
+    }
 
     fn seed_story_with_scene(pool: &crate::db::DbPool) -> (String, String) {
         let story = StoryRepository::new(pool.clone())
@@ -97,7 +113,7 @@ mod tests {
                 scene_id: scene_id.clone(),
             },
             "旧文开头。",
-            "新拍正文。",
+            &long_increment(),
         )
         .unwrap();
         assert_eq!(out.scene_id, scene_id);
@@ -105,10 +121,8 @@ mod tests {
             .get_by_story(&story_id)
             .unwrap();
         assert_eq!(scenes.len(), 1);
-        assert_eq!(
-            scenes[0].content.as_deref(),
-            Some("旧文开头。\n\n新拍正文。")
-        );
+        let expected = format!("旧文开头。\n\n{}", long_increment());
+        assert_eq!(scenes[0].content.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
@@ -198,6 +212,8 @@ pub fn persist_append(
 
 `SceneRepository::update` 若签名不是 `(id, &SceneUpdate)`，按 `scene_repository.rs` 现有 `update` / `update_in_tx` 对齐（优先 `update_in_tx` 包一层事务）。增量 <200 字与设计「熔断不丢稿 ≥200」一致。
 
+单测用纯文本即可。生产路径（Task 4）幕前必须传 **HTML**（`getHTML()`），否则 `persist_append` 会用 `getText()` 覆写整章、毁掉 TipTap 标记。Task 1 不处理 HTML 包 `<p>`；Task 4 接入时：`full = current_html + "<p>" + html_escape(increment) + "</p>"`（旧文已是 HTML 时），纯文本旧文仍用 `\n\n`。
+
 `mod.rs` 增加 `pub mod persist;`。
 
 - [ ] **Step 4: 跑测试确认通过**
@@ -224,63 +240,14 @@ EOF
 **Files:**
 - Modify: `src-tauri/src/agency/coordinator.rs`（`AgencyContinueResult`、`run_continue`、`run_continue_inner`）
 - Modify: `src-tauri/src/agency/commands.rs`（幕后仍 NextChapter）
-- Modify: `src-tauri/src/agency/tests.rs`（现有 `run_continue("rc-1", &story.id, 2)` 全部改为 NextChapter）
+- Modify: `src-tauri/src/agency/tests.rs`（现有 `run_continue("rc-1", &story.id, 2)` 全部改为 NextChapter；实测 12 处：:1110/:1188/:1463/:2145/:2175/:2240/:2386/:2422/:2934/:3118/:3214/:3246）
+- Modify: `src-tauri/src/agency/eval_harness.rs` :256（旧三参，漏改则编译失败）
 
-- [ ] **Step 1: 写失败测试（Append 不建章，走协调器）**
+**本任务选定策略（不要再写依赖 LLM 的 coordinator 测试）：** 只改签名 + NextChapter 包装；「Append 不建章」由 Task 1 `persist_append` 覆盖；「协调器 Append 不建章」推迟到 Task 12，用 `persist_append_with_card` 绕过 LLM。
 
-在 `agency/tests.rs` 追加（沿用该文件已有 `create_test_pool` / 故事种子 helper，字段名以文件内现有 `seed` 为准）：
+- [ ] **Step 1: 写失败测试**
 
-```rust
-#[tokio::test]
-async fn test_run_continue_append_keeps_scene_count() {
-    let (coord, pool, story) = setup_story_with_chapter_one(/* 正文至少 200 字 */).await;
-    let scene_id = first_scene_id(&pool, &story.id);
-    let before = scene_count(&pool, &story.id);
-    let result = coord
-        .run_continue(
-            "rc-append-1",
-            &story.id,
-            crate::agency::persist::PersistMode::Append {
-                scene_id: scene_id.clone(),
-            },
-            "续写",
-            Some("第一章已有正文。"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(result.scene_id, scene_id);
-    assert_eq!(scene_count(&pool, &story.id), before);
-    assert!(result.increment.chars().count() >= 200 || result.increment.is_empty());
-    // 无 LLM 的测试环境：若 writer 被 mock/跳过，至少不得 create 新行
-}
-```
-
-测试环境 `app_handle=None` 时今日 `run_continue` 仍会调 LLM 并失败。本任务先把签名改完、Append 在 **有现成 draft 或测试替身** 时落库。若现有 continue 测试用 mock LLM，照抄该 mock。
-
-更稳的契约测试（不依赖 LLM）：抽 `assemble_continue` 在 inner 里，Append 分支只调 `persist_append`。在 `coordinator.rs` 的 `#[cfg(test)]` 测：
-
-```rust
-#[test]
-fn assemble_append_does_not_insert_scene() {
-    // 直接调 persist_append，见 Task 1；本任务断言 run_continue_inner
-    // 在 PersistMode::Append 时调用 persist_append 而非 SceneRepository::create
-}
-```
-
-若协调器测试必须 LLM：本任务只改签名 + NextChapter 包装，Append 装配函数单独测（推荐）。
-
-追加纯函数测试到 `persist.rs` 已覆盖「不建章」。本任务测试改为：
-
-```rust
-#[test]
-fn next_chapter_mode_still_uses_chapter_number() {
-    let mode = PersistMode::NextChapter { chapter_number: 3 };
-    match mode {
-        PersistMode::NextChapter { chapter_number } => assert_eq!(chapter_number, 3),
-        _ => panic!("expected NextChapter"),
-    }
-}
-```
+本任务不追加 `test_run_continue_append_keeps_scene_count`（无 mock LLM 必失败）。只改现有调用点，编译失败即红：
 
 并改现有 `run_continue("id", story, 2)` 调用点为：
 
@@ -359,7 +326,7 @@ coordinator
     )
 ```
 
-全文件 `rg 'run_continue\(' src-tauri` 改齐。`increment` 字段所有 `AgencyContinueResult {` 字面量补 `increment: String::new()` 或真实增量。
+全文件 `rg 'run_continue\(' src-tauri` 改齐（含 `eval_harness.rs`）。`increment` 字段所有 `AgencyContinueResult {` 字面量补 `increment: String::new()` 或真实增量。`run_continue_batch` 本任务不改路径，只保证仍能编译（仍调现有 `write_chapter` / `handle_gate`）。
 
 - [ ] **Step 4: 跑测试**
 
@@ -389,17 +356,9 @@ EOF
 
 - [ ] **Step 1: 写失败测试**
 
-```rust
-#[test]
-fn test_editor_verdict_pending_on_continue_result_defaults() {
-    let v = crate::agency::coordinator::EditorVerdict::pending();
-    assert_eq!(v.verdict, "pending");
-}
-```
+**不要**再写 `EditorVerdict::pending()` 单测——`agency/tests.rs` 已有 `test_editor_verdict_pending_defaults`，会立刻绿、测不到本任务。改为断言 `AgencyContinueResult` 字面量在装配后 `verdict.verdict == "pending"`（可在无 LLM 的 persist 装配测，或推迟到 Task 12）。
 
-（若创世已有同名测试，改为断言 `AgencyContinueResult` 在测试环境 `verdict.verdict == "pending"`。）
-
-在 `run_continue_inner` 抽出 `write_beat_once(...)` 后测：给定空 `app_handle`，函数返回 `Err` 或跳过 LLM——不要在本任务引入新 mock 框架。优先改路径：`write_chapter` 开头改为调单次 complete（复制 `writer_prose_fallback` 的 `llm.complete`，task 文本用 `instruction` + `assets_ctx`）。tool_loop 仅当 `complete` 结果 `< 200` 字时再试一次 fallback（已有）。
+本任务路径改动：`write_chapter` 开头改为调单次 complete（复制 `writer_prose_fallback` 的 `llm.complete`，task 文本用 `instruction` + `assets_ctx`）。tool_loop 仅当 `complete` 结果 `< 200` 字时再试一次 fallback（已有）。`run_continue_batch` 改为调 `write_beat_once`（或暂时保留 tool_loop，但必须编译通过）。
 
 - [ ] **Step 2: 跑测试**
 
@@ -439,10 +398,12 @@ EOF
 ### Task 4: smart_execute 续写改调 Agency Append
 
 **Files:**
-- Modify: `src-tauri/src/commands/orchestrator.rs`（`smart_execute` / `smart_execute_inner` 签名加 `scene_id: Option<String>`）
-- Modify: `src-frontend/src/frontstage/FrontstageApp.tsx`（invoke 传 `scene_id`）
-- Modify: 所有 `loggedInvoke('smart_execute'` / 测试 mock
-- Run: `python3 scripts/verify-ipc-manifest.py`
+- Modify: `src-tauri/src/commands/orchestrator.rs`（`smart_execute` / `smart_execute_inner` 加 `scene_id: Option<String>` **和** `selected_text: Option<String>`；外层超时包装必须把两参传到 inner）
+- Modify: `src-frontend/src/services/api/intent.ts`（`SmartExecuteRequest` + `smartExecute()` 透传 `scene_id`）
+- Modify: `src-frontend/src/frontstage/FrontstageApp.tsx`（两处续写调用传 `scene_id`）
+- Modify: `src-frontend/src/frontstage/components/RichTextEditor.tsx`（:893 内联建议 / :1003 划词改写：传 `selected_text`，**不**传 scene_id 走 Append；后端见下方硬门）
+- Modify: 所有 `smartExecute` / `smart_execute` 测试 mock
+- Run: `python3 scripts/verify-ipc-manifest.py`（只核命令名；参数靠 tsc + 命令签名）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -451,7 +412,6 @@ EOF
 ```rust
 #[test]
 fn continuation_requires_scene_id_for_append() {
-    // 纯函数：resolve_persist_mode(is_continuation, scene_id, explicit_next_chapter)
     let err = resolve_persist_mode(true, None, false).unwrap_err();
     assert!(err.to_string().contains("请先打开一个章节"));
     let ok = resolve_persist_mode(true, Some("s1".into()), false).unwrap();
@@ -464,7 +424,7 @@ fn continuation_requires_scene_id_for_append() {
     let next = resolve_persist_mode(true, None, true).unwrap();
     match next {
         crate::agency::persist::PersistMode::NextChapter { chapter_number } => {
-            assert!(chapter_number >= 1)
+            assert_eq!(chapter_number, 0); // 占位；幕后自己算 MAX+1，不走此函数填真实章号
         }
         _ => panic!("expected NextChapter"),
     }
@@ -503,8 +463,11 @@ Run: `cd src-tauri && cargo test --lib continuation_requires_scene_id -- --nocap
 在 `is_bootstrap_intent` 块之后、现有「Phase 3 加载场景 / PlanExecutor」之前插入：
 
 ```rust
-if classification.is_continuation {
-    // 设计 §3.2：Append 必传 scene_id，缺失即 UserAction，不猜测、不回退、不新建
+if classification.is_continuation
+    && selected_text.as_deref().map(str::trim).unwrap_or("").is_empty()
+{
+    // 硬门：有 selected_text = 划词改写/内联建议，必须留 PlanExecutor Full，禁止 Append。
+    // 今日后端 PlanContext.selected_text 恒为 None（前端已传、命令未收）——本任务一并接入，否则改写会被误分类成续写后吞进 Agency。
     let persist = crate::agency::persist::resolve_persist_mode(true, scene_id.clone(), false)?;
     let run_id = Uuid::new_v4().to_string();
     let coordinator = AgencyCoordinator::new(app_handle.clone(), pool.clone());
@@ -533,13 +496,16 @@ if classification.is_continuation {
 
 注意：`current_scene_id` 今日在 Phase 3 才加载（本分支之前不存在该变量）——**不做**「最新有内容场景」回退（设计 §3.2 禁止猜测），前端必须传 `scene_id`，缺失即报「请先打开一个章节」。`explicit_next_chapter` 本期恒为 `false`（幕前不接「明确下一章」入口，新章只由幕后 `agency_continue_chapter` 与现有自动分章产生）；`resolve_persist_mode` 保留该参数仅为契约完整，测试照写。
 
-`smart_execute` 与 `smart_execute_inner` 增加参数 `scene_id: Option<String>`。
+`smart_execute` 与 `smart_execute_inner` 增加参数 `scene_id: Option<String>` 与 `selected_text: Option<String>`。PlanContext 构造处把 `selected_text: None` 改为命令入参（今日 :782 硬编码 None）。
 
-前端改动点（以核实为准）：直接 invoke 封装在 `src-frontend/src/services/api/intent.ts` 的 `smartExecute()`（约 :83，当前只透传 `user_input/current_content/selected_text/intent_classification` 四参）——封装签名加 `scene_id?: string` 并透传；`FrontstageApp.tsx` 两处 `smartExecute({...})` 调用点（约 :3513 / :4505）传入：
+前端改动点：`intent.ts` 的 `smartExecute()`（约 :83）封装签名加 `scene_id?: string` 并透传（`selected_text` 已透传）；`FrontstageApp.tsx` 两处 `smartExecute({...})`（约 :3513 / :4505）传入：
 
 ```ts
 scene_id: useFrontstageStore.getState().sceneId ?? undefined,
+current_content: editorRef.current?.getHTML() ?? editorRef.current?.getText(),
 ```
+
+续写两处今日传的是 `getText()`。必须改成 `getHTML()`，与 `flushSceneSave` 同源，避免 persist_append 把整章 HTML 压成纯文本。`RichTextEditor.tsx` 两处改写调用保持传 `selected_text`、不要传 `scene_id`（即使传了，后端硬门也会拦 Append）。
 
 搜 `smart_execute` / `smartExecute` 改齐测试 mock 参数。
 
@@ -553,12 +519,15 @@ cd src-tauri && cargo test --lib continuation_requires_scene_id
 cd src-frontend && npx tsc --noEmit
 ```
 
-Expected: IPC 清单通过；Rust 测试 PASS；tsc 通过
+Expected: 命令名仍在清单；Rust 测试 PASS；tsc 通过。**不要**把 ipc-manifest 绿当成 `scene_id` 已接线。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src-tauri/src/commands/orchestrator.rs src-tauri/src/agency/persist.rs src-frontend/src/frontstage
+git add src-tauri/src/commands/orchestrator.rs src-tauri/src/agency/persist.rs \
+  src-frontend/src/services/api/intent.ts \
+  src-frontend/src/frontstage/FrontstageApp.tsx \
+  src-frontend/src/frontstage/components/RichTextEditor.tsx
 git commit -m "$(cat <<'EOF'
 feat: 幕前续写改走 Agency Append 唯一路径
 
@@ -616,7 +585,9 @@ Run: `cd src-tauri && cargo test --lib to_prompt_includes_emotional_fields -- --
 
 `load_sync` 映射 `c.emotional_*`；关系用 `CharacterRelationshipRepository::get_by_story`，渲染格式对齐 `build_writer_context_from_db` 的 `■ {} -> {}` 行。
 
-**张力/弧光段必须并入（防回归）**：现行 `build_writer_context_from_db`（coordinator.rs:5217-5226）注入了 `emotional_ledger` 的 `load_tensions`/`render_tensions_for_prompt` 与 `load_arcs`/`render_arcs_for_prompt`；另一条注入路径 `build_progression_anchor` 随 TimeSliced 删除（Task 11）消失。`load_sync` 须同样调用这两个渲染，结果存入 `WriteTimeBundle` 新字段（如 `tension_text: String`、`arc_text: String`），`to_prompt` 在关系段后非空即输出。Task 6 切换后此注入不得丢失。
+**张力/弧光段必须并入（防回归），但禁止 `creative_engine` → `agency`：** 现行 `build_writer_context_from_db`（coordinator.rs:5217-5226）注入了 `emotional_ledger` 的 `load_tensions`/`render_tensions_for_prompt` 与 `load_arcs`/`render_arcs_for_prompt`。`creative_engine/write_time_bundle.rs` 今日 **零** `crate::agency` 引用；`load_sync` **不要**调用 `emotional_ledger`（层倒置，architecture_guard 虽不禁但会把编译器绑死在 agency）。
+
+正确做法：Task 5 只把情感四元组 + `relationship_lines` 放进 Bundle；Task 6 的 `build_writer_context_from_db` 在 `to_prompt()` **之后**由 coordinator 追加张力/弧光段（agency 已依赖 ledger）。`build_progression_anchor` 随 TimeSliced 删除（Task 11）后，这条 agency 拼接是张力段唯一入口。
 
 `to_prompt` 在角色段每行追加非空情感字段；角色段后插入：
 
@@ -679,13 +650,28 @@ fn continue_context_contains_wound_from_bundle() {
 
 ```rust
 pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> String {
-    match WriteTimeBundle::load_sync(pool, story_id, 1, None, None, None) {
+    let mut s = match WriteTimeBundle::load_sync(pool, story_id, 1, None, None, None) {
         Ok(b) => b.to_prompt(),
         Err(e) => {
             log::warn!("continue compiler bundle 失败: {e}");
             String::new()
         }
+    };
+    // 张力/弧光留在 agency 层拼接，不让 creative_engine 依赖 agency
+    // load_tensions / load_arcs 返回 Vec，不是 Result
+    let tensions = crate::agency::emotional_ledger::load_tensions(pool, story_id);
+    let rendered = crate::agency::emotional_ledger::render_tensions_for_prompt(&tensions);
+    if !rendered.is_empty() {
+        s.push_str("\n\n");
+        s.push_str(&rendered);
     }
+    let arcs = crate::agency::emotional_ledger::load_arcs(pool, story_id);
+    let rendered = crate::agency::emotional_ledger::render_arcs_for_prompt(&arcs);
+    if !rendered.is_empty() {
+        s.push_str("\n\n");
+        s.push_str(&rendered);
+    }
+    s
 }
 ```
 
@@ -845,7 +831,7 @@ pub struct SceneBeatCard {
     pub conflict_move: ConflictMove,
     pub emotion_beat: EmotionBeat,
     pub next_outline_node: String,
-    pub expansion_quota: Vec<crate::creative_engine::expansion::QuotaItem>,
+    pub expansion_quota: Vec<crate::creative_engine::expansion::debt::QuotaItem>,
     pub setting_location: Option<String>,
 }
 
@@ -994,7 +980,7 @@ fn append_writeback_sets_characters_present_names() {
         expansion_quota: vec![],
         setting_location: Some("夜宴厅".into()),
     };
-    persist_append_with_card(&pool, &scene_id, "旧文。", "新拍足够长的正文……（≥200字）", &card).unwrap();
+    persist_append_with_card(&pool, &scene_id, "旧文。", &long_increment(), &card).unwrap();
     let scene = SceneRepository::new(pool.clone()).get_by_id(&scene_id).unwrap().unwrap();
     assert!(scene.characters_present.contains(&"阿岩".into()));
     assert!(scene.characters_present.contains(&"林雪".into()));
@@ -1050,7 +1036,12 @@ EOF
 fn continuation_sanitize_does_not_insert_beat_planner() {
     let mut plan = /* 单 writer 步 */;
     let ctx = PlanContext { intent_classification: Some(cls_continuation()), ..empty() };
-    PlanGenerator::sanitize_plan_for_prose_request(&mut plan, &ctx, "beat");
+    PlanGenerator::sanitize_plan_for_prose_request(
+        &mut plan,
+        ctx.intent_classification.as_ref(),
+        &ctx,
+        "beat",
+    );
     assert!(plan.steps.iter().all(|s| s.capability_id != "beat_planner"));
     assert_eq!(plan.steps[0].capability_id, "writer");
 }
@@ -1115,8 +1106,8 @@ EOF
 6. prompt 含 `emotional_wound`  
 7. 现有 `run_genesis` 测试不回退  
 8. `cargo test --lib` 全量；`npx tsc --noEmit`；`npx vitest run`；`cargo +nightly fmt`；`python3 scripts/architecture_guard.py`
-9. **情感张力不回归**：故事存在带 `emotional_bond` 的关系时，续写上下文含 `情感张力驱动` 段（emotional_ledger 经 Bundle 承接，Task 5/6）
-10. **文档同步注明**：设计 §6.3 ContextPrioritizer 分级排序本期降级（BeatCard 双锚承担 Critical 优先级）；`characters_present` 写入口径（id vs 名字混杂）记「已知遗留」
+9. **情感张力不回归**：故事存在带 `emotional_bond` 的关系时，续写上下文含 `情感张力驱动` 段（emotional_ledger 由 coordinator 在 `to_prompt()` 后拼接承接，Task 6）
+10. **文档同步（设计文档三处必改）**：① §3.2「旧文以 current_content 为准」补「HTML（getHTML）」表述；② §3.2「允许格式化差异」一句在两端均传 HTML 后删除或改写；③ §10「熔断 ≥200 必写回」与 Task 1「<200 拒写」对齐为同一门槛的两面（<200 视为垃圾稿拒落库，≥200 熔断也必写回）；④ §6.3 ContextPrioritizer 分级排序本期降级（BeatCard 双锚承担 Critical 优先级）；⑤ `characters_present` 写入口径（id vs 名字混杂）记「已知遗留」
 
 - [ ] **Step 2: 跑全量**
 
@@ -1151,7 +1142,7 @@ EOF
 | §3.3 并发 finish_run + 后台编辑 | Task 3 |
 | §4 三角色职责 | Task 3, 8–9 |
 | §5 SceneBeatCard | Task 8–9 |
-| §6 Bundle 编译器 | Task 5–6（Task 5 含情感张力/弧光段并入 Bundle；§6.3 Prioritizer 分级本期降级，见 Task 6 注） |
+| §6 Bundle 编译器 | Task 5–6（情感四元组+关系在 Bundle；张力/弧光由 coordinator 在 `to_prompt()` 后拼接，禁止 creative_engine→agency；§6.3 Prioritizer 分级本期降级） |
 | §7 回流 + 账本名匹配 + 按拍债务 | Task 7, 10 |
 | §8 删除 TimeSliced/TriShot | Task 11 |
 | §9 前端 scene_id / increment | Task 4 |
