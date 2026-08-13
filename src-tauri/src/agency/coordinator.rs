@@ -2934,6 +2934,8 @@ impl AgencyCoordinator {
                 &premise,
                 chapter_number,
                 generate_outline,
+                instruction,
+                current_content,
             )
             .await?;
         self.emit_activity(
@@ -3681,6 +3683,8 @@ impl AgencyCoordinator {
         premise: &str,
         chapter_number: i32,
         generate_outline: bool,
+        instruction: &str,
+        current_content: Option<&str>,
     ) -> Result<BoardItem, AppError> {
         let key = format!("第{}章", chapter_number);
         let assets_ctx = self.build_continue_writer_context(story_id).await;
@@ -3697,24 +3701,35 @@ impl AgencyCoordinator {
         } else {
             String::new()
         };
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let content_for_card = current_content.unwrap_or("").to_string();
+        let card = self
+            .db(move || crate::agency::beat_card::compile_beat_card(&pool, &sid, &content_for_card))
+            .await?;
+        let mut bundle = assets_ctx;
+        if !chapter_outline.is_empty() {
+            bundle = format!("【本章大纲（必须遵循的章节方向）】\n{chapter_outline}\n\n{bundle}");
+        }
+        let instr = if instruction.trim().is_empty() {
+            "续写"
+        } else {
+            instruction
+        };
+        let user = crate::agency::beat_card::render_writer_user_prompt(
+            &bundle,
+            &card,
+            instr,
+            current_content.unwrap_or(""),
+        );
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
             budget.clone(),
             AgentRole::LeadWriter,
         );
-        let outline_block = if chapter_outline.is_empty() {
-            String::new()
-        } else {
-            format!("【本章大纲（必须遵循的章节方向）】\n{chapter_outline}\n\n")
-        };
-        let user = format!(
-            "故事前提：{premise}\n\n{outline_block}创作资产：\n{assets_ctx}\n\n\
-             写作要求：章节正文，1500-2500 字，只输出正文，不写标题。\
-             必须推进剧情到下一节点，不得原地踏步。禁止重复：同一段落/句子不得出现两次。"
-        );
         let text = match llm
             .complete(
-                "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。",
+                "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。须在节拍任务硬约束内落实指令。",
                 &user,
                 TaskType::CreativeWriting,
                 8192,

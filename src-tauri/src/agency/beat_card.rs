@@ -340,6 +340,81 @@ fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
         .unwrap_or_else(|| "在硬约束内把当前冲突推进一步，不得原地复述末句。".into())
 }
 
+fn last_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || n == 0 {
+        return None;
+    }
+    let delimiters: &[char] = &['。', '？', '！', '.', '?', '!'];
+    let mut ends: Vec<usize> = Vec::new();
+    for (i, c) in trimmed.char_indices() {
+        if delimiters.contains(&c) {
+            ends.push(i + c.len_utf8());
+        }
+    }
+    let slice = if ends.is_empty() {
+        let total = trimmed.chars().count();
+        if total > max_chars {
+            trimmed.chars().skip(total - max_chars).collect::<String>()
+        } else {
+            trimmed.to_string()
+        }
+    } else {
+        let take = n.min(ends.len());
+        let start_byte = if take >= ends.len() {
+            0
+        } else {
+            ends[ends.len() - take - 1]
+        };
+        let rest = trimmed[start_byte..].trim_start();
+        let total = rest.chars().count();
+        if total > max_chars {
+            rest.chars().skip(total - max_chars).collect::<String>()
+        } else {
+            rest.to_string()
+        }
+    };
+    let out = slice.trim();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.to_string())
+    }
+}
+
+/// 末句硬锚点：复制自 `agents::orchestrator::build_ending_anchor`，避免
+/// coordinator 耦合编排器。有正文时返回非空；空正文返回空串。
+pub fn ending_anchor(current_content: &str) -> String {
+    let Some(last) = last_n_sentences(current_content, 2, 280) else {
+        return String::new();
+    };
+    format!(
+        "【续写硬锚点（最高优先级，覆盖上方任何「开场/开篇」指令）】\n\
+         正文已写到此处，你必须从下一句无缝衔接，禁止另起开篇、禁止重写醒来/失忆/初入场景。\n\
+         ——已有正文末句——\n\
+         {last}\n\
+         ——请紧接上句继续写（可换段，但人物/地点/目标/未决问题必须承接）——"
+    )
+}
+
+/// 主创 user prompt：卡全文 → Bundle → 指令 → 卡摘要 → 末句锚点。
+pub fn render_writer_user_prompt(
+    bundle_prompt: &str,
+    card: &SceneBeatCard,
+    instruction: &str,
+    current_content: &str,
+) -> String {
+    format!(
+        "{card_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
+         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}\n\n{ending}",
+        card_full = card.render_full(),
+        bundle = bundle_prompt,
+        instruction = instruction,
+        card_tail = card.render_tail_summary(),
+        ending = ending_anchor(current_content),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +541,40 @@ mod tests {
         assert!(!card.conflict_move.action.is_empty());
         assert!(!card.emotion_beat.summary.is_empty());
         assert!(!card.next_outline_node.is_empty());
+    }
+
+    #[test]
+    fn writer_prompt_order_is_card_then_body_then_summary_then_ending() {
+        let card = SceneBeatCard {
+            cast: vec![CastMember {
+                name: "林雪".into(),
+                purpose: "回归质问".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: "加压：当众揭穿".into(),
+                parties: vec!["林雪".into(), "阿岩".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "林雪伤口=被抛弃".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            setting_location: Some("夜宴".into()),
+        };
+        let prompt = render_writer_user_prompt("【红线】不可飞天", &card, "往下写", "他推开门。");
+        let i_card = prompt.find("【本章节拍任务】").unwrap();
+        let i_sum = prompt.find("【节拍摘要】").unwrap();
+        let i_end = prompt
+            .find("必须从上述末句")
+            .unwrap_or_else(|| prompt.find("末句").unwrap());
+        assert!(i_card < i_sum);
+        assert!(i_sum < i_end);
+        assert!(prompt.contains("林雪"));
+    }
+
+    #[test]
+    fn ending_anchor_empty_when_no_content() {
+        assert!(ending_anchor("").is_empty());
+        assert!(ending_anchor("   ").is_empty());
     }
 }
