@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.39.0
+- **版本**: v0.40.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -98,7 +98,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1328 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 523 passed / 3 skipped
+- `npx vitest run` ✅ 556 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 545（零新增；+6 来自既有 V127 chapter_splitter 层违例）
@@ -106,6 +106,15 @@ type:
 - `python3 scripts/architecture_guard.py` ⚠️ V127 chapter_splitter 层违例（既有，非本版引入）
 
 ## 最近完成的功能
+
+### v0.40.0 - AI 原生组件库 P3（数据展示六件套）+ P4（项目收尾）
+
+**beautifului AI 原生组件库收官（P3 数据展示 + P4 收尾）**：6 个数据展示组件适配为受控组件入库 `src-frontend/src/components/ui/ai/` 并替换幕后落点；P4 完成替换残留清理、视觉修正与浅色页令牌化。只引用 `--ai-*` 语义令牌（契约扩至 17 变量），不引新依赖，纯前端无后端改动。
+
+- **P3 数据展示**：AiSearchList（PromptsPanel 搜索计数区）、AiCodeBlock（六文件七处裸 pre/JSON 块）、AiDiffTable（AgencyEval 检查点对比，metrics_json 解析补基准/对比列）、AiFilterTable（UsageStats 分组筛选 + 最近调用表；AiFilterChipsBar 可选接 Logs 级别筛选）、AiRecordsTable（PromptsPanel 分组列表 + AgencyEval 双表）、AiInsightCards（UsageStats/AgencyEval 统计卡，内嵌 MiniLineChart）；AiChat 经勘察关闭（ChatComposer 为 AiPromptBar 严格子集）。
+- **P4 清理**：P1-P3 替换残留 TS 13 处 + frontstage 死 CSS 约 40 类；历史死件 8 件（AiSuggestionBubble/AiHintOverlay/HelpPanel/ZenModeExit/useLlmStream/useStudioConfig/hetiAddon/Toggle）。
+- **P4 修正与令牌化**：新增 `--ai-on-accent` 令牌替换四组件 text-white 直写；`/N` 透明度修饰符失效 13 处改 color-mix；Tasks 裸 pre → AiCodeBlock；AiDiffTable testid 改 per-row key；AgencyEval/AgencyStudio/AgencyLearning 浅色页令牌化（AgencyLearning 裸表 → AiRecordsTable）。
+- **验证**：`npx vitest run` 556 passed / 3 skipped（P3 564 − 死件自带测试 8）；`cargo test --lib` 1328 passed / 2 ignored（无 Rust 改动）；`tsc` / `format:check` / `architecture_guard.py` 全绿。
 
 ### v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复
 

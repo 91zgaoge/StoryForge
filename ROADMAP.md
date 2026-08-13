@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-12（v0.39.0 AI 原生组件库 P1+P2 共 10 组件 + 保存 UNIQUE 修复）
+> 最后更新: 2026-08-13（v0.40.0 AI 原生组件库 P3 数据展示六件套 + P4 项目收尾）
 
-## ✅ v0.27.x–v0.39.x 已实施完成
+## ✅ v0.27.x–v0.40.x 已实施完成
+
+### ✨ v0.40.0 - AI 原生组件库 P3（数据展示六件套）+ P4（项目收尾） ✅ (2026-08-13)
+
+- [x] P3 数据展示六件套：AiSearchList / AiCodeBlock / AiDiffTable / AiFilterTable / AiRecordsTable / AiInsightCards 入库 `components/ui/ai/` 并替换幕后落点（PromptsPanel/UsageStats/AgencyEval/Logs/TracingPanel/Mcp/Skills/IntentionGraphDiagnostics）；AiChat 经勘察关闭（ChatComposer 为 AiPromptBar 严格子集）
+- [x] P4 清理：P1-P3 替换残留 TS 13 处 + 死 CSS 约 40 类；历史死件 8 件（AiSuggestionBubble/AiHintOverlay/HelpPanel/ZenModeExit/useLlmStream/useStudioConfig/hetiAddon/Toggle）
+- [x] P4 修正：新增 `--ai-on-accent` 令牌（契约 17 变量）替换 text-white ×4；/N 透明度失效 13 处 color-mix 修复；Tasks 裸 pre → AiCodeBlock；AiDiffTable testid per-row key
+- [x] P4 浅色页令牌化：AgencyEval / AgencyStudio / AgencyLearning 三页令牌化（AgencyLearning 裸表 → AiRecordsTable），gray 映射固化为约定
+- [x] 验证：`npx vitest run` 556 passed / 3 skipped（P3 564 − 死件自带测试 8）；`cargo test --lib` 1328 passed / 2 ignored（无 Rust 改动）
 
 ### ✨ v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复 ✅ (2026-08-12)
 

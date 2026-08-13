@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.39.0 项目完成状态
+# StoryMoss (草苔) v0.40.0 项目完成状态
 
-> 最后更新: 2026-08-12（v0.39.0 AI 原生组件库 P1+P2 共 10 组件 + 保存 UNIQUE 修复）
+> 最后更新: 2026-08-13（v0.40.0 AI 原生组件库 P3 数据展示六件套 + P4 项目收尾）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -15,19 +15,14 @@
 
 ## ✅ 最近完成功能
 
-### Unreleased - beautifului AI 原生组件 P4（收尾：清理 + 视觉修正 + 浅色页令牌化）（2026-08-13）
+### v0.40.0 - AI 原生组件库 P3（数据展示六件套）+ P4（项目收尾）（2026-08-13）
 
-- **清理**：P1-P3 替换残留 TS 13 处 + 死 CSS 约 40 类；历史死件 8 件（含自带测试/barrel/级联 CSS）。
-- **修正**：`--ai-on-accent` 令牌（17 变量契约）替换 text-white ×4；/N 透明度失效 13 处 color-mix 修复；Tasks 裸 pre → AiCodeBlock；AiDiffTable testid per-row key。
-- **令牌化**：AgencyEval / AgencyStudio / AgencyLearning 浅色切口关闭（AgencyLearning 裸表 → AiRecordsTable）。
-- **验证**：`npx tsc --noEmit` / `npx vitest run`（556 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动（1328 passed / 2 ignored 不变）。版本号未动，发版推送另行进行。
-
-### Unreleased - beautifului AI 原生组件 P3（数据展示六件套）（2026-08-13）
-
-- **六组件入库** `components/ui/ai/`：AiSearchList（PromptsPanel 搜索计数区）、AiCodeBlock（六文件七处裸 pre/JSON 批量替换）、AiDiffTable（AgencyEval 检查点对比，metrics_json 解析补基准/对比列）、AiFilterTable（UsageStats 分组 tabs + 最近调用表；AiFilterChipsBar 可选接 Logs 级别筛选）、AiRecordsTable（PromptsPanel 分组行列表保留展开编辑器 + AgencyEval 判定历史/token 用量双表）、AiInsightCards（UsageStats/AgencyEval 统计卡，内嵌 MiniLineChart 静态快照替代 liveline）。
+- **P3 六组件入库** `components/ui/ai/`：AiSearchList（PromptsPanel 搜索计数区）、AiCodeBlock（六文件七处裸 pre/JSON 批量替换）、AiDiffTable（AgencyEval 检查点对比，metrics_json 解析补基准/对比列）、AiFilterTable（UsageStats 分组 tabs + 最近调用表；AiFilterChipsBar 可选接 Logs 级别筛选）、AiRecordsTable（PromptsPanel 分组行列表保留展开编辑器 + AgencyEval 判定历史/token 用量双表）、AiInsightCards（UsageStats/AgencyEval 统计卡，内嵌 MiniLineChart 静态快照替代 liveline）。
 - **AiChat 关闭**：ChatComposer 为 AiPromptBar 严格子集、无多轮对话场景，设计文档 P3「AiChat」以勘察结论关闭，差异特性记录备选。
-- **切口**：AgencyEval 浅色裸样式页接 `--ai-*` 深色令牌组件（同 P2 AgencyStudio 先例），P4 统一。
-- **验证**：`npx tsc --noEmit` / `npx vitest run`（564 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动（1328 passed / 2 ignored 不变）。版本号未动，发版另行进行。
+- **P4 清理**：P1-P3 替换残留 TS 13 处 + 死 CSS 约 40 类；历史死件 8 件（AiSuggestionBubble/AiHintOverlay/HelpPanel/ZenModeExit/useLlmStream/useStudioConfig/hetiAddon/Toggle，含自带测试/barrel/级联 CSS）。
+- **P4 修正**：`--ai-on-accent` 令牌（契约扩至 17 变量）替换 text-white ×4；/N 透明度失效 13 处 color-mix 修复；Tasks 裸 pre → AiCodeBlock；AiDiffTable testid per-row key。
+- **P4 令牌化**：AgencyEval / AgencyStudio / AgencyLearning 浅色切口关闭（AgencyLearning 裸表 → AiRecordsTable）；gray 映射固化为约定（gray-600 → `text-ai-ink-2`、gray-500/400 → `text-ai-ink-3`、表单控件 → `border-ai-line bg-ai-field text-ai-ink`）。
+- **验证**：`npx tsc --noEmit` / `npx vitest run`（556 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动（1328 passed / 2 ignored 不变）。
 
 ### v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复（2026-08-12）
 
