@@ -38,6 +38,8 @@ pub async fn smart_execute(
     current_content: Option<String>,
     style_weight: Option<i32>,
     intent_classification: Option<crate::intent::WritingIntentClassification>,
+    scene_id: Option<String>,
+    selected_text: Option<String>,
     pool: State<'_, DbPool>,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
@@ -59,6 +61,8 @@ pub async fn smart_execute(
             current_content,
             style_weight,
             intent_classification,
+            scene_id,
+            selected_text,
             pool_inner,
             app_handle.clone(),
         ),
@@ -99,6 +103,8 @@ async fn smart_execute_inner(
     current_content: Option<String>,
     style_weight: Option<i32>,
     intent_classification: Option<crate::intent::WritingIntentClassification>,
+    scene_id: Option<String>,
+    selected_text: Option<String>,
     pool: crate::db::DbPool,
     app_handle: AppHandle,
 ) -> Result<crate::planner::PlanExecutionResult, AppError> {
@@ -411,6 +417,45 @@ async fn smart_execute_inner(
                 return Err(AppError::llm_timeout(total_timeout * 1000));
             }
         }
+    }
+
+    // 续写走 Agency Append：硬门——有划词/内联选区则留给 PlanExecutor Full，禁止
+    // Append。 current_scene_id 在 Phase 3
+    // 才加载；此处禁止「最新有内容场景」回退（前端必须传 scene_id）。
+    if classification.is_continuation
+        && selected_text
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+    {
+        let persist = crate::agency::persist::resolve_persist_mode(true, scene_id.clone(), false)?;
+        let story_id = current_story_id.clone().ok_or_else(|| {
+            AppError::validation_failed("请先在左侧选择或创建一个作品", Some("no_story_selected"))
+        })?;
+        log::warn!("[smart_execute] 续写走 Agency Append，story_id={story_id}");
+        emit_progress("executing", "Agency 续写中...", 3, 5);
+        let run_id = Uuid::new_v4().to_string();
+        let coordinator =
+            crate::agency::coordinator::AgencyCoordinator::new(app_handle.clone(), pool.clone());
+        let result = coordinator
+            .run_continue(
+                &run_id,
+                &story_id,
+                persist,
+                &user_input,
+                current_content_full.as_deref(),
+            )
+            .await?;
+        emit_progress("completed", "续写完成", 5, 5);
+        return Ok(crate::planner::PlanExecutionResult {
+            success: true,
+            steps_completed: 1,
+            final_content: Some(result.increment),
+            messages: vec!["续写完成".into()],
+            error: None,
+            result_kind: None,
+        });
     }
 
     // Phase 3: 加载场景结构信息 + 增强上下文
@@ -779,7 +824,7 @@ async fn smart_execute_inner(
         style_dna_info,
         mcp_tools_available,
         deep_insight_summary,
-        selected_text: None,
+        selected_text: selected_text.clone(),
         style_weight,
         chapter_number,
         selected_strategy,

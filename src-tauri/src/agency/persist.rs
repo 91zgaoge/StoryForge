@@ -15,6 +15,26 @@ pub struct AppendPersistOutcome {
     pub full_content: String,
 }
 
+/// 续写落库模式解析。幕前恒传 `explicit_next_chapter=false`（同章 Append）；
+/// `true` 仅契约完整（幕后 `agency_continue_chapter` 自己算
+/// MAX+1，不走此函数填真实章号）。
+pub fn resolve_persist_mode(
+    is_continuation: bool,
+    scene_id: Option<String>,
+    explicit_next_chapter: bool,
+) -> Result<PersistMode, AppError> {
+    if !is_continuation {
+        return Err(AppError::from("resolve_persist_mode 仅用于续写"));
+    }
+    if explicit_next_chapter {
+        return Ok(PersistMode::NextChapter { chapter_number: 0 });
+    }
+    let sid = scene_id
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::validation_failed("请先打开一个章节", Some("no_scene")))?;
+    Ok(PersistMode::Append { scene_id: sid })
+}
+
 /// 将 current_content + increment 写入已有 scene。禁止 create 新行。
 pub fn persist_append(
     pool: &DbPool,
@@ -35,11 +55,7 @@ pub fn persist_append(
     if cleaned_inc.chars().count() < 200 {
         return Err(AppError::from("续写增量过短，拒绝落库"));
     }
-    let full = if cleaned_old.is_empty() {
-        cleaned_inc.to_string()
-    } else {
-        format!("{cleaned_old}\n\n{cleaned_inc}")
-    };
+    let full = join_content(cleaned_old, cleaned_inc);
     repo.update(
         scene_id,
         &crate::db::repositories::SceneUpdate {
@@ -53,6 +69,30 @@ pub fn persist_append(
         chapter_number: scene.sequence_number,
         full_content: full,
     })
+}
+
+fn looks_like_html(s: &str) -> bool {
+    let t = s.trim();
+    t.starts_with('<') && t.contains('>')
+}
+
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// 旧文已是 HTML 时用 `<p>` 包增量，避免把 TipTap 标记压成纯文本；纯文本仍用
+/// `\n\n`。
+fn join_content(old: &str, increment: &str) -> String {
+    if old.is_empty() {
+        increment.to_string()
+    } else if looks_like_html(old) {
+        format!("{old}<p>{}</p>", html_escape(increment))
+    } else {
+        format!("{old}\n\n{increment}")
+    }
 }
 
 #[cfg(test)]
@@ -134,5 +174,50 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("请先打开一个章节") || err.to_string().contains("不存在"));
+    }
+
+    #[test]
+    fn continuation_requires_scene_id_for_append() {
+        let err = resolve_persist_mode(true, None, false).unwrap_err();
+        assert!(err.to_string().contains("请先打开一个章节"));
+        let ok = resolve_persist_mode(true, Some("s1".into()), false).unwrap();
+        match ok {
+            PersistMode::Append { scene_id } => {
+                assert_eq!(scene_id, "s1")
+            }
+            _ => panic!("expected Append"),
+        }
+        let next = resolve_persist_mode(true, None, true).unwrap();
+        match next {
+            PersistMode::NextChapter { chapter_number } => {
+                assert_eq!(chapter_number, 0); // 占位；幕后自己算 MAX+1，
+                                               // 不走此函数填真实章号
+            }
+            _ => panic!("expected NextChapter"),
+        }
+    }
+
+    #[test]
+    fn append_html_wraps_increment_in_p() {
+        let pool = create_test_pool().unwrap();
+        let (story_id, scene_id) = seed_story_with_scene(&pool);
+        let old = "<p>旧文开头。</p>";
+        let inc = long_increment();
+        let out = persist_append(
+            &pool,
+            &PersistMode::Append {
+                scene_id: scene_id.clone(),
+            },
+            old,
+            &inc,
+        )
+        .unwrap();
+        let expected = format!("{old}<p>{inc}</p>");
+        assert_eq!(out.full_content, expected);
+        let scenes = SceneRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[0].content.as_deref(), Some(expected.as_str()));
     }
 }

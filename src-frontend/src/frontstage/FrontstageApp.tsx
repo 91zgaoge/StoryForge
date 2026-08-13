@@ -3512,8 +3512,9 @@ const FrontstageApp: React.FC = () => {
         const result = await Promise.race([
           smartExecute({
             user_input: context || '续写',
-            current_content: editorRef.current?.getText(),
+            current_content: editorRef.current?.getHTML() ?? editorRef.current?.getText(),
             style_weight: 50,
+            scene_id: useFrontstageStore.getState().sceneId ?? undefined,
           }),
           timeoutPromise,
         ]);
@@ -4504,8 +4505,9 @@ const FrontstageApp: React.FC = () => {
         const result = await Promise.race([
           smartExecute({
             user_input: userInput,
-            current_content: editorRef.current?.getText(),
+            current_content: editorRef.current?.getHTML() ?? editorRef.current?.getText(),
             style_weight: 50,
+            scene_id: useFrontstageStore.getState().sceneId ?? undefined,
             // v0.30.11: 透传前端 LLM 分类结果，后端信任不重复调用
             intent_classification: classification,
           }),

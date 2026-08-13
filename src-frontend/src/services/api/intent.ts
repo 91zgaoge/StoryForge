@@ -35,6 +35,7 @@ export interface SmartExecuteRequest {
   user_input: string;
   current_content?: string;
   selected_text?: string;
+  scene_id?: string;
   style_weight?: number;
   /** v0.30.11: 前端 LLM 分类结果，传后端避免重复调用 */
   intent_classification?: WritingIntentClassification;
@@ -85,6 +86,7 @@ export const smartExecute = (req: SmartExecuteRequest) =>
     user_input: req.user_input,
     current_content: req.current_content,
     selected_text: req.selected_text,
+    scene_id: req.scene_id,
     intent_classification: req.intent_classification,
   });
 // Feedback Recording
