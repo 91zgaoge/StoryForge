@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.40.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.41.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.41.0 变更说明
+
+- Agency 唯一续写路径：`PersistMode::Append/NextChapter`、SceneBeatCard、Bundle 情感字段、按拍债务、写回出场/冲突/地点、切断 TimeSliced/TriShot 续写路由。
+- 测试调整：Rust +17 契约测试（Append 落库门槛、smart_execute 续写路由、execute_writer 拒续写/创世等）；vitest 不变。
+- 全量基线：`cargo test --lib` 1345 passed / 2 ignored（+17）；`npx vitest run` 556 passed / 3 skipped（不变）；`npx tsc --noEmit` ✅。
 
 ### v0.40.0 变更说明
 

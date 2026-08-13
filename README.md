@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.40.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.41.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -27,7 +27,7 @@
 | :---: | --- | --- |
 | 🎬 | **双界面创作** | 幕前「墨纸」沉浸写作 + 幕后「机械」工作室管理，两套设计语言各得其所 |
 | 🤖 | **Agency 多代理创作** | 主创 / 管理 / 编辑审计三代理黑板并行协作，每章经 Gate v2 四级 grader 质量门（阈值 0.75）才交付 |
-| ⚡ | **分时介入架构** | 写作 < 15s 秒出正文，审计与洞察后台异步——解开「质量与速度不可兼得」的根本矛盾 |
+| ⚡ | **分时介入架构** | 幕前续写走三角色主创、编辑审计后台化；划词改写仍可走完整质检——解开「质量与速度不可兼得」的根本矛盾 |
 | 🧠 | **越写越懂你** | 持续学习：从创作事件观察模式 → 提炼 instinct → 确认后晋升为可复用技能 |
 | 📝 | **PROBLEM 七元素** | 简单指令自动基于 Erik Bork 七元素增强为强力 Logline，驱动大纲与续写 |
 | 🌍 | **资产强关联** | 世界观 / 故事大纲 / 场景大纲 / 用户指令四位一体显式调和，剧情不跑偏 |
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.41.0 · Agency 唯一续写路径 + 幕前同章追加
+
+创世与幕前/幕后续写只走三角色（主创 / 管理 / 编辑审计）。幕前续写和文思活跃会把新内容**追加到当前章**，不再每次开新章；划词改写方式不变。续写会按「这一拍必须完成的任务」推进剧情，并写回出场人物、冲突与地点。设置里的分时/三击不再控制续写。
+
+测试：cargo test 1345 passed / 2 ignored（+17）；vitest 556 passed / 3 skipped。
 
 ### v0.38.1 · 修复续写伏笔账本多字节中文切片 panic（文思活跃模式）
 

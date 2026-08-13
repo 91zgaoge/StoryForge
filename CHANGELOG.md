@@ -2,6 +2,31 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.41.0（2026-08-13）
+
+创世与幕前/幕后续写只走 Agency 三角色（主创 / 管理 / 编辑审计）。幕前续写与文思活跃改为**同章追加**（`PersistMode::Append`），不再为每次续写新建 `scenes` 行；划词改写仍走 PlanExecutor Full/Fast。续写提示词改为 SceneBeatCard 双锚点硬任务；落库后写回出场名/冲突/地点；债务按拍计数。切断 TimeSliced / TriShot 续写路由。
+
+### 功能：Agency 唯一续写路径 + 同章追加
+
+- **PersistMode**：`Append { scene_id }` 把增量接到当前章；`NextChapter { chapter_number }` 仍用于幕后「续写一章」。Append 要求 `scene_id`；增量 ≥200 字符才落库，返回 `increment` 供幕前 `appendAiContent`。
+- **主创单次 complete() + 编辑后台质检**：LeadWriter 默认单次 `complete()`；Editor 走 `spawn_editor_qc` 后台；装配后立即 `finish_run`。熔断 ≥200 必写回 / <200 拒落库。
+- **SceneBeatCard（0 LLM，Rust 编译）**：把世界观/大纲/角色情感四元组/关系/伏笔编译成「这一拍必须完成的任务」，writer prompt 双锚点（末句承接 + 本拍任务）。
+- **WriteTimeBundle**：补齐角色情感四元组 + 关系；续写上下文经 Bundle 编译器注入。张力/弧线由 coordinator 在 `to_prompt()` 后拼接（Bundle 不依赖 agency）。
+- **按拍债务**：`asset_history_json` 记 `{assets, beats}`；`BeatCounters` 在 `creative_engine/expansion`（JSON 所有者），`persist.rs` 再导出，避免 `creative_engine → agency`。
+- **写回**：续写落库后更新 `characters_present` / `character_conflicts` / `setting_location` / 进度指针，避免债务恒为 0。
+- **切断旧路由**：`smart_execute` 续写 → Agency Append；PlanExecutor `execute_writer` 在 `is_continuation` / `is_new_novel` 时 Err。设置里 `generation_mode` 仅管改写（auto/fast/full）；`time_sliced` / `tri_shot` 从 UI 移除；`plan_mode` 标已废弃。
+- **改写路径不动**：划词 / `selected_text` 仍走 PlanExecutor Full/Fast，不走 Append。
+
+### 测试
+
+- `cargo test --lib`：**1345 passed / 2 ignored**（基线 1328，+17 契约测试）。
+- src-frontend `npx vitest run`：**556 passed / 3 skipped**（不变）。
+
+### 已知债务
+
+- `ContextPrioritizer` 分级排序未接到 Agency 热路径（本版以 BeatCard 双锚点为 Critical）。
+- `characters_present` 旧数据存在 id 与名字混杂。
+
 ## v0.40.0（2026-08-13）
 
 AI 原生组件库 P3（数据展示六件套）+ P4（收尾：清理与视觉修正、浅色页令牌化）——设计文档 P1-P4 四阶段全部收官，组件契约扩至 17 变量；纯前端，无后端改动。

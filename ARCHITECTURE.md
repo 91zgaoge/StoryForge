@@ -1,5 +1,6 @@
-# StoryMoss (草苔) v0.40.0 架构文档
+# StoryMoss (草苔) v0.41.0 架构文档
 
+> **v0.41.0**：创世与幕前/幕后续写只走 Agency 三角色。幕前续写/文思活跃为同章追加（`PersistMode::Append { scene_id }`，增量 ≥200 才落库，返回 `increment`）；幕后「续写一章」仍 `NextChapter`。LeadWriter 默认单次 `complete()`，Editor `spawn_editor_qc` 后台，装配后立即 `finish_run`。SceneBeatCard（0 LLM）把资产编译成本拍硬任务，writer 双锚点（末句 + 本拍任务）；Bundle 补情感四元组与关系；落库写回出场/冲突/地点；债务按拍计数（`BeatCounters` 在 expansion，避免 `creative_engine → agency`）。`smart_execute` 续写不再走 TimeSliced/TriShot；PlanExecutor `execute_writer` 遇 `is_continuation`/`is_new_novel` Err；划词改写仍 Full/Fast。`generation_mode` 仅管改写。验证：`cargo test --lib` 1345 passed / 2 ignored（+17）；`npx vitest run` 556 passed / 3 skipped。
 > **v0.40.0**：AI 原生组件库 P3（数据展示）+ P4（收尾），设计文档 P1-P4 四阶段全部收官。①P3：6 个数据展示组件（AiSearchList/AiCodeBlock/AiDiffTable/AiFilterTable/AiRecordsTable/AiInsightCards）适配为受控组件入库 `src-frontend/src/components/ui/ai/`，逐点替换幕后落点（PromptsPanel 搜索计数区与分组列表、UsageStats 分组筛选/最近调用表/统计卡、AgencyEval 检查点对比/双表/统计卡、Logs 级别筛选、TracingPanel/Mcp/Skills/IntentionGraphDiagnostics 裸 pre/JSON 块）；沿用 P1 令牌桥零扩令牌，liveline 以组件内嵌 SVG MiniLineChart 静态快照替代；「AiChat」经勘察关闭（ChatComposer 为 AiPromptBar 严格子集、无多轮对话场景）。②P4：删除 P1-P3 替换残留 TS 13 处与 frontstage 死 CSS 约 40 类、历史死件 8 件；新增第 17 个语义令牌 `--ai-on-accent`（替换四组件 text-white 直写），`/N` 透明度修饰符失效 13 处改 color-mix 内联；AgencyEval/AgencyStudio/AgencyLearning 浅色页令牌化（gray 映射固化为约定）。纯前端，无后端改动。验证：`cargo test --lib` 1328 passed / 2 ignored（不变）；`npx vitest run` 556 passed / 3 skipped（+33）。
 > **v0.39.0**：AI 原生组件库 P1+P2 共 10 组件 + 保存 UNIQUE 修复。①P1 生成体验五件套（AiLoading/AiThinking/AiStreamingText/AiPromptBar/AiApprovalCard）与 P2 代理与任务五件套（AiContextCards/AiToolChips/AiRecommendationCard/AiTaskRows/AiSelectionActions）适配为受控组件入库 `src-frontend/src/components/ui/ai/`，逐点接入幕后/幕前落点；全部组件只引用 `--ai-*` 语义令牌（幕后 tokens.css / 幕前 frontstage.css 各自定义），不引新依赖，纯前端无后端改动。②保存修复：幕前自动分章等场景持过期 `chapter.id` 作 sceneId，自愈补建逻辑盲目 INSERT 撞 `UNIQUE(story_id, sequence_number)`；改为章节已有关联 scene 时重定向 update、序号被占时取 MAX+1 补建（`scene_repository.rs::heal_missing_scene_in_tx`）。验证：`cargo test --lib` 1328 passed / 2 ignored（+2）；`npx vitest run` 523 passed / 3 skipped（+68）。
 > **v0.38.2**：代理工作室实时动态持久化 + 前端轮询。v0.38.0 将 agency 事件监听提升到常驻 `App.tsx` 顶层 + 全局 `agencyActivityStore`（Zustand，cap 200，无 persist），接线正确但用户仍看不到实时动态。根因：活动事件（`agency-agent-activity` / `agency-run-progress`）纯内存，macOS 隐藏 WKWebView 窗口事件送达不可靠，事件丢失即永久丢失。修复：①新增 `agency_activity_log` 表（V129 迁移），`emit_activity` / `emit_progress` 在 `app.emit()` 后 `tokio::task::spawn_blocking` fire-and-forget 写 DB（不阻塞创世流程，失败仅 `log::warn!`）；②新增 `agency_list_activities` Tauri 命令（`run_id` -> 按 `id ASC` 返回 `Vec<AgencyActivityLogEntry>`，limit 200）；③前端 `AgencyStudio.tsx` 新增 `useQuery(['agency-activities', runId], listActivities, { refetchInterval: 3000 })` 3s 轮询，DB 活动事件为主源，live store 事件补充轮询间隔内新事件（按业务键 `role|action|detail` / `phase|status|message` 去重）；④`App.tsx` 事件监听 + `agencyActivityStore` 保留不变（双保险）。验证：`cargo test --lib` 1326 passed / 2 ignored（+1）；`npx vitest run` 455 passed / 3 skipped。
@@ -811,11 +812,11 @@ pub struct ReadingPowerEvaluation {
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**GenerationMode 三值**：
+**GenerationMode 三值**（v0.41.0 起仅约束**改写**路径；幕前续写固定 Agency Append，不再读 TimeSliced/TriShot）：
 
 - `Fast`：Ghost Text 等实时补全（原有，不变）
-- `TimeSliced`：**默认**，走三时间线（普通生成/auto_write/auto_revise）
-- `Full`：同步审计+Rewrite 闭环（向导/Genesis/Planner/Workflow）
+- `TimeSliced`：历史默认三时间线；**续写已切断**（`execute_time_sliced` 不再是续写入口），设置 UI 已移除该选项
+- `Full`：同步审计+Rewrite 闭环（划词改写 / Planner / Workflow）
 
 **Phase 0 实测验证**（qwen3.6-35b，3 场景 A/B 盲测）：
 

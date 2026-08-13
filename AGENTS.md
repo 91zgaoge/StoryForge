@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.40.0
+- **版本**: v0.41.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -96,7 +96,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1328 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1345 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 556 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -106,6 +106,16 @@ type:
 - `python3 scripts/architecture_guard.py` ⚠️ V127 chapter_splitter 层违例（既有，非本版引入）
 
 ## 最近完成的功能
+
+### v0.41.0 - Agency 唯一续写路径 + 幕前同章追加
+
+创世与幕前/幕后续写只走 Agency 三角色；幕前续写/文思活跃为同章追加（`PersistMode::Append`），划词改写仍走 PlanExecutor。SceneBeatCard 把资产编译成这一拍的硬任务；落库写回出场/冲突/地点；债务按拍计数。切断 TimeSliced/TriShot 续写路由。
+
+- **PersistMode**：Append 接到当前章（需 `scene_id`，增量 ≥200 才落库，返回 `increment`）；幕后「续写一章」仍 NextChapter。LeadWriter 默认单次 `complete()`，Editor `spawn_editor_qc` 后台，装配后立即 `finish_run`。
+- **资产强关联**：Bundle 情感四元组+关系；SceneBeatCard 0 LLM Rust 编译；双锚点 writer prompt；写回 `characters_present` / `character_conflicts` / `setting_location`；`BeatCounters` 在 expansion 层（避免 `creative_engine → agency`）。
+- **切断旧路由**：`smart_execute` 续写 → Agency Append；`execute_writer` 遇续写/创世 Err；设置 `generation_mode` 仅管改写（auto/fast/full），UI 去掉 time_sliced/tri_shot。
+- **验证**：`cargo test --lib` 1345 passed / 2 ignored（+17）；`npx vitest run` 556 passed / 3 skipped（不变）；`tsc` / `format:check` / `architecture_guard.py` 全绿。
+- **已知债务**：ContextPrioritizer 未接 Agency 热路径；`characters_present` id/名字混杂旧数据。
 
 ### v0.40.0 - AI 原生组件库 P3（数据展示六件套）+ P4（项目收尾）
 
@@ -860,7 +870,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-07-31 - v0.30.48_
+_最后更新: 2026-08-13 - v0.41.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.40.0 项目完成状态
+# StoryMoss (草苔) v0.41.0 项目完成状态
 
-> 最后更新: 2026-08-13（v0.40.0 AI 原生组件库 P3 数据展示六件套 + P4 项目收尾）
+> 最后更新: 2026-08-13（v0.41.0 Agency 唯一续写路径 + 幕前同章追加）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.41.0 - Agency 唯一续写路径 + 幕前同章追加（2026-08-13）
+
+- **唯一路径**：创世/幕前/幕后续写只走 Agency 三角色；幕前续写与文思活跃同章 Append（不再新建 `scenes` 行）；划词改写仍走 PlanExecutor Full/Fast。
+- **硬任务**：SceneBeatCard（0 LLM）编译本拍必须完成的任务；Bundle 补情感四元组与关系；落库写回出场名/冲突/地点；债务按拍计数。
+- **切断**：TimeSliced/TriShot 不再路由续写；设置 `generation_mode` 仅管改写；熔断 ≥200 必写回 / <200 拒落库。
+- **验证**：`cargo test --lib` 1345 passed / 2 ignored（+17）；`npx vitest run` 556 passed / 3 skipped。
+- **已知债务**：ContextPrioritizer 未接 Agency 热路径；`characters_present` id/名字混杂。
 
 ### v0.40.0 - AI 原生组件库 P3（数据展示六件套）+ P4（项目收尾）（2026-08-13）
 
