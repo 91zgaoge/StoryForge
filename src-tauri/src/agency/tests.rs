@@ -1093,18 +1093,11 @@ async fn test_continue_chapter_end_to_end() {
         .unwrap();
 
     let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
-    let write2 = format!(
-        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第2章","content":"{}","summary":"星舰苏醒"}}}}"#,
-        chapter2
-    );
     let llm = MockLlm::scripted(vec![
-        // v0.30.21: generate_chapter_outline（Producer 单调用，返回章节大纲正文）
+        // generate_chapter_outline（Producer 单调用）
         "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
-        // writer: 查前文 + 写第 2 章（约定 key 为阿拉伯数字形式，与 write_chapter 一致）
-        write2.as_str(),
-        r#"{"type":"final","content":"第二章完成"}"#,
-        // editor: pass
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        // write_beat_once 单次 complete：直接散文正文
+        chapter2.as_str(),
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
@@ -1182,13 +1175,10 @@ async fn test_continue_writer_prose_fallback() {
 
     let chapter2 = pass_grade_content("第二章正文：星舰苏醒。");
     let llm = MockLlm::scripted(vec![
-        // v0.30.21: generate_chapter_outline（Producer 单调用）
+        // generate_chapter_outline（Producer 单调用）
         "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
-        "不是 JSON",       // writer parse fail #1
-        "还不是 JSON",     // writer parse fail #2
-        "依然不是 JSON",   // writer parse fail #3 -> 熔断
+        "短",              // write_beat_once 过短
         chapter2.as_str(), // writer_prose_fallback 散文
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"合格\"}"}"#, /* editor pass */
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
@@ -2196,16 +2186,11 @@ async fn test_gate_record_keys_have_round_suffix() {
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"过\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
-    let result = coordinator
-        .run_continue(
-            "rg-2",
-            &story_id,
-            PersistMode::NextChapter { chapter_number: 1 },
-            "",
-            None,
-        )
+    let batch = coordinator
+        .run_continue_batch("rg-2", &story_id, 1, 1)
         .await
         .unwrap();
+    let result = &batch.chapters[0];
     assert!(result.revised);
     let board = crate::agency::board::BlackboardService::new(pool.clone());
     let snap = board.snapshot("rg-2").unwrap();
@@ -2267,16 +2252,11 @@ async fn test_gate_v2_low_weighted_triggers_revision() {
         r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
-    let result = coordinator
-        .run_continue(
-            "gv2-1",
-            &story_id,
-            PersistMode::NextChapter { chapter_number: 1 },
-            "",
-            None,
-        )
+    let batch = coordinator
+        .run_continue_batch("gv2-1", &story_id, 1, 1)
         .await
         .unwrap();
+    let result = &batch.chapters[0];
     assert!(
         result.revised,
         "低 rubric 分应触发修订: {:?}",
@@ -2401,22 +2381,16 @@ async fn test_checkpoints_written_at_milestones() {
     assert!(m["tokens_used"].as_u64().is_some());
     assert!(m["elapsed_s"].as_i64().is_some());
     // v0.30.35：editor 质检后台化，genesis 前台不再产出 gate_scores
-    //（后台 spawn_editor_qc 在测试环境 no-op）。续写仍前台质检，下方校验。
+    //（后台 spawn_editor_qc 在测试环境 no-op）。单章续写同模式。
     let gates = m["gate_scores"].as_array().unwrap();
     assert!(gates.is_empty(), "genesis 前台无 gate_scores: {:?}", gates);
 
-    // 单章续写：assets → chapter（章号 + weighted）→ run_final
+    // 单章续写：assets → chapter → run_final（质检后台化，chapter 无 gate_scores）
     let story_id = seed_story_with_assets(&pool);
-    let write1 = format!(
-        r#"{{"type":"tool","name":"board_write","args":{{"zone":"draft","item_type":"chapter","key":"第1章","content":"{}","summary":"一"}}}}"#,
-        pass_grade_content("第1章正文。")
-    );
+    let chapter1 = pass_grade_content("第1章正文。");
     let llm = MockLlm::scripted(vec![
-        // v0.30.21: generate_chapter_outline（Producer 单调用）
         "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
-        write1.as_str(),
-        r#"{"type":"final","content":"完成"}"#,
-        r#"{"type":"final","content":"{\"verdict\":\"pass\",\"score\":4.5,\"blocking_issues\":[],\"suggestions\":[],\"comments\":\"好\"}"}"#,
+        chapter1.as_str(),
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     coordinator
@@ -2437,10 +2411,11 @@ async fn test_checkpoints_written_at_milestones() {
     let m: serde_json::Value = serde_json::from_str(&ch.metrics_json).unwrap();
     assert_eq!(m["chapters_done"].as_i64(), Some(1));
     let gates = m["gate_scores"].as_array().unwrap();
-    assert_eq!(gates.len(), 1);
-    assert_eq!(gates[0]["chapter"].as_i64(), Some(1));
-    let weighted = gates[0]["weighted"].as_f64().unwrap();
-    assert!(weighted > 0.75, "本章 weighted 应过阈值: {}", weighted);
+    assert!(
+        gates.is_empty(),
+        "续写质检后台化，chapter 检查点无 gate_scores: {:?}",
+        gates
+    );
 }
 
 /// 资产回流（Task 2）：handle_gate 装配落库后触发后台 spawn_asset_ingest；
@@ -3310,13 +3285,7 @@ async fn test_handle_gate_editor_failure_drops_short_draft() {
     assert!(short.chars().count() < 600, "前置：草稿须低于 salvage 阈值");
     let coordinator = AgencyCoordinator::for_test(pool.clone(), editor_total_failure_script(short));
     let err = coordinator
-        .run_continue(
-            "rc-c1-drop",
-            &story_id,
-            PersistMode::NextChapter { chapter_number: 2 },
-            "",
-            None,
-        )
+        .run_continue_batch("rc-c1-drop", &story_id, 2, 1)
         .await
         .expect_err("editor 完全失败且草稿过短，应丢稿报错");
     assert!(

@@ -31,8 +31,9 @@
     "producer": []
   },
   "expect": {
-    "flow": "continue",
+    "flow": "batch",
     "chapter": 1,
+    "count": 1,
     "revised": true,
     "run_status": "completed",
     "gate_outcomes": [

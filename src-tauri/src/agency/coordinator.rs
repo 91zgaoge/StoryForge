@@ -2925,17 +2925,15 @@ impl AgencyCoordinator {
             "start",
             &format!("第{}章", chapter_number),
         );
-        let board = self.board();
-        let registry = Arc::new(ToolRegistry::agency_default());
+        let generate_outline = matches!(persist, PersistMode::NextChapter { .. });
         let draft = self
-            .write_chapter(
+            .write_beat_once(
                 budget,
-                &board,
-                &registry,
                 run_id,
                 story_id,
                 &premise,
                 chapter_number,
+                generate_outline,
             )
             .await?;
         self.emit_activity(
@@ -2995,41 +2993,30 @@ impl AgencyCoordinator {
             });
         }
 
-        // 3) 质量门 + 至多 1 轮修订 + 装配（与 genesis 同门径）
-        self.update_phase(repo, run_id, "review").await?;
-        self.emit_progress(run_id, "review", "running", "质量门评估中");
-        self.emit_activity(
-            run_id,
-            AgentRole::EditorAuditor,
-            "start",
-            &format!("审查第{}章", chapter_number),
-        );
-        let outcome = self
-            .evaluate_gate(
-                budget, &board, &registry, run_id, story_id, &premise, &draft, 1,
+        // NextChapter：create+update 装配后立刻返回 pending，质检后台化
+        // （与创世 assemble_only + spawn_editor_qc 同模式）。批量续写仍走
+        // handle_gate 同步门。
+        let PersistMode::NextChapter { chapter_number } = persist else {
+            return Err(AppError::from("run_continue_inner 未知 PersistMode"));
+        };
+        let board = self.board();
+        let result = self
+            .assemble_next_chapter(
+                budget,
+                &board,
+                repo,
+                run_id,
+                story_id,
+                chapter_number,
+                draft.clone(),
             )
             .await?;
-        self.emit_activity(
-            run_id,
-            AgentRole::EditorAuditor,
-            "done",
-            &format!("审查第{}章", chapter_number),
-        );
-        self.handle_gate(
-            budget,
-            &board,
-            &registry,
-            repo,
-            run_id,
-            story_id,
-            &premise,
-            chapter_number,
-            draft,
-            false,
-            outcome,
-            cancel,
-        )
-        .await
+        self.spawn_editor_qc(run_id, story_id, &premise, &draft);
+        Ok(AgencyContinueResult {
+            verdict: EditorVerdict::pending(),
+            revised: false,
+            ..result
+        })
     }
 
     /// 资产确认/补齐（Task 4 run_continue_inner 第 1 步提取）：
@@ -3683,9 +3670,124 @@ impl AgencyCoordinator {
         text
     }
 
+    /// 续写主创单次 `complete()`：资产上下文已注入，不再默认 tool_loop。
+    /// 产出 ≥200 字即写入黑板；过短则散文回退；仍失败才走 `write_chapter`
+    /// tool_loop（设计 §4 最后手段）。
+    async fn write_beat_once(
+        &self,
+        budget: &Arc<AgencyBudget>,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        chapter_number: i32,
+        generate_outline: bool,
+    ) -> Result<BoardItem, AppError> {
+        let key = format!("第{}章", chapter_number);
+        let assets_ctx = self.build_continue_writer_context(story_id).await;
+        let chapter_outline = if generate_outline {
+            self.generate_chapter_outline(
+                run_id,
+                story_id,
+                premise,
+                budget,
+                chapter_number,
+                &assets_ctx,
+            )
+            .await
+        } else {
+            String::new()
+        };
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
+            budget.clone(),
+            AgentRole::LeadWriter,
+        );
+        let outline_block = if chapter_outline.is_empty() {
+            String::new()
+        } else {
+            format!("【本章大纲（必须遵循的章节方向）】\n{chapter_outline}\n\n")
+        };
+        let user = format!(
+            "故事前提：{premise}\n\n{outline_block}创作资产：\n{assets_ctx}\n\n\
+             写作要求：章节正文，1500-2500 字，只输出正文，不写标题。\
+             必须推进剧情到下一节点，不得原地踏步。禁止重复：同一段落/句子不得出现两次。"
+        );
+        let text = match llm
+            .complete(
+                "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。",
+                &user,
+                TaskType::CreativeWriting,
+                8192,
+            )
+            .await
+        {
+            Ok(t) => t.trim().to_string(),
+            Err(e) => {
+                log::warn!(
+                    "agency: write_beat_once complete 失败 run={} err={}",
+                    run_id,
+                    e
+                );
+                String::new()
+            }
+        };
+        if text.chars().count() >= 200 {
+            let summary: String = text.chars().take(60).collect();
+            let board = self.board();
+            let rid = run_id.to_string();
+            let sid = story_id.to_string();
+            let ckey = key.clone();
+            return self
+                .db(move || {
+                    board.write(
+                        &rid,
+                        &sid,
+                        AgentRole::LeadWriter,
+                        BoardZone::Draft,
+                        "chapter",
+                        &ckey,
+                        &text,
+                        &summary,
+                    )
+                })
+                .await;
+        }
+        log::warn!(
+            "agency: write_beat_once 过短（{} 字符），尝试散文回退 run={}",
+            text.chars().count(),
+            run_id
+        );
+        match self
+            .writer_prose_fallback(run_id, story_id, premise, budget, &key)
+            .await
+        {
+            Ok(d) => Ok(d),
+            Err(e) => {
+                log::warn!(
+                    "agency: 散文回退失败（{}），最后手段 tool_loop write_chapter run={}",
+                    e,
+                    run_id
+                );
+                let board = self.board();
+                let registry = Arc::new(ToolRegistry::agency_default());
+                self.write_chapter(
+                    budget,
+                    &board,
+                    &registry,
+                    run_id,
+                    story_id,
+                    premise,
+                    chapter_number,
+                )
+                .await
+            }
+        }
+    }
+
     /// 写一章草稿（Task 4 run_continue_inner 第 2 步提取）：返回最新有效 draft
-    /// 条目。
-    async fn write_chapter(
+    /// 条目。tool_loop 路径，仅作 `write_beat_once` 失败后的最后手段，以及
+    /// 批量续写 `run_continue_batch`。
+    pub(crate) async fn write_chapter(
         &self,
         budget: &Arc<AgencyBudget>,
         board: &BlackboardService,
@@ -3887,10 +3989,27 @@ impl AgencyCoordinator {
                 }
             }
         };
-        // 装配：草稿 → Scene 真源
+        let mut assembled = self
+            .assemble_next_chapter(budget, board, repo, run_id, story_id, chapter_number, draft)
+            .await?;
+        assembled.revised = revised;
+        assembled.verdict = final_verdict;
+        Ok(assembled)
+    }
+
+    /// NextChapter 装配：create+update 单事务写入新 scenes 行。不含质检。
+    async fn assemble_next_chapter(
+        &self,
+        budget: &Arc<AgencyBudget>,
+        board: &BlackboardService,
+        repo: &AgencyRepository,
+        run_id: &str,
+        story_id: &str,
+        chapter_number: i32,
+        draft: BoardItem,
+    ) -> Result<AgencyContinueResult, AppError> {
         self.update_phase(repo, run_id, "assembly").await?;
         self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
-        // v0.30.21: 读取本章大纲（write_chapter 的 generate_chapter_outline 写入黑板）
         let outline_key = format!("outline-第{}章", chapter_number);
         let board_c = board.clone();
         let rid = run_id.to_string();
@@ -3908,21 +4027,17 @@ impl AgencyCoordinator {
             .unwrap_or(None);
         let pool = self.pool.clone();
         let sid = story_id.to_string();
-        // v0.30.30：落库前抗重复清理抽为共享 helper（与创世装配同源）。
         let content = self
             .cleanup_prose_for_persist(&draft.content, story_id)
             .await;
-        // v0.30.46 fix: 装配前校验正文非空，避免空内容落库。
         if content.trim().is_empty() {
             return Err(AppError::from(format!(
                 "第{}章装配内容为空（cleanup 后正文为空），拒绝落库",
                 chapter_number
             )));
         }
-        // 资产回流用副本（content 随后 move 进落库闭包）
         let ingest_text = content.clone();
         let title_c = format!("第{}章", chapter_number);
-        // v0.30.46 fix: create 与 update 合成单事务，避免 update 失败残留空场景。
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = crate::db::repositories::SceneRepository::new(pool.clone());
             let mut conn = pool
@@ -3937,7 +4052,7 @@ impl AgencyCoordinator {
                 &scene.id,
                 &crate::db::repositories::SceneUpdate {
                     content: Some(content),
-                    outline_content, // v0.30.21: 存储章节大纲
+                    outline_content,
                     ..Default::default()
                 },
             )
@@ -3948,11 +4063,7 @@ impl AgencyCoordinator {
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
         self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
-        // 资产回流（best-effort 后台）：对已落库正文跑 IngestPipeline 提取资产，
-        // 桥接生产资产表 + KG 持久化。测试环境 no-op，失败不影响主流程。
-        // 串行 run_continue_inner 与批量 run_batch_inner 均经本 handle_gate，单点覆盖。
         self.spawn_asset_ingest(run_id, story_id, &scene.id, &ingest_text);
-        // chapter 里程碑检查点（best-effort；gate_scores 含本章末轮 weighted）
         self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
             .await;
         Ok(AgencyContinueResult {
@@ -3960,9 +4071,9 @@ impl AgencyCoordinator {
             story_id: story_id.to_string(),
             scene_id: scene.id,
             chapter_number,
-            increment: String::new(), // NextChapter：整章新场景，无幕前增量概念
-            revised,
-            verdict: final_verdict,
+            increment: String::new(),
+            revised: false,
+            verdict: EditorVerdict::pending(),
         })
     }
 
