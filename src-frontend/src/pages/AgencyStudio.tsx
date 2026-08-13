@@ -133,7 +133,7 @@ export default function AgencyStudio() {
   });
   const dbLogs = activitiesQuery.data ?? [];
 
-  if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
+  if (!currentStory) return <p className="p-6 text-ai-ink-3">请先选择一个故事</p>;
 
   // 查询失败时给出可见错误（此前 react-query 静默重试后失败，卡片恒为 "-"，
   // 用户无法区分"无数据"与"出错"）。
@@ -280,7 +280,7 @@ export default function AgencyStudio() {
         <div className="flex items-center gap-2">
           {runs && runs.length > 0 ? (
             <select
-              className="rounded border bg-white px-2 py-1 text-xs text-gray-600"
+              className="rounded border border-ai-line bg-ai-field px-2 py-1 text-xs text-ai-ink"
               value={activeRunId ?? ''}
               onChange={e => setActiveRunId(e.target.value)}
             >
@@ -292,7 +292,7 @@ export default function AgencyStudio() {
               ))}
             </select>
           ) : (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-ai-ink-3">
               {runsQuery.isLoading
                 ? '加载中…'
                 : activeRunId
@@ -304,7 +304,10 @@ export default function AgencyStudio() {
       </div>
 
       {queryError && (
-        <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+        <p
+          className="rounded border border-ai-line p-3 text-sm text-ai-red"
+          style={{ background: 'color-mix(in srgb, var(--ai-red) 12%, transparent)' }}
+        >
           代理状态获取失败：
           {queryError instanceof Error ? queryError.message : String(queryError)}
           （每 10 秒自动重试）
@@ -313,16 +316,16 @@ export default function AgencyStudio() {
 
       <section className="grid grid-cols-3 gap-4">
         {ROLES.map(r => (
-          <div key={r.key} className="rounded border p-4">
+          <div key={r.key} className="rounded border border-ai-line bg-ai-surface p-4">
             <div className="font-medium">{r.name}</div>
-            <div className="mt-2 text-sm text-gray-600">最近动作：{lastAction(r.key)}</div>
-            <div className="mt-1 text-sm text-gray-600">run 状态：{runStatus}</div>
+            <div className="mt-2 text-sm text-ai-ink-2">最近动作：{lastAction(r.key)}</div>
+            <div className="mt-1 text-sm text-ai-ink-2">run 状态：{runStatus}</div>
           </div>
         ))}
       </section>
 
       {!activeRunId && (
-        <p className="rounded border border-dashed p-4 text-sm text-gray-500">
+        <p className="rounded border border-dashed p-4 text-sm text-ai-ink-3">
           暂无活动--启动创世或续写后，这里会实时显示代理动态。
         </p>
       )}
@@ -332,11 +335,11 @@ export default function AgencyStudio() {
           <h2 className="mb-2 font-medium">黑板</h2>
           <div className="grid grid-cols-4 gap-3">
             {ZONES.map(z => (
-              <div key={z.key} className="rounded border p-3">
+              <div key={z.key} className="rounded border border-ai-line bg-ai-surface p-3">
                 {byZone(z.key).length === 0 ? (
                   <>
-                    <div className="mb-2 text-sm font-medium text-gray-500">{z.name}</div>
-                    <p className="text-xs text-gray-400">（空）</p>
+                    <div className="mb-2 text-sm font-medium text-ai-ink-3">{z.name}</div>
+                    <p className="text-xs text-ai-ink-3">（空）</p>
                   </>
                 ) : (
                   <AiContextCards
@@ -374,12 +377,12 @@ export default function AgencyStudio() {
           </div>
         )}
         {timeline.length === 0 ? (
-          <p className="text-sm text-gray-400">暂无记录</p>
+          <p className="text-sm text-ai-ink-3">暂无记录</p>
         ) : (
           <div className="space-y-1 text-sm">
             {timeline.map((t, idx) => (
               <div key={idx} className="flex gap-2">
-                <span className="text-gray-400">[{hhmmss(t.at)}]</span>
+                <span className="text-ai-ink-3">[{hhmmss(t.at)}]</span>
                 <span>{t.text}</span>
               </div>
             ))}
