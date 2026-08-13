@@ -20,6 +20,7 @@ import {
   Pause,
   Copy,
 } from 'lucide-react';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { toast } from 'react-hot-toast';
 import { useAppStore } from '@/stores/appStore';
 
@@ -243,9 +244,7 @@ export function Logs() {
               ) : systemLogs.isLoading ? (
                 <div className="text-cinema-400 text-sm">加载中...</div>
               ) : (
-                <pre className="text-xs font-mono text-cinema-300 whitespace-pre-wrap break-all leading-relaxed">
-                  {systemLogs.data || '暂无系统日志'}
-                </pre>
+                <AiCodeBlock code={systemLogs.data || '暂无系统日志'} copyable={false} />
               )}
             </div>
           )}
@@ -311,9 +310,7 @@ function LogRow({
       {/* Details (expandable) */}
       {expanded && hasDetails && (
         <div className="mt-1.5 ml-8">
-          <pre className="text-xs font-mono text-cinema-400 bg-cinema-900/50 rounded p-2 overflow-x-auto">
-            {JSON.stringify(entry.details, null, 2)}
-          </pre>
+          <AiCodeBlock code={JSON.stringify(entry.details, null, 2)} language="JSON" />
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@ import { loggedInvoke } from '@/services/tauri';
 import { createLogger } from '@/utils/logger';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { BrainCircuit, Activity, Network, ArrowRight, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -309,30 +310,34 @@ export function IntentionGraphDiagnostics() {
                 {selectedGraph.plan_json && (
                   <div className="border-t border-cinema-800 pt-4">
                     <p className="text-sm text-gray-500 mb-2">执行计划</p>
-                    <pre className="text-xs text-gray-300 bg-cinema-900/50 p-3 rounded-lg overflow-auto max-h-48">
-                      {(() => {
+                    <AiCodeBlock
+                      language="JSON"
+                      maxHeight={192}
+                      code={(() => {
                         try {
                           return JSON.stringify(JSON.parse(selectedGraph.plan_json!), null, 2);
                         } catch {
-                          return selectedGraph.plan_json;
+                          return selectedGraph.plan_json!;
                         }
                       })()}
-                    </pre>
+                    />
                   </div>
                 )}
 
                 {selectedGraph.result_json && (
                   <div className="border-t border-cinema-800 pt-4">
                     <p className="text-sm text-gray-500 mb-2">执行结果</p>
-                    <pre className="text-xs text-gray-300 bg-cinema-900/50 p-3 rounded-lg overflow-auto max-h-48">
-                      {(() => {
+                    <AiCodeBlock
+                      language="JSON"
+                      maxHeight={192}
+                      code={(() => {
                         try {
                           return JSON.stringify(JSON.parse(selectedGraph.result_json!), null, 2);
                         } catch {
-                          return selectedGraph.result_json;
+                          return selectedGraph.result_json!;
                         }
                       })()}
-                    </pre>
+                    />
                   </div>
                 )}
               </div>

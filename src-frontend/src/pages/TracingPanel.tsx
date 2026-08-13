@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { createLogger } from '@/utils/logger';
 import {
   listRecentGenerationTraces,
@@ -138,9 +139,12 @@ function TraceStepItem({ step }: { step: TraceStep }) {
           <p className="mt-2 text-xs text-red-400 bg-red-400/10 rounded-lg p-2">{step.error}</p>
         )}
         {!!step.details && (
-          <pre className="mt-2 text-xs text-gray-500 bg-cinema-950 rounded-lg p-2 overflow-auto max-h-48">
-            {JSON.stringify(step.details, null, 2)}
-          </pre>
+          <AiCodeBlock
+            className="mt-2"
+            code={JSON.stringify(step.details, null, 2)}
+            language="JSON"
+            maxHeight={192}
+          />
         )}
       </div>
     </div>

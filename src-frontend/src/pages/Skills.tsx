@@ -16,6 +16,7 @@ import {
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { extractMessage } from '@/utils/errorHandler';
 import {
   getSkills,
@@ -268,9 +269,11 @@ export function Skills() {
               关闭
             </button>
           </div>
-          <pre className="text-xs text-gray-300 bg-cinema-900/80 rounded p-3 overflow-auto max-h-48">
-            {JSON.stringify(executionResult.result, null, 2)}
-          </pre>
+          <AiCodeBlock
+            code={JSON.stringify(executionResult.result, null, 2)}
+            language="JSON"
+            maxHeight={192}
+          />
         </div>
       )}
 

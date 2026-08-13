@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plug, Plus, TestTube, Play, Wrench, Server, Unplug, Globe } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { useMcpTools, type McpTool } from '@/hooks/useMcpTools';
 
 export function Mcp() {
@@ -273,12 +274,13 @@ export function Mcp() {
                 </Button>
 
                 {toolResult !== null && (
-                  <div className="mt-4">
-                    <label className="block text-sm text-gray-400 mb-2">结果:</label>
-                    <pre className="bg-cinema-900 p-3 rounded-lg text-xs text-gray-300 overflow-auto max-h-60">
-                      {JSON.stringify(toolResult, null, 2)}
-                    </pre>
-                  </div>
+                  <AiCodeBlock
+                    className="mt-4"
+                    code={JSON.stringify(toolResult, null, 2)}
+                    title="结果"
+                    language="JSON"
+                    maxHeight={240}
+                  />
                 )}
               </CardContent>
             </Card>

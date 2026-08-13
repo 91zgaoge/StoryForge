@@ -19,6 +19,7 @@ import { extractMessage } from '@/utils/errorHandler';
 import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
 import { AiSearchList } from '@/components/ui/ai/AiSearchList';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import toast from 'react-hot-toast';
 
 const VAR_TAG_OPEN = '{' + '{';
@@ -697,14 +698,11 @@ export function PromptsPanel() {
                           )}
 
                           {entry.is_overridden && (
-                            <div className="space-y-1">
-                              <div className="text-xs text-gray-500 font-medium">
-                                内置默认值（只读）：
-                              </div>
-                              <div className="w-full px-3 py-2 bg-cinema-950 border border-cinema-800 rounded text-sm text-gray-400 font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
-                                {entry.default_content}
-                              </div>
-                            </div>
+                            <AiCodeBlock
+                              code={entry.default_content}
+                              title="内置默认值（只读）"
+                              maxHeight={128}
+                            />
                           )}
 
                           {/* v0.26.38: 原生 textarea，避免 Monaco CDN 被 CSP 拦截导致永久 Loading */}
