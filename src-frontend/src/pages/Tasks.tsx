@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { loggedInvoke } from '@/services/tauri';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiRecommendationCard } from '@/components/ui/ai/AiRecommendationCard';
 import { AiTaskRows, type AiTaskRowItem } from '@/components/ui/ai/AiTaskRows';
@@ -388,18 +389,18 @@ function TaskDetail({ task }: { task: Task }) {
               return null;
             }
           })()}
-          <div className="max-h-40 overflow-y-auto p-2 bg-cinema-900 rounded border border-cinema-700">
-            <pre className="text-[10px] text-gray-400 whitespace-pre-wrap break-all">
-              {(() => {
-                try {
-                  const parsed = JSON.parse(task.result);
-                  return JSON.stringify(parsed, null, 2);
-                } catch {
-                  return task.result;
-                }
-              })()}
-            </pre>
-          </div>
+          <AiCodeBlock
+            code={(() => {
+              try {
+                const parsed = JSON.parse(task.result);
+                return JSON.stringify(parsed, null, 2);
+              } catch {
+                return task.result;
+              }
+            })()}
+            language="json"
+            maxHeight={160}
+          />
         </div>
       )}
 
