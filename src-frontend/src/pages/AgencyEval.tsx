@@ -49,7 +49,7 @@ function metricWeighted(m: Record<string, unknown> | null): number | null {
 
 function GateTrendChart({ data }: { data: GateHistoryItem[] }) {
   const points = data.filter(d => d.weighted != null);
-  if (points.length === 0) return <p className="text-sm text-gray-500">暂无评分数据</p>;
+  if (points.length === 0) return <p className="text-sm text-ai-ink-3">暂无评分数据</p>;
   const w = 560;
   const h = 160;
   const pad = 28;
@@ -61,18 +61,31 @@ function GateTrendChart({ data }: { data: GateHistoryItem[] }) {
     .join(' ');
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full max-w-2xl">
-      <line x1={pad} y1={y(0.75)} x2={w - pad} y2={y(0.75)} stroke="#f59e0b" strokeDasharray="4" />
-      <text x={w - pad + 2} y={y(0.75)} fontSize="10" fill="#f59e0b">
+      <line
+        x1={pad}
+        y1={y(0.75)}
+        x2={w - pad}
+        y2={y(0.75)}
+        stroke="var(--ai-orange)"
+        strokeDasharray="4"
+      />
+      <text x={w - pad + 2} y={y(0.75)} fontSize="10" fill="var(--ai-orange)">
         0.75
       </text>
-      <path d={pathD} fill="none" stroke="#6366f1" strokeWidth="2" />
+      <path d={pathD} fill="none" stroke="var(--ai-accent)" strokeWidth="2" />
       {points.map((p, i) => (
         <circle
           key={i}
           cx={x(i)}
           cy={y(p.weighted!)}
           r="3"
-          fill={p.outcome === 'pass' ? '#22c55e' : p.outcome === 'revise' ? '#f59e0b' : '#ef4444'}
+          fill={
+            p.outcome === 'pass'
+              ? 'var(--ai-green)'
+              : p.outcome === 'revise'
+                ? 'var(--ai-orange)'
+                : 'var(--ai-red)'
+          }
         />
       ))}
     </svg>
@@ -100,7 +113,7 @@ function CheckpointCompare({ storyId }: { storyId: string }) {
         <select
           value={a}
           onChange={e => setA(e.target.value)}
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border border-ai-line bg-ai-field px-2 py-1 text-sm text-ai-ink"
         >
           <option value="">基准…</option>
           {checkpoints.map(c => (
@@ -114,7 +127,7 @@ function CheckpointCompare({ storyId }: { storyId: string }) {
         <select
           value={b}
           onChange={e => setB(e.target.value)}
-          className="rounded border px-2 py-1 text-sm"
+          className="rounded border border-ai-line bg-ai-field px-2 py-1 text-sm text-ai-ink"
         >
           <option value="">对比…</option>
           {checkpoints.map(c => (
@@ -204,7 +217,7 @@ export default function AgencyEval() {
     });
   }, [data?.token_usage, usageSort]);
 
-  if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
+  if (!currentStory) return <p className="p-6 text-ai-ink-3">请先选择一个故事</p>;
   if (isLoading) return <p className="p-6">加载评估数据…</p>;
   if (error) return <p className="p-6 text-red-500">加载失败：{String(error)}</p>;
   if (!data) return null;
@@ -297,7 +310,7 @@ export default function AgencyEval() {
 
       <section>
         <h2 className="mb-2 font-medium">Agency token 用量（按角色，全局）</h2>
-        <p className="mb-1 text-sm text-gray-500">
+        <p className="mb-1 text-sm text-ai-ink-3">
           本故事累计（检查点）：{data.story_tokens.total_tokens} tokens /{' '}
           {data.story_tokens.run_count} runs
         </p>
