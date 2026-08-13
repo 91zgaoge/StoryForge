@@ -1113,6 +1113,10 @@ async fn test_continue_chapter_end_to_end() {
         .await
         .unwrap();
     assert_eq!(result.chapter_number, 2);
+    // Task 3 契约：NextChapter 装配后立刻返回，编辑质检后台化，
+    // 前台裁决恒为 pending（不再同步等 evaluate_gate）
+    assert_eq!(result.verdict.verdict, "pending");
+    assert!(!result.revised, "单次 complete 路径不跑修订轮");
     let scene = crate::db::repositories::SceneRepository::new(pool.clone())
         .get_by_id(&result.scene_id)
         .unwrap()
@@ -1193,6 +1197,9 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
         .unwrap();
     assert_eq!(r1.scene_id, ch1.id);
     assert!(r1.increment.chars().count() >= 200);
+    // Task 3 契约：Append 装配后立刻返回，编辑质检后台 spawn，
+    // 前台裁决恒为 pending
+    assert_eq!(r1.verdict.verdict, "pending");
     let scenes = scene_repo.get_by_story(&story.id).unwrap();
     assert_eq!(scenes.len(), 1, "Append 不得新建 scenes 行");
     let run1 = AgencyRepository::new(pool.clone())
