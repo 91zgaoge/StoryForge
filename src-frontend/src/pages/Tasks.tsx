@@ -1,6 +1,5 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { loggedInvoke } from '@/services/tauri';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
@@ -18,8 +17,6 @@ import {
   useApplyCascadeRewrite,
   useRejectCascadeRewrite,
   type Task,
-  type TaskLog,
-  type RewriteSegment,
 } from '@/hooks/useTasks';
 import toast from 'react-hot-toast';
 

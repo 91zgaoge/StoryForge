@@ -967,83 +967,6 @@ body {
   overflow: hidden;
 }
 
-/* ===== Chat Toolbar - 对话栏样式（v2 重构版） ===== */
-.chat-toolbar {
-  z-index: 50;
-}
-
-/* 对话历史 */
-.chat-history {
-  scrollbar-width: thin;
-  scrollbar-color: var(--terracotta) transparent;
-}
-
-.chat-history::-webkit-scrollbar {
-  width: 4px;
-}
-
-.chat-history::-webkit-scrollbar-thumb {
-  background: var(--terracotta);
-  border-radius: 2px;
-}
-
-.chat-message {
-  animation: message-slide-in 0.3s ease-out;
-  font-family: var(--font-serif);
-}
-
-@keyframes message-slide-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ===== 一体化输入框容器 ===== */
-.chat-input-wrapper {
-  position: relative;
-}
-
-.chat-input-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--ivory);
-  border: 1px solid var(--warm-sand);
-  border-radius: 24px;
-  padding: 8px 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.chat-input-container:hover {
-  border-color: var(--terracotta-light);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-}
-
-.chat-input-container:focus-within {
-  border-color: var(--terracotta);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
-}
-
-.chat-input-container.expanded {
-  border-radius: 16px;
-}
-
-/* 左侧区域：展开按钮 + 状态点 */
-.chat-input-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
 /* 展开/收起按钮 */
 .chat-toggle-btn {
   width: 28px;
@@ -1127,22 +1050,6 @@ body {
   font-family: var(--font-serif);
 }
 
-.model-id {
-  font-size: 10px;
-  color: var(--stone-gray);
-  font-family: var(--font-sans);
-  word-break: break-all;
-  line-height: 1.4;
-}
-
-.model-url {
-  font-size: 9px;
-  color: var(--stone-gray);
-  font-family: var(--font-sans);
-  opacity: 0.8;
-  margin-top: 3px;
-}
-
 .model-tooltip-body {
   margin-top: 6px;
   padding-top: 6px;
@@ -1159,12 +1066,6 @@ body {
   gap: 8px;
   font-size: 11px;
   line-height: 1.4;
-}
-
-.model-tooltip-label {
-  color: var(--stone-gray);
-  font-family: var(--font-sans);
-  flex-shrink: 0;
 }
 
 .model-tooltip-value {
@@ -1191,123 +1092,6 @@ body {
 
 .model-tooltip-link:hover {
   opacity: 0.8;
-}
-
-/* 中间区域：输入框 */
-.chat-input-middle {
-  flex: 1;
-  min-width: 0;
-}
-
-.chat-textarea {
-  width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  font-family: var(--font-serif);
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--charcoal);
-  min-height: 22px;
-  max-height: 80px;
-  padding: 3px 0;
-}
-
-.chat-textarea::placeholder {
-  color: var(--stone-gray);
-  opacity: 0.7;
-}
-
-/* 右侧区域：模型切换 + 发送 */
-.chat-input-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-/* 模型切换按钮组 */
-.model-switch-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  background: var(--parchment-dark);
-  padding: 2px;
-  border-radius: 16px;
-  border: 1px solid var(--warm-sand);
-}
-
-.model-switch-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 50%;
-  color: var(--stone-gray);
-  cursor: pointer;
-  transition:
-    color 0.2s ease,
-    background-color 0.2s ease,
-    transform 0.1s ease;
-}
-
-.model-switch-btn:hover {
-  color: var(--charcoal);
-  background: var(--text-on-accent);
-  opacity: 0.5;
-}
-
-.model-switch-btn.active {
-  background: white;
-  color: var(--terracotta);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.model-switch-btn:active {
-  transform: scale(0.9);
-}
-
-/* 发送按钮 */
-.chat-send-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: var(--warm-sand);
-  border: none;
-  border-radius: 50%;
-  color: var(--stone-gray);
-  cursor: pointer;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.1s ease;
-}
-
-.chat-send-btn:hover:not(:disabled) {
-  background: var(--terracotta);
-  color: white;
-}
-
-.chat-send-btn:active:not(:disabled) {
-  transform: scale(0.92);
-}
-
-.chat-send-btn.active {
-  background: var(--terracotta);
-  color: white;
-}
-
-.chat-send-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 /* ===== Frontstage Input Ghost Hint（幕前输入栏幽灵提示层）=====
@@ -1367,19 +1151,6 @@ body {
   color: var(--stone-gray);
   opacity: 0.65;
   font-size: 13px;
-}
-
-/* 提示文字 */
-.chat-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-family: var(--font-sans);
-  font-size: 10px;
-  color: var(--stone-gray);
-  margin-top: 6px;
-  padding: 0 14px;
-  opacity: 0.8;
 }
 
 .hint-wensi {
@@ -1558,28 +1329,6 @@ body {
   transform: translateX(-50%) scale(0.97);
 }
 
-/* ===== Zen Mode Exit Hint ===== */
-.zen-exit-hint {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
-  color: var(--stone-gray);
-  background-color: var(--parchment);
-  opacity: 0.9;
-  padding: 8px 16px;
-  border-radius: 20px;
-  cursor: pointer;
-  opacity: 0.5;
-  transition: opacity var(--transition-normal);
-  z-index: 50;
-}
-
-.zen-exit-hint:hover {
-  opacity: 1;
-}
-
 /* ===== AI Suggestion Bubble ===== */
 .ai-suggestion-container {
   position: fixed;
@@ -1671,52 +1420,6 @@ body {
   letter-spacing: 0.1em;
   color: var(--terracotta);
   margin-bottom: 4px;
-}
-
-/* ===== Streaming Text ===== */
-.streaming-text-container {
-  position: relative;
-  width: 100%;
-}
-
-.ai-generating-text {
-  font-size: 14px;
-  color: var(--stone-gray);
-  font-style: italic;
-  line-height: var(--line-height);
-  opacity: 0;
-  animation: fade-in-char 0.3s ease forwards;
-}
-
-@keyframes fade-in-char {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 0.8;
-    transform: translateY(0);
-  }
-}
-
-.ai-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  background-color: var(--terracotta);
-  margin-left: 2px;
-  animation: cursor-blink 1s ease-in-out infinite;
-  vertical-align: text-bottom;
-}
-
-@keyframes cursor-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
 }
 
 /* ===== Character Name Highlight ===== */
@@ -2014,26 +1717,6 @@ body {
 
 .color-theme-label {
   white-space: nowrap;
-}
-
-/* ===== Ghost Text (Kimi Code style) ===== */
-.chat-ghost-text {
-  position: absolute;
-  top: 3px;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-  font-family: var(--font-serif);
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow: hidden;
-  z-index: 1;
-}
-
-.chat-ghost-text .ghost-suffix {
-  color: var(--stone-gray);
-  opacity: 0.35;
 }
 
 /* ===== Slash Command Menu ===== */
@@ -2719,12 +2402,6 @@ body.force-hide-ghost .ghost-paragraph {
   opacity: 0.6;
 }
 
-.ghost-hint-generating {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .ghost-kbd {
   display: inline-flex;
   align-items: center;
@@ -3269,104 +2946,6 @@ body.force-hide-ghost .ghost-paragraph {
 
 .editor-slash-input-hint .hint-dot {
   opacity: 0.4;
-}
-
-/* ===== AI 生成预览浮动提示 ===== */
-.ai-generation-float {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
-  max-width: 480px;
-  width: calc(100% - 48px);
-  pointer-events: none;
-}
-
-.ai-generation-panel {
-  background: var(--parchment);
-  border: 1px solid var(--warm-sand);
-  border-radius: 12px;
-  padding: 12px 16px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-  pointer-events: auto;
-  animation: ai-gen-in 0.3s ease-out;
-}
-
-@keyframes ai-gen-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.ai-generation-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.ai-generation-text {
-  font-size: 14px;
-  color: var(--charcoal);
-  line-height: 1.6;
-  font-family: var(--font-serif);
-  max-height: 120px;
-  overflow-y: auto;
-  margin-bottom: 10px;
-}
-
-.ai-generation-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ai-gen-btn-accept {
-  padding: 5px 14px;
-  background: var(--terracotta);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-family: var(--font-sans);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    transform 0.1s ease;
-}
-
-.ai-gen-btn-accept:hover {
-  background: var(--terracotta-dark);
-}
-
-.ai-gen-btn-accept:active {
-  transform: scale(0.96);
-}
-
-.ai-gen-btn-reject {
-  padding: 5px 14px;
-  background: transparent;
-  color: var(--stone-gray);
-  border: 1px solid var(--warm-sand);
-  border-radius: 6px;
-  font-size: 12px;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.ai-gen-btn-reject:hover {
-  background: var(--warm-sand);
-  color: var(--charcoal);
 }
 
 /* ==================== Scene Divider Node ==================== */

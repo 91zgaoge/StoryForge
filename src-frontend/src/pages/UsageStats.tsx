@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
-import { getLlmCallStats, getRecentLlmCalls, getStoryLlmCalls } from '@/services/tauri';
+import { getLlmCallStats, getRecentLlmCalls } from '@/services/tauri';
 import { Card, CardContent } from '@/components/ui/Card';
 import { AiFilterChipsBar, AiFilterTable } from '@/components/ui/ai/AiFilterTable';
 import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';

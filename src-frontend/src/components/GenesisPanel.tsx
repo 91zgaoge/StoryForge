@@ -33,7 +33,6 @@ import {
   parseGenesisStepsJson,
   countGenesisErrors,
   sortGenesisErrors,
-  type GenesisStepData,
 } from '@/utils/genesisSteps';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
@@ -60,13 +59,12 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
 
   const setCurrentView = useAppStore(state => state.setCurrentView);
   const selectedGenesisSessionId = useAppStore(state => state.selectedGenesisSessionId);
-  const setSelectedGenesisSessionId = useAppStore(state => state.setSelectedGenesisSessionId);
   const setTracingFilter = useAppStore(state => state.setTracingFilter);
   const setLogsSearchQuery = useAppStore(state => state.setLogsSearchQuery);
 
   const activeSessionId = sessionId ?? selectedGenesisSessionId;
 
-  const { progress, isActive } = usePipelineProgress({
+  const { progress } = usePipelineProgress({
     pipelineType: 'genesis',
     pipelineId: selectedRun?.session_id,
   });
@@ -200,21 +198,6 @@ export const GenesisPanel: React.FC<GenesisPanelProps> = ({
         return <Clock className="w-4 h-4 text-gray-500" />;
       default:
         return <div className="w-4 h-4 rounded-full border-2 border-cinema-700" />;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'running':
-        return 'text-cinema-gold bg-cinema-gold/10 border-cinema-gold/30';
-      case 'completed':
-        return 'text-green-400 bg-green-400/10 border-green-400/30';
-      case 'failed':
-        return 'text-red-400 bg-red-400/10 border-red-400/30';
-      case 'skipped':
-        return 'text-gray-500 bg-gray-500/10 border-gray-500/30';
-      default:
-        return 'text-gray-500 bg-transparent border-cinema-700';
     }
   };
 

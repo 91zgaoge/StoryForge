@@ -53,25 +53,6 @@ const PROMPT_COMMANDS = [
   { key: 'finalize', name: '/定稿', desc: '将当前章节定稿' },
 ];
 
-function abbreviateApiBase(url: string): string {
-  try {
-    const u = new URL(url);
-    return u.host;
-  } catch {
-    return url.length > 28 ? url.slice(0, 28) + '…' : url;
-  }
-}
-
-function formatTimeAgo(timestamp: number): string {
-  if (!timestamp || timestamp <= 0) return '';
-  const diff = Math.floor((Date.now() - timestamp) / 1000);
-  if (diff < 5) return '刚刚';
-  if (diff < 60) return `${diff}秒前`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
-  return `${Math.floor(diff / 86400)}天前`;
-}
-
 const categoryIcons: Record<BackendActivity['category'], React.ReactNode> = {
   contract_fill: <ClipboardList className="w-4 h-4" />,
   orchestrator: <Settings className="w-4 h-4" />,

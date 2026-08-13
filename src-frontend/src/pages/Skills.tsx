@@ -68,7 +68,6 @@ export function Skills() {
     result: unknown;
   } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [editedSkill, setEditedSkill] = useState<Skill | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -166,7 +165,6 @@ export function Skills() {
         hooks: fullSkill.hooks ?? [],
         capabilities: fullSkill.capabilities ?? [],
       };
-      setSelectedSkill(safeSkill);
       setEditedSkill(JSON.parse(JSON.stringify(safeSkill)));
     } catch (err) {
       toast.error('加载技能详情失败：' + extractMessage(err));
@@ -178,7 +176,6 @@ export function Skills() {
 
   const closeDetail = useCallback(() => {
     setIsDetailOpen(false);
-    setSelectedSkill(null);
     setEditedSkill(null);
   }, []);
 

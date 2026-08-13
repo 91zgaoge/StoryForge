@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Sparkles,
   ChevronRight,
@@ -8,7 +8,6 @@ import {
   PenTool,
   BookOpen,
   Check,
-  RefreshCw,
 } from 'lucide-react';
 import { AiLoading } from '@/components/ui/ai/AiLoading';
 import { AiApprovalCard } from '@/components/ui/ai/AiApprovalCard';
