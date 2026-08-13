@@ -14,6 +14,7 @@ pub mod graders;
 pub mod learning;
 pub mod materialize;
 pub mod models;
+pub mod persist;
 pub mod repository;
 pub mod roles;
 pub mod session;
