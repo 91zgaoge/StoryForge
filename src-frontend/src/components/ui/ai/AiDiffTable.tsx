@@ -104,7 +104,7 @@ export function AiDiffTable({
                 </td>
                 <td className="px-3 py-2">
                   <span
-                    data-testid="ai-diff-delta"
+                    data-testid={`ai-diff-delta-${row.key}`}
                     className="inline-flex h-[22px] items-center gap-1 rounded-full px-2 text-[12px] font-medium tabular-nums"
                     style={{
                       color,
