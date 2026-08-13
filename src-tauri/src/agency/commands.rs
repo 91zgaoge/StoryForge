@@ -5,6 +5,7 @@ use crate::{
         board::BlackboardService,
         coordinator::{cancel_agency_run, AgencyCheckpoint, AgencyCoordinator},
         models::{AgencyActivityLogEntry, AgencyRun, BoardItem},
+        persist::PersistMode,
         repository::AgencyRepository,
     },
     db::DbPool,
@@ -75,7 +76,13 @@ pub async fn agency_continue_chapter(
     let rid = run_id.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(e) = coordinator
-            .run_continue(&rid, &story_id, chapter_number)
+            .run_continue(
+                &rid,
+                &story_id,
+                PersistMode::NextChapter { chapter_number },
+                "续写下一章",
+                None,
+            )
             .await
         {
             log::error!("agency continue run {} failed: {}", rid, e);

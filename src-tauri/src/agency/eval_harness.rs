@@ -10,7 +10,7 @@ use std::{
 use crate::{
     agency::{
         board::BlackboardService, coordinator::AgencyCoordinator, models::BoardZone,
-        repository::AgencyRepository, tool_loop::LoopLlm,
+        persist::PersistMode, repository::AgencyRepository, tool_loop::LoopLlm,
     },
     db::DbPool,
     error::AppError,
@@ -253,7 +253,15 @@ async fn run_scenario_inner(pool: &DbPool, scenario: &EvalScenario) -> Result<()
     let revised_actual: Option<bool> = match scenario.expect.flow.as_str() {
         "continue" => {
             let r = coordinator
-                .run_continue(&run_id, &story_id, scenario.expect.chapter)
+                .run_continue(
+                    &run_id,
+                    &story_id,
+                    PersistMode::NextChapter {
+                        chapter_number: scenario.expect.chapter,
+                    },
+                    "",
+                    None,
+                )
                 .await
                 .map_err(|e| format!("run_continue 失败: {}", e))?;
             Some(r.revised)

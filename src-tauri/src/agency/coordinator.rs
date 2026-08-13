@@ -15,6 +15,7 @@ use crate::{
         board::BlackboardService,
         budget::{AgencyBudget, BudgetedLlm, DEFAULT_RUN_TOKEN_BUDGET},
         models::*,
+        persist::PersistMode,
         repository::AgencyRepository,
         roles::spec_for,
         tool_loop::{LoopLlm, ToolLoop},
@@ -536,6 +537,8 @@ pub struct AgencyContinueResult {
     pub story_id: String,
     pub scene_id: String,
     pub chapter_number: i32,
+    /// 本拍增量，供幕前 appendAiContent（NextChapter 路径为空串）
+    pub increment: String,
     pub revised: bool,
     pub verdict: EditorVerdict,
 }
@@ -2676,11 +2679,17 @@ impl AgencyCoordinator {
     }
 
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
+    /// `persist` 决定落库方式：NextChapter 走质量门 + 新章装配；Append 把
+    /// 增量直接合并进既有场景（不跑同步质量门，editor 后台质检）。
+    /// `instruction` 为幕前续写指令（并入 premise）；`current_content`
+    /// 仅 Append 使用（当前章既有正文）。
     pub async fn run_continue(
         &self,
         run_id: &str,
         story_id: &str,
-        chapter_number: i32,
+        persist: PersistMode,
+        instruction: &str,
+        current_content: Option<&str>,
     ) -> Result<AgencyContinueResult, AppError> {
         let repo = AgencyRepository::new(self.pool.clone());
         let cancel = register_agency_cancel(run_id);
@@ -2690,7 +2699,16 @@ impl AgencyCoordinator {
         // 剩余 <30s 时熔断保产出。app_handle=None（测试环境）时 no-op。
         self.setup_run_deadline();
         let result = self
-            .run_continue_inner(run_id, story_id, chapter_number, &repo, &cancel, &budget)
+            .run_continue_inner(
+                run_id,
+                story_id,
+                persist,
+                instruction,
+                current_content,
+                &repo,
+                &cancel,
+                &budget,
+            )
             .await;
         unregister_agency_cancel(run_id);
         match &result {
@@ -2836,18 +2854,44 @@ impl AgencyCoordinator {
         &self,
         run_id: &str,
         story_id: &str,
-        chapter_number: i32,
+        persist: PersistMode,
+        instruction: &str,
+        current_content: Option<&str>,
         repo: &AgencyRepository,
         cancel: &Arc<AtomicBool>,
         budget: &Arc<AgencyBudget>,
     ) -> Result<AgencyContinueResult, AppError> {
         // run 级并发预算由外层创建传入：贯穿本 run 全部角色调用（Task 6
         // 并行循环共用同一 Arc）
+        // Append 的章号取目标场景序号（用于 premise/进度提示；落库章号以
+        // persist_append 读回的 sequence_number 为准）。
+        let chapter_number = match &persist {
+            PersistMode::NextChapter { chapter_number } => *chapter_number,
+            PersistMode::Append { scene_id } => {
+                let pool = self.pool.clone();
+                let sid = scene_id.clone();
+                tokio::task::spawn_blocking(move || -> Result<i32, AppError> {
+                    let scene = SceneRepository::new(pool)
+                        .get_by_id(&sid)
+                        .map_err(AppError::from)?
+                        .ok_or_else(|| {
+                            AppError::validation_failed("请先打开一个章节", Some("no_scene"))
+                        })?;
+                    Ok(scene.sequence_number)
+                })
+                .await
+                .map_err(|e| AppError::from(format!("append scene lookup join error: {}", e)))??
+            }
+        };
         let title = self
             .story_title(story_id)
             .await
             .unwrap_or_else(|| "未命名".to_string());
-        let premise = format!("续写《{}》第{}章", title, chapter_number);
+        let premise = if instruction.trim().is_empty() {
+            format!("续写《{}》第{}章", title, chapter_number)
+        } else {
+            format!("续写《{}》第{}章（{}）", title, chapter_number, instruction)
+        };
         // 护栏原子化：story_id 随 create 落库，V109 部分唯一索引在 INSERT 即拦截并发
         // run
         let mut run = AgencyRun::new(run_id, &premise);
@@ -2901,6 +2945,55 @@ impl AgencyCoordinator {
             &format!("第{}章草稿", chapter_number),
         );
         self.check_cancel(cancel)?;
+
+        // Append：增量直接合并进既有场景，不建新章、不跑同步质量门
+        // （editor 质检后台 spawn，与创世 assemble_only + spawn_editor_qc
+        // 同模式）；落库经 persist_append（update-only，禁止 create）。
+        if matches!(persist, PersistMode::Append { .. }) {
+            self.update_phase(repo, run_id, "assembly").await?;
+            self.emit_progress(run_id, "assembly", "running", "正在合并增量到当前章");
+            self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
+            // 抗重复清理与 NextChapter 装配同源（strip_existing_overlap 对
+            // 最新场景尾部比对，恰好剥离复述当前章的部分）。
+            let increment = self
+                .cleanup_prose_for_persist(&draft.content, story_id)
+                .await;
+            if increment.trim().is_empty() {
+                return Err(AppError::from(
+                    "续写增量为空（cleanup 后正文为空），拒绝落库",
+                ));
+            }
+            let pool = self.pool.clone();
+            let persist_c = persist.clone();
+            let current = current_content.unwrap_or("").to_string();
+            let inc = increment.clone();
+            let outcome = tokio::task::spawn_blocking(move || {
+                crate::agency::persist::persist_append(&pool, &persist_c, &current, &inc)
+            })
+            .await
+            .map_err(|e| AppError::from(format!("append persist join error: {}", e)))??;
+            self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
+            // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
+            self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
+            self.checkpoint_auto(
+                run_id,
+                story_id,
+                "chapter",
+                Some(outcome.chapter_number),
+                budget,
+            )
+            .await;
+            self.spawn_editor_qc(run_id, story_id, &premise, &draft);
+            return Ok(AgencyContinueResult {
+                run_id: run_id.to_string(),
+                story_id: story_id.to_string(),
+                scene_id: outcome.scene_id,
+                chapter_number: outcome.chapter_number,
+                increment,
+                revised: false,                    // Append 不跑修订轮
+                verdict: EditorVerdict::pending(), // 后台质检填充，前端不消费
+            });
+        }
 
         // 3) 质量门 + 至多 1 轮修订 + 装配（与 genesis 同门径）
         self.update_phase(repo, run_id, "review").await?;
@@ -3867,6 +3960,7 @@ impl AgencyCoordinator {
             story_id: story_id.to_string(),
             scene_id: scene.id,
             chapter_number,
+            increment: String::new(), // NextChapter：整章新场景，无幕前增量概念
             revised,
             verdict: final_verdict,
         })

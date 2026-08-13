@@ -11,6 +11,7 @@ use crate::{
     agency::{
         budget::{AgencyBudget, DEFAULT_RUN_TOKEN_BUDGET},
         coordinator::*,
+        persist::PersistMode,
         repository::AgencyRepository,
         tool_loop::LoopLlm,
         tools::ToolRegistry,
@@ -1107,7 +1108,13 @@ async fn test_continue_chapter_end_to_end() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
-        .run_continue("rc-1", &story.id, 2)
+        .run_continue(
+            "rc-1",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(result.chapter_number, 2);
@@ -1185,7 +1192,13 @@ async fn test_continue_writer_prose_fallback() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
-        .run_continue("rc-prose", &story.id, 2)
+        .run_continue(
+            "rc-prose",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(result.chapter_number, 2);
@@ -1460,7 +1473,13 @@ async fn test_continue_fails_without_assets_and_producer_aborts() {
     let llm = MockLlm::scripted(vec!["不是 JSON", "还不是", "依然不是"]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let err = coordinator
-        .run_continue("rc-2", &story.id, 1)
+        .run_continue(
+            "rc-2",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 1 },
+            "",
+            None,
+        )
         .await
         .unwrap_err();
     assert!(
@@ -2142,7 +2161,13 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
     let err = coordinator
-        .run_continue("rw-1", &story_id, 1)
+        .run_continue(
+            "rw-1",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 1 },
+            "",
+            None,
+        )
         .await
         .unwrap_err();
     assert!(
@@ -2172,7 +2197,13 @@ async fn test_gate_record_keys_have_round_suffix() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
     let result = coordinator
-        .run_continue("rg-2", &story_id, 1)
+        .run_continue(
+            "rg-2",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 1 },
+            "",
+            None,
+        )
         .await
         .unwrap();
     assert!(result.revised);
@@ -2237,7 +2268,13 @@ async fn test_gate_v2_low_weighted_triggers_revision() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
     let result = coordinator
-        .run_continue("gv2-1", &story_id, 1)
+        .run_continue(
+            "gv2-1",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 1 },
+            "",
+            None,
+        )
         .await
         .unwrap();
     assert!(
@@ -2383,7 +2420,13 @@ async fn test_checkpoints_written_at_milestones() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     coordinator
-        .run_continue("cp-c", &story_id, 1)
+        .run_continue(
+            "cp-c",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 1 },
+            "",
+            None,
+        )
         .await
         .unwrap();
     let list = repo.list_checkpoints(&story_id).unwrap();
@@ -2419,7 +2462,13 @@ async fn test_spawn_asset_ingest_noop_in_test_env() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
-        .run_continue("ingest-noop", &story_id, 1)
+        .run_continue(
+            "ingest-noop",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 1 },
+            "",
+            None,
+        )
         .await
         .unwrap();
     // 正文落库不受后台资产回流影响（ingest 是后台任务，不阻塞主流程）
@@ -2931,7 +2980,13 @@ async fn test_continue_writer_maxturns_board_recovery() {
     let llm = MockLlm::scripted(lines.iter().map(|s| s.as_str()).collect::<Vec<_>>());
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
-        .run_continue("rc-maxturns", &story.id, 2)
+        .run_continue(
+            "rc-maxturns",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
         .await
         .expect("MaxTurns 熔断后应从黑板取回草稿，run 不应失败");
     assert_eq!(result.chapter_number, 2);
@@ -3115,7 +3170,13 @@ async fn test_handle_gate_assembly_activity_signals() {
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     coordinator
-        .run_continue("rc-sig-assembly", &story.id, 2)
+        .run_continue(
+            "rc-sig-assembly",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
         .await
         .unwrap();
 
@@ -3211,7 +3272,13 @@ async fn test_handle_gate_editor_failure_salvages_substantive_draft() {
     let coordinator =
         AgencyCoordinator::for_test(pool.clone(), editor_total_failure_script(&chapter2));
     let result = coordinator
-        .run_continue("rc-c1-salvage", &story_id, 2)
+        .run_continue(
+            "rc-c1-salvage",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
         .await
         .expect("editor 完全失败但草稿 substantive，应降级放行而非丢稿");
     assert_eq!(result.chapter_number, 2);
@@ -3243,7 +3310,13 @@ async fn test_handle_gate_editor_failure_drops_short_draft() {
     assert!(short.chars().count() < 600, "前置：草稿须低于 salvage 阈值");
     let coordinator = AgencyCoordinator::for_test(pool.clone(), editor_total_failure_script(short));
     let err = coordinator
-        .run_continue("rc-c1-drop", &story_id, 2)
+        .run_continue(
+            "rc-c1-drop",
+            &story_id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
         .await
         .expect_err("editor 完全失败且草稿过短，应丢稿报错");
     assert!(
