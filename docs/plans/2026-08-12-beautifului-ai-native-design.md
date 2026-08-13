@@ -34,7 +34,7 @@
 | Approval Card | `AiApprovalCard` | Tasks 级联改写审批、AgentInterruptionModal |
 | Tool Chips | `AiToolChips` | AgencyStudio 活动流、TracingPanel 步骤 |
 | Task Rows | `AiTaskRows` | Tasks 状态行、usePipelineProgress 面板 |
-| Chat | `AiChat` | 首期仅组件入库（幕前 WenSi 对话化后续再接线） |
+| Chat | ~~`AiChat`~~ | P3 勘察关闭：ChatComposer 为 AiPromptBar 严格子集、无多轮对话场景；差异特性「分节回复 + resolving 退焦」记录备选（见 §8 P3 注明） |
 | Prompt Bar | `AiPromptBar` | FrontstageBottomBar（含 slash 命令机制新增） |
 | Recommendation Card | `AiRecommendationCard` | AiSuggestionBubble / AiHintOverlay 建议卡 |
 | Context Cards | `AiContextCards` | CharacterPeekCard / CharacterCardPopup、资产引用展示 |
