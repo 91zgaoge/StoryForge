@@ -52,6 +52,7 @@
   --ai-green: var(--status-success);
   --ai-red: var(--status-danger);
   --ai-orange: var(--status-warning);
+  --ai-on-accent: #ffffff;
 
   /* 共享 */
   --radius-none: 0px;

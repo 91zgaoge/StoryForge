@@ -113,7 +113,7 @@ export function AiApprovalCard({
     >
       {sent ? (
         <div className="flex h-36 flex-col items-center justify-center gap-2">
-          <span className="animate-pop-in flex size-6 items-center justify-center rounded-full bg-ai-green text-white">
+          <span className="animate-pop-in flex size-6 items-center justify-center rounded-full bg-ai-green text-ai-on-accent">
             <Check className="size-3.5" strokeWidth={3} />
           </span>
           <span className="animate-ai-fade-up text-[13px] font-medium text-ai-ink">已提交</span>

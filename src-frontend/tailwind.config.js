@@ -60,6 +60,7 @@ export default {
           green: 'var(--ai-green)',
           red: 'var(--ai-red)',
           orange: 'var(--ai-orange)',
+          'on-accent': 'var(--ai-on-accent)',
         },
       },
       borderRadius: {

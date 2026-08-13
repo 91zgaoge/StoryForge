@@ -166,7 +166,7 @@ export function AiRecommendationCard({
               className={cn(
                 'h-7 rounded-[8px] px-3 text-[12.5px] font-medium transition-[background-color,transform] duration-150 active:scale-[0.96] disabled:cursor-default',
                 status === 'accepted'
-                  ? 'bg-ai-green text-white'
+                  ? 'bg-ai-green text-ai-on-accent'
                   : 'bg-ai-ink text-ai-surface hover:opacity-90'
               )}
             >

@@ -98,7 +98,7 @@ function StatusBadge({ status }: { status: AiTaskRowStatus }) {
           : 'var(--ai-orange)';
     return (
       <span
-        className="animate-pop-in flex size-[22px] shrink-0 items-center justify-center rounded-full text-white"
+        className="animate-pop-in flex size-[22px] shrink-0 items-center justify-center rounded-full text-ai-on-accent"
         style={{ background: bg }}
         data-testid={`ai-task-badge-${status}`}
         aria-hidden

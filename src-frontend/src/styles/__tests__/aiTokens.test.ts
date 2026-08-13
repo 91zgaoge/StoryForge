@@ -33,6 +33,7 @@ const AI_VARS = [
   '--ai-green',
   '--ai-red',
   '--ai-orange',
+  '--ai-on-accent',
 ];
 
 /** tailwind.config.js 中 ai 色组的 key（映射目标即同名变量） */
@@ -53,6 +54,7 @@ const AI_COLOR_KEYS = [
   'green',
   'red',
   'orange',
+  'on-accent',
 ];
 
 /** tailwind.config.js keyframes 注册表（ai-fade-up 工具的 keyframe 名为 fade-up） */
@@ -81,13 +83,13 @@ const AI_ANIMATION_UTILS = [
 ];
 
 describe('AI 语义令牌桥（P1 Task1）', () => {
-  it('tokens.css（幕后）定义全部 16 个 --ai-* 变量', () => {
+  it('tokens.css（幕后）定义全部 17 个 --ai-* 变量', () => {
     for (const v of AI_VARS) {
       expect(tokensCss, `tokens.css 缺 ${v}`).toContain(`${v}:`);
     }
   });
 
-  it('frontstage.css（幕前）定义全部 16 个 --ai-* 变量', () => {
+  it('frontstage.css（幕前）定义全部 17 个 --ai-* 变量', () => {
     for (const v of AI_VARS) {
       expect(frontstageCss, `frontstage.css 缺 ${v}`).toContain(`${v}:`);
     }

@@ -81,7 +81,7 @@ export function AiContextCards({ title, count, items, className }: AiContextCard
                 style={{ animationDelay: `${400 + i * 80}ms` }}
               >
                 <span
-                  className="flex size-3.5 items-center justify-center rounded-[4px] text-[7px] font-bold text-white"
+                  className="flex size-3.5 items-center justify-center rounded-[4px] text-[7px] font-bold text-ai-on-accent"
                   style={{ background: TONE_BG[item.source.tone ?? 'neutral'] }}
                 >
                   {item.source.badge}
