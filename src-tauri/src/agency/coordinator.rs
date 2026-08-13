@@ -2926,7 +2926,7 @@ impl AgencyCoordinator {
             &format!("第{}章", chapter_number),
         );
         let generate_outline = matches!(persist, PersistMode::NextChapter { .. });
-        let draft = self
+        let (draft, card) = self
             .write_beat_once(
                 budget,
                 run_id,
@@ -2967,8 +2967,14 @@ impl AgencyCoordinator {
             let persist_c = persist.clone();
             let current = current_content.unwrap_or("").to_string();
             let inc = increment.clone();
+            let card_c = card.clone();
             let outcome = tokio::task::spawn_blocking(move || {
-                crate::agency::persist::persist_append(&pool, &persist_c, &current, &inc)
+                let PersistMode::Append { scene_id } = &persist_c else {
+                    return Err(AppError::from("append 分支必须是 PersistMode::Append"));
+                };
+                crate::agency::persist::persist_append_with_card(
+                    &pool, scene_id, &current, &inc, &card_c,
+                )
             })
             .await
             .map_err(|e| AppError::from(format!("append persist join error: {}", e)))??;
@@ -3011,6 +3017,7 @@ impl AgencyCoordinator {
                 story_id,
                 chapter_number,
                 draft.clone(),
+                Some(&card),
             )
             .await?;
         self.spawn_editor_qc(run_id, story_id, &premise, &draft);
@@ -3685,7 +3692,7 @@ impl AgencyCoordinator {
         generate_outline: bool,
         instruction: &str,
         current_content: Option<&str>,
-    ) -> Result<BoardItem, AppError> {
+    ) -> Result<(BoardItem, crate::agency::beat_card::SceneBeatCard), AppError> {
         let key = format!("第{}章", chapter_number);
         let assets_ctx = self.build_continue_writer_context(story_id).await;
         let chapter_outline = if generate_outline {
@@ -3752,7 +3759,7 @@ impl AgencyCoordinator {
             let rid = run_id.to_string();
             let sid = story_id.to_string();
             let ckey = key.clone();
-            return self
+            let item = self
                 .db(move || {
                     board.write(
                         &rid,
@@ -3765,7 +3772,8 @@ impl AgencyCoordinator {
                         &summary,
                     )
                 })
-                .await;
+                .await?;
+            return Ok((item, card));
         }
         log::warn!(
             "agency: write_beat_once 过短（{} 字符），尝试散文回退 run={}",
@@ -3776,7 +3784,7 @@ impl AgencyCoordinator {
             .writer_prose_fallback(run_id, story_id, premise, budget, &key)
             .await
         {
-            Ok(d) => Ok(d),
+            Ok(d) => Ok((d, card)),
             Err(e) => {
                 log::warn!(
                     "agency: 散文回退失败（{}），最后手段 tool_loop write_chapter run={}",
@@ -3795,6 +3803,7 @@ impl AgencyCoordinator {
                     chapter_number,
                 )
                 .await
+                .map(|d| (d, card))
             }
         }
     }
@@ -4005,7 +4014,16 @@ impl AgencyCoordinator {
             }
         };
         let mut assembled = self
-            .assemble_next_chapter(budget, board, repo, run_id, story_id, chapter_number, draft)
+            .assemble_next_chapter(
+                budget,
+                board,
+                repo,
+                run_id,
+                story_id,
+                chapter_number,
+                draft,
+                None,
+            )
             .await?;
         assembled.revised = revised;
         assembled.verdict = final_verdict;
@@ -4022,6 +4040,7 @@ impl AgencyCoordinator {
         story_id: &str,
         chapter_number: i32,
         draft: BoardItem,
+        card: Option<&crate::agency::beat_card::SceneBeatCard>,
     ) -> Result<AgencyContinueResult, AppError> {
         self.update_phase(repo, run_id, "assembly").await?;
         self.emit_activity(run_id, AgentRole::Producer, "start", "装配");
@@ -4053,6 +4072,7 @@ impl AgencyCoordinator {
         }
         let ingest_text = content.clone();
         let title_c = format!("第{}章", chapter_number);
+        let card_owned = card.cloned();
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = crate::db::repositories::SceneRepository::new(pool.clone());
             let mut conn = pool
@@ -4062,16 +4082,23 @@ impl AgencyCoordinator {
             let scene = repo
                 .create_in_tx(&tx, &sid, chapter_number, Some(&title_c))
                 .map_err(AppError::from)?;
-            repo.update_in_tx(
-                &tx,
-                &scene.id,
-                &crate::db::repositories::SceneUpdate {
+            let update = if let Some(ref card) = card_owned {
+                crate::agency::persist::scene_update_from_card(
+                    &pool,
+                    &sid,
+                    card,
+                    content,
+                    outline_content.as_deref(),
+                )
+            } else {
+                crate::db::repositories::SceneUpdate {
                     content: Some(content),
                     outline_content,
                     ..Default::default()
-                },
-            )
-            .map_err(AppError::from)?;
+                }
+            };
+            repo.update_in_tx(&tx, &scene.id, &update)
+                .map_err(AppError::from)?;
             tx.commit().map_err(AppError::from)?;
             Ok(scene)
         })

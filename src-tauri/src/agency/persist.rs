@@ -48,12 +48,145 @@ pub fn increment_append_beat(pool: &DbPool, story_id: &str) -> Result<(), AppErr
     Ok(())
 }
 
+fn touch_refresh_beats(pool: &DbPool, story_id: &str, conflict: bool, cast: bool, location: bool) {
+    if !conflict && !cast && !location {
+        return;
+    }
+    let Ok(conn) = pool.get() else {
+        return;
+    };
+    let mut beats = crate::creative_engine::expansion::read_beat_counters(&conn, story_id);
+    if conflict {
+        beats.last_conflict_beat = beats.append_beats;
+    }
+    if cast {
+        beats.last_cast_refresh_beat = beats.append_beats;
+    }
+    if location {
+        beats.last_location_beat = beats.append_beats;
+    }
+    if let Err(e) = crate::creative_engine::expansion::write_beat_counters(&conn, story_id, beats) {
+        log::warn!("touch_refresh_beats 失败: {e}");
+    }
+}
+
+fn merge_progress_line(existing: Option<&str>, node: &str) -> String {
+    let line = format!("进度：{node}");
+    match existing.map(str::trim).filter(|s| !s.is_empty()) {
+        None => line,
+        Some(e) if e.contains("进度：") => {
+            if let Some(idx) = e.rfind("进度：") {
+                format!("{}{line}", &e[..idx])
+            } else {
+                e.to_string()
+            }
+        }
+        Some(e) => format!("{e}\n{line}"),
+    }
+}
+
+fn card_conflicts(
+    pool: &DbPool,
+    story_id: &str,
+    card: &crate::agency::beat_card::SceneBeatCard,
+) -> Vec<crate::db::CharacterConflict> {
+    if card.conflict_move.parties.len() < 2 {
+        return vec![];
+    }
+    let chars = crate::db::repositories::CharacterRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default();
+    let id_of = |name: &str| {
+        chars
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| c.id.clone())
+            .unwrap_or_else(|| name.to_string())
+    };
+    let a = &card.conflict_move.parties[0];
+    let b = &card.conflict_move.parties[1];
+    vec![crate::db::CharacterConflict {
+        character_a_id: id_of(a),
+        character_b_id: id_of(b),
+        conflict_nature: card.conflict_move.action.chars().take(80).collect(),
+        stakes: card.next_outline_node.chars().take(80).collect(),
+    }]
+}
+
+fn scene_fields_from_card(
+    pool: &DbPool,
+    story_id: &str,
+    card: &crate::agency::beat_card::SceneBeatCard,
+    existing_outline: Option<&str>,
+) -> crate::db::repositories::SceneUpdate {
+    let names: Vec<String> = card.cast.iter().map(|c| c.name.clone()).collect();
+    crate::db::repositories::SceneUpdate {
+        characters_present: if names.is_empty() { None } else { Some(names) },
+        character_conflicts: {
+            let c = card_conflicts(pool, story_id, card);
+            if c.is_empty() {
+                None
+            } else {
+                Some(c)
+            }
+        },
+        setting_location: card.setting_location.clone().filter(|s| !s.is_empty()),
+        outline_content: Some(merge_progress_line(
+            existing_outline,
+            &card.next_outline_node,
+        )),
+        ..Default::default()
+    }
+}
+
 /// 将 current_content + increment 写入已有 scene。禁止 create 新行。
 pub fn persist_append(
     pool: &DbPool,
     mode: &PersistMode,
     current_content: &str,
     increment: &str,
+) -> Result<AppendPersistOutcome, AppError> {
+    persist_append_inner(pool, mode, current_content, increment, None)
+}
+
+/// Append 落库并回写本拍阵容/冲突/地点/进度。
+pub fn persist_append_with_card(
+    pool: &DbPool,
+    scene_id: &str,
+    current_content: &str,
+    increment: &str,
+    card: &crate::agency::beat_card::SceneBeatCard,
+) -> Result<AppendPersistOutcome, AppError> {
+    persist_append_inner(
+        pool,
+        &PersistMode::Append {
+            scene_id: scene_id.to_string(),
+        },
+        current_content,
+        increment,
+        Some(card),
+    )
+}
+
+/// NextChapter 装配用：从 BeatCard 填出场/冲突/地点/进度（不含 content）。
+pub fn scene_update_from_card(
+    pool: &DbPool,
+    story_id: &str,
+    card: &crate::agency::beat_card::SceneBeatCard,
+    content: String,
+    existing_outline: Option<&str>,
+) -> crate::db::repositories::SceneUpdate {
+    let mut u = scene_fields_from_card(pool, story_id, card, existing_outline);
+    u.content = Some(content);
+    u
+}
+
+fn persist_append_inner(
+    pool: &DbPool,
+    mode: &PersistMode,
+    current_content: &str,
+    increment: &str,
+    card: Option<&crate::agency::beat_card::SceneBeatCard>,
 ) -> Result<AppendPersistOutcome, AppError> {
     let PersistMode::Append { scene_id } = mode else {
         return Err(AppError::from("persist_append 只接受 Append"));
@@ -69,16 +202,32 @@ pub fn persist_append(
         return Err(AppError::from("续写增量过短，拒绝落库"));
     }
     let full = join_content(cleaned_old, cleaned_inc);
-    repo.update(
-        scene_id,
-        &crate::db::repositories::SceneUpdate {
-            content: Some(full.clone()),
-            ..Default::default()
-        },
-    )
-    .map_err(AppError::from)?;
+    let mut update = if let Some(card) = card {
+        scene_fields_from_card(
+            pool,
+            &scene.story_id,
+            card,
+            scene.outline_content.as_deref(),
+        )
+    } else {
+        crate::db::repositories::SceneUpdate::default()
+    };
+    update.content = Some(full.clone());
+    let wrote_cast = update.characters_present.is_some();
+    let wrote_conflict = update.character_conflicts.is_some();
+    let wrote_location = update.setting_location.is_some();
+    repo.update(scene_id, &update).map_err(AppError::from)?;
     if let Err(e) = increment_append_beat(pool, &scene.story_id) {
         log::warn!("increment_append_beat 失败: {e}");
+    }
+    if card.is_some() {
+        touch_refresh_beats(
+            pool,
+            &scene.story_id,
+            wrote_conflict,
+            wrote_cast,
+            wrote_location,
+        );
     }
     Ok(AppendPersistOutcome {
         scene_id: scene.id,
@@ -235,5 +384,46 @@ mod tests {
             .unwrap();
         assert_eq!(scenes.len(), 1);
         assert_eq!(scenes[0].content.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn append_writeback_sets_characters_present_names() {
+        use crate::agency::beat_card::{CastMember, ConflictMove, EmotionBeat, SceneBeatCard};
+        let pool = create_test_pool().unwrap();
+        let (_story_id, scene_id) = seed_story_with_scene(&pool);
+        let card = SceneBeatCard {
+            cast: vec![
+                CastMember {
+                    name: "阿岩".into(),
+                    purpose: "守门".into(),
+                },
+                CastMember {
+                    name: "林雪".into(),
+                    purpose: "质问".into(),
+                },
+            ],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["阿岩".into(), "林雪".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "怒".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            setting_location: Some("夜宴厅".into()),
+        };
+        persist_append_with_card(&pool, &scene_id, "旧文。", &long_increment(), &card).unwrap();
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&scene_id)
+            .unwrap()
+            .unwrap();
+        assert!(scene.characters_present.contains(&"阿岩".into()));
+        assert!(scene.characters_present.contains(&"林雪".into()));
+        assert_eq!(scene.setting_location.as_deref(), Some("夜宴厅"));
+        assert!(scene
+            .outline_content
+            .unwrap_or_default()
+            .contains("夜宴破裂"));
     }
 }

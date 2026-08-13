@@ -1,6 +1,7 @@
 //! 资产回流桥：把 IngestPipeline 的内容分析结果（ContentAnalysis）单向同步到
 //! 续写 writer 实际读取的生产资产表——characters / character_relationships /
-//! world_buildings / scenes.outline_content / story_outlines。
+//! world_buildings / scenes.outline_content / scenes.characters_present /
+//! story_outlines。
 //!
 //! 设计要点：
 //! - upsert 模式复用 agency/materialize.rs 的 UPDATE-then-INSERT 思路；
@@ -653,24 +654,47 @@ fn sync_scene_outline(
     so: &SceneOutlineDelta,
 ) -> usize {
     let text = render_scene_outline(so);
-    if text.is_empty() {
-        return 0;
-    }
-    // 空或自动来源（ingest/agency/auto_placeholder）时填；用户已设的保留
-    match conn.execute(
-        "UPDATE scenes SET outline_content = ?3, updated_at = ?4 \
-         WHERE id = ?1 AND story_id = ?2 AND ( \
-             outline_content IS NULL OR TRIM(outline_content) = '' \
-             OR COALESCE(source, 'user_created') IN ('ingest', 'agency', 'auto_placeholder') \
-         )",
-        params![scene_id, story_id, text, now()],
-    ) {
-        Ok(n) => n,
-        Err(e) => {
-            log::warn!("[AssetBridge] 写入场景大纲失败: {}", e);
-            0
+    let ts = now();
+    let mut wrote = 0usize;
+    if !text.is_empty() {
+        match conn.execute(
+            "UPDATE scenes SET outline_content = ?3, updated_at = ?4 \
+             WHERE id = ?1 AND story_id = ?2 AND ( \
+                 outline_content IS NULL OR TRIM(outline_content) = '' \
+                 OR COALESCE(source, 'user_created') IN ('ingest', 'agency', 'auto_placeholder') \
+             )",
+            params![scene_id, story_id, text, ts],
+        ) {
+            Ok(n) => wrote += n,
+            Err(e) => {
+                log::warn!("[AssetBridge] 写入场景大纲失败: {}", e);
+            }
         }
     }
+    let names: Vec<String> = so
+        .characters_present
+        .iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if !names.is_empty() {
+        let json = serde_json::to_string(&names).unwrap_or_else(|_| "[]".into());
+        match conn.execute(
+            "UPDATE scenes SET characters_present = ?3, updated_at = ?4 \
+             WHERE id = ?1 AND story_id = ?2 AND ( \
+                 characters_present IS NULL OR TRIM(characters_present) = '' \
+                 OR TRIM(characters_present) = '[]' \
+                 OR COALESCE(source, 'user_created') IN ('ingest', 'agency', 'auto_placeholder') \
+             )",
+            params![scene_id, story_id, json, ts],
+        ) {
+            Ok(n) => wrote += n,
+            Err(e) => {
+                log::warn!("[AssetBridge] 写入出场角色失败: {}", e);
+            }
+        }
+    }
+    wrote.min(1)
 }
 
 // ==================== 故事大纲 ====================
@@ -1302,8 +1326,20 @@ mod tests {
         assert!(outline.contains("关键事件：破解门禁；发现阴谋"));
         assert!(outline.contains("出场角色：甲、乙"));
         assert!(outline.contains("情感基调：紧张"));
+        {
+            let conn = pool.get().unwrap();
+            let present: String = conn
+                .query_row(
+                    "SELECT characters_present FROM scenes WHERE id='sc1'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(present.contains("甲"));
+            assert!(present.contains("乙"));
+        }
 
-        // 用户已设 outline 的场景：保留
+        // 用户已设 outline 的场景：保留大纲；出场列为空时仍可填名字
         {
             let conn = pool.get().unwrap();
             conn.execute(
@@ -1314,11 +1350,21 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(
-            sync_assets_from_analysis(&pool, "s1", Some("sc2"), &analysis),
-            0
-        );
+        let n = sync_assets_from_analysis(&pool, "s1", Some("sc2"), &analysis);
         assert_eq!(scene_outline(&pool, "sc2").as_deref(), Some("用户手写大纲"));
+        assert!(n <= 1);
+        {
+            let conn = pool.get().unwrap();
+            let present: Option<String> = conn
+                .query_row(
+                    "SELECT characters_present FROM scenes WHERE id='sc2'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let present = present.unwrap_or_default();
+            assert!(present.contains("甲") && present.contains("乙"));
+        }
     }
 
     // ---------- 故事大纲 ----------
