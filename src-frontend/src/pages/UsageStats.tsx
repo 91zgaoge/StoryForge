@@ -3,6 +3,7 @@ import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
 import { getLlmCallStats, getRecentLlmCalls, getStoryLlmCalls } from '@/services/tauri';
 import { Card, CardContent } from '@/components/ui/Card';
+import { AiFilterChipsBar, AiFilterTable } from '@/components/ui/ai/AiFilterTable';
 import {
   BarChart3,
   Coins,
@@ -136,6 +137,17 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
     };
   }, [filteredCalls]);
 
+  const operationCounts = useMemo(() => {
+    const counts: Record<OperationTab, number> = {
+      all: recentCalls.length,
+      bootstrap: 0,
+      smart_execute: 0,
+      other: 0,
+    };
+    for (const c of recentCalls) counts[deriveOperation(c)] += 1;
+    return counts;
+  }, [recentCalls]);
+
   if (isLoading) {
     return (
       <div className={cn('flex items-center justify-center', embedded ? 'py-16' : 'p-8 h-full')}>
@@ -171,20 +183,16 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
 
       {/* Operation grouping tabs */}
       <div className="flex flex-wrap items-center gap-2">
-        {(['all', 'bootstrap', 'smart_execute', 'other'] as OperationTab[]).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setOperationTab(tab)}
-            className={cn(
-              'px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors',
-              operationTab === tab
-                ? 'bg-cinema-gold/20 text-cinema-gold border-cinema-gold/30'
-                : 'bg-cinema-900 border-cinema-700 text-cinema-300 hover:bg-cinema-800'
-            )}
-          >
-            {TAB_LABELS[tab]}
-          </button>
-        ))}
+        <AiFilterChipsBar
+          ariaLabel="调用分组筛选"
+          activeKey={operationTab}
+          onSelect={key => setOperationTab(key as OperationTab)}
+          items={(['all', 'bootstrap', 'smart_execute', 'other'] as OperationTab[]).map(tab => ({
+            key: tab,
+            label: TAB_LABELS[tab],
+            count: operationCounts[tab],
+          }))}
+        />
         <span className="inline-flex items-center gap-1 text-xs text-cinema-500 ml-2">
           <Info className="w-3 h-3" />
           分组基于 purpose / task_type / metadata（含 JSON 中 operation、label
@@ -279,56 +287,81 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
             </div>
           </div>
 
-          {filteredCalls.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">暂无 LLM 调用记录</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-cinema-700">
-                    <th className="text-left py-2 px-3 text-gray-500 font-medium">用途</th>
-                    <th className="text-left py-2 px-3 text-gray-500 font-medium">操作</th>
-                    <th className="text-left py-2 px-3 text-gray-500 font-medium">模型</th>
-                    <th className="text-right py-2 px-3 text-gray-500 font-medium">Token</th>
-                    <th className="text-right py-2 px-3 text-gray-500 font-medium">耗时</th>
-                    <th className="text-center py-2 px-3 text-gray-500 font-medium">状态</th>
-                    <th className="text-left py-2 px-3 text-gray-500 font-medium">时间</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-cinema-800">
-                  {filteredCalls.map(call => (
-                    <tr key={call.id} className="hover:bg-cinema-800/30 transition-colors">
-                      <td className="py-2 px-3 text-white/80">{call.purpose}</td>
-                      <td className="py-2 px-3 text-gray-400">
-                        {TAB_LABELS[deriveOperation(call)]}
-                      </td>
-                      <td className="py-2 px-3 text-gray-400">
-                        {call.model_name || call.model_id}
-                      </td>
-                      <td className="py-2 px-3 text-right text-gray-400">
-                        {call.total_tokens.toLocaleString()}
-                      </td>
-                      <td className="py-2 px-3 text-right text-gray-400">
-                        {call.duration_ms >= 1000
-                          ? `${(call.duration_ms / 1000).toFixed(1)}s`
-                          : `${call.duration_ms}ms`}
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {call.success ? (
-                          <CheckCircle className="w-4 h-4 text-green-400 mx-auto" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-red-400 mx-auto" />
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-gray-500 text-xs">
-                        {new Date(call.created_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <AiFilterTable
+            columns={[
+              {
+                key: 'purpose',
+                label: '用途',
+                width: '1.6fr',
+                render: call => <span className="text-ai-ink">{call.purpose}</span>,
+              },
+              {
+                key: 'operation',
+                label: '操作',
+                width: '0.8fr',
+                render: call => (
+                  <span className="text-ai-ink-2">{TAB_LABELS[deriveOperation(call)]}</span>
+                ),
+              },
+              {
+                key: 'model',
+                label: '模型',
+                width: '1fr',
+                render: call => (
+                  <span className="text-ai-ink-2">{call.model_name || call.model_id}</span>
+                ),
+              },
+              {
+                key: 'tokens',
+                label: 'Token',
+                align: 'right',
+                width: '0.7fr',
+                render: call => (
+                  <span className="text-ai-ink-2 tabular-nums">
+                    {call.total_tokens.toLocaleString()}
+                  </span>
+                ),
+              },
+              {
+                key: 'duration',
+                label: '耗时',
+                align: 'right',
+                width: '0.6fr',
+                render: call => (
+                  <span className="text-ai-ink-2 tabular-nums">
+                    {call.duration_ms >= 1000
+                      ? `${(call.duration_ms / 1000).toFixed(1)}s`
+                      : `${call.duration_ms}ms`}
+                  </span>
+                ),
+              },
+              {
+                key: 'status',
+                label: '状态',
+                align: 'center',
+                width: '0.5fr',
+                render: call =>
+                  call.success ? (
+                    <CheckCircle className="mx-auto h-4 w-4 text-ai-green" />
+                  ) : (
+                    <XCircle className="mx-auto h-4 w-4 text-ai-red" />
+                  ),
+              },
+              {
+                key: 'time',
+                label: '时间',
+                width: '1.1fr',
+                render: call => (
+                  <span className="text-xs text-ai-ink-3">
+                    {new Date(call.created_at).toLocaleString()}
+                  </span>
+                ),
+              },
+            ]}
+            rows={filteredCalls}
+            rowKey={call => call.id}
+            emptyText="暂无 LLM 调用记录"
+          />
         </CardContent>
       </Card>
     </div>
