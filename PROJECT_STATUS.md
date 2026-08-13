@@ -15,6 +15,13 @@
 
 ## ✅ 最近完成功能
 
+### Unreleased - beautifului AI 原生组件 P4（收尾：清理 + 视觉修正 + 浅色页令牌化）（2026-08-13）
+
+- **清理**：P1-P3 替换残留 TS 13 处 + 死 CSS 约 40 类；历史死件 8 件（含自带测试/barrel/级联 CSS）。
+- **修正**：`--ai-on-accent` 令牌（17 变量契约）替换 text-white ×4；/N 透明度失效 13 处 color-mix 修复；Tasks 裸 pre → AiCodeBlock；AiDiffTable testid per-row key。
+- **令牌化**：AgencyEval / AgencyStudio / AgencyLearning 浅色切口关闭（AgencyLearning 裸表 → AiRecordsTable）。
+- **验证**：`npx tsc --noEmit` / `npx vitest run`（556 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动（1328 passed / 2 ignored 不变）。版本号未动，发版推送另行进行。
+
 ### Unreleased - beautifului AI 原生组件 P3（数据展示六件套）（2026-08-13）
 
 - **六组件入库** `components/ui/ai/`：AiSearchList（PromptsPanel 搜索计数区）、AiCodeBlock（六文件七处裸 pre/JSON 批量替换）、AiDiffTable（AgencyEval 检查点对比，metrics_json 解析补基准/对比列）、AiFilterTable（UsageStats 分组 tabs + 最近调用表；AiFilterChipsBar 可选接 Logs 级别筛选）、AiRecordsTable（PromptsPanel 分组行列表保留展开编辑器 + AgencyEval 判定历史/token 用量双表）、AiInsightCards（UsageStats/AgencyEval 统计卡，内嵌 MiniLineChart 静态快照替代 liveline）。

@@ -2,6 +2,21 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## Unreleased（P4 AI 原生组件库 · 收尾）
+
+### 清理与修复：beautifului AI 原生组件替换项目收尾（设计文档 P4 范围）
+
+- **替换残留删除**：P1-P3 未使用符号 13 处（GenesisPanel 4 / NovelCreationWizard 2 / FrontstageBottomBar 2 函数 / Tasks 3 import / Skills 1 / UsageStats 1 import）+ frontstage.css 旧 chat 输入区/旧 model 展示/旧流式渲染/旧生成浮层等约 40 个零引用死类（`.zen-mode-exit` 等活类保留）。
+- **历史死件删除**：AiSuggestionBubble / AiHintOverlay / HelpPanel / ZenModeExit / useLlmStream / useStudioConfig / hetiAddon / Toggle 共 8 件，含自带测试 3 个文件与 barrel 导出、级联死 CSS。
+- **视觉修复**：新增 `--ai-on-accent` 语义令牌（第 17 变量，幕后幕前均 #ffffff，四文件同步），替换四组件 text-white 直写；`/N` 透明度修饰符失效 13 处改 color-mix 内联（徽章全饱和 bug 修复）；Tasks 末处裸 pre 换 AiCodeBlock；AiDiffTable testid 改 per-row key。
+- **浅色页令牌化**：AgencyEval / AgencyStudio / AgencyLearning 三页关闭 P2/P3 风格切口（AgencyLearning 裸 table → AiRecordsTable），只换颜色来源不改布局。gray 映射固化为约定：gray-600 → `text-ai-ink-2`（次级正文）、gray-500/400 → `text-ai-ink-3`（muted/空态）、表单控件 → `border-ai-line bg-ai-field text-ai-ink`。
+
+### 测试
+
+- src-frontend `npx vitest run`：**556 passed / 3 skipped**（P3 基线 564 − 死件自带测试 8）。
+- 已知遗留（后续可选清理，不在 P4 范围）：B2 死导出（errorHandler/logger/genesisSteps/useTextAnnotations/useChapters 等约 20 个）；B3 历史 CSS（.slash-command-*/.smart-hint-*/.free-hint-* 等，需逐类核实防误报）。
+- 补充遗留记录：① `.chat-toggle-btn` 死类（Task5 复核发现，残留于 frontstage.css，下批删除候选）；② hetiAddon 删除后 `.heti-*` 6 类（spacing/adjacent 系列）成为新死 CSS，归 B3 范围逐类核实；③ Task6 commit message 称「及级联死 CSS」，实际无 CSS 可删——目标类早已于 c58b700 移除，仅 message 表述偏差；④ tokens.css 与 frontstage.css 双份 `--ai-orange` 色值分叉（#facc15 vs #f59e0b，先于 P4 存在，建议后续统一）；⑤ P3 计划文档中 `ai-diff-delta` 的旧契约描述与现状（Task2 已改 per-row key）不符，P3 历史计划文档不回改，仅在此注明。
+
 ## Unreleased（P3 AI 原生组件库 · 数据展示）
 
 ### 功能：beautifului AI 原生组件第三批（设计文档 P3 范围）
