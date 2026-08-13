@@ -106,7 +106,8 @@ export function AiCodeBlock({
             >
               <span
                 data-line-no={i + 1}
-                className="w-8 shrink-0 pr-2.5 text-right text-[10.5px] leading-[1.86] text-ai-ink-3/60 select-none"
+                className="w-8 shrink-0 pr-2.5 text-right text-[10.5px] leading-[1.86] select-none"
+                style={{ color: 'color-mix(in srgb, var(--ai-ink-3) 60%, transparent)' }}
               >
                 {i + 1}
               </span>

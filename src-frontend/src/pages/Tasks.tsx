@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { loggedInvoke } from '@/services/tauri';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
@@ -126,12 +126,22 @@ function TaskRow({
     task.status === 'running' ? `心跳${heartbeat.text}` : null,
   ].filter(Boolean);
 
-  const statusPill: Record<string, string> = {
-    running: 'bg-ai-accent-tint text-ai-accent-ink',
-    completed: 'bg-ai-green/10 text-ai-green',
-    failed: 'bg-ai-red/10 text-ai-red',
-    cancelled: 'bg-ai-orange/10 text-ai-orange',
-    pending: 'bg-ai-hover text-ai-ink-2',
+  // P4 Task4: 纯 var() 令牌不支持 tailwind /N 透明度修饰符（构建期失效），tint 底色改 color-mix 内联
+  const statusPill: Record<string, { className: string; style?: CSSProperties }> = {
+    running: { className: 'bg-ai-accent-tint text-ai-accent-ink' },
+    completed: {
+      className: 'text-ai-green',
+      style: { background: 'color-mix(in srgb, var(--ai-green) 10%, transparent)' },
+    },
+    failed: {
+      className: 'text-ai-red',
+      style: { background: 'color-mix(in srgb, var(--ai-red) 10%, transparent)' },
+    },
+    cancelled: {
+      className: 'text-ai-orange',
+      style: { background: 'color-mix(in srgb, var(--ai-orange) 10%, transparent)' },
+    },
+    pending: { className: 'bg-ai-hover text-ai-ink-2' },
   };
 
   const item: AiTaskRowItem<Task> = {
@@ -140,22 +150,26 @@ function TaskRow({
     progress: task.status === 'running' ? task.progress : undefined,
     label: task.name,
     meta: metaParts.join(' · '),
-    pill: (
-      <span
-        className={cn(
-          'inline-flex h-[22px] items-center rounded-full px-2 text-[11.5px] font-medium',
-          statusPill[task.status] || statusPill.pending
-        )}
-      >
-        {status.label}
-      </span>
-    ),
+    pill: (() => {
+      const pill = statusPill[task.status] || statusPill.pending;
+      return (
+        <span
+          className={cn(
+            'inline-flex h-[22px] items-center rounded-full px-2 text-[11.5px] font-medium',
+            pill.className
+          )}
+          style={pill.style}
+        >
+          {status.label}
+        </span>
+      );
+    })(),
     trailing: (
       <>
         {task.status === 'running' ? (
           <button
             onClick={handleCancel}
-            className="p-1.5 rounded hover:bg-ai-red/10 text-ai-ink-3 hover:text-ai-red transition-colors"
+            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-red)_10%,transparent)] text-ai-ink-3 hover:text-ai-red transition-colors"
             title="取消"
           >
             <Square className="w-3.5 h-3.5" />
@@ -163,7 +177,7 @@ function TaskRow({
         ) : task.status === 'failed' ? (
           <button
             onClick={handleRetry}
-            className="p-1.5 rounded hover:bg-ai-orange/10 text-ai-ink-3 hover:text-ai-orange transition-colors"
+            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-orange)_10%,transparent)] text-ai-ink-3 hover:text-ai-orange transition-colors"
             title="重试"
           >
             <Play className="w-3.5 h-3.5" />
@@ -171,7 +185,7 @@ function TaskRow({
         ) : (
           <button
             onClick={handleTrigger}
-            className="p-1.5 rounded hover:bg-ai-green/10 text-ai-ink-3 hover:text-ai-green transition-colors"
+            className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-green)_10%,transparent)] text-ai-ink-3 hover:text-ai-green transition-colors"
             title="执行"
           >
             <Play className="w-3.5 h-3.5" />
@@ -180,7 +194,7 @@ function TaskRow({
         <button
           onClick={handleDelete}
           disabled={isDeleting}
-          className="p-1.5 rounded hover:bg-ai-red/10 text-ai-ink-3 hover:text-ai-red transition-colors"
+          className="p-1.5 rounded hover:bg-[color-mix(in_srgb,var(--ai-red)_10%,transparent)] text-ai-ink-3 hover:text-ai-red transition-colors"
           title="删除"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -307,13 +321,19 @@ function CascadeRewriteDetail({ task }: { task: Task }) {
                 label: 'AI 改写建议',
                 body: (
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-[8px] bg-ai-red/10 p-1.5">
+                    <div
+                      className="rounded-[8px] p-1.5"
+                      style={{ background: 'color-mix(in srgb, var(--ai-red) 10%, transparent)' }}
+                    >
                       <p className="mb-0.5 text-[10px] text-ai-red">原文</p>
                       <p className="text-[11px] text-ai-ink-3 line-through">
                         {segment.original_text}
                       </p>
                     </div>
-                    <div className="rounded-[8px] bg-ai-green/10 p-1.5">
+                    <div
+                      className="rounded-[8px] p-1.5"
+                      style={{ background: 'color-mix(in srgb, var(--ai-green) 10%, transparent)' }}
+                    >
                       <p className="mb-0.5 text-[10px] text-ai-green">改写</p>
                       <p className="text-[11px] text-ai-ink">{segment.rewritten_text}</p>
                     </div>

@@ -661,7 +661,12 @@ export function PromptsPanel() {
                         <span className="text-[13px] text-ai-ink">{entry.name}</span>
                         <code className="font-mono text-[11px] text-ai-ink-3">{entry.id}</code>
                         {entry.is_overridden && (
-                          <span className="rounded bg-ai-orange/10 px-2 py-0.5 text-[11px] text-ai-orange">
+                          <span
+                            className="rounded px-2 py-0.5 text-[11px] text-ai-orange"
+                            style={{
+                              background: 'color-mix(in srgb, var(--ai-orange) 10%, transparent)',
+                            }}
+                          >
                             已覆盖
                           </span>
                         )}
@@ -721,7 +726,7 @@ export function PromptsPanel() {
                             [entry.id]: e.target.value,
                           }))
                         }
-                        className="h-[360px] w-full resize-y rounded-[8px] border border-ai-line bg-ai-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-ai-ink focus:border-ai-accent/50 focus:outline-none"
+                        className="h-[360px] w-full resize-y rounded-[8px] border border-ai-line bg-ai-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-ai-ink focus:border-[color-mix(in_srgb,var(--ai-accent)_50%,transparent)] focus:outline-none"
                         spellCheck={false}
                       />
 

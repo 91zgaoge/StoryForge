@@ -53,7 +53,7 @@ export function AiSearchList({
             type="button"
             aria-label="清除搜索"
             onClick={() => onChange('')}
-            className="animate-fade-in flex size-[22px] shrink-0 items-center justify-center rounded-full text-ai-ink-3 transition-colors duration-100 hover:bg-ai-line/70 hover:text-ai-ink"
+            className="animate-fade-in flex size-[22px] shrink-0 items-center justify-center rounded-full text-ai-ink-3 transition-colors duration-100 hover:bg-[color-mix(in_srgb,var(--ai-line)_70%,transparent)] hover:text-ai-ink"
           >
             <X size={11} strokeWidth={2.2} aria-hidden />
           </button>
