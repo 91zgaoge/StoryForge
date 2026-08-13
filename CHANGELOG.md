@@ -2,6 +2,25 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## Unreleased（P3 AI 原生组件库 · 数据展示）
+
+### 功能：beautifului AI 原生组件第三批（设计文档 P3 范围）
+
+将 beautifului.dev 的 6 个数据展示组件适配为受控组件入库 `src-frontend/src/components/ui/ai/`，并逐点替换幕后落点。沿用 P1 令牌桥（`--ai-*` 16 变量契约不动，tint 缺口 color-mix 内联零扩令牌），不引新依赖（liveline 以组件内嵌 SVG MiniLineChart 静态快照替代）；纯前端阶段，无后端改动。
+
+- **AiSearchList（Task1）**：受控搜索框 + 结果计数/空态（提取参考搜索框视觉语法，下拉结果列表语义不符不落），替换 PromptsPanel 搜索+计数区。
+- **AiCodeBlock（Task2）**：只读代码块（剥离逐行流式演示循环与语法着色，复制按钮带反馈），批量替换六文件七处裸 pre/JSON.stringify（TracingPanel step.details、Logs 系统日志 + 行 details、Mcp 工具结果、Skills 执行结果、IntentionGraphDiagnostics plan/result JSON、PromptsPanel 内置默认值）。
+- **AiDiffTable（Task3）**：指标基准/对比/Δ 行式对比表（Δ 按 betterWhen 语义着色，color-mix tint），替换 AgencyEval CheckpointCompare 四格 delta 瓷砖；基准/对比绝对值由宿主解析 checkpoint metrics_json（key 与后端 coordinator.rs 对齐，零后端改动）。
+- **AiFilterTable（Task4）**：筛选 chips 条 + 数据表（行过滤宿主侧受控完成，pill 经 column.render 插槽），替换 UsageStats 分组 tabs（新增分组计数徽章）与最近调用表；AiFilterChipsBar 独立导出，可选接入 Logs 级别筛选。
+- **AiRecordsTable（Task5）**：全受控记录表格（records-* 全局类 Tailwind 自研；自研 Checkbox 含 mixed；可选 selection/sort/footer 插槽；新增受控展开行 + rowKeyAttribute），替换 PromptsPanel 分组行列表（展开编辑器移入 row detail，既有测试选择器零改动）与 AgencyEval 判定历史/token 用量双表（token 表启用受控排序 + footer 合计行）。
+- **AiInsightCards（Task6）**：统计洞察卡片组 + 内嵌 MiniLineChart 静态快照（删 useDarkMode，序列色 hex 映射 ai-orange/ai-accent/ai-red；不落 carousel 分页壳与 blur crossfade 占位——无宿主分页场景），替换 UsageStats 四统计卡（Token 卡带最近调用趋势折线）与 AgencyEval 三统计卡。
+- **AiChat 关闭**：设计文档 §8 P3 的「AiChat」经勘察关闭——ChatComposer 是 P1 AiPromptBar 的严格子集且应用无多轮对话场景；差异特性（分节回复 + resolving 退焦模糊）记录备选，可作未来 AiChatThread 组合复用 AiPromptBar，不入 P3。
+- **已知切口**：AgencyEval 为浅色裸样式页，接入的 `--ai-*` 深色令牌组件与周边形成对比（同 P2 AgencyStudio 先例），P4 统一处理后台页令牌。
+
+### 测试
+
+- src-frontend `npx vitest run`：**564 passed / 3 skipped**（基线 523 + 本批新增 41）。
+
 ## v0.39.0（2026-08-12）
 
 AI 原生组件库 P1（生成体验）+ P2（代理与任务）共 10 个组件入库并接入幕后/幕前落点，另含幕前保存 UNIQUE 约束修复。

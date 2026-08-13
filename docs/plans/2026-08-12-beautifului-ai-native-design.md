@@ -78,5 +78,5 @@
 1. **P0 主题底座**：tokens 变量化 + backstageThemes + 设置页入口 + 双向同步
 2. **P1 组件库第一批（生成体验）**：AiLoading / AiThinking / AiStreamingText / AiPromptBar / AiApprovalCard
 3. **P2 组件库第二批（代理与任务）**：AiToolChips / AiTaskRows / AiRecommendationCard / AiContextCards / AiSelectionActions
-4. **P3 组件库第三批（数据展示）**：AiTable 系列 / AiSearch / AiInsightCards / AiCodeBlock / AiChat（入库）
+4. **P3 组件库第三批（数据展示）**：AiTable 系列 / AiSearch / AiInsightCards / AiCodeBlock / AiChat（入库）（AiChat 经 P3 勘察关闭：ChatComposer 为 AiPromptBar 严格子集、无多轮对话场景，差异特性「分节回复 + resolving 退焦」记录备选，详见 P3 实施计划）
 5. **P4 收尾**：旧组件删除、死代码清理、文档与发版

@@ -49,6 +49,24 @@ export type {
   AiSelectionActionKey,
   AiSelectionPhase,
 } from './ui/ai/AiSelectionActions';
+// P3 - AI Native Components（数据展示）
+export { AiSearchList } from './ui/ai/AiSearchList';
+export { AiCodeBlock } from './ui/ai/AiCodeBlock';
+export { AiDiffTable } from './ui/ai/AiDiffTable';
+export { AiFilterTable, AiFilterChipsBar } from './ui/ai/AiFilterTable';
+export { AiRecordsTable } from './ui/ai/AiRecordsTable';
+export { AiInsightCards } from './ui/ai/AiInsightCards';
+export type { AiSearchListProps } from './ui/ai/AiSearchList';
+export type { AiCodeBlockProps } from './ui/ai/AiCodeBlock';
+export type { AiDiffTableProps, AiDiffRow } from './ui/ai/AiDiffTable';
+export type {
+  AiFilterTableProps,
+  AiFilterChipsBarProps,
+  AiFilterChipItem,
+  AiFilterColumn,
+} from './ui/ai/AiFilterTable';
+export type { AiRecordsTableProps, AiRecordsColumn, AiRecordsSort } from './ui/ai/AiRecordsTable';
+export type { AiInsightCardsProps, AiInsightCardItem } from './ui/ai/AiInsightCards';
 export { DataLoader } from './DataLoader';
 export { MonacoEditor as Editor } from './Editor';
 export { EditorSettings } from './EditorSettings';

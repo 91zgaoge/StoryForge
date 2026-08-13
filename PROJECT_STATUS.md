@@ -15,6 +15,13 @@
 
 ## ✅ 最近完成功能
 
+### Unreleased - beautifului AI 原生组件 P3（数据展示六件套）（2026-08-13）
+
+- **六组件入库** `components/ui/ai/`：AiSearchList（PromptsPanel 搜索计数区）、AiCodeBlock（六文件七处裸 pre/JSON 批量替换）、AiDiffTable（AgencyEval 检查点对比，metrics_json 解析补基准/对比列）、AiFilterTable（UsageStats 分组 tabs + 最近调用表；AiFilterChipsBar 可选接 Logs 级别筛选）、AiRecordsTable（PromptsPanel 分组行列表保留展开编辑器 + AgencyEval 判定历史/token 用量双表）、AiInsightCards（UsageStats/AgencyEval 统计卡，内嵌 MiniLineChart 静态快照替代 liveline）。
+- **AiChat 关闭**：ChatComposer 为 AiPromptBar 严格子集、无多轮对话场景，设计文档 P3「AiChat」以勘察结论关闭，差异特性记录备选。
+- **切口**：AgencyEval 浅色裸样式页接 `--ai-*` 深色令牌组件（同 P2 AgencyStudio 先例），P4 统一。
+- **验证**：`npx tsc --noEmit` / `npx vitest run`（564 passed / 3 skipped）/ `format:check` / `architecture_guard.py` 全绿；Rust 无改动（1328 passed / 2 ignored 不变）。版本号未动，发版另行进行。
+
 ### v0.39.0 - AI 原生组件库 P1+P2（共 10 组件）+ 保存 UNIQUE 修复（2026-08-12）
 
 - **P1 生成体验五件套**入库 `components/ui/ai/`：AiLoading（幕后 3 处加载指示）、AiThinking（AgencyStudio 当前执行轨迹）、AiStreamingText（幕前幽灵续写，中文词级分词）、AiPromptBar（幕前底部指令条 + / 命令菜单）、AiApprovalCard（创建向导四选项步骤）；`--ai-*` 语义令牌 16 个双窗口各自定义，tailwind 注册 ai 色组 + 9 个动画工具；删除幕前死代码 `StreamingText.tsx` + `useStreamingGeneration.ts`。
