@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.41.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.41.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.41.1 · Agency 续写上线核验加固
+
+对照设计补齐：续写正文先清理思维链泄露，自重复过高会重试一次；划词改写不会误走同章追加，也不会再落到已删除的分时/三击续写引擎。文思活跃续写必须带当前章节 id。
+
+测试：cargo test 1350 passed / 2 ignored（+5）；vitest 556 passed / 3 skipped。设计文档「连续 8 次续写真机探针」尚未跑，四症状痊愈不能算验收通过。
 
 ### v0.41.0 · Agency 唯一续写路径 + 幕前同章追加
 

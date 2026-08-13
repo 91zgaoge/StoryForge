@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.41.0 项目完成状态
+# StoryMoss (草苔) v0.41.1 项目完成状态
 
-> 最后更新: 2026-08-13（v0.41.0 Agency 唯一续写路径 + 幕前同章追加）
+> 最后更新: 2026-08-13（v0.41.1 Agency 续写上线核验加固）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.41.1 - Agency 续写上线核验加固（2026-08-13）
+
+- **核验缺口**：主创正文 `sanitize_novel_output` + 8% 自重复重试；改写路径 `resolve_rewrite_generation_mode` 永不选 TimeSliced/TriShot；划词选区不走 Append；测试环境 `finalize_session` 跳过 LLM 摘要。
+- **验证**：`cargo test --lib` 1350 passed / 2 ignored（+5）；`npx vitest run` 556 passed / 3 skipped。
+- **未关闭**：设计 §13 连续 8 次幕前续写真机探针未跑，不得宣称四症状已修复。
 
 ### v0.41.0 - Agency 唯一续写路径 + 幕前同章追加（2026-08-13）
 

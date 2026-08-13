@@ -36,6 +36,11 @@ pub fn resolve_persist_mode(
     Ok(PersistMode::Append { scene_id: sid })
 }
 
+/// 幕前续写进 Agency Append：必须是续写意图，且没有划词选区（选区走改写）。
+pub fn should_agency_append_continue(is_continuation: bool, selected_text: Option<&str>) -> bool {
+    is_continuation && selected_text.map(str::trim).unwrap_or("").is_empty()
+}
+
 /// 每次成功 Append/NextChapter 后 +1。失败不阻断落库。
 pub fn increment_append_beat(pool: &DbPool, story_id: &str) -> Result<(), AppError> {
     let conn = pool
@@ -339,6 +344,14 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("请先打开一个章节") || err.to_string().contains("不存在"));
+    }
+
+    #[test]
+    fn rewrite_selection_does_not_route_to_agency_append() {
+        assert!(should_agency_append_continue(true, None));
+        assert!(should_agency_append_continue(true, Some("  ")));
+        assert!(!should_agency_append_continue(true, Some("选中的一段")));
+        assert!(!should_agency_append_continue(false, None));
     }
 
     #[test]

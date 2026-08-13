@@ -422,13 +422,10 @@ async fn smart_execute_inner(
     // 续写走 Agency Append：硬门——有划词/内联选区则留给 PlanExecutor Full，禁止
     // Append。 current_scene_id 在 Phase 3
     // 才加载；此处禁止「最新有内容场景」回退（前端必须传 scene_id）。
-    if classification.is_continuation
-        && selected_text
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-    {
+    if crate::agency::persist::should_agency_append_continue(
+        classification.is_continuation,
+        selected_text.as_deref(),
+    ) {
         let persist = crate::agency::persist::resolve_persist_mode(true, scene_id.clone(), false)?;
         let story_id = current_story_id.clone().ok_or_else(|| {
             AppError::validation_failed("请先在左侧选择或创建一个作品", Some("no_story_selected"))

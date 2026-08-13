@@ -58,6 +58,7 @@ vi.mock('@/services/tauri', () => ({
           chapter_number: 1,
           title: '第一章',
           content: null,
+          scene_id: 'scene-1',
         },
       ]);
     }
@@ -68,13 +69,23 @@ vi.mock('@/services/tauri', () => ({
         chapter_number: 1,
         title: '第一章',
         content: null,
+        scene_id: 'scene-1',
       });
     }
     if (cmd === 'get_chapter_aggregated_content') {
       return Promise.resolve(CHAPTER_TEXT);
     }
     if (cmd === 'get_story_scenes' || cmd === 'get_story_scenes_paged') {
-      return Promise.resolve([]);
+      return Promise.resolve([
+        {
+          id: 'scene-1',
+          story_id: 'story-1',
+          sequence_number: 1,
+          title: '第一章',
+          content: CHAPTER_TEXT,
+          chapter_id: 'ch-1',
+        },
+      ]);
     }
     if (cmd === 'get_story_word_count') {
       return Promise.resolve({ total_chars: CHAPTER_TEXT.length });
@@ -228,6 +239,7 @@ describe('Bug: 文思活跃模式续写内容丢失（smartExecuteInFlightRef �
 
     // 等待 smartExecute 被调用
     await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled(), { timeout: 3000 });
+    expect(mockSmartExecute).toHaveBeenCalledWith(expect.objectContaining({ scene_id: 'scene-1' }));
 
     // 等待内容处理完成
     await waitFor(() => expect(captured.content).toContain('凯尔看着那颗悬浮的光球'), {

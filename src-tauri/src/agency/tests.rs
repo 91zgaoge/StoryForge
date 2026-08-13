@@ -85,8 +85,10 @@ impl LoopLlm for MockLlm {
 /// 加权 ≈0.76 仍过 0.75 阈值。
 fn pass_grade_content(prefix: &str) -> String {
     let mut s = String::from(prefix);
-    for i in 1..=120 {
-        s.push_str(&format!("第{}句，场景与情绪各不相同。", i));
+    for i in 1..=24 {
+        s.push_str(&format!(
+            "第{i}拍里，{i}号巷的守夜人把{i}封旧信交给林雪，沈夜在{i}步之外停住，雨点打在刀背上。"
+        ));
     }
     s.push_str("她果然没有忘记约定，全场震惊。下一秒，门外传来脚步声——真相究竟是谁留下的？");
     s
@@ -1115,12 +1117,219 @@ async fn test_continue_chapter_end_to_end() {
         .get_by_id(&result.scene_id)
         .unwrap()
         .unwrap();
-    assert_eq!(scene.content.as_deref(), Some(chapter2.as_str()));
+    assert_eq!(
+        scene.content.as_deref().map(str::trim_end),
+        Some(chapter2.trim_end())
+    );
     let run = AgencyRepository::new(pool.clone())
         .get_run("rc-1")
         .unwrap()
         .unwrap();
     assert_eq!(run.status, "completed");
+}
+
+#[tokio::test]
+async fn test_run_continue_append_keeps_scene_and_releases_run() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "同章追加".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("<p>第一章旧文。</p>".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let beat1 = pass_grade_content("第一拍增量：雨巷对峙。");
+    let beat2 = pass_grade_content("第二拍增量：林雪归来。");
+    let mock = MockLlm::scripted(vec![beat1.as_str(), beat2.as_str()]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let r1 = coordinator
+        .run_continue(
+            "ap-1",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch1.id.clone(),
+            },
+            "续写",
+            Some("<p>第一章旧文。</p>"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r1.scene_id, ch1.id);
+    assert!(r1.increment.chars().count() >= 200);
+    let scenes = scene_repo.get_by_story(&story.id).unwrap();
+    assert_eq!(scenes.len(), 1, "Append 不得新建 scenes 行");
+    let run1 = AgencyRepository::new(pool.clone())
+        .get_run("ap-1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(run1.status, "completed", "装配后必须立即释放 active run");
+    assert_eq!(
+        mock.calls.lock().unwrap().len(),
+        1,
+        "主创默认单次 complete；测试环境不得再抽 mock 做收尾摘要"
+    );
+
+    let r2 = coordinator
+        .run_continue(
+            "ap-2",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch1.id.clone(),
+            },
+            "再续",
+            Some(scenes[0].content.as_deref().unwrap_or("")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r2.scene_id, ch1.id);
+    let scenes2 = scene_repo.get_by_story(&story.id).unwrap();
+    assert_eq!(scenes2.len(), 1);
+    let run2 = AgencyRepository::new(pool.clone())
+        .get_run("ap-2")
+        .unwrap()
+        .unwrap();
+    assert_eq!(run2.status, "completed");
+}
+
+#[test]
+fn pass_grade_content_survives_sanitize_and_self_repeat_gate() {
+    let text = pass_grade_content("前缀。");
+    let sanitized = crate::agents::orchestrator::sanitize_novel_output(&text);
+    assert!(
+        sanitized.chars().count() >= 200,
+        "sanitize 后仍须 ≥200，否则 write_beat_once 会误走散文回退抽干 mock"
+    );
+    let trimmed = crate::utils::text::TextUtils::trim_self_repetition(&sanitized);
+    let ratio = crate::agents::trim_utils::compute_trim_ratio(
+        sanitized.chars().count(),
+        trimmed.chars().count(),
+    );
+    assert!(
+        !crate::agents::trim_utils::should_retry_self_repetition(ratio, sanitized.chars().count()),
+        "合格稿 helper 不得误触发 8% 重试"
+    );
+}
+
+#[tokio::test]
+async fn test_write_beat_retries_once_on_self_repetition() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "自重复重试".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("<p>旧文。</p>".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let repeated = "林雪站在雨巷里把刀横在沈夜喉前，雨水灌进领口。".repeat(15);
+    let unique = pass_grade_content("重试后干净增量：");
+    let trimmed = crate::utils::text::TextUtils::trim_self_repetition(&repeated);
+    let ratio = crate::agents::trim_utils::compute_trim_ratio(
+        repeated.chars().count(),
+        trimmed.chars().count(),
+    );
+    assert!(crate::agents::trim_utils::should_retry_self_repetition(
+        ratio,
+        repeated.chars().count()
+    ));
+
+    let mock = MockLlm::scripted(vec![repeated.as_str(), unique.as_str()]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), mock.clone());
+    let result = coordinator
+        .run_continue(
+            "retry-1",
+            &story.id,
+            PersistMode::Append {
+                scene_id: ch1.id.clone(),
+            },
+            "续写",
+            Some("<p>旧文。</p>"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        mock.calls.lock().unwrap().len(),
+        2,
+        "8% 闸门必须再 complete 一次"
+    );
+    assert!(
+        result.increment.contains("重试后干净增量"),
+        "应采用更干净的重试稿"
+    );
+    assert_eq!(scene_repo.get_by_story(&story.id).unwrap().len(), 1);
 }
 
 /// v0.30.20: 续写 writer 连续解析失败 -> 散文回退保产出（与 genesis
@@ -1197,8 +1406,8 @@ async fn test_continue_writer_prose_fallback() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        scene.content.as_deref(),
-        Some(chapter2.as_str()),
+        scene.content.as_deref().map(str::trim_end),
+        Some(chapter2.trim_end()),
         "scene content should be prose fallback output"
     );
     let run = AgencyRepository::new(pool.clone())
@@ -1857,7 +2066,10 @@ async fn test_batch_revision_no_cross_chapter_mixup() {
         Some("第一章修订稿：阿苔的动机已补足。"),
         "第 1 章 Scene 应装配修订后正文，不得串第 2 章草稿"
     );
-    assert_eq!(s2.content.as_deref(), Some(chapter2.as_str()));
+    assert_eq!(
+        s2.content.as_deref().map(str::trim_end),
+        Some(chapter2.trim_end())
+    );
     assert_ne!(s1.content, s2.content, "两章正文不得相同");
 }
 

@@ -1,8 +1,16 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-13（v0.41.0 Agency 唯一续写路径 + 幕前同章追加）
+> 最后更新: 2026-08-13（v0.41.1 Agency 续写上线核验加固）
 
 ## ✅ v0.27.x–v0.41.x 已实施完成
+
+### ✨ v0.41.1 - Agency 续写上线核验加固 ✅ (2026-08-13)
+
+- [x] `write_beat_once`：`sanitize_novel_output` + 8% 自重复重试。
+- [x] 改写 `resolve_rewrite_generation_mode`：永不选 TimeSliced/TriShot。
+- [x] 划词选区不走 Agency Append；文思活跃测试断言 `scene_id`。
+- [x] 测试环境跳过 finalize LLM 摘要，连续 Append 不再抽干 mock。
+- [x] 验证：`cargo test --lib` 1350 passed / 2 ignored（+5）。
 
 ### ✨ v0.41.0 - Agency 唯一续写路径 + 幕前同章追加 ✅ (2026-08-13)
 
@@ -322,7 +330,7 @@
 
 Agency 多代理创作框架 P1–P5 已全部交付（v0.27.0 → v0.30.0），v0.41.0 已把续写收口到三角色同章追加。后续重点：
 
-- **真机验收与学习飞轮调优**：三代理创世/续写的真机盲测；质量门阈值与 grader 权重校准；持续学习双轨（观察 → instinct → 晋升技能）的置信度参数与晋升质量跟踪。
+- **真机验收与学习飞轮调优**：三代理创世/续写的真机盲测；**v0.41.1 尚未跑设计 §13 连续 8 次幕前续写真机探针**（需 LLM），未通过前不得宣称四症状已修复；质量门阈值与 grader 权重校准；持续学习双轨（观察 → instinct → 晋升技能）的置信度参数与晋升质量跟踪。
 - **ContextPrioritizer 接到 Agency 热路径**：v0.41.0 以 SceneBeatCard 双锚点为 Critical，分级排序仍仅 Full 路径；长篇续写若再出现 Lost-in-the-Middle 时重评估。
 - **characters_present 身份归一**：旧数据 id 与名字混杂，写回/债务匹配可能漏人。
 - **代理可视化深化**：代理工作室 / 学习中心 / 创作评估三页的交互深化（黑板实时性、检查点对比体验、学习飞轮透明度）。

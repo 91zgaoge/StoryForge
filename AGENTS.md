@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.41.0
+- **版本**: v0.41.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -72,6 +72,7 @@ node scripts/cdp-inspect.js           # CDP 截图
 7. **网站下载页内容及时同步**（用户级永久指令）：落地页（`landing/`）下载区**运行时**从 `https://storymoss.top/releases/latest.json` 拉取版本号并拼出下载链接（`landing/src/hooks/useLatestRelease.ts`），因此每次发版后下载页版本号与链接**自动跟随最新 release，无需重新部署落地页**。注意：发版（tag push）**不**触发 `deploy-landing.yml`（它只在 `landing/**` 变更时构建部署），运行时 fetch 才是保持下载页新鲜的机制。两条强制维护义务：
    - **兜底版本必须随发版 bump**：`useLatestRelease.ts` 的 `FALLBACK_VERSION` 必须与 `Cargo.toml` / `src-frontend/package.json` 的版本号同步更新--这是 fetch 失败（离线/服务器故障）时下载链接仍指向有效版本的最后一道防线，否则兜底链接会指向已被保留策略删除的旧版本而 404。
    - **文件名规律变更时必须校验**：`buildReleaseUrls` 内的 bundle 命名（`StoryMoss_{version}_aarch64.dmg` / `_x64_zh-CN.msi` / `_amd64.AppImage`）在 Tauri bundle 命名或语言包变更时需重新对照线上 `latest.json` 核对。
+8. **实现后核验功能和设计，持续迭代直到可上线**（用户级永久指令）：写完代码、勾完计划、提交/发版都不算完成。必须对照设计不变量/契约/验收指标与用户可点路径核验，发现缺口就修再核验，循环直到可上线。未跑通设计验收探针，不得宣称症状已修复。详见 `.cursor/rules/verify-until-shippable.mdc`。
 
 ## 提交信息格式
 
@@ -96,16 +97,23 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1345 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1350 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 556 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 545（零新增；+6 来自既有 V127 chapter_splitter 层违例）
+- `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
 - `npm run format:check` ✅
-- `python3 scripts/architecture_guard.py` ⚠️ V127 chapter_splitter 层违例（既有，非本版引入）
+- `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.41.1 - Agency 续写上线核验加固
+
+对照设计核验 v0.41.0 后补齐：主创 `sanitize_novel_output` + 8% 自重复重试；改写永不选 TimeSliced/TriShot；划词不走 Append；测试环境跳过 finalize LLM 摘要；文思活跃断言 `scene_id`。
+
+- **验证**：`cargo test --lib` 1350 passed / 2 ignored（+5）；`npx vitest run` 556 passed / 3 skipped；`tsc` / `format:check` / `architecture_guard.py` 全绿。
+- **未关闭**：设计 §13 连续 8 次幕前续写真机探针（需 LLM），不得宣称四症状已修复。
 
 ### v0.41.0 - Agency 唯一续写路径 + 幕前同章追加
 
@@ -870,7 +878,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-13 - v0.41.0_
+_最后更新: 2026-08-13 - v0.41.1_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

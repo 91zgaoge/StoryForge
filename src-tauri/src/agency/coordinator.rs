@@ -1161,6 +1161,12 @@ impl AgencyCoordinator {
         };
         let mechanical = crate::agency::session::SessionService::new(self.pool.clone())
             .mechanical_summary(&session);
+        // 测试环境跳过 LLM 摘要（与 ingest / editor_qc 一致）：注入 mock
+        // 的队列是主创正文脚本，收尾摘要会抽干队列并让下一次 Append 误报
+        // mock exhausted。机械快照已落库。
+        if self.app_handle.is_none() {
+            return Ok(());
+        }
         // 编辑审计档即 Background 模型档（原外层调用方传的就是它）；story_id
         // 供观察层埋点归属（session 无 story_id 时传空串，埋点跳过）。
         let llm = self.llm_for_run(
@@ -3734,13 +3740,9 @@ impl AgencyCoordinator {
             budget.clone(),
             AgentRole::LeadWriter,
         );
+        let system = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。须在节拍任务硬约束内落实指令。";
         let text = match llm
-            .complete(
-                "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。须在节拍任务硬约束内落实指令。",
-                &user,
-                TaskType::CreativeWriting,
-                8192,
-            )
+            .complete(system, &user, TaskType::CreativeWriting, 8192)
             .await
         {
             Ok(t) => t.trim().to_string(),
@@ -3753,6 +3755,34 @@ impl AgencyCoordinator {
                 String::new()
             }
         };
+        let mut text = crate::agents::orchestrator::sanitize_novel_output(&text);
+        // 设计 §10：自重复 ≥8% 一次 anti-repeat 重试（genesis 闸门）。
+        let trimmed = crate::utils::text::TextUtils::trim_self_repetition(&text);
+        let raw_chars = text.chars().count();
+        let trim_ratio =
+            crate::agents::trim_utils::compute_trim_ratio(raw_chars, trimmed.chars().count());
+        if crate::agents::trim_utils::should_retry_self_repetition(trim_ratio, raw_chars) {
+            log::warn!(
+                "agency: write_beat_once 自重复 ratio={:.2} run={}，anti-repeat 重试一次",
+                trim_ratio,
+                run_id
+            );
+            let retry_system = format!("{system} 禁止重复同一段落或意象循环，不得首尾回环。");
+            if let Ok(retry) = llm
+                .complete(&retry_system, &user, TaskType::CreativeWriting, 8192)
+                .await
+            {
+                let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
+                let retry_trimmed = crate::utils::text::TextUtils::trim_self_repetition(&retry);
+                let retry_ratio = crate::agents::trim_utils::compute_trim_ratio(
+                    retry.chars().count(),
+                    retry_trimmed.chars().count(),
+                );
+                if retry_ratio < trim_ratio {
+                    text = retry;
+                }
+            }
+        }
         if text.chars().count() >= 200 {
             let summary: String = text.chars().take(60).collect();
             let board = self.board();

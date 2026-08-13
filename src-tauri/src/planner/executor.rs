@@ -118,6 +118,33 @@ pub(crate) fn reject_agency_owned_intent(
     Ok(())
 }
 
+/// 改写路径的生成模式。Fast/Full 仅服务选中文本；历史 time_sliced/tri_shot
+/// 不再作为续写引擎。无选区不得落入 TimeSliced/TriShot。
+pub(crate) fn resolve_rewrite_generation_mode(
+    mode_str: &str,
+    has_selected_text: bool,
+) -> crate::agents::orchestrator::GenerationMode {
+    use crate::agents::orchestrator::GenerationMode;
+    match mode_str {
+        "full" => GenerationMode::Full,
+        "fast" => GenerationMode::Fast,
+        "time_sliced" | "timesliced" | "tri_shot" | "trishot" => {
+            if has_selected_text {
+                GenerationMode::Full
+            } else {
+                GenerationMode::Fast
+            }
+        }
+        _ => {
+            if has_selected_text {
+                GenerationMode::Full
+            } else {
+                GenerationMode::Fast
+            }
+        }
+    }
+}
+
 impl PlanExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
         let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
@@ -1517,35 +1544,15 @@ impl PlanExecutor {
             tier: None,
         };
 
-        // v0.14.3: 场景智能路由——续写默认走 TimeSliced（快速生成 30-60s），
-        // 重写选中文本走 Full（含 Inspector 质检），用户可在设置中显式覆盖。
-        // 修复 v0.13.0 设计文档（time-sliced-intervention-design.md:456）的实现遗漏：
-        // 该文档明确指定 smart_execute 默认 TimeSliced，但实施时漏改了 PlanExecutor
-        // 路径。 模式选择优先级：plan 参数 > AppConfig.generation_mode >
-        // 场景智能路由
+        // 改写路径：Fast/Full 仅服务选中文本。历史 time_sliced/tri_shot 不再
+        // 作为续写引擎（续写已在 smart_execute 入口进 Agency）。
         let mode_str = params
             .get("mode")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| app_config_mode.clone());
 
-        let mode = match mode_str.as_str() {
-            "full" => crate::agents::orchestrator::GenerationMode::Full,
-            "fast" => crate::agents::orchestrator::GenerationMode::Fast,
-            "time_sliced" | "timesliced" => crate::agents::orchestrator::GenerationMode::TimeSliced,
-            // v0.23 TriShot：弹性 2~3 次 LLM，资产任务下沉后台
-            "tri_shot" | "trishot" => crate::agents::orchestrator::GenerationMode::TriShot,
-            _ => {
-                // "auto" 或其他：场景智能路由
-                if has_selected_text {
-                    // 重写选中文本：用户明确要求改写，需要质检循环
-                    crate::agents::orchestrator::GenerationMode::Full
-                } else {
-                    // 续写或新章节首段：速度优先，问题靠后台审计修正
-                    crate::agents::orchestrator::GenerationMode::TimeSliced
-                }
-            }
-        };
+        let mode = resolve_rewrite_generation_mode(&mode_str, has_selected_text);
 
         log::info!(
             "[PlanExecutor::execute_writer] Calling orchestrator.generate({:?}) (selected_text={}, current_content_len={})...",
@@ -2654,6 +2661,35 @@ mod tests {
         };
         assert!(reject_agency_owned_intent(Some(&rewrite)).is_ok());
         assert!(reject_agency_owned_intent(None).is_ok());
+    }
+
+    #[test]
+    fn rewrite_mode_never_selects_timesliced_or_trishot() {
+        use crate::agents::orchestrator::GenerationMode;
+        assert_eq!(
+            resolve_rewrite_generation_mode("auto", false),
+            GenerationMode::Fast
+        );
+        assert_eq!(
+            resolve_rewrite_generation_mode("auto", true),
+            GenerationMode::Full
+        );
+        assert_eq!(
+            resolve_rewrite_generation_mode("time_sliced", false),
+            GenerationMode::Fast
+        );
+        assert_eq!(
+            resolve_rewrite_generation_mode("tri_shot", true),
+            GenerationMode::Full
+        );
+        assert_ne!(
+            resolve_rewrite_generation_mode("auto", false),
+            GenerationMode::TimeSliced
+        );
+        assert_ne!(
+            resolve_rewrite_generation_mode("auto", false),
+            GenerationMode::TriShot
+        );
     }
 
     #[test]

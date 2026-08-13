@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.41.1（2026-08-13）
+
+对照设计核验 v0.41.0 Agency 续写路径后的上线加固：主创正文先 `sanitize_novel_output` 再落库，自重复 ≥8% 重试一次；改写路径永不选 TimeSliced/TriShot；划词选区不走 Append；测试环境跳过 run 收尾 LLM 摘要，避免抽干 mock、连续同章追加失败。
+
+### 修复
+
+- **CoT / 自重复**：`write_beat_once` 在 `complete()` 后走 `sanitize_novel_output`；trim 比例 ≥8% 且 >100 字时 anti-repeat 再 `complete()` 一次，取更干净者（设计 §10）。
+- **改写漏网**：`resolve_rewrite_generation_mode` 把 `auto` / 历史 `time_sliced`/`tri_shot` 映射为 Fast（无选区）或 Full（有选区），`execute_writer` 不再默认 TimeSliced。
+- **路由**：`should_agency_append_continue` 在有划词选区时禁止 Append，改写仍走 PlanExecutor。
+- **测试隔离**：`finalize_session` 在 `app_handle=None` 时跳过 LLM 五段摘要（与 ingest/editor_qc 一致），连续两次 Append 不再被收尾摘要抽干 mock。
+- **幕前契约**：文思活跃续写测试断言 `smart_execute` 携带当前 `scene_id`。
+
+### 测试
+
+- `cargo test --lib`：**1350 passed / 2 ignored**（基线 1345，+5）。
+- src-frontend `npx vitest run`：**556 passed / 3 skipped**（文思活跃 `scene_id` 断言仍在原 2 项内）。
+- `npx tsc --noEmit` / `cargo +nightly fmt` / `npm run format:check` / `architecture_guard.py` 全绿。
+
+### 已知债务
+
+- 设计 §13 连续 8 次幕前续写真机探针未跑（需 LLM）；不得宣称「角色淡出/无方向/无冲突/无情感」四症状已修复。
+- `ContextPrioritizer` 仍未接 Agency 热路径；`characters_present` 旧数据 id/名字混杂。
+
 ## v0.41.0（2026-08-13）
 
 创世与幕前/幕后续写只走 Agency 三角色（主创 / 管理 / 编辑审计）。幕前续写与文思活跃改为**同章追加**（`PersistMode::Append`），不再为每次续写新建 `scenes` 行；划词改写仍走 PlanExecutor Full/Fast。续写提示词改为 SceneBeatCard 双锚点硬任务；落库后写回出场名/冲突/地点；债务按拍计数。切断 TimeSliced / TriShot 续写路由。
