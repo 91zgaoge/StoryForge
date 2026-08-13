@@ -29,7 +29,7 @@
 | Modify `src-tauri/src/planner/{mod,executor}.rs` | 续写不再 TimeSliced/beat 链 |
 | Modify `src-frontend/src/services/api/intent.ts` | `smartExecute()` 封装透传 `scene_id`（直接 invoke 点在此，不在 FrontstageApp） |
 | Modify `src-frontend/src/frontstage/FrontstageApp.tsx` | 两处 `smartExecute({...})` 调用点（约 :3513/:4505）传当前 `sceneId` |
-| Modify `src-frontend/src/frontstage/components/RichTextEditor.tsx` | 划词改写/内联建议：传 `selected_text`，禁止走 Agency Append |
+| Modify `src-frontend/src/frontstage/components/RichTextEditor.tsx` | 内联建议（:893）/ 划词改写（:1003）：均传 `selected_text`，禁止走 Agency Append |
 | Modify `src-tauri/src/agency/eval_harness.rs` | `run_continue` 新签名 |
 | Modify `src-frontend/src/pages/settings/GeneralSettings.tsx` | 去掉续写 generation_mode 语义 |
 | Modify `src-frontend/src/pages/settings/UnifiedModelManager.tsx` | `plan_mode`（约 :493）标注已废弃或隐藏 |
@@ -505,7 +505,7 @@ scene_id: useFrontstageStore.getState().sceneId ?? undefined,
 current_content: editorRef.current?.getHTML() ?? editorRef.current?.getText(),
 ```
 
-续写两处今日传的是 `getText()`。必须改成 `getHTML()`，与 `flushSceneSave` 同源，避免 persist_append 把整章 HTML 压成纯文本。`RichTextEditor.tsx` 两处改写调用保持传 `selected_text`、不要传 `scene_id`（即使传了，后端硬门也会拦 Append）。
+续写两处（FrontstageApp :3513 / :4505）今日传的是 `getText()`。必须改成 `getHTML()`，与 `flushSceneSave` 同源，避免 persist_append 把整章 HTML 压成纯文本。`RichTextEditor.tsx` 内联建议（:893）与划词改写（:1003）**已经**传 `getHTML()` + `selected_text`、不传 `scene_id`；不要改成 Append，也不要再「补」getHTML。
 
 搜 `smart_execute` / `smartExecute` 改齐测试 mock 参数。
 
@@ -644,7 +644,7 @@ fn continue_context_contains_wound_from_bundle() {
 
 - [ ] **Step 2: 跑测试失败**（今日 Agency 函数已含创伤则本测试可能已绿——若已绿，断言再加 `relationship_lines` 或红线段，确保走 Bundle）
 
-若今日函数已含创伤，改断言 `ctx.contains("【登场角色")`（Bundle 标题）以锁定切换。**另加一条防回归断言**：种子再加一条带 `emotional_bond` 的角色关系，断言 `ctx.contains("情感张力驱动")`——确认 Task 5 并入的张力段在切换后仍输出（现行 `build_writer_context_from_db` 有此注入，丢失即回归）。
+若今日函数已含创伤，改断言 `ctx.contains("【登场角色")`（Bundle 标题）以锁定切换。**另加一条防回归断言**：种子再加一条带 `emotional_bond` 的角色关系，断言 `ctx.contains("情感张力驱动")`——确认 Task 6 由 coordinator 在 `to_prompt()` 后拼接的张力段仍输出（现行 `build_writer_context_from_db` 有此注入，丢失即回归；张力不进 Bundle）。
 
 - [ ] **Step 3: 实现**
 
@@ -1107,7 +1107,7 @@ EOF
 7. 现有 `run_genesis` 测试不回退  
 8. `cargo test --lib` 全量；`npx tsc --noEmit`；`npx vitest run`；`cargo +nightly fmt`；`python3 scripts/architecture_guard.py`
 9. **情感张力不回归**：故事存在带 `emotional_bond` 的关系时，续写上下文含 `情感张力驱动` 段（emotional_ledger 由 coordinator 在 `to_prompt()` 后拼接承接，Task 6）
-10. **文档同步（设计文档三处必改）**：① §3.2「旧文以 current_content 为准」补「HTML（getHTML）」表述；② §3.2「允许格式化差异」一句在两端均传 HTML 后删除或改写；③ §10「熔断 ≥200 必写回」与 Task 1「<200 拒写」对齐为同一门槛的两面（<200 视为垃圾稿拒落库，≥200 熔断也必写回）；④ §6.3 ContextPrioritizer 分级排序本期降级（BeatCard 双锚承担 Critical 优先级）；⑤ `characters_present` 写入口径（id vs 名字混杂）记「已知遗留」
+10. **文档同步**：设计正文三处必改——① §3.2「旧文以 current_content 为准」补「HTML（getHTML）」；② §3.2「允许格式化差异」**改写勿删**（两端均 HTML 后，persist 与 `flushSceneSave` 仍可能因 TipTap 规范化/`<p>` 包裹产生标记差异，后写覆盖前写不视为错误；禁止的是 persist 用 `getText()` 把整章压成纯文本）；③ §10「熔断 ≥200 必写回」与 Task 1「<200 拒写」对齐为同一门槛的两面（<200 垃圾稿拒落库，≥200 熔断也必写回）。另两处非正文改写、只加注：④ §6.3 ContextPrioritizer 分级排序本期降级（BeatCard 双锚承担 Critical）；⑤ `characters_present` 写入口径（id vs 名字混杂）记「已知遗留」。
 
 - [ ] **Step 2: 跑全量**
 
