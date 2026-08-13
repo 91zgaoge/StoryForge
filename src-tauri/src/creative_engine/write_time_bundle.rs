@@ -150,9 +150,19 @@ impl WriteTimeBundle {
                         let tgt_name = r.target_character_name.as_deref().unwrap_or("?");
                         let bond = r.emotional_bond.as_deref().unwrap_or("未明");
                         let intensity = r.emotional_intensity.unwrap_or(0.5);
+                        let rev_bond = r.reverse_emotional_bond.as_deref().unwrap_or("未明");
+                        let rev_intensity = r.reverse_emotional_intensity.unwrap_or(0.5);
                         format!(
-                            "{} -> {}：社会关系={} ｜ 情感={}[{:.1}]",
-                            src_name, tgt_name, r.relationship_type, bond, intensity
+                            "■ {} -> {}：社会关系={} ｜ 情感={}[{:.1}]（{} -> {}：{}[{:.1}]）",
+                            src_name,
+                            tgt_name,
+                            r.relationship_type,
+                            bond,
+                            intensity,
+                            tgt_name,
+                            src_name,
+                            rev_bond,
+                            rev_intensity,
                         )
                     })
                     .collect(),

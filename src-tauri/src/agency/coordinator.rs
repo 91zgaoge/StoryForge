@@ -3486,7 +3486,7 @@ impl AgencyCoordinator {
         // v0.30.31: 无故事大纲时短路（writer 上下文不含【故事大纲】段）--章节
         // 大纲须服从故事大纲，无大纲则生成无意义且徒增一次 LLM 调用；有故事大纲
         // 时注入 world+progress 生成锚定进度的章节大纲。短路恢复原 v0.30.21 行为。
-        if !assets_ctx.contains("【故事大纲】") {
+        if !assets_ctx.contains("【故事大纲") {
             return String::new();
         }
         let llm = BudgetedLlm::new(
@@ -5318,214 +5318,72 @@ fn default_role_prompt(prompt_id: &str) -> &'static str {
 }
 
 /// 从 DB 构建 writer 上下文（纯函数，可测试）。
-/// `build_continue_writer_context` 的同步 DB 部分，Task 6 复用。
+/// `build_continue_writer_context` 的同步 DB 部分。
+/// 资产段走 WriteTimeBundle 唯一编译器；张力/弧光在 agency 层拼接
+/// （禁止 creative_engine 依赖 agency）。前文/进度/logline 不在 Bundle 内，
+/// 不是角色/世界观的并行真源，仍由本函数追加。
 pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> String {
-    use crate::db::{
-        repositories::{
-            CharacterRelationshipRepository, CharacterRepository, SceneRepository,
-            StoryOutlineRepository, WorldBuildingRepository,
-        },
-        StoryContractRepository,
+    let mut s = match crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
+        pool, story_id, 1, None, None, None,
+    ) {
+        Ok(b) => b.to_prompt(),
+        Err(e) => {
+            log::warn!("continue compiler bundle 失败: {e}");
+            String::new()
+        }
     };
-    let mut ctx = String::new();
-    // 合同红线（v0.30.29）：MASTER_SETTING 红线最前最突出，对齐 C 链路
-    // WriteTimeBundle.to_prompt 的不变量。agency 续写此前完全绕过红线。
-    if let Ok(Some(c)) =
-        StoryContractRepository::new(pool.clone()).get_by_type(story_id, "MASTER_SETTING")
-    {
-        let redline =
-            crate::creative_engine::write_time_bundle::extract_redline_text(&c.contract_json);
-        if !redline.trim().is_empty() {
-            ctx.push_str(&format!(
-                "【⚠️ 世界观红线（绝不可违背，违反即判定为严重错误）】\n{}\n\n",
-                redline
-            ));
-        }
-    }
-    // 角色（与 asset_query(kind=characters) 同源）。
-    // 情感属性（emotional_core/trigger/wound/need）按需追加，None 与空串均跳过
-    //（wizard 路径空串写 NULL、agency materialize 空串可能写 ""，两者都判空）。
-    let chars = CharacterRepository::new(pool.clone())
-        .get_by_story(story_id)
-        .unwrap_or_default();
-    for c in &chars {
-        let mut parts = vec![
-            format!("性格：{}", c.personality.as_deref().unwrap_or("-")),
-            format!("目标：{}", c.goals.as_deref().unwrap_or("-")),
-            format!("背景：{}", c.background.as_deref().unwrap_or("-")),
-        ];
-        if let Some(ref core) = c.emotional_core {
-            if !core.is_empty() {
-                parts.push(format!("情感内核：{}", core));
-            }
-        }
-        if let Some(ref trigger) = c.emotional_trigger {
-            if !trigger.is_empty() {
-                parts.push(format!("情感触发：{}", trigger));
-            }
-        }
-        if let Some(ref wound) = c.emotional_wound {
-            if !wound.is_empty() {
-                parts.push(format!("情感创伤：{}", wound));
-            }
-        }
-        if let Some(ref need) = c.emotional_need {
-            if !need.is_empty() {
-                parts.push(format!("情感需求：{}", need));
-            }
-        }
-        let line = format!("【角色·{}】{}\n", c.name, parts.join("｜"));
-        if ctx.chars().count() + line.chars().count() > 4000 {
-            break;
-        }
-        ctx.push_str(&line);
-    }
-    // 角色情感关系：writer 须看到角色间真实情感张力（可与表面社会关系不一致）。
-    let rels = CharacterRelationshipRepository::new(pool.clone())
-        .get_by_story(story_id)
-        .unwrap_or_default();
-    if !rels.is_empty() {
-        ctx.push_str("【角色情感关系（创作约束：角色间的真实情感，可与表面社会关系不一致）】\n");
-        for r in &rels {
-            let src_name = chars
-                .iter()
-                .find(|c| c.id == r.source_character_id)
-                .map(|c| c.name.as_str())
-                .unwrap_or("?");
-            let tgt_name = r.target_character_name.as_deref().unwrap_or("?");
-            let bond = r.emotional_bond.as_deref().unwrap_or("未明");
-            let intensity = r.emotional_intensity.unwrap_or(0.5);
-            let rev_bond = r.reverse_emotional_bond.as_deref().unwrap_or("未明");
-            let rev_intensity = r.reverse_emotional_intensity.unwrap_or(0.5);
-            let line = format!(
-                "■ {} -> {}：社会关系={} ｜ 情感={}[{:.1}]（{} -> {}：{}[{:.1}]）\n",
-                src_name,
-                tgt_name,
-                r.relationship_type,
-                bond,
-                intensity,
-                tgt_name,
-                src_name,
-                rev_bond,
-                rev_intensity,
-            );
-            if ctx.chars().count() + line.chars().count() > 6000 {
-                break;
-            }
-            ctx.push_str(&line);
-        }
-        ctx.push_str(
-            "要求：角色言行须与其情感关系一致；不得让角色做出与其情感矛盾的行为（除非剧情有转变理由）。\n\n",
-        );
-    }
-    // 情感张力账本：人际张力种子 + 情感弧光，作为本节剧情驱动力。
+    // 张力/弧光留在 agency 层拼接，不让 creative_engine 依赖 agency
     let tensions = crate::agency::emotional_ledger::load_tensions(pool, story_id);
-    let tension_text = crate::agency::emotional_ledger::render_tensions_for_prompt(&tensions);
-    if !tension_text.is_empty() {
-        ctx.push_str(&tension_text);
+    let rendered = crate::agency::emotional_ledger::render_tensions_for_prompt(&tensions);
+    if !rendered.is_empty() {
+        s.push_str("\n\n");
+        s.push_str(&rendered);
     }
     let arcs = crate::agency::emotional_ledger::load_arcs(pool, story_id);
-    let arc_text = crate::agency::emotional_ledger::render_arcs_for_prompt(&arcs);
-    if !arc_text.is_empty() {
-        ctx.push_str(&arc_text);
+    let rendered = crate::agency::emotional_ledger::render_arcs_for_prompt(&arcs);
+    if !rendered.is_empty() {
+        s.push_str("\n\n");
+        s.push_str(&rendered);
     }
-    // v0.30.31: 世界观全字段注入（concept + rules 前5 + history + cultures 前3）。
-    // 此前只注入 concept+history 且超 6000 整段丢弃（全有或全无），用户在世界观
-    // 面板填的规则/文化从不到达 writer；现改为超预算截断降级注入，规则/文化不再
-    // 整段丢失。与 C 链路 WriteTimeBundle.world_setting 同源。
-    if let Ok(Some(w)) = WorldBuildingRepository::new(pool.clone()).get_by_story(story_id) {
-        let mut parts = vec![format!("概念：{}", w.concept)];
-        if !w.rules.is_empty() {
-            let rules = w
-                .rules
-                .iter()
-                .take(5)
-                .map(|r| format!("- {}：{}", r.name, r.description.as_deref().unwrap_or("")))
-                .collect::<Vec<_>>()
-                .join("\n");
-            parts.push(format!("核心规则：\n{}", rules));
-        }
-        if let Some(ref h) = w.history {
-            if !h.trim().is_empty() {
-                parts.push(format!("历史：{}", h));
-            }
-        }
-        if !w.cultures.is_empty() {
-            let cultures = w
-                .cultures
-                .iter()
-                .take(3)
-                .map(|c| format!("- {}：{}", c.name, c.description))
-                .collect::<Vec<_>>()
-                .join("\n");
-            parts.push(format!("文化：\n{}", cultures));
-        }
-        let full = parts.join("\n");
-        // 预算 2500 字：超则截断降级注入（不再整段丢弃）
-        let world_text: String = if full.chars().count() > 2500 {
-            let mut s: String = full.chars().take(2500).collect();
-            s.push_str("\n…（世界观已截断）");
-            s
-        } else {
-            full
-        };
-        ctx.push_str(&format!(
-            "【世界观设定（须遵循其规则与约束，违反即判定为严重错误）】\n{}\n\n",
-            world_text
-        ));
-    }
-    // 故事大纲（v0.30.21：writer 必须遵循整体推进方向）
-    if let Ok(Some(outline)) = StoryOutlineRepository::new(pool.clone()).get_by_story(story_id) {
-        let outline_text: String = outline.content.chars().take(4000).collect();
-        ctx.push_str(&format!("【故事大纲】{}\n", outline_text));
-    }
-    // Logline（v0.30.22：writer 必须遵循的核心方向）
     if let Ok(Some(story)) = StoryRepository::new(pool.clone()).get_by_id(story_id) {
         if let Some(ref ll) = story.logline {
             if !ll.is_empty() {
-                ctx.push_str(&format!("【故事Logline】{}\n", ll));
+                s.push_str(&format!("\n\n【故事Logline】{}\n", ll));
             }
         }
     }
-    // v0.30.31: 已推进进度（进度指针）--回读最近 3 章 outline_content，
-    // 让 writer 知道"故事已推进到哪"，承接上一节点、引出下一节点，解决续写
-    // 原地踏步/迷失方向。无 outline_content 则跳过。
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(story_id)
         .unwrap_or_default();
     let mut prior_progress: Vec<_> = scenes
         .iter()
-        .filter(|s| {
-            s.outline_content
+        .filter(|sc| {
+            sc.outline_content
                 .as_ref()
                 .map(|o| !o.trim().is_empty())
                 .unwrap_or(false)
         })
         .collect();
-    prior_progress.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+    prior_progress.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
     let progress_lines: Vec<String> = prior_progress
         .into_iter()
         .take(3)
-        .map(|s| {
-            let o = s.outline_content.as_deref().unwrap_or("");
+        .map(|sc| {
+            let o = sc.outline_content.as_deref().unwrap_or("");
             let truncated: String = o.chars().take(200).collect();
-            format!("第{}章：{}", s.sequence_number, truncated)
+            format!("第{}章：{}", sc.sequence_number, truncated)
         })
         .collect();
     if !progress_lines.is_empty() {
-        ctx.push_str(&format!(
-            "【已推进进度（承接此处，推进到下一节点，不得原地踏步）】\n{}\n\n",
+        s.push_str(&format!(
+            "\n\n【已推进进度（承接此处，推进到下一节点，不得原地踏步）】\n{}\n",
             progress_lines.join("\n")
         ));
     }
-    // 前文（与 asset_query(kind=scenes) 同源，取最新 3 章）。
-    // v0.30.31: 修复前文阈值倒挂（此前 >8000 在故事大纲之后，大纲一大就把前文
-    // 全丢）；现阈值提到 >12000，且保底至少注入最近 1 场正文 1500 字（即便超
-    // 阈值也注入，确保 writer 至少能看到上一章结尾以承接）。
     let mut scenes_sorted = scenes;
-    scenes_sorted.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
-    for (i, s) in scenes_sorted.iter().take(3).enumerate() {
-        let content: String = s
+    scenes_sorted.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
+    for (i, sc) in scenes_sorted.iter().take(3).enumerate() {
+        let content: String = sc
             .content
             .as_deref()
             .unwrap_or("")
@@ -5535,19 +5393,19 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
         if content.trim().is_empty() {
             continue;
         }
-        let title = s.title.as_deref().unwrap_or("无标题");
-        let line = format!("【前文·第{}场 {}】{}\n", s.sequence_number, title, content);
+        let title = sc.title.as_deref().unwrap_or("无标题");
+        let line = format!("【前文·第{}场 {}】{}\n", sc.sequence_number, title, content);
         if i == 0 {
-            // 保底：最近 1 场正文无条件注入
-            ctx.push_str(&line);
-        } else if ctx.chars().count() + line.chars().count() <= 12000 {
-            ctx.push_str(&line);
+            s.push_str("\n\n");
+            s.push_str(&line);
+        } else if s.chars().count() + line.chars().count() <= 12000 {
+            s.push_str(&line);
         } else {
-            ctx.push_str("…（更多前文已省略）");
+            s.push_str("…（更多前文已省略）");
             break;
         }
     }
-    ctx
+    s
 }
 
 #[cfg(test)]
@@ -5751,5 +5609,52 @@ mod writer_context_tests {
         assert!(ctx.contains("甲 -> 乙"), "ctx={}", ctx);
         assert!(ctx.contains("情感=恨[0.9]"), "ctx={}", ctx);
         assert!(ctx.contains("恐惧[0.7]"), "ctx={}", ctx);
+    }
+
+    #[test]
+    fn continue_context_contains_wound_from_bundle() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("Bundle 编译器创伤注入"))
+            .unwrap();
+        let mut req = char_req(&story.id, "沈炼");
+        req.emotional_wound = Some("师父之死".to_string());
+        req.emotional_need = Some("讨回公道".to_string());
+        req.emotional_core = Some("压抑的悲愤".to_string());
+        let ch_a = CharacterRepository::new(pool.clone()).create(req).unwrap();
+        let ch_b = CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "顾长夜"))
+            .unwrap();
+        CharacterRelationshipRepository::new(pool.clone())
+            .create(
+                &story.id,
+                &ch_a.id,
+                &ch_b.id,
+                "同僚",
+                None,
+                None,
+                Some("仇恨"),
+                Some(0.9),
+                Some("戒备"),
+                Some(0.6),
+            )
+            .unwrap();
+
+        let ctx = build_writer_context_from_db(&pool, &story.id);
+        assert!(
+            ctx.contains("师父之死"),
+            "续写上下文必须含情感创伤 ctx={}",
+            ctx
+        );
+        assert!(
+            ctx.contains("【登场角色"),
+            "必须走 WriteTimeBundle 角色段标题 ctx={}",
+            ctx
+        );
+        assert!(
+            ctx.contains("情感张力驱动"),
+            "coordinator 须在 to_prompt 后拼接张力段 ctx={}",
+            ctx
+        );
     }
 }

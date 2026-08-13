@@ -1289,7 +1289,7 @@ async fn test_build_continue_writer_context() {
     );
     // v0.30.21: 故事大纲注入
     assert!(
-        ctx.contains("【故事大纲】"),
+        ctx.contains("【故事大纲"),
         "context should contain story outline section"
     );
     assert!(
@@ -2650,7 +2650,7 @@ async fn test_generate_chapter_outline() {
     // 先构建 assets_ctx（含故事大纲）
     let assets_ctx = coordinator.build_continue_writer_context(&story.id).await;
     assert!(
-        assets_ctx.contains("【故事大纲】"),
+        assets_ctx.contains("【故事大纲"),
         "assets_ctx should contain story outline"
     );
     // 生成章节大纲
@@ -2710,7 +2710,7 @@ async fn test_generate_chapter_outline_skips_without_story_outline() {
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let assets_ctx = coordinator.build_continue_writer_context(&story.id).await;
     assert!(
-        !assets_ctx.contains("【故事大纲】"),
+        !assets_ctx.contains("【故事大纲"),
         "assets_ctx should NOT contain story outline"
     );
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
