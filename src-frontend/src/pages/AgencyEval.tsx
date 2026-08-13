@@ -3,6 +3,29 @@ import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import { getEvalOverview, listCheckpoints, compareCheckpoints } from '@/services/api/agency';
 import type { GateHistoryItem } from '@/services/api/agency';
+import { AiDiffTable } from '@/components/ui/ai/AiDiffTable';
+
+/** 解析 checkpoint metrics_json；key 与后端 agency/coordinator.rs compare_checkpoints 对齐
+ *  （words_total / chapters_done / tokens_used / gate_scores 末条 weighted）。解析失败回退 null。 */
+function parseCheckpointMetrics(json: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function metricNumber(m: Record<string, unknown> | null, key: string): number | null {
+  const v = m?.[key];
+  return typeof v === 'number' ? v : null;
+}
+
+function metricWeighted(m: Record<string, unknown> | null): number | null {
+  const scores = m?.gate_scores;
+  if (!Array.isArray(scores) || scores.length === 0) return null;
+  const last = scores[scores.length - 1] as Record<string, unknown> | undefined;
+  return typeof last?.weighted === 'number' ? last.weighted : null;
+}
 
 function GateTrendChart({ data }: { data: GateHistoryItem[] }) {
   const points = data.filter(d => d.weighted != null);
@@ -84,36 +107,52 @@ function CheckpointCompare({ storyId }: { storyId: string }) {
         </select>
       </div>
       {diff && (
-        <div className="mt-2 grid grid-cols-4 gap-2 text-center text-sm">
-          <div className="rounded border p-2">
-            <div className="text-gray-500">字数</div>
-            <div>
-              {diff.words_delta >= 0 ? '+' : ''}
-              {diff.words_delta}
-            </div>
-          </div>
-          <div className="rounded border p-2">
-            <div className="text-gray-500">章节</div>
-            <div>
-              {diff.chapters_delta >= 0 ? '+' : ''}
-              {diff.chapters_delta}
-            </div>
-          </div>
-          <div className="rounded border p-2">
-            <div className="text-gray-500">tokens</div>
-            <div>
-              {diff.tokens_delta >= 0 ? '+' : ''}
-              {diff.tokens_delta}
-            </div>
-          </div>
-          <div className="rounded border p-2">
-            <div className="text-gray-500">加权分</div>
-            <div>
-              {diff.gate_weighted_delta >= 0 ? '+' : ''}
-              {diff.gate_weighted_delta.toFixed(2)}
-            </div>
-          </div>
-        </div>
+        <AiDiffTable
+          className="mt-2"
+          title="指标对比"
+          rows={(() => {
+            const ma = parseCheckpointMetrics(
+              checkpoints.find(c => c.id === a)?.metrics_json ?? ''
+            );
+            const mb = parseCheckpointMetrics(
+              checkpoints.find(c => c.id === b)?.metrics_json ?? ''
+            );
+            const fmt = (v: number | null) => (v === null ? '—' : String(v));
+            const fmtW = (v: number | null) => (v === null ? '—' : v.toFixed(2));
+            return [
+              {
+                key: 'words',
+                label: '字数',
+                base: fmt(metricNumber(ma, 'words_total')),
+                compare: fmt(metricNumber(mb, 'words_total')),
+                delta: diff.words_delta,
+              },
+              {
+                key: 'chapters',
+                label: '章节',
+                base: fmt(metricNumber(ma, 'chapters_done')),
+                compare: fmt(metricNumber(mb, 'chapters_done')),
+                delta: diff.chapters_delta,
+              },
+              {
+                key: 'tokens',
+                label: 'tokens',
+                base: fmt(metricNumber(ma, 'tokens_used')),
+                compare: fmt(metricNumber(mb, 'tokens_used')),
+                delta: diff.tokens_delta,
+                betterWhen: 'lower' as const,
+              },
+              {
+                key: 'weighted',
+                label: '加权分',
+                base: fmtW(metricWeighted(ma)),
+                compare: fmtW(metricWeighted(mb)),
+                delta: diff.gate_weighted_delta,
+                formatDelta: (d: number) => `${d >= 0 ? '+' : ''}${d.toFixed(2)}`,
+              },
+            ];
+          })()}
+        />
       )}
     </section>
   );
