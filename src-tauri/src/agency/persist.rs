@@ -1,5 +1,6 @@
 //! 续写落库模式：Append（当前章）与 NextChapter（新章）的纯数据 + Append 写库。
 
+pub use crate::creative_engine::expansion::BeatCounters;
 use crate::{db::DbPool, error::AppError};
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,18 @@ pub fn resolve_persist_mode(
     Ok(PersistMode::Append { scene_id: sid })
 }
 
+/// 每次成功 Append/NextChapter 后 +1。失败不阻断落库。
+pub fn increment_append_beat(pool: &DbPool, story_id: &str) -> Result<(), AppError> {
+    let conn = pool
+        .get()
+        .map_err(|e| AppError::from(format!("pool: {e}")))?;
+    let mut beats = crate::creative_engine::expansion::read_beat_counters(&conn, story_id);
+    beats.append_beats = beats.append_beats.saturating_add(1);
+    crate::creative_engine::expansion::write_beat_counters(&conn, story_id, beats)
+        .map_err(AppError::from)?;
+    Ok(())
+}
+
 /// 将 current_content + increment 写入已有 scene。禁止 create 新行。
 pub fn persist_append(
     pool: &DbPool,
@@ -64,6 +77,9 @@ pub fn persist_append(
         },
     )
     .map_err(AppError::from)?;
+    if let Err(e) = increment_append_beat(pool, &scene.story_id) {
+        log::warn!("increment_append_beat 失败: {e}");
+    }
     Ok(AppendPersistOutcome {
         scene_id: scene.id,
         chapter_number: scene.sequence_number,

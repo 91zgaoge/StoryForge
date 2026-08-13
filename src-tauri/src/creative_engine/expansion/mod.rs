@@ -57,10 +57,54 @@ pub struct AssetHistoryEntry {
     pub ids: Vec<String>,
 }
 
+/// 续写拍计数（与资产历史同列共存）。旧书从未 Append 时全 0。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BeatCounters {
+    #[serde(default)]
+    pub append_beats: i32,
+    #[serde(default)]
+    pub last_conflict_beat: i32,
+    #[serde(default)]
+    pub last_cast_refresh_beat: i32,
+    #[serde(default)]
+    pub last_location_beat: i32,
+    #[serde(default)]
+    pub last_foreshadow_beat: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AssetHistoryDocument {
+    #[serde(default)]
+    assets: Vec<AssetHistoryEntry>,
+    #[serde(default)]
+    beats: BeatCounters,
+}
+
 const ASSET_HISTORY_KEEP: usize = 10;
 
-/// 读取资产选用历史（NULL/损坏 JSON → 空）
-pub fn read_asset_history(conn: &rusqlite::Connection, story_id: &str) -> Vec<AssetHistoryEntry> {
+fn parse_history_document(raw: Option<String>) -> AssetHistoryDocument {
+    let Some(s) = raw.filter(|s| !s.trim().is_empty()) else {
+        return AssetHistoryDocument {
+            assets: vec![],
+            beats: BeatCounters::default(),
+        };
+    };
+    if let Ok(doc) = serde_json::from_str::<AssetHistoryDocument>(&s) {
+        return doc;
+    }
+    if let Ok(assets) = serde_json::from_str::<Vec<AssetHistoryEntry>>(&s) {
+        return AssetHistoryDocument {
+            assets,
+            beats: BeatCounters::default(),
+        };
+    }
+    AssetHistoryDocument {
+        assets: vec![],
+        beats: BeatCounters::default(),
+    }
+}
+
+fn load_history_document(conn: &rusqlite::Connection, story_id: &str) -> AssetHistoryDocument {
     let raw: Option<String> = conn
         .query_row(
             "SELECT asset_history_json FROM stories WHERE id = ?1",
@@ -68,11 +112,34 @@ pub fn read_asset_history(conn: &rusqlite::Connection, story_id: &str) -> Vec<As
             |r| r.get(0),
         )
         .unwrap_or(None);
-    raw.and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    parse_history_document(raw)
 }
 
-/// 追加一条资产选用历史，只保留最近 10 条
+fn save_history_document(
+    conn: &rusqlite::Connection,
+    story_id: &str,
+    doc: &AssetHistoryDocument,
+) -> Result<(), String> {
+    let json = serde_json::to_string(doc).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE stories SET asset_history_json = ?1 WHERE id = ?2",
+        rusqlite::params![json, story_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 读取资产选用历史（NULL/损坏 JSON → 空）。兼容旧数组与新 `{assets,beats}`
+/// 对象。
+pub fn read_asset_history(conn: &rusqlite::Connection, story_id: &str) -> Vec<AssetHistoryEntry> {
+    load_history_document(conn, story_id).assets
+}
+
+pub fn read_beat_counters(conn: &rusqlite::Connection, story_id: &str) -> BeatCounters {
+    load_history_document(conn, story_id).beats
+}
+
+/// 追加一条资产选用历史，只保留最近 10 条；不得抹掉既有 beats。
 pub fn append_asset_history(
     pool: &crate::db::connection::DbPool,
     story_id: &str,
@@ -83,21 +150,25 @@ pub fn append_asset_history(
         return Ok(());
     }
     let conn = pool.get().map_err(|e| e.to_string())?;
-    let mut history = read_asset_history(&conn, story_id);
-    history.push(AssetHistoryEntry {
+    let mut doc = load_history_document(&conn, story_id);
+    doc.assets.push(AssetHistoryEntry {
         chapter,
         ids: ids.to_vec(),
     });
-    if history.len() > ASSET_HISTORY_KEEP {
-        history = history.split_off(history.len() - ASSET_HISTORY_KEEP);
+    if doc.assets.len() > ASSET_HISTORY_KEEP {
+        doc.assets = doc.assets.split_off(doc.assets.len() - ASSET_HISTORY_KEEP);
     }
-    let json = serde_json::to_string(&history).map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE stories SET asset_history_json = ?1 WHERE id = ?2",
-        rusqlite::params![json, story_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    save_history_document(&conn, story_id, &doc)
+}
+
+pub fn write_beat_counters(
+    conn: &rusqlite::Connection,
+    story_id: &str,
+    beats: BeatCounters,
+) -> Result<(), String> {
+    let mut doc = load_history_document(conn, story_id);
+    doc.beats = beats;
+    save_history_document(conn, story_id, &doc)
 }
 
 #[cfg(test)]
@@ -140,5 +211,30 @@ mod tests {
             history.last().unwrap().ids,
             vec!["beat_card.x12".to_string()]
         );
+    }
+
+    #[test]
+    fn append_asset_history_preserves_beats() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let sid = seed_story(&pool);
+        {
+            let conn = pool.get().unwrap();
+            write_beat_counters(
+                &conn,
+                &sid,
+                BeatCounters {
+                    append_beats: 3,
+                    last_conflict_beat: 1,
+                    ..BeatCounters::default()
+                },
+            )
+            .unwrap();
+        }
+        append_asset_history(&pool, &sid, 1, &["beat_card.x".into()]).unwrap();
+        let conn = pool.get().unwrap();
+        let beats = read_beat_counters(&conn, &sid);
+        assert_eq!(beats.append_beats, 3);
+        assert_eq!(beats.last_conflict_beat, 1);
+        assert_eq!(read_asset_history(&conn, &sid).len(), 1);
     }
 }

@@ -21,7 +21,33 @@ pub enum QuotaItem {
 }
 
 impl ExpansionDebt {
+    /// 按续写拍数计债务。`last==0` 且 `append_beats>0` 视为已停滞 append_beats
+    /// （不再当旧书零干扰）。
+    pub fn from_beats(beats: &crate::creative_engine::expansion::BeatCounters) -> Self {
+        let gap = |last: i32, append: i32| -> u32 {
+            if append <= 0 {
+                0
+            } else if last <= 0 {
+                append.max(0) as u32
+            } else {
+                (append - last).max(0) as u32
+            }
+        };
+        ExpansionDebt {
+            conflict: gap(beats.last_conflict_beat, beats.append_beats),
+            scene: gap(beats.last_location_beat, beats.append_beats),
+            character: gap(beats.last_cast_refresh_beat, beats.append_beats),
+            foreshadow: gap(beats.last_foreshadow_beat, beats.append_beats),
+        }
+    }
+
     pub fn compute(pool: &DbPool, story_id: &str, ledger: &RotationLedger) -> Result<Self, String> {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        let beats = super::read_beat_counters(&conn, story_id);
+        if beats.append_beats > 0 {
+            return Ok(Self::from_beats(&beats));
+        }
+
         let current = ledger.current_sequence;
         let stagnation = |last: i32| -> u32 {
             if current == 0 || last == 0 {
@@ -32,7 +58,6 @@ impl ExpansionDebt {
         };
 
         // 伏笔停滞：最近一次埋设/回收距当前的章数；表里无任何记录 → 0（旧书零干扰）
-        let conn = pool.get().map_err(|e| e.to_string())?;
         let foreshadow_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM foreshadowing_tracker WHERE story_id = ?1",
@@ -157,6 +182,21 @@ mod tests {
         );
         // 多项同时触发
         assert_eq!(debt(2, 3, 0, 0).triggered().len(), 2);
+    }
+
+    #[test]
+    fn beat_debt_triggers_conflict_after_two_appends_without_conflict() {
+        let beats = crate::creative_engine::expansion::BeatCounters {
+            append_beats: 2,
+            last_conflict_beat: 0,
+            last_cast_refresh_beat: 0,
+            last_location_beat: 0,
+            last_foreshadow_beat: 0,
+        };
+        let debt = ExpansionDebt::from_beats(&beats);
+        assert!(debt.conflict >= 2);
+        let items = debt.triggered();
+        assert!(items.contains(&QuotaItem::ConflictEscalation));
     }
 
     #[test]

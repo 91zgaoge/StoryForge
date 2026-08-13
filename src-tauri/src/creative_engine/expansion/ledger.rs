@@ -80,35 +80,51 @@ impl RotationLedger {
         }
 
         // ③ 最近一次角色更新（新角色登场，或沉寂 ≥3 章角色回归）的 sequence
+        // characters_present 既可能是 id 也可能是名；last_seen 的 key 用 name。
+        let mut id_to_name: HashMap<String, String> = HashMap::new();
+        {
+            let mut char_stmt = conn
+                .prepare("SELECT id, name FROM characters WHERE story_id = ?1")
+                .map_err(|e| e.to_string())?;
+            let rows = char_stmt
+                .query_map(params![story_id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows.filter_map(|r| r.ok()) {
+                id_to_name.insert(row.0, row.1);
+            }
+        }
+        let present_name = |item: &str| -> String {
+            id_to_name
+                .get(item)
+                .cloned()
+                .unwrap_or_else(|| item.to_string())
+        };
+
         let mut last_character_refresh_seq = 0;
         let mut last_seen: HashMap<String, i32> = HashMap::new();
         for (seq, _, present, _) in &rows {
-            for cid in present {
-                match last_seen.get(cid) {
+            for item in present {
+                let name = present_name(item);
+                match last_seen.get(&name) {
                     None => last_character_refresh_seq = *seq, // 新角色
                     Some(prev) if seq - prev >= 3 => last_character_refresh_seq = *seq, // 回归
                     _ => {}
                 }
-                last_seen.insert(cid.clone(), *seq);
+                last_seen.insert(name, *seq);
             }
         }
 
         // ④ 角色沉寂账（characters 表全量，按沉寂降序）
-        let mut char_stmt = conn
-            .prepare("SELECT id, name FROM characters WHERE story_id = ?1")
-            .map_err(|e| e.to_string())?;
-        let mut character_silence: Vec<CharacterSilence> = char_stmt
-            .query_map(params![story_id], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
+        let mut character_silence: Vec<CharacterSilence> = id_to_name
+            .iter()
             .map(|(cid, name)| {
-                let last = last_seen.get(&cid).copied().unwrap_or(0);
+                let last = last_seen.get(name).copied().unwrap_or(0);
                 let absent = if last == 0 { current } else { current - last };
                 CharacterSilence {
-                    character_id: cid,
-                    name,
+                    character_id: cid.clone(),
+                    name: name.clone(),
                     chapters_absent: absent.max(0) as u32,
                 }
             })
@@ -270,6 +286,48 @@ mod tests {
         assert_eq!(ledger.last_character_refresh_seq, 1);
         // 尾部连续 2 章无冲突
         assert_eq!(ledger.trailing_conflict_free, 2);
+    }
+
+    #[test]
+    fn ledger_matches_character_present_by_name() {
+        let pool = crate::db::connection::create_test_pool().unwrap();
+        let repo = crate::db::repositories::StoryRepository::new(pool.clone());
+        let sid = repo
+            .create(crate::db::repositories::CreateStoryRequest {
+                title: "按名匹配出场".to_string(),
+                description: None,
+                genre: Some("玄幻".to_string()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap()
+            .id;
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, created_at, updated_at) \
+             VALUES ('c-lin', ?1, '林雪', '2026-01-01', '2026-01-01')",
+            params![sid],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO scenes (id, story_id, sequence_number, title, setting_location, characters_present, character_conflicts, content, created_at, updated_at) \
+             VALUES ('sc1', ?1, 1, '章', '客栈', '[\"林雪\"]', '[]', '正文', '2026-01-01', '2026-01-01')",
+            params![sid],
+        )
+        .unwrap();
+        drop(conn);
+        let ledger = RotationLedger::load_sync(&pool, &sid).unwrap();
+        let lin = ledger.character_silence.iter().find(|c| c.name == "林雪");
+        assert!(
+            lin.is_none() || lin.unwrap().chapters_absent == 0,
+            "林雪在场，last_seen 应按名匹配而非 id，不得被当成从未登场"
+        );
+        assert_eq!(
+            ledger.last_character_refresh_seq, 1,
+            "按名匹配时应把林雪第 1 章登场记为角色更新"
+        );
     }
 
     #[test]

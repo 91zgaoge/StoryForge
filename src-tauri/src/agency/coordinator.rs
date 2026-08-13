@@ -4062,6 +4062,12 @@ impl AgencyCoordinator {
         })
         .await
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
+        let pool_beats = self.pool.clone();
+        let sid_beats = story_id.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::agency::persist::increment_append_beat(&pool_beats, &sid_beats)
+        })
+        .await;
         self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
         self.spawn_asset_ingest(run_id, story_id, &scene.id, &ingest_text);
         self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
