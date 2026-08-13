@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/appStore';
 import { getLlmCallStats, getRecentLlmCalls, getStoryLlmCalls } from '@/services/tauri';
 import { Card, CardContent } from '@/components/ui/Card';
 import { AiFilterChipsBar, AiFilterTable } from '@/components/ui/ai/AiFilterTable';
+import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import {
   BarChart3,
   Coins,
@@ -148,6 +149,12 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
     return counts;
   }, [recentCalls]);
 
+  // getRecentLlmCalls 返回新→旧（repositories_pipeline.rs L1339 DESC），取 20 条反转为时间正序
+  const tokenSeries = useMemo(
+    () => [...recentCalls.slice(0, 20)].reverse().map(c => c.total_tokens || 0),
+    [recentCalls]
+  );
+
   if (isLoading) {
     return (
       <div className={cn('flex items-center justify-center', embedded ? 'py-16' : 'p-8 h-full')}>
@@ -201,77 +208,49 @@ export function UsageStats({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wider">总调用次数</p>
-                <p className="text-2xl font-bold text-white mt-1">{globalStats?.count ?? 0}</p>
-              </div>
-              <Hash className="w-8 h-8 text-cinema-gold/40" />
-            </div>
-            {storyStats != null && (
-              <p className="text-xs text-cinema-gold/60 mt-2">本故事: {storyStats.count}</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wider">总 Token 数</p>
-                <p className="text-2xl font-bold text-white mt-1">
-                  {formatTokens(globalStats?.total_tokens ?? 0)}
-                </p>
-              </div>
-              <Activity className="w-8 h-8 text-blue-400/40" />
-            </div>
-            {storyStats != null && (
-              <p className="text-xs text-blue-400/60 mt-2">
-                本故事: {formatTokens(storyStats.total_tokens)}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wider">预估费用</p>
-                <p className="text-2xl font-bold text-white mt-1">
-                  {formatCost(globalStats?.total_cost ?? 0)}
-                </p>
-              </div>
-              <Coins className="w-8 h-8 text-green-400/40" />
-            </div>
-            {storyStats != null && (
-              <p className="text-xs text-green-400/60 mt-2">
-                本故事: {formatCost(storyStats.total_cost)}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wider">成功率</p>
-                <p className="text-2xl font-bold text-white mt-1">
-                  {recentCalls.length > 0
-                    ? `${Math.round((recentCalls.filter(c => c.success).length / recentCalls.length) * 100)}%`
-                    : 'N/A'}
-                </p>
-              </div>
-              <BarChart3 className="w-8 h-8 text-purple-400/40" />
-            </div>
-            <p className="text-xs text-gray-600 mt-2">基于最近 {recentCalls.length} 次调用</p>
-          </CardContent>
-        </Card>
-      </div>
+      <AiInsightCards
+        columns={4}
+        items={[
+          {
+            key: 'calls',
+            label: '总调用次数',
+            value: String(globalStats?.count ?? 0),
+            tone: 'accent',
+            icon: <Hash size={20} />,
+            sub: storyStats != null ? `本故事: ${storyStats.count}` : undefined,
+          },
+          {
+            key: 'tokens',
+            label: '总 Token 数',
+            value: formatTokens(globalStats?.total_tokens ?? 0),
+            tone: 'neutral',
+            icon: <Activity size={20} />,
+            sub:
+              storyStats != null ? `本故事: ${formatTokens(storyStats.total_tokens)}` : undefined,
+            series: tokenSeries,
+            seriesLabel: '最近调用 token 趋势',
+          },
+          {
+            key: 'cost',
+            label: '预估费用',
+            value: formatCost(globalStats?.total_cost ?? 0),
+            tone: 'green',
+            icon: <Coins size={20} />,
+            sub: storyStats != null ? `本故事: ${formatCost(storyStats.total_cost)}` : undefined,
+          },
+          {
+            key: 'success',
+            label: '成功率',
+            value:
+              recentCalls.length > 0
+                ? `${Math.round((recentCalls.filter(c => c.success).length / recentCalls.length) * 100)}%`
+                : 'N/A',
+            tone: 'orange',
+            icon: <BarChart3 size={20} />,
+            sub: `基于最近 ${recentCalls.length} 次调用`,
+          },
+        ]}
+      />
 
       {/* Recent Calls Table */}
       <Card>

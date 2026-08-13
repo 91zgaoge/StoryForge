@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/appStore';
 import { getEvalOverview, listCheckpoints, compareCheckpoints } from '@/services/api/agency';
 import type { GateHistoryItem, PurposeUsage } from '@/services/api/agency';
 import { AiDiffTable } from '@/components/ui/ai/AiDiffTable';
+import { AiInsightCards } from '@/components/ui/ai/AiInsightCards';
 import { AiRecordsTable, type AiRecordsSort } from '@/components/ui/ai/AiRecordsTable';
 
 /** 解析 checkpoint metrics_json；key 与后端 agency/coordinator.rs compare_checkpoints 对齐
@@ -211,27 +212,35 @@ export default function AgencyEval() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-xl font-semibold">创作评估 · {currentStory.title}</h1>
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded border p-4">
-          <div className="text-sm text-gray-500">质量门通过率</div>
-          <div className="text-2xl font-bold">{(data.pass_rate * 100).toFixed(0)}%</div>
-          <div className="text-xs text-gray-400">{data.gate_history.length} 次判定</div>
-        </div>
-        <div className="rounded border p-4">
-          <div className="text-sm text-gray-500">检查点</div>
-          <div className="text-2xl font-bold">{data.checkpoints.length}</div>
-          <div className="text-xs text-gray-400">里程碑快照</div>
-        </div>
-        <div className="rounded border p-4">
-          <div className="text-sm text-gray-500">Human 信号</div>
-          <div className="text-2xl font-bold">
-            {data.human_signals.length === 0
-              ? '—'
-              : `${((data.human_signals.reduce((a, s) => a + s.modification_ratio, 0) / data.human_signals.length) * 100).toFixed(0)}%`}
-          </div>
-          <div className="text-xs text-gray-400">平均修改率</div>
-        </div>
-      </div>
+      <AiInsightCards
+        columns={3}
+        items={[
+          {
+            key: 'pass-rate',
+            label: '质量门通过率',
+            value: `${(data.pass_rate * 100).toFixed(0)}%`,
+            tone: 'green',
+            sub: `${data.gate_history.length} 次判定`,
+          },
+          {
+            key: 'checkpoints',
+            label: '检查点',
+            value: String(data.checkpoints.length),
+            tone: 'neutral',
+            sub: '里程碑快照',
+          },
+          {
+            key: 'human-signals',
+            label: 'Human 信号',
+            value:
+              data.human_signals.length === 0
+                ? '—'
+                : `${((data.human_signals.reduce((a, s) => a + s.modification_ratio, 0) / data.human_signals.length) * 100).toFixed(0)}%`,
+            tone: 'orange',
+            sub: '平均修改率',
+          },
+        ]}
+      />
 
       <section>
         <h2 className="mb-2 font-medium">Gate 加权分趋势（阈值 0.75）</h2>
