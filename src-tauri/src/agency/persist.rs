@@ -426,4 +426,107 @@ mod tests {
             .unwrap_or_default()
             .contains("夜宴破裂"));
     }
+
+    #[test]
+    fn test_run_continue_append_keeps_scene_count() {
+        let pool = create_test_pool().unwrap();
+        let (story_id, scene_id) = seed_story_with_scene(&pool);
+        persist_append(
+            &pool,
+            &PersistMode::Append {
+                scene_id: scene_id.clone(),
+            },
+            "旧文开头。",
+            &long_increment(),
+        )
+        .unwrap();
+        persist_append(
+            &pool,
+            &PersistMode::Append { scene_id },
+            "旧文开头。",
+            &long_increment(),
+        )
+        .unwrap();
+        let scenes = SceneRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap();
+        assert_eq!(scenes.len(), 1);
+    }
+
+    #[test]
+    fn next_chapter_create_adds_one_scene_row() {
+        use crate::agency::beat_card::{CastMember, ConflictMove, EmotionBeat, SceneBeatCard};
+        let pool = create_test_pool().unwrap();
+        let (story_id, _scene_id) = seed_story_with_scene(&pool);
+        let card = SceneBeatCard {
+            cast: vec![CastMember {
+                name: "阿岩".into(),
+                purpose: "守门".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["阿岩".into(), "林雪".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "怒".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            setting_location: Some("夜宴厅".into()),
+        };
+        let scene_repo = SceneRepository::new(pool.clone());
+        let update = scene_update_from_card(&pool, &story_id, &card, long_increment(), None);
+        let mut conn = pool.get().unwrap();
+        let tx = conn.transaction().unwrap();
+        let scene = scene_repo
+            .create_in_tx(&tx, &story_id, 2, Some("第二章"))
+            .unwrap();
+        scene_repo.update_in_tx(&tx, &scene.id, &update).unwrap();
+        tx.commit().unwrap();
+        let scenes = SceneRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap();
+        assert_eq!(scenes.len(), 2);
+        assert!(scenes.iter().any(|s| s.sequence_number == 2));
+    }
+
+    #[test]
+    fn third_beat_quota_includes_conflict_after_two_append_without_conflict() {
+        let pool = create_test_pool().unwrap();
+        let (story_id, scene_id) = seed_story_with_scene(&pool);
+        crate::db::repositories::CharacterRepository::new(pool.clone())
+            .create(crate::db::repositories::CreateCharacterRequest {
+                story_id: story_id.clone(),
+                name: "阿岩".into(),
+                background: None,
+                personality: None,
+                goals: None,
+                appearance: None,
+                gender: None,
+                age: None,
+                source: None,
+                is_auto_generated: None,
+                emotional_core: None,
+                emotional_trigger: None,
+                emotional_wound: None,
+                emotional_need: None,
+            })
+            .unwrap();
+        for _ in 0..2 {
+            persist_append(
+                &pool,
+                &PersistMode::Append {
+                    scene_id: scene_id.clone(),
+                },
+                "旧文开头。",
+                &long_increment(),
+            )
+            .unwrap();
+        }
+        let card = crate::agency::beat_card::compile_beat_card(&pool, &story_id, "阿岩站在雨里。")
+            .unwrap();
+        assert!(card
+            .expansion_quota
+            .contains(&crate::creative_engine::expansion::debt::QuotaItem::ConflictEscalation));
+    }
 }
