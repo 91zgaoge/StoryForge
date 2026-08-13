@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import { getEvalOverview, listCheckpoints, compareCheckpoints } from '@/services/api/agency';
-import type { GateHistoryItem } from '@/services/api/agency';
+import type { GateHistoryItem, PurposeUsage } from '@/services/api/agency';
 import { AiDiffTable } from '@/components/ui/ai/AiDiffTable';
+import { AiRecordsTable, type AiRecordsSort } from '@/components/ui/ai/AiRecordsTable';
 
 /** 解析 checkpoint metrics_json；key 与后端 agency/coordinator.rs compare_checkpoints 对齐
  *  （words_total / chapters_done / tokens_used / gate_scores 末条 weighted）。解析失败回退 null。 */
@@ -13,6 +14,24 @@ function parseCheckpointMetrics(json: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/** 判定结果徽章：pass 绿 / revise 橙 / 其他红（color-mix tint，零扩令牌） */
+function OutcomePill({ outcome }: { outcome: string }) {
+  const color =
+    outcome === 'pass'
+      ? 'var(--ai-green)'
+      : outcome === 'revise'
+        ? 'var(--ai-orange)'
+        : 'var(--ai-red)';
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+      style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}
+    >
+      {outcome}
+    </span>
+  );
 }
 
 function metricNumber(m: Record<string, unknown> | null, key: string): number | null {
@@ -168,6 +187,22 @@ export default function AgencyEval() {
     staleTime: 30_000,
   });
 
+  // hooks 必须在早退 return 之前；data 可能为 undefined，用可选链
+  const [usageSort, setUsageSort] = useState<AiRecordsSort>({ key: 'total_tokens', dir: -1 });
+  const sortedUsage = useMemo(() => {
+    const list = data?.token_usage ?? [];
+    const key = usageSort.key as keyof PurposeUsage;
+    return [...list].sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      const cmp =
+        typeof av === 'number' && typeof bv === 'number'
+          ? av - bv
+          : String(av).localeCompare(String(bv));
+      return cmp * usageSort.dir;
+    });
+  }, [data?.token_usage, usageSort]);
+
   if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
   if (isLoading) return <p className="p-6">加载评估数据…</p>;
   if (error) return <p className="p-6 text-red-500">加载失败：{String(error)}</p>;
@@ -205,32 +240,50 @@ export default function AgencyEval() {
 
       <section>
         <h2 className="mb-2 font-medium">判定历史</h2>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500">
-              <th>条目</th>
-              <th>结果</th>
-              <th>加权</th>
-              <th>code</th>
-              <th>rule</th>
-              <th>model</th>
-              <th>时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.gate_history.map(g => (
-              <tr key={g.key + g.created_at} className="border-t">
-                <td>{g.key}</td>
-                <td>{g.outcome}</td>
-                <td>{g.weighted?.toFixed(2) ?? '—'}</td>
-                <td>{g.code?.toFixed(2) ?? '—'}</td>
-                <td>{g.rule?.toFixed(2) ?? '—'}</td>
-                <td>{g.model?.toFixed(2) ?? '—'}</td>
-                <td className="text-gray-400">{g.created_at.slice(0, 16)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <AiRecordsTable
+          ariaLabel="判定历史"
+          rows={data.gate_history}
+          rowKey={g => g.key + g.created_at}
+          emptyText="暂无判定记录"
+          columns={[
+            {
+              key: 'key',
+              label: '条目',
+              width: '30%',
+              render: g => <span className="font-medium text-ai-ink">{g.key}</span>,
+            },
+            { key: 'outcome', label: '结果', render: g => <OutcomePill outcome={g.outcome} /> },
+            {
+              key: 'weighted',
+              label: '加权',
+              align: 'right',
+              render: g => <span className="tabular-nums">{g.weighted?.toFixed(2) ?? '—'}</span>,
+            },
+            {
+              key: 'code',
+              label: 'code',
+              align: 'right',
+              render: g => <span className="tabular-nums">{g.code?.toFixed(2) ?? '—'}</span>,
+            },
+            {
+              key: 'rule',
+              label: 'rule',
+              align: 'right',
+              render: g => <span className="tabular-nums">{g.rule?.toFixed(2) ?? '—'}</span>,
+            },
+            {
+              key: 'model',
+              label: 'model',
+              align: 'right',
+              render: g => <span className="tabular-nums">{g.model?.toFixed(2) ?? '—'}</span>,
+            },
+            {
+              key: 'time',
+              label: '时间',
+              render: g => <span className="text-ai-ink-3">{g.created_at.slice(0, 16)}</span>,
+            },
+          ]}
+        />
       </section>
 
       <section>
@@ -239,26 +292,52 @@ export default function AgencyEval() {
           本故事累计（检查点）：{data.story_tokens.total_tokens} tokens /{' '}
           {data.story_tokens.run_count} runs
         </p>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500">
-              <th>角色</th>
-              <th>调用</th>
-              <th>总 tokens</th>
-              <th>总耗时(ms)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.token_usage.map(u => (
-              <tr key={u.purpose} className="border-t">
-                <td>{u.purpose.replace('agency_', '')}</td>
-                <td>{u.calls}</td>
-                <td>{u.total_tokens}</td>
-                <td>{u.total_duration_ms}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <AiRecordsTable
+          ariaLabel="Agency token 用量（按角色，全局）"
+          rows={sortedUsage}
+          rowKey={u => u.purpose}
+          sort={usageSort}
+          onSortChange={setUsageSort}
+          emptyText="暂无 token 用量记录"
+          columns={[
+            {
+              key: 'purpose',
+              label: '角色',
+              width: '34%',
+              render: u => (
+                <span className="font-medium text-ai-ink">{u.purpose.replace('agency_', '')}</span>
+              ),
+            },
+            {
+              key: 'calls',
+              label: '调用',
+              align: 'right',
+              sortable: true,
+              render: u => <span className="tabular-nums">{u.calls}</span>,
+            },
+            {
+              key: 'total_tokens',
+              label: '总 tokens',
+              align: 'right',
+              sortable: true,
+              render: u => <span className="tabular-nums">{u.total_tokens}</span>,
+            },
+            {
+              key: 'total_duration_ms',
+              label: '总耗时(ms)',
+              align: 'right',
+              sortable: true,
+              render: u => <span className="tabular-nums">{u.total_duration_ms}</span>,
+            },
+          ]}
+          footer={
+            <span className="text-[12px] text-ai-ink-3">
+              按角色合计：{data.token_usage.reduce((s, u) => s + u.calls, 0)} 次调用 ·{' '}
+              {data.token_usage.reduce((s, u) => s + u.total_tokens, 0)} tokens ·{' '}
+              {data.token_usage.reduce((s, u) => s + u.total_duration_ms, 0)}ms
+            </span>
+          }
+        />
       </section>
 
       <CheckpointCompare storyId={storyId} />

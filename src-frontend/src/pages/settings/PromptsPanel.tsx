@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
   FileText,
   RotateCcw,
   Save,
@@ -20,6 +18,7 @@ import { loggedInvoke } from '@/services/api/core';
 import { cn } from '@/utils/cn';
 import { AiSearchList } from '@/components/ui/ai/AiSearchList';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
+import { AiRecordsTable } from '@/components/ui/ai/AiRecordsTable';
 import toast from 'react-hot-toast';
 
 const VAR_TAG_OPEN = '{' + '{';
@@ -644,113 +643,114 @@ export function PromptsPanel() {
                 </span>
                 <span className="text-sm text-gray-400">{list.length} 条</span>
               </div>
-              <div className="divide-y divide-cinema-700">
-                {list.map(entry => {
-                  const isExpanded = expandedId === entry.id;
+              <AiRecordsTable
+                className="rounded-none border-0"
+                ariaLabel={`${CATEGORY_LABELS[cat] ?? category}提示词列表`}
+                rowKeyAttribute="prompt-id"
+                rows={list}
+                rowKey={e => e.id}
+                expandedKey={expandedId}
+                onRowToggle={id => setExpandedId(expandedId === id ? null : id)}
+                columns={[
+                  {
+                    key: 'name',
+                    label: '名称',
+                    width: '45%',
+                    render: entry => (
+                      <span className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13px] text-ai-ink">{entry.name}</span>
+                        <code className="font-mono text-[11px] text-ai-ink-3">{entry.id}</code>
+                        {entry.is_overridden && (
+                          <span className="rounded bg-ai-orange/10 px-2 py-0.5 text-[11px] text-ai-orange">
+                            已覆盖
+                          </span>
+                        )}
+                        {(edited[entry.id] ?? entry.current_content) !== entry.current_content && (
+                          <span className="rounded bg-ai-accent-tint px-2 py-0.5 text-[11px] text-ai-accent-ink">
+                            未保存
+                          </span>
+                        )}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'description',
+                    label: '描述',
+                    render: entry => (
+                      <span className="block truncate text-[12px] text-ai-ink-3">
+                        {entry.description}
+                      </span>
+                    ),
+                  },
+                ]}
+                renderDetail={entry => {
                   const draft = edited[entry.id] ?? entry.current_content;
                   const isDirty = draft !== entry.current_content;
                   return (
-                    <div key={entry.id} className="px-4 py-3" data-prompt-id={entry.id}>
-                      <button
-                        onClick={() => setExpandedId(isExpanded ? null : entry.id)}
-                        className="w-full flex items-center justify-between text-left hover:bg-cinema-800/30 -mx-4 px-4 py-1 transition rounded"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm text-white">{entry.name}</span>
-                            <code className="text-xs text-gray-500 font-mono">{entry.id}</code>
-                            {entry.is_overridden && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
-                                已覆盖
-                              </span>
-                            )}
-                            {isDirty && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                                未保存
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-400 mt-0.5 truncate">
-                            {entry.description}
-                          </p>
-                        </div>
-                        {isExpanded ? (
-                          <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0 ml-2" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0 ml-2" />
-                        )}
-                      </button>
-
-                      {isExpanded && (
-                        <div className="mt-3 space-y-3">
-                          {entry.variables.length > 0 && (
-                            <div className="text-xs text-gray-400 flex flex-wrap gap-1">
-                              <span>支持的模板变量：</span>
-                              {entry.variables.map(v => (
-                                <code
-                                  key={v}
-                                  className="px-1.5 py-0.5 rounded bg-cinema-800 text-cinema-gold text-xs font-mono"
-                                >
-                                  {VAR_TAG_OPEN + v + VAR_TAG_CLOSE}
-                                </code>
-                              ))}
-                            </div>
-                          )}
-
-                          {entry.is_overridden && (
-                            <AiCodeBlock
-                              code={entry.default_content}
-                              title="内置默认值（只读）"
-                              maxHeight={128}
-                            />
-                          )}
-
-                          {/* v0.26.38: 原生 textarea，避免 Monaco CDN 被 CSP 拦截导致永久 Loading */}
-                          <textarea
-                            data-testid="prompt-editor"
-                            value={draft}
-                            onChange={e =>
-                              setEdited(prev => ({
-                                ...prev,
-                                [entry.id]: e.target.value,
-                              }))
-                            }
-                            className="w-full h-[360px] px-3 py-2 bg-cinema-950 border border-cinema-700 rounded text-sm text-gray-100 font-mono leading-relaxed resize-y focus:outline-none focus:border-cinema-gold/50"
-                            spellCheck={false}
-                          />
-
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-500">
-                              {draft.length} 字符 · {draft.split('\n').length} 行
-                            </span>
-                            <div className="flex items-center gap-2">
-                              {entry.is_overridden && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleReset(entry.id)}
-                                >
-                                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                                  重置默认
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                onClick={() => handleSaveOverride(entry.id)}
-                                disabled={!isDirty || savingId === entry.id}
-                                isLoading={savingId === entry.id}
-                              >
-                                <Save className="w-3.5 h-3.5 mr-1" />
-                                保存覆盖
-                              </Button>
-                            </div>
-                          </div>
+                    <div className="space-y-3 bg-ai-inset px-4 py-3">
+                      {entry.variables.length > 0 && (
+                        <div className="flex flex-wrap gap-1 text-[12px] text-ai-ink-2">
+                          <span>支持的模板变量：</span>
+                          {entry.variables.map(v => (
+                            <code
+                              key={v}
+                              className="rounded bg-ai-field px-1.5 py-0.5 font-mono text-[11px] text-ai-accent-ink"
+                            >
+                              {VAR_TAG_OPEN + v + VAR_TAG_CLOSE}
+                            </code>
+                          ))}
                         </div>
                       )}
+
+                      {/* Task2 已替换为 AiCodeBlock，原样携带 */}
+                      {entry.is_overridden && (
+                        <AiCodeBlock
+                          code={entry.default_content}
+                          title="内置默认值（只读）"
+                          maxHeight={128}
+                        />
+                      )}
+
+                      {/* v0.26.38: 原生 textarea，避免 Monaco CDN 被 CSP 拦截导致永久 Loading */}
+                      <textarea
+                        data-testid="prompt-editor"
+                        value={draft}
+                        onChange={e =>
+                          setEdited(prev => ({
+                            ...prev,
+                            [entry.id]: e.target.value,
+                          }))
+                        }
+                        className="h-[360px] w-full resize-y rounded-[8px] border border-ai-line bg-ai-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-ai-ink focus:border-ai-accent/50 focus:outline-none"
+                        spellCheck={false}
+                      />
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-[12px] text-ai-ink-3">
+                          {draft.length} 字符 · {draft.split('\n').length} 行
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {entry.is_overridden && (
+                            <Button size="sm" variant="ghost" onClick={() => handleReset(entry.id)}>
+                              <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                              重置默认
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            onClick={() => handleSaveOverride(entry.id)}
+                            disabled={!isDirty || savingId === entry.id}
+                            isLoading={savingId === entry.id}
+                          >
+                            <Save className="mr-1 h-3.5 w-3.5" />
+                            保存覆盖
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   );
-                })}
-              </div>
+                }}
+              />
             </CardContent>
           </Card>
         );
