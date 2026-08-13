@@ -317,12 +317,10 @@ export interface AppSettings {
   creation_workflow_review_threshold?: number;
   creation_workflow_max_iterations?: number;
 
-  // v0.14.3: AI 生成模式
-  // - 'auto': 场景智能路由（续写 TimeSliced，重写 Full）— 推荐
-  // - 'time_sliced': 强制分时模式（最快，单次 LLM 调用，30-60s）
-  // - 'fast': 强制 Fast 模式（单次 LLM + 风格技能，约 60s）
-  // - 'full': 强制 Full 模式（Writer + Inspector + Rewrite 闭环，2-5 分钟）
-  // - 'tri_shot': v0.23 三击模式（弹性 2~3 次 LLM：合成→精修→生成，质检改写下沉后台）
+  // 仅用于划词改写/审稿。续写走 Agency，不再读 time_sliced / tri_shot。
+  // - 'auto': 有选中文本走完整质检
+  // - 'fast' / 'full': 强制 Fast / Full
+  // - 'time_sliced' / 'tri_shot': 历史值，改写路径视为 auto
   generation_mode?: 'auto' | 'time_sliced' | 'fast' | 'full' | 'tri_shot';
 
   // v0.23 TriShot BGP-2：后台自动改写的严重度阈值（high/medium/low）
@@ -362,9 +360,7 @@ export interface AppSettings {
    */
   chapter_split_max_chars?: number | null;
   /**
-   * v0.31.0: 续写计划模式。
-   * - 'beat': 智能模式（默认）— 节拍规划 + 写作双步链
-   * - 'single_writer': 兼容模式 — 回退旧单 writer 步
+   * 已废弃：续写走 Agency，不再消费。保留以免旧配置反序列化失败。
    */
   plan_mode?: 'beat' | 'single_writer';
   /**

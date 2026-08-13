@@ -377,7 +377,7 @@ function ModelRoleCard({
   continuationTemp,
   toolTemp,
   onSetTemperature,
-  planMode,
+  planMode: _planMode,
   continuationTargetWords,
   onSaveContinuationSetting,
 }: {
@@ -483,19 +483,9 @@ function ModelRoleCard({
         <div className="mt-3 pt-3 border-t border-cinema-800 space-y-3">
           <div className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
             <span className="text-sm font-medium text-gray-300 min-w-[120px]">续写计划模式</span>
-            <span className="text-xs text-gray-600 hidden sm:block flex-1">
-              智能模式由节拍规划 + 写作双步链生成；兼容模式回退旧单步写作
+            <span className="text-xs text-gray-500 flex-1">
+              已废弃：续写统一走三角色主创，不再使用节拍规划双步链。
             </span>
-            <select
-              className="bg-cinema-800 border border-cinema-700 rounded-md text-sm text-white px-2 py-1.5 min-w-[160px] focus:border-cinema-gold focus:outline-none"
-              value={planMode ?? 'beat'}
-              onChange={e =>
-                onSaveContinuationSetting('plan_mode', e.target.value as 'beat' | 'single_writer')
-              }
-            >
-              <option value="beat">智能：节拍规划+写作双步</option>
-              <option value="single_writer">兼容：单步写作</option>
-            </select>
           </div>
           <div className="flex items-center gap-3 p-2 rounded-lg bg-cinema-900/50">
             <span className="text-sm font-medium text-gray-300 min-w-[120px]">续写目标字数</span>

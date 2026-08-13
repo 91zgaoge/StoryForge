@@ -504,36 +504,26 @@ export function GeneralSettings({
               <div className="space-y-6">
                 {/* v0.14.3: AI 生成模式 */}
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">
-                    AI 生成模式
-                    <span className="ml-2 text-xs text-cinema-gold/70">v0.14.3 新增</span>
-                  </label>
+                  <label className="block text-sm text-gray-400 mb-2">AI 改写模式</label>
                   <select
-                    value={settings?.generation_mode ?? 'auto'}
+                    value={
+                      settings?.generation_mode === 'fast' || settings?.generation_mode === 'full'
+                        ? settings.generation_mode
+                        : 'auto'
+                    }
                     onChange={e => {
-                      const v = e.target.value as
-                        | 'auto'
-                        | 'time_sliced'
-                        | 'fast'
-                        | 'full'
-                        | 'tri_shot';
-                      // 直接保存，不使用防抖：select 每次点击只有一次事件，无需防抖；
-                      // 乐观更新即时刷新 UI，避免受控组件在 800ms 防抖期间被弹回旧值。
+                      const v = e.target.value as 'auto' | 'fast' | 'full';
                       updateSettings({ generation_mode: v });
                     }}
                     disabled={isPending}
                     className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
                   >
-                    <option value="auto">智能路由（推荐）— 续写快速、重写精修</option>
-                    <option value="tri_shot">
-                      三击模式 — 智能合成资产，2~3 次 LLM，质检改写下沉后台（v0.23）
-                    </option>
-                    <option value="time_sliced">分时模式 — 最快（30-60秒）</option>
-                    <option value="fast">快速模式 — 单次 + 风格技能（约 60秒）</option>
-                    <option value="full">精修模式 — 含质检改写（2-5 分钟）</option>
+                    <option value="auto">自动 — 有选中文本走完整质检</option>
+                    <option value="fast">快速 — 单次生成</option>
+                    <option value="full">精修 — 含质检改写</option>
                   </select>
                   <p className="text-xs text-gray-500 mt-1.5">
-                    智能路由：续写场景自动用分时模式快速生成（推荐）；选中文本重写自动用精修模式含质检。三击模式用最快模型选资产合成提示词再生成，质检/改写/入库/洞察全部后台静默执行。可手动覆盖此行为。
+                    续写已统一走三角色主创，不受此选项影响。本项仅用于划词改写/审稿。
                   </p>
                 </div>
 

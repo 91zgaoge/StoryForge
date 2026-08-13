@@ -317,12 +317,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub writing_strategy: WritingStrategy,
     /// v0.14.3: AI 生成模式（auto/time_sliced/fast/full/tri_shot）
-    /// - auto: 场景智能路由（续写 TimeSliced，重写 Full）
-    /// - time_sliced: 强制分时模式（最快，单次 LLM）
-    /// - fast: 强制 Fast 模式（单次 LLM + 风格技能）
-    /// - full: 强制 Full 模式（Writer + Inspector + Rewrite 闭环）
-    /// - tri_shot: v0.23 三击模式（弹性 2~3 次
-    ///   LLM：合成→精修→生成，质检/改写下沉后台）
+    /// 仅用于划词改写/审稿（PlanExecutor Full/Fast）。续写已走 Agency，
+    /// 不再读取 time_sliced / tri_shot。
+    /// - auto: 有选中文本走 Full 质检
+    /// - fast: 强制 Fast
+    /// - full: 强制 Full
+    /// - time_sliced / tri_shot: 历史值，改写路径视为 auto
     #[serde(default = "default_generation_mode")]
     pub generation_mode: String,
     /// v0.23 TriShot BGP-2：后台自动改写的严重度阈值（"high" / "medium"）。
@@ -343,8 +343,7 @@ pub struct AppConfig {
     /// `orchestrator_timesliced_writer` 模板按 0.7x-1.3x 渲染目标字数范围。
     #[serde(default = "default_continuation_target_words")]
     pub continuation_target_words: u32,
-    /// v0.31.0: 续写计划模式 — `beat`（默认，beat 驱动多步计划）或
-    /// `single_writer`（旧单 writer 步回退开关）。后续计划结构重构任务消费。
+    /// 已废弃：续写走 Agency，不再消费此字段。保留以免旧配置反序列化失败。
     #[serde(default = "default_plan_mode")]
     pub plan_mode: String,
     /// v0.15.5: 超时配置（可从前端设置调整，无需重新编译）

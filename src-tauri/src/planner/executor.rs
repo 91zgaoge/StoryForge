@@ -97,6 +97,27 @@ impl BeatPlan {
     }
 }
 
+/// 续写/创世必须走 AgencyCoordinator。PlanExecutor writer 漏网时硬拒绝，
+/// 禁止落入 TimeSliced/TriShot。改写（有选中文本）不受影响。
+pub(crate) fn reject_agency_owned_intent(
+    classification: Option<&crate::intent::WritingIntentClassification>,
+) -> Result<(), AppError> {
+    let Some(c) = classification else {
+        return Ok(());
+    };
+    if c.is_continuation {
+        return Err(AppError::from(
+            "续写必须走 AgencyCoordinator，禁止 PlanExecutor TimeSliced/TriShot",
+        ));
+    }
+    if c.is_new_novel {
+        return Err(AppError::from(
+            "创世必须走 AgencyCoordinator，禁止 PlanExecutor TimeSliced/TriShot",
+        ));
+    }
+    Ok(())
+}
+
 impl PlanExecutor {
     pub fn new(app_handle: AppHandle) -> Self {
         let pool = app_handle.state::<crate::db::DbPool>().inner().clone();
@@ -173,7 +194,13 @@ impl PlanExecutor {
             .as_ref()
             .map(|c| c.is_new_novel)
             .unwrap_or(false);
-        if is_trishot && !is_new_novel {
+        let is_continuation = context
+            .intent_classification
+            .as_ref()
+            .map(|c| c.is_continuation)
+            .unwrap_or(false);
+        // 续写/创世已分流 Agency；TriShot 快速路径不得再吞续写。
+        if is_trishot && !is_new_novel && !is_continuation {
             log::info!("[PlanExecutor] TriShot 快速路径：跳过计划生成，直接 writer step");
             let plan = Self::make_trishot_plan(context);
             return Ok(self.execute_plan(plan, context).await);
@@ -183,11 +210,6 @@ impl PlanExecutor {
         // templates.
         // v0.30.11: 模板重放已禁用（find_template 恒返回 None，见其注释）。
         // 续写意图仍记录日志便于诊断；分类经 PlanContext 贯穿。
-        let is_continuation = context
-            .intent_classification
-            .as_ref()
-            .map(|c| c.is_continuation)
-            .unwrap_or(false);
         let template_plan = if is_continuation {
             log::info!(
                 "[PlanExecutor] 续写意图检测到，跳过模板匹配，走 planner LLM: {}",
@@ -1236,6 +1258,7 @@ impl PlanExecutor {
         plan_context: &PlanContext,
     ) -> Result<serde_json::Value, AppError> {
         log::info!("[PlanExecutor::execute_writer] START");
+        reject_agency_owned_intent(plan_context.intent_classification.as_ref())?;
         let story_id = params
             .get("story_id")
             .and_then(|v| v.as_str())
@@ -2606,6 +2629,32 @@ pub(crate) fn inject_recommended_strategy_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn execute_writer_rejects_continuation_and_genesis() {
+        let cont = crate::intent::WritingIntentClassification {
+            is_continuation: true,
+            ..crate::intent::WritingIntentClassification::conservative_fallback()
+        };
+        let err = reject_agency_owned_intent(Some(&cont)).unwrap_err();
+        assert!(err.to_string().contains("续写必须走 AgencyCoordinator"));
+
+        let genesis = crate::intent::WritingIntentClassification {
+            is_new_novel: true,
+            is_continuation: false,
+            ..crate::intent::WritingIntentClassification::conservative_fallback()
+        };
+        let err = reject_agency_owned_intent(Some(&genesis)).unwrap_err();
+        assert!(err.to_string().contains("创世必须走 AgencyCoordinator"));
+
+        let rewrite = crate::intent::WritingIntentClassification {
+            is_continuation: false,
+            is_new_novel: false,
+            ..crate::intent::WritingIntentClassification::conservative_fallback()
+        };
+        assert!(reject_agency_owned_intent(Some(&rewrite)).is_ok());
+        assert!(reject_agency_owned_intent(None).is_ok());
+    }
 
     #[test]
     fn test_result_kind_serialization_contract() {

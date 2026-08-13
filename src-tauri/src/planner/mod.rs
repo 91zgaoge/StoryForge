@@ -270,10 +270,9 @@ impl PlanGenerator {
     /// 本方法在咽喉点对所有 `is_prose_request` plan 统一净化：
     /// 1. 移除 `builtin.style_enhancer`/`text_formatter`/`character_voice`/
     ///    `emotion_pacing` 等绝不产出可用正文的技能步骤（产出模板/元文本）。
-    /// 2. 续写（`is_continuation`）：`plan_mode=beat`（默认）重建为
-    ///    `beat_planner -> writer` 两步链（planner 资产理解与节拍规划注入
-    ///    writer），`plan_mode=single_writer` 时塌缩为单 writer 步（AppConfig
-    ///    回退开关，保持旧行为）。
+    /// 2. 续写（`is_continuation`）：塌缩为单 writer 步。幕前续写已由
+    ///    `smart_execute` 分流到 Agency；此处是 PlanExecutor 漏网时的纵深防御，
+    ///    不再重建 `beat_planner -> writer`。
     /// 3. 其余 prose 请求（改写/增强等）：弹出尾部非 writer 步骤，保证末步为
     ///    writer （`final_content` = 正文）。保留 `[inspector, writer]` 等 Rule
     ///    9 合法流。
@@ -287,10 +286,11 @@ impl PlanGenerator {
         context: &PlanContext,
         plan_mode: &str,
     ) {
-        // v0.30.38: 门控扩展--is_continuation 也触发净化（纵深防御）。
-        // 此前门控仅检查 is_prose_request，但 LLM 可能省略 is_prose 字段
-        // 导致 serde 默认 false（尽管 Fix 1 已在后置纠正，此处再加一道保险）。
-        // 续写本质是 prose 请求，is_continuation=true 时净化必运行。
+        let _ = plan_mode; // 续写不再区分 beat / single_writer；保留形参以免改签名
+                           // v0.30.38: 门控扩展--is_continuation 也触发净化（纵深防御）。
+                           // 此前门控仅检查 is_prose_request，但 LLM 可能省略 is_prose 字段
+                           // 导致 serde 默认 false（尽管 Fix 1 已在后置纠正，此处再加一道保险）。
+                           // 续写本质是 prose 请求，is_continuation=true 时净化必运行。
         let cls = match classification {
             Some(c) if c.is_prose_request || c.is_continuation => c,
             _ => return,
@@ -308,52 +308,19 @@ impl PlanGenerator {
             );
         }
 
-        // 2. 续写：plan_mode=beat（默认）生成 beat_planner -> writer 两步链， 让
-        //    planner 资产理解（understanding）注入 beat_planner（F2：经
-        //    writer_beat_plan 模板消费），节拍规划注入 writer； plan_mode=single_writer
-        //    保持旧塌缩行为（AppConfig 回退开关）。
+        // 2. 续写：幕前已走 Agency Append。漏网进入 PlanExecutor 时塌缩为单
+        //    writer（不再插入 beat_planner）。execute_writer 会再拒绝续写/ 创世，避免
+        //    TimeSliced/TriShot。
         if cls.is_continuation {
-            if plan_mode == "single_writer" {
-                if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
-                    log::warn!(
-                        "[PlanGenerator] Sanitize: collapsing continuation plan ({} steps) to single writer: {}",
-                        plan.steps.len(),
-                        context.user_input
-                    );
-                    plan.steps = vec![Self::make_sanitized_writer_step(context)];
-                    plan.understanding = format!(
-                        "{} [sanitized: continuation collapsed to single writer]",
-                        plan.understanding
-                    );
-                }
-                return;
-            }
-            // beat 模式：已是 [beat_planner, writer] 链则幂等跳过重建，但仍需
-            // 补齐 beat_planner 的 planner_understanding 注入（与重建路径一致）。
-            let is_beat_chain = plan.steps.len() == 2
-                && plan.steps[0].capability_id == "beat_planner"
-                && plan.steps[1].capability_id == "writer";
-            if is_beat_chain {
-                Self::inject_planner_understanding(&mut plan.steps[0], &plan.understanding);
-            } else {
+            if plan.steps.len() != 1 || plan.steps[0].capability_id != "writer" {
                 log::warn!(
-                    "[PlanGenerator] Sanitize: rebuilding continuation plan ({} steps) as beat_planner -> writer chain: {}",
+                    "[PlanGenerator] Sanitize: collapsing continuation plan ({} steps) to single writer: {}",
                     plan.steps.len(),
                     context.user_input
                 );
-                let mut writer_step = Self::make_sanitized_writer_step(context);
-                writer_step.depends_on = vec!["beat_planner".to_string()];
-                writer_step.parameters.insert(
-                    "beat_plan".to_string(),
-                    serde_json::Value::String("{{beat_planner}}".to_string()),
-                );
-                // final-review F2：beat_planner 直接消费 planner understanding
-                // （注入 writer_beat_plan 模板 {{planner_understanding}} 段）。
-                let mut beat_step = Self::make_beat_planner_step(context);
-                Self::inject_planner_understanding(&mut beat_step, &plan.understanding);
-                plan.steps = vec![beat_step, writer_step];
+                plan.steps = vec![Self::make_sanitized_writer_step(context)];
                 plan.understanding = format!(
-                    "{} [sanitized: continuation rebuilt as beat_planner -> writer]",
+                    "{} [sanitized: continuation collapsed to single writer]",
                     plan.understanding
                 );
             }
@@ -1318,61 +1285,30 @@ mod tests {
         }
     }
 
-    // ---- v0.31 资产融合：beat 链计划结构 ----
+    // ---- 续写不再插入 beat_planner（Agency 唯一路径） ----
 
     #[test]
-    fn test_sanitize_continuation_rebuilds_beat_chain() {
-        // 续写（is_continuation=true）且 plan_mode=beat：无论 LLM 产出几步，
-        // 净化后必须是 [beat_planner, writer(depends_on beat_planner)] 两步链。
+    fn continuation_sanitize_does_not_insert_beat_planner() {
         let cls = WritingIntentClassification {
             is_continuation: true,
             is_prose_request: true,
             ..WritingIntentClassification::conservative_fallback()
         };
         let ctx = make_sanitize_ctx("继续写当前这部小说", cls);
-        let mut plan = make_plan(vec![
-            make_step("s1", "writer"),
-            make_step("s2", "inspector"),
-        ]);
+        let mut plan = make_plan(vec![make_step("s1", "writer")]);
         PlanGenerator::sanitize_plan_for_prose_request(
             &mut plan,
             ctx.intent_classification.as_ref(),
             &ctx,
             "beat",
         );
-        assert_eq!(plan.steps.len(), 2);
-        assert_eq!(plan.steps[0].step_id, "beat_planner");
-        assert_eq!(plan.steps[0].capability_id, "beat_planner");
-        assert!(plan.steps[0].depends_on.is_empty());
-        assert!(!plan.steps[0].long_running);
-        assert_eq!(plan.steps[1].capability_id, "writer");
-        assert_eq!(plan.steps[1].depends_on, vec!["beat_planner".to_string()]);
-        assert!(plan.steps[1].long_running);
-        // writer 参数携带 beat_planner 输出引用；planner_understanding 不再注入
-        // writer（死参数，writer 从不消费它）。
-        assert_eq!(
-            plan.steps[1]
-                .parameters
-                .get("beat_plan")
-                .and_then(|v| v.as_str()),
-            Some("{{beat_planner}}")
-        );
-        assert!(!plan.steps[1]
-            .parameters
-            .contains_key("planner_understanding"));
-        // final-review F2：beat_planner 步骤同样携带 planner_understanding（消费方）
-        assert!(plan.steps[0]
-            .parameters
-            .get("planner_understanding")
-            .and_then(|v| v.as_str())
-            .map(|s| s.contains("test plan"))
-            .unwrap_or(false));
-        assert!(plan.understanding.contains("beat_planner -> writer"));
+        assert!(plan.steps.iter().all(|s| s.capability_id != "beat_planner"));
+        assert_eq!(plan.steps[0].capability_id, "writer");
     }
 
     #[test]
     fn test_sanitize_continuation_single_writer_mode_collapses() {
-        // plan_mode=single_writer 回退开关：保持旧塌缩单 writer 行为。
+        // 续写无论 plan_mode 都塌缩为单 writer。
         let cls = WritingIntentClassification {
             is_continuation: true,
             is_prose_request: true,
@@ -1396,9 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_continuation_beat_chain_idempotent() {
-        // 已是 [beat_planner, writer] 链的 plan 不再重建（幂等），但需补齐
-        // beat_planner 的 planner_understanding 注入（与重建路径一致）。
+    fn test_sanitize_continuation_beat_chain_collapses_to_writer() {
         let cls = WritingIntentClassification {
             is_continuation: true,
             is_prose_request: true,
@@ -1414,52 +1348,9 @@ mod tests {
             &ctx,
             "beat",
         );
-        assert_eq!(plan.steps.len(), 2);
-        assert_eq!(plan.steps[0].step_id, "bp");
-        assert_eq!(plan.steps[1].step_id, "w");
-        assert!(!plan.understanding.contains("sanitized"));
-        // 幂等跳过路径：beat_planner 同步注入 planner_understanding
-        assert_eq!(
-            plan.steps[0]
-                .parameters
-                .get("planner_understanding")
-                .and_then(|v| v.as_str()),
-            Some("test plan")
-        );
-        // writer 不携带 planner_understanding（死参数，从不消费）
-        assert!(!plan.steps[1]
-            .parameters
-            .contains_key("planner_understanding"));
-    }
-
-    #[test]
-    fn test_sanitize_continuation_beat_chain_skip_keeps_existing_understanding() {
-        // 幂等跳过路径：beat_planner 已自带 planner_understanding 时不覆盖。
-        let cls = WritingIntentClassification {
-            is_continuation: true,
-            is_prose_request: true,
-            ..WritingIntentClassification::conservative_fallback()
-        };
-        let ctx = make_sanitize_ctx("继续写", cls);
-        let mut beat = make_step("bp", "beat_planner");
-        beat.parameters.insert(
-            "planner_understanding".to_string(),
-            serde_json::Value::String("llm 自带 understanding".to_string()),
-        );
-        let mut plan = make_plan(vec![beat, make_step("w", "writer")]);
-        PlanGenerator::sanitize_plan_for_prose_request(
-            &mut plan,
-            ctx.intent_classification.as_ref(),
-            &ctx,
-            "beat",
-        );
-        assert_eq!(
-            plan.steps[0]
-                .parameters
-                .get("planner_understanding")
-                .and_then(|v| v.as_str()),
-            Some("llm 自带 understanding")
-        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].capability_id, "writer");
+        assert!(plan.steps.iter().all(|s| s.capability_id != "beat_planner"));
     }
 
     #[test]
