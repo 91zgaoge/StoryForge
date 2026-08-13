@@ -10,12 +10,14 @@ import {
   instinctFeedback,
 } from '@/services/api/agency';
 import type { Instinct } from '@/services/api/agency';
+import { AiRecordsTable } from '@/components/ui/ai/AiRecordsTable';
 
 function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const color = value >= 0.8 ? '#22c55e' : value >= 0.5 ? '#f59e0b' : '#9ca3af';
+  const color =
+    value >= 0.8 ? 'var(--ai-green)' : value >= 0.5 ? 'var(--ai-orange)' : 'var(--ai-ink-3)';
   return (
-    <div className="h-2 w-24 rounded bg-gray-200">
+    <div className="h-2 w-24 rounded bg-ai-inset">
       <div className="h-2 rounded" style={{ width: `${pct}%`, background: color }} />
     </div>
   );
@@ -45,7 +47,7 @@ export default function AgencyLearning() {
     }
   };
 
-  if (!currentStory) return <p className="p-6 text-gray-500">请先选择一个故事</p>;
+  if (!currentStory) return <p className="p-6 text-ai-ink-3">请先选择一个故事</p>;
   if (isLoading) return <p className="p-6">加载学习数据…</p>;
   if (error) return <p className="p-6 text-red-500">加载失败：{String(error)}</p>;
   if (!data) return null;
@@ -82,12 +84,13 @@ export default function AgencyLearning() {
             {data.candidates.map(c => (
               <div
                 key={c.id}
-                className="flex items-center justify-between rounded border border-amber-300 bg-amber-50 p-3"
+                className="flex items-center justify-between rounded border border-ai-line p-3 text-ai-orange"
+                style={{ background: 'color-mix(in srgb, var(--ai-orange) 12%, transparent)' }}
               >
                 <div>
                   <div className="font-medium">{c.trigger}</div>
-                  <div className="text-sm text-gray-600">{c.action}</div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                  <div className="text-sm text-ai-ink-2">{c.action}</div>
+                  <div className="mt-1 flex items-center gap-2 text-xs text-ai-ink-3">
                     <ConfidenceBar value={c.confidence} />
                     <span>{(c.confidence * 100).toFixed(0)}%</span>
                     <span>证据 {c.evidence_count}</span>
@@ -106,7 +109,7 @@ export default function AgencyLearning() {
                     onClick={() =>
                       runAction(() => rejectPromotion(storyId, c.id), '拒绝晋升失败，请重试')
                     }
-                    className="rounded border px-3 py-1 text-sm"
+                    className="rounded border border-ai-line px-3 py-1 text-sm text-ai-ink"
                   >
                     拒绝
                   </button>
@@ -120,20 +123,20 @@ export default function AgencyLearning() {
       <section>
         <h2 className="mb-2 font-medium">已学模式（{data.instincts.length}）</h2>
         {data.instincts.length === 0 && (
-          <p className="text-sm text-gray-500">尚无模式——创作几章后点击"立即分析"。</p>
+          <p className="text-sm text-ai-ink-3">尚无模式——创作几章后点击"立即分析"。</p>
         )}
         <div className="space-y-2">
           {data.instincts.map((i: Instinct) => (
-            <div key={i.id} className="rounded border p-3">
+            <div key={i.id} className="rounded border border-ai-line bg-ai-surface p-3">
               <div className="flex items-center justify-between">
                 <div className="font-medium">{i.trigger}</div>
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-ai-ink-3">
                   {i.status}
                   {i.scope === 'global' ? ' · global' : ''}
                 </span>
               </div>
-              <div className="text-sm text-gray-600">{i.action}</div>
-              <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+              <div className="text-sm text-ai-ink-2">{i.action}</div>
+              <div className="mt-1 flex items-center gap-2 text-xs text-ai-ink-3">
                 <ConfidenceBar value={i.confidence} />
                 <span>{(i.confidence * 100).toFixed(0)}%</span>
                 <span>证据 {i.evidence_count}</span>
@@ -161,29 +164,31 @@ export default function AgencyLearning() {
 
       <section>
         <h2 className="mb-2 font-medium">最近观察</h2>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500">
-              <th>时间</th>
-              <th>类型</th>
-              <th>角色</th>
-              <th>摘要</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.recent_observations
-              .slice()
-              .reverse()
-              .map((o, idx) => (
-                <tr key={idx} className="border-t">
-                  <td className="text-gray-400">{o.ts.slice(5, 16)}</td>
-                  <td>{o.kind}</td>
-                  <td>{o.actor}</td>
-                  <td className="max-w-md truncate">{JSON.stringify(o.payload)}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
+        <AiRecordsTable
+          ariaLabel="最近观察"
+          rows={data.recent_observations
+            .slice()
+            .reverse()
+            .map((o, idx) => ({ ...o, idx }))}
+          rowKey={o => String(o.idx)}
+          emptyText="暂无观察记录"
+          columns={[
+            {
+              key: 'ts',
+              label: '时间',
+              render: o => <span className="text-ai-ink-3">{o.ts.slice(5, 16)}</span>,
+            },
+            { key: 'kind', label: '类型', render: o => o.kind },
+            { key: 'actor', label: '角色', render: o => o.actor },
+            {
+              key: 'payload',
+              label: '摘要',
+              render: o => (
+                <span className="block max-w-md truncate">{JSON.stringify(o.payload)}</span>
+              ),
+            },
+          ]}
+        />
       </section>
     </div>
   );
