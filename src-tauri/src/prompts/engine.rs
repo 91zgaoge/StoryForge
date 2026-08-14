@@ -62,6 +62,31 @@ impl TemplateEngine {
     }
 }
 
+/// 渲染后仍残留的 `{{ident}}`。忽略 `{{#if}}` / `{{/if}}` / `{{else}}`。
+pub fn leftover_mustache_idents(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        let inner = after[..end].trim();
+        rest = &after[end + 2..];
+        if inner.is_empty()
+            || inner.starts_with('#')
+            || inner.starts_with('/')
+            || inner.eq_ignore_ascii_case("else")
+        {
+            continue;
+        }
+        if inner.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            out.push(inner.to_string());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +120,22 @@ mod tests {
             TemplateEngine::render_with_conditions(template, &vars),
             "End"
         );
+    }
+
+    #[test]
+    fn leftover_mustache_ignores_if_blocks_and_finds_idents() {
+        let text = "{{#if x}}keep{{/if}} {{ghost}} {{else}} {{world_rules}}";
+        let left = leftover_mustache_idents(text);
+        assert!(left.contains(&"ghost".to_string()));
+        assert!(left.contains(&"world_rules".to_string()));
+        assert!(!left.iter().any(|s| s.contains('#')));
+    }
+
+    #[test]
+    fn leftover_mustache_empty_when_filled() {
+        let mut vars = HashMap::new();
+        vars.insert("name".into(), "x".into());
+        let rendered = TemplateEngine::render("Hello {{name}}", &vars);
+        assert!(leftover_mustache_idents(&rendered).is_empty());
     }
 }

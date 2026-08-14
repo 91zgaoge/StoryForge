@@ -462,7 +462,15 @@ pub fn resolve_prompt_with_vars(
     vars: &std::collections::HashMap<String, String>,
 ) -> Result<String, AppError> {
     let template = resolve_prompt(pool, prompt_id)?;
-    Ok(crate::prompts::engine::TemplateEngine::render_with_conditions(&template, vars))
+    let rendered = crate::prompts::engine::TemplateEngine::render_with_conditions(&template, vars);
+    let leftover = crate::prompts::engine::leftover_mustache_idents(&rendered);
+    if !leftover.is_empty() {
+        log::warn!(
+            "prompt `{prompt_id}` leftover placeholders after render: {:?}",
+            leftover
+        );
+    }
+    Ok(rendered)
 }
 
 /// v0.21.0: 无 DB 连接时的模板渲染回退（用于测试或启动早期）
@@ -880,5 +888,43 @@ mod tests {
                 id
             );
         }
+    }
+
+    fn is_fail_closed_prompt_id(id: &str) -> bool {
+        id.starts_with("agency_") || id.starts_with("writer_") || id == "scene_outline"
+    }
+
+    #[test]
+    fn builtin_agency_writer_scene_outline_have_no_undeclared_placeholders() {
+        let prompts = get_builtin_prompts();
+        let mut failures = Vec::new();
+        for (id, entry) in prompts.iter() {
+            if !is_fail_closed_prompt_id(id) {
+                continue;
+            }
+            let mut vars = std::collections::HashMap::new();
+            for v in &entry.variables {
+                vars.insert(v.clone(), "x".into());
+            }
+            let rendered = crate::prompts::engine::TemplateEngine::render_with_conditions(
+                &entry.default_content,
+                &vars,
+            );
+            let leftover = crate::prompts::engine::leftover_mustache_idents(&rendered);
+            if !leftover.is_empty() {
+                failures.push(format!("{id}: {:?}", leftover));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "bundled prompts have leftover {{{{ident}}}} after filling declared variables:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn leftover_scanner_catches_undeclared_fixture() {
+        let leftover = crate::prompts::engine::leftover_mustache_idents("hello {{ghost}} world");
+        assert_eq!(leftover, vec!["ghost".to_string()]);
     }
 }
