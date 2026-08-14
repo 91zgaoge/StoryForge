@@ -3808,9 +3808,11 @@ impl AgencyCoordinator {
             budget.clone(),
             AgentRole::LeadWriter,
         );
-        let system = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。须在节拍任务硬约束内落实指令。";
+        let assembled = assemble_continue_beat(&user).map_err(|e| AppError::from(e.to_string()))?;
+        let system = assembled.system;
+        let user = assembled.user;
         let text = match llm
-            .complete(system, &user, TaskType::CreativeWriting, 8192)
+            .complete(&system, &user, TaskType::CreativeWriting, 8192)
             .await
         {
             Ok(t) => t.trim().to_string(),
