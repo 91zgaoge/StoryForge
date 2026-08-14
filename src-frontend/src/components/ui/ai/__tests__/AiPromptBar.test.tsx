@@ -117,6 +117,14 @@ describe('AiPromptBar', () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
+  it('textarea 去掉系统原生描边，避免 flush 后露出一圈线', () => {
+    render(<AiPromptBar variant="flush" value="" onChange={() => {}} onSend={() => {}} />);
+    const ta = screen.getByPlaceholderText('输入任意指令…');
+    expect(ta.className).toMatch(/\bborder-0\b/);
+    expect(ta.className).toMatch(/\bappearance-none\b/);
+    expect(ta.className).toMatch(/\bshadow-none\b/);
+  });
+
   it('trailingAction 传入时替换发送按钮', () => {
     render(
       <AiPromptBar

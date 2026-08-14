@@ -357,7 +357,7 @@ export function AiPromptBar({
           placeholder={placeholder}
           aria-label="AI 指令输入"
           disabled={disabled}
-          className="min-h-7 min-w-0 flex-1 resize-none bg-transparent px-1 py-[5px] text-[13px] leading-[18px] text-ai-ink outline-none [overflow-wrap:anywhere] placeholder:text-ai-ink-3 disabled:opacity-50"
+          className="min-h-7 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent shadow-none px-1 py-[5px] text-[13px] leading-[18px] text-ai-ink outline-none [overflow-wrap:anywhere] placeholder:text-ai-ink-3 disabled:opacity-50"
         />
 
         {hasModels && (

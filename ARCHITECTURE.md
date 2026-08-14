@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.44.0 架构文档
+# StoryMoss (草苔) v0.44.1 架构文档
+
+> **v0.44.1**：幕前 flush 输入去掉 WKWebView `<textarea>` 原生 inset 边（`appearance-none border-0 shadow-none` + CSS 双杀）。v0.44.0 只拆了外壳卡片，测试未锁输入框本身。验证：`npx vitest run` 590 passed / 3 skipped（+1）。无 Rust 逻辑变更。
 
 > **v0.44.0**：墨纸 / 机械视觉定向进化补齐。幕前输入壳去掉顶边与毛玻璃；霞鹜 Medium 独立 woff2（v1.250 Bold 映射 CSS 500）；纸 `--parchment*` hue 95；选区陶土 22%；顶栏图标按钮 press/淡彩。幕后 warm cinema 850–500 三方同色相；Panel inset 顶高光；`--transition-spring` 0.5s，接线带 `motion-reduce`；侧栏选中无金框。纯前端，`--ai-*` 17 变量名不变。验证：`npx vitest run` 589 passed / 3 skipped（+11）。v0.43.0 flush / 本地 Regular / 陶土发射不变量不变。
 

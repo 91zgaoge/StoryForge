@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.44.0
+- **版本**: v0.44.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -99,7 +99,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1367 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 589 passed / 3 skipped
+- `npx vitest run` ✅ 590 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.44.1 - 幕前输入框去掉系统原生描边
+
+v0.44.0 拆掉底栏卡片后，macOS WKWebView 仍给 `<textarea>` 画原生 inset 边，用户看见输入区一圈细线。`AiPromptBar` 加上 `appearance-none border-0 shadow-none`；flush 路径 CSS 双杀 UA 样式。契约测试锁 class，避免再只查外壳。
+
+- **验证**：`npx vitest run` 590 passed / 3 skipped（+1）；`tsc` / `format:check` 全绿。无 Rust 逻辑变更。
+- **未关闭**：全界面截图回归未做；v0.42.0 §8 真机探针仍未跑。
 
 ### v0.44.0 - 墨纸 / 机械视觉定向进化补齐
 
@@ -906,7 +913,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-14 - v0.44.0_
+_最后更新: 2026-08-14 - v0.44.1_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

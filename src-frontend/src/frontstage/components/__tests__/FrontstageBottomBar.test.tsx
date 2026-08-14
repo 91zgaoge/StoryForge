@@ -236,6 +236,10 @@ describe('FrontstageBottomBar', () => {
     expect(shell.className).not.toMatch(/rounded-paper/);
     expect(shell.className).not.toMatch(/bg-paper-50/);
     expect(shell.className).not.toMatch(/focus-within:border/);
+
+    const ta = screen.getByPlaceholderText('输入任意指令…');
+    expect(ta.className).toMatch(/\bborder-0\b/);
+    expect(ta.className).toMatch(/\bappearance-none\b/);
   });
 
   it('模型信号与本地生成指示不含 pulse/ping', () => {

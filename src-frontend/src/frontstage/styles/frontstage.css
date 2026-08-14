@@ -1117,6 +1117,16 @@ body {
   opacity: 0.8;
 }
 
+/* v0.44.x: 拆掉输入卡片后，macOS WKWebView 仍会给 textarea 画原生 inset 边。
+   Tailwind appearance-none/border-0 是主修复；此处双杀，避免 UA 样式压过工具类。 */
+[data-testid='ai-prompt-bar'][data-variant='flush'] textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  box-shadow: none;
+  background-color: transparent;
+}
+
 /* ===== Frontstage Input Ghost Hint（幕前输入栏幽灵提示层）=====
    Task 5（UI 重塑）清理 frontstage.css 旧样式时误删此处规则，导致
    logline 后缀失去灰色 + 小字号样式并发生层叠错位。此处恢复：显式

@@ -2,6 +2,26 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.44.1（2026-08-14）
+
+幕前输入框去掉 macOS 系统原生描边。v0.44.0 已拆底栏卡片，测试只查外壳 class，WKWebView `<textarea>` 的 inset 边漏网。
+
+### 修复
+
+- **输入原生边**：`AiPromptBar` textarea 增加 `appearance-none border-0 shadow-none`；幕前 flush 路径 CSS 再杀 UA 边框/阴影。
+- **契约**：`AiPromptBar` + `FrontstageBottomBar` 断言输入框本身无系统描边 class，不只查外壳。
+
+### 测试
+
+- `npx vitest run`：**590 passed / 3 skipped**（基线 589，+1）。
+- `npx tsc --noEmit` / `npm run format:check` 全绿。
+- `cargo test --lib`：本版未重跑（无 Rust 逻辑变更；基线 1367 passed / 2 ignored）。
+
+### 已知债务
+
+- v0.42.0 规格 §8 真机对照诊断故事再续一拍未跑；ContextPrioritizer 未接 Agency。
+- 未做全界面截图回归。顶栏健康探测钮仍是圆钮 `scale(1.1)`（范围外）。
+
 ## v0.44.0（2026-08-14）
 
 墨纸 / 机械视觉定向进化补齐。对照设计把 v0.43.0 未做满的缺口落地：输入无框、Medium 分文件、纸 chroma、选区 22%、顶栏淡彩、暖金内芯同色相、Panel 高光、弹簧 500ms、侧栏去金框。
