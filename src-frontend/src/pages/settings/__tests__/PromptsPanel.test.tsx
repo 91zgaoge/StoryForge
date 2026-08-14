@@ -38,8 +38,8 @@ const mockEntry = {
 };
 
 const mockComposition = {
-  scene: 'timesliced',
-  scene_label: 'TimeSliced 续写',
+  scene: 'agency_continue',
+  scene_label: 'Agency 续写',
   layers: [
     {
       role: 'system',
@@ -157,10 +157,10 @@ describe('PromptsPanel', () => {
 
     await waitFor(() => {
       expect(loggedInvoke).toHaveBeenCalledWith('preview_prompt_composition', {
-        scene: 'timesliced',
+        scene: 'agency_continue',
       });
     });
 
-    expect(screen.getByTestId('composition-scene-select')).toHaveValue('timesliced');
+    expect(screen.getByTestId('composition-scene-select')).toHaveValue('agency_continue');
   });
 });

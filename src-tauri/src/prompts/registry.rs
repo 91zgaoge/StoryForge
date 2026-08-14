@@ -230,25 +230,15 @@ pub struct PromptCompositionPreview {
 /// v0.26.38: 静态声明各生成场景会 resolve 的提示词分层（组合可观测，0 LLM）。
 pub fn preview_prompt_composition(scene: &str) -> PromptCompositionPreview {
     let (scene_key, scene_label, specs): (&str, &str, &[(&str, &str, &str)]) = match scene {
-        "trishot_call3" | "trishot" | "genesis" => (
-            "trishot_call3",
-            "TriShot 创世 / 续写 · Call3",
+        "agency_genesis" | "trishot_call3" | "trishot" | "genesis" => (
+            "agency_genesis",
+            "Agency 创世",
             &[
-                ("system", "writer_system", "system_prompt"),
-                ("synthesizer", "trishot_synthesizer", "Call1"),
-                (
-                    "user",
-                    "orchestrator_timesliced_writer",
-                    "Call3_user_fallback",
-                ),
-                ("injector", "writer_contract_constraints", "contextual"),
-                ("injector", "writer_chase_debt", "contextual"),
-                ("injector", "writer_narrative_event_history", "contextual"),
-                (
-                    "methodology",
-                    "methodology_snowflake_step1",
-                    "framework_optional",
-                ),
+                ("instruction", "inline.agency_genesis_system", "inline"),
+                ("context", "compiler.premise", "compiler"),
+                ("context", "compiler.concept", "compiler"),
+                ("context", "compiler.assets", "compiler"),
+                ("context", "compiler.task", "compiler"),
             ],
         ),
         "pipeline_review" | "review" => (
@@ -259,17 +249,14 @@ pub fn preview_prompt_composition(scene: &str) -> PromptCompositionPreview {
                 ("criteria", "review_contract_criteria", "contract"),
             ],
         ),
-        // 默认：TimeSliced 续写
+        // 默认与 timesliced 别名：Agency 续写热路径
         _ => (
-            "timesliced",
-            "TimeSliced 续写",
+            "agency_continue",
+            "Agency 续写",
             &[
-                ("system", "writer_system", "system_prompt"),
-                ("user", "orchestrator_timesliced_writer", "user_prompt"),
-                ("contract", "write_time_bundle_contract", "bundle"),
-                ("injector", "writer_contract_constraints", "contextual"),
-                ("injector", "writer_chase_debt", "contextual"),
-                ("injector", "writer_narrative_event_history", "contextual"),
+                ("instruction", "inline.agency_continue_system", "inline"),
+                ("context", "compiler.scene_beat_card", "compiler"),
+                ("context", "compiler.continue_assets", "compiler"),
             ],
         ),
     };
@@ -804,30 +791,50 @@ mod tests {
             .contains(&"event_history".to_string()));
     }
 
-    // v0.26.38: 场景组合预览静态声明
+    // 场景组合预览：Agency 热路径（timesliced/trishot 为别名）
     #[test]
-    fn test_preview_prompt_composition_timesliced() {
-        let preview = preview_prompt_composition("timesliced");
-        assert_eq!(preview.scene, "timesliced");
-        assert!(!preview.layers.is_empty());
+    fn test_preview_prompt_composition_agency_continue() {
+        let preview = preview_prompt_composition("agency_continue");
+        assert_eq!(preview.scene, "agency_continue");
+        assert_eq!(preview.scene_label, "Agency 续写");
         assert!(preview
             .layers
             .iter()
-            .any(|l| l.prompt_id == "writer_system"));
+            .any(|l| l.prompt_id == "inline.agency_continue_system"));
         assert!(preview
+            .layers
+            .iter()
+            .any(|l| l.prompt_id == "compiler.scene_beat_card"));
+        assert!(!preview
             .layers
             .iter()
             .any(|l| l.prompt_id == "orchestrator_timesliced_writer"));
     }
 
     #[test]
-    fn test_preview_prompt_composition_trishot() {
-        let preview = preview_prompt_composition("trishot_call3");
-        assert_eq!(preview.scene, "trishot_call3");
+    fn test_preview_prompt_composition_agency_genesis() {
+        let preview = preview_prompt_composition("agency_genesis");
+        assert_eq!(preview.scene, "agency_genesis");
         assert!(preview
             .layers
             .iter()
+            .any(|l| l.prompt_id == "inline.agency_genesis_system"));
+        assert!(!preview
+            .layers
+            .iter()
             .any(|l| l.prompt_id == "trishot_synthesizer"));
+    }
+
+    #[test]
+    fn test_preview_timesliced_alias_maps_to_agency_continue() {
+        let preview = preview_prompt_composition("timesliced");
+        assert_eq!(preview.scene, "agency_continue");
+    }
+
+    #[test]
+    fn test_preview_trishot_alias_maps_to_agency_genesis() {
+        let preview = preview_prompt_composition("trishot_call3");
+        assert_eq!(preview.scene, "agency_genesis");
     }
 
     // v0.26.34: 暴露 prompts 目录路径，支持后台「打开本地目录」

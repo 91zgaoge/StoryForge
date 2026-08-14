@@ -73,8 +73,8 @@ interface CompositionPreview {
 }
 
 const COMPOSITION_SCENES = [
-  { value: 'timesliced', label: 'TimeSliced 续写' },
-  { value: 'trishot_call3', label: 'TriShot 创世 / 续写 · Call3' },
+  { value: 'agency_continue', label: 'Agency 续写' },
+  { value: 'agency_genesis', label: 'Agency 创世' },
   { value: 'pipeline_review', label: '审稿流水线' },
 ] as const;
 
@@ -179,7 +179,7 @@ export function PromptsPanel() {
   const [dirLoading, setDirLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [compositionScene, setCompositionScene] = useState<string>('timesliced');
+  const [compositionScene, setCompositionScene] = useState<string>('agency_continue');
   const [composition, setComposition] = useState<CompositionPreview | null>(null);
 
   const fetchEntries = async () => {
@@ -583,7 +583,10 @@ export function PromptsPanel() {
                 <button
                   key={`${layer.role}-${layer.prompt_id}`}
                   type="button"
-                  onClick={() => jumpToPrompt(layer.prompt_id)}
+                  onClick={() => {
+                    if (layer.source === 'inline' || layer.source === 'compiler') return;
+                    jumpToPrompt(layer.prompt_id);
+                  }}
                   className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded hover:bg-cinema-800/50 text-sm"
                 >
                   <span className="text-xs text-gray-500 w-20 shrink-0">{layer.role}</span>
