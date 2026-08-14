@@ -31,6 +31,9 @@ pub trait AgentTool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn args_schema(&self) -> serde_json::Value;
+    fn usage_guidance(&self) -> Option<&'static str> {
+        None
+    }
     async fn execute(&self, ctx: &ToolContext, args: serde_json::Value)
         -> Result<String, AppError>;
 }
@@ -133,6 +136,9 @@ impl ToolRegistry {
                         tool.description(),
                         tool.args_schema()
                     ));
+                    if let Some(usage) = tool.usage_guidance() {
+                        out.push_str(&format!("  用法: {}\n", usage));
+                    }
                 }
             }
         }
@@ -180,6 +186,9 @@ impl AgentTool for BoardReadTool {
     }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"zone": "asset|draft|review|schedule（可选，缺省读全部）", "key": "可选，精确读取某条目", "detail": "catalog|summary|full（默认 catalog；key 精确读默认 full）"})
+    }
+    fn usage_guidance(&self) -> Option<&'static str> {
+        Some("资产已注入时不要轮询 board_read 拉全文；只需补读遗漏 key")
     }
 
     async fn execute(
@@ -274,6 +283,9 @@ impl AgentTool for BoardWriteTool {
     }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"zone": "asset|draft|review|schedule", "item_type": "条目类型", "key": "条目标识", "content": "全文", "summary": "一句话摘要（≤80字）"})
+    }
+    fn usage_guidance(&self) -> Option<&'static str> {
+        Some("正文写入 draft 区，勿覆盖 user_created 资产")
     }
 
     async fn execute(
@@ -500,6 +512,9 @@ impl AgentTool for AssetQueryTool {
     }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({"kind": "characters|world|outline|scenes"})
+    }
+    fn usage_guidance(&self) -> Option<&'static str> {
+        Some("按 kind 查询，不要倾倒全表")
     }
 
     async fn execute(
@@ -1258,5 +1273,25 @@ mod tests {
             "应包含写作时间束提示: {}",
             out
         );
+    }
+
+    #[test]
+    fn catalog_without_guidance_keeps_name_description_schema_lines() {
+        let reg = ToolRegistry::agency_default();
+        let cat = reg.catalog_for_role(crate::agency::models::AgentRole::EditorAuditor);
+        assert!(cat.contains("board_read"));
+        assert!(cat.contains("参数:"));
+    }
+
+    #[test]
+    fn catalog_includes_usage_for_read_write_query() {
+        let reg = ToolRegistry::agency_default();
+        let writer = reg.catalog_for_role(crate::agency::models::AgentRole::LeadWriter);
+        assert!(writer.contains("用法: 资产已注入时不要轮询 board_read 拉全文"));
+        assert!(writer.contains("用法: 正文写入 draft 区，勿覆盖 user_created 资产"));
+        assert!(writer.contains("用法: 按 kind 查询，不要倾倒全表"));
+        let editor = reg.catalog_for_role(crate::agency::models::AgentRole::EditorAuditor);
+        assert!(editor.contains("用法: 资产已注入时不要轮询 board_read 拉全文"));
+        assert!(!editor.contains("用法: 正文写入 draft 区，勿覆盖 user_created 资产"));
     }
 }
