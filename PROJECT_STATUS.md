@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.41.1 项目完成状态
+# StoryMoss (草苔) v0.41.2 项目完成状态
 
-> 最后更新: 2026-08-13（v0.41.1 Agency 续写上线核验加固）
+> 最后更新: 2026-08-14（v0.41.2 续写超时：跳过超窗候选、散文失败不再进 tool_loop）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.41.2 - 续写 600s 超时：跳过超窗候选、散文失败不再进 tool_loop（2026-08-14）
+
+- **网关**：`candidate_fits_prompt` 在候选循环跳过装不下当前提示的模型（Gemma 8k 不再接约 1.2 万 token 的续写）。
+- **主创**：`write_beat_once` 散文回退失败直接报错，单章不再回落 `write_chapter` tool_loop。
+- **验证**：`cargo test --lib` 1354 passed / 2 ignored（+4）。
+- **未关闭**：本地连接超时仍可能 60s×2；`story_outlines` 膨胀；设计 §13 真机探针未跑。
 
 ### v0.41.1 - Agency 续写上线核验加固（2026-08-13）
 

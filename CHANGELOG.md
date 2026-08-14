@@ -2,6 +2,27 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.41.2（2026-08-14）
+
+修复幕前续写顶满 600s 超时：推理模型空正文后，网关不再把超长提示打给装不下的本地模型；单章续写在散文回退失败后不再进入 `write_chapter` tool_loop 重烧一轮候选链。
+
+### 修复
+
+- **超窗候选跳过**：`GatewayExecutor::generate` 按 `prompt_chars / 2` 估算 token，窗口装不下（含 256 token 补全预留）则跳过该候选并打 `gateway.generate.candidate_skip_context`，避免 1.2 万 token 的续写提示打到 Gemma `n_ctx=8192` 再等 400。
+- **单章不再回落 tool_loop**：`write_beat_once` 在 `complete()` 与散文回退都失败时直接返回错误。此前同一膨胀 prompt 再套 JSON action 约束，会把空 CoT → 小窗口 400 → 本地连接超时再走一遍，直到前端 600s 看门狗取消。批量续写仍走 `write_chapter`。
+
+### 测试
+
+- `cargo test --lib`：**1354 passed / 2 ignored**（基线 1350，+4：`candidate_fits_prompt` ×3、散文失败不进 tool_loop ×1）。
+- src-frontend `npx vitest run`：本版未重跑（无前端逻辑变更）。
+- `npx tsc --noEmit` / `cargo +nightly fmt` / `architecture_guard.py` 全绿。
+
+### 已知债务
+
+- 本地模型连接超时仍按可重试错误再等一轮（keepalive 显示健康时跳过 5s 预探测）。
+- `story_outlines` 无界追加 + 跨故事角色串入续写上下文，会把提示词撑到 2 万字以上。
+- 设计 §13 连续 8 次幕前续写真机探针未跑（需 LLM）。
+
 ## v0.41.1（2026-08-13）
 
 对照设计核验 v0.41.0 Agency 续写路径后的上线加固：主创正文先 `sanitize_novel_output` 再落库，自重复 ≥8% 重试一次；改写路径永不选 TimeSliced/TriShot；划词选区不走 Append；测试环境跳过 run 收尾 LLM 摘要，避免抽干 mock、连续同章追加失败。

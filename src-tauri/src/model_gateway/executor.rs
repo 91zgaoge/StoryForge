@@ -27,6 +27,27 @@ use crate::{
 /// 设为 2：容忍 1 次偶发失败（网络抖动/单次超时），2 次连续失败才降级。
 const ACTIVE_MODEL_DEMOTION_THRESHOLD: u32 = 2;
 
+/// 为补全预留的 token，避免「窗口刚好塞满、生成立刻 400」。
+const CONTEXT_COMPLETION_RESERVE_TOKENS: usize = 256;
+
+/// 候选模型上下文窗口是否装得下当前提示。
+///
+/// token 估算与心跳日志一致：`prompt_chars / 2`。`max_context_tokens == 0`
+/// 视为未知窗口，不跳过（避免误杀未填窗口的配置）。
+///
+/// 路由器 `select_candidates` 也会按 `estimated_input_tokens` 过滤，但
+/// `GatewayExecutor::generate` 常把该字段留 0，且会把活跃模型重新插回首位，
+/// 导致 19k token 的续写提示被打到 n_ctx=8192 的本地模型（Gemma 返回
+/// `exceed_context_size_error`）。此函数是候选循环内的第二道闸门。
+pub(crate) fn candidate_fits_prompt(max_context_tokens: u32, prompt_chars: usize) -> bool {
+    if max_context_tokens == 0 {
+        return true;
+    }
+    let prompt_tokens_est = prompt_chars / 2;
+    (max_context_tokens as usize)
+        >= prompt_tokens_est.saturating_add(CONTEXT_COMPLETION_RESERVE_TOKENS)
+}
+
 /// 网关执行器
 pub struct GatewayExecutor<R: Runtime = Wry> {
     app_handle: AppHandle<R>,
@@ -1024,6 +1045,47 @@ impl<R: Runtime> GatewayExecutor<R> {
                 continue;
             };
 
+            let prompt_chars = request.prompt.chars().count()
+                + request
+                    .system_prompt
+                    .as_deref()
+                    .map(|s| s.chars().count())
+                    .unwrap_or(0);
+            if !candidate_fits_prompt(profile.max_context_length, prompt_chars) {
+                let est = prompt_chars / 2;
+                log::warn!(
+                    "[Gateway] 候选 [{}/{}] {} 上下文窗口 {} tokens 装不下当前提示（约 {} tokens / {} 字符），跳过",
+                    idx + 1,
+                    decision.candidates.len(),
+                    candidate.model_id,
+                    profile.max_context_length,
+                    est,
+                    prompt_chars
+                );
+                self.workflow_log(
+                    "gateway.generate.candidate_skip_context",
+                    format!(
+                        "跳过候选 {}：上下文 {} < 估算 {} tokens",
+                        candidate.model_name, profile.max_context_length, est
+                    ),
+                    Some(serde_json::json!({
+                        "request_id": request.request_id,
+                        "idx": idx,
+                        "model_id": candidate.model_id,
+                        "max_context_length": profile.max_context_length,
+                        "prompt_chars": prompt_chars,
+                        "prompt_tokens_est": est,
+                    })),
+                );
+                last_error = Some(AppError::Internal {
+                    message: format!(
+                        "模型 {} 上下文窗口 {} tokens 装不下当前提示（约 {} tokens）",
+                        candidate.model_name, profile.max_context_length, est
+                    ),
+                });
+                continue;
+            }
+
             // v0.23.47: 调用模型前必须实时检测连接是否正常（5s 超时）。
             // v0.23.60: 若后台 keepalive 已保持健康数据新鲜（<15s），跳过内联探测，
             // 直接信任缓存。keepalive 每 10s 刷新一次，保证正常运行时 0ms 延迟。
@@ -1467,6 +1529,30 @@ mod tests {
         llm::service::LlmService,
         router::{UnifiedModel, UnifiedModelRegistry},
     };
+
+    #[test]
+    fn candidate_fits_prompt_skips_8k_window_for_19k_token_continue() {
+        // 诊断：续写第26章 prompt ≈24559 字符 / 估算 12279 tokens，Gemma n_ctx=8192。
+        assert!(
+            !candidate_fits_prompt(8192, 24559),
+            "8k 窗口不得接下约 12k token 的续写提示"
+        );
+        assert!(
+            !candidate_fits_prompt(8192, 23270),
+            "complete() 路径同样超窗"
+        );
+    }
+
+    #[test]
+    fn candidate_fits_prompt_accepts_cloud_128k_and_short_local() {
+        assert!(candidate_fits_prompt(128000, 24559));
+        assert!(candidate_fits_prompt(8192, 100));
+    }
+
+    #[test]
+    fn candidate_fits_prompt_unknown_window_does_not_skip() {
+        assert!(candidate_fits_prompt(0, 24559));
+    }
 
     /// mock_app 共享同一 app_data_dir；写 config 的契约测试必须串行。
     fn mock_app_config_lock() -> &'static Mutex<()> {

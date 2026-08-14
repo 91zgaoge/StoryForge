@@ -1424,6 +1424,87 @@ async fn test_continue_writer_prose_fallback() {
     assert_eq!(run.status, "completed");
 }
 
+/// 散文回退仍过短时，不得再进入 `write_chapter` tool_loop。
+/// 诊断：complete() 空 CoT → 散文过短 → tool_loop 重烧同一膨胀 prompt，
+/// 直到前端 600s 看门狗取消。
+#[tokio::test]
+async fn test_continue_prose_fallback_failure_does_not_enter_tool_loop() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "续写不再进 tool_loop".into(),
+            description: Some("前提".into()),
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c1', ?1, '阿苔', '拾荒者', '坚韧', '找到星环', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '双星文明', '[]', '星环崩塌', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：寻找星环。三幕：起因-发展-高潮。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let scene_repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    let ch1 = scene_repo.create(&story.id, 1, Some("第一章")).unwrap();
+    scene_repo
+        .update(
+            &ch1.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("第一章正文。".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let llm = MockLlm::scripted(vec!["本章核心冲突：阿苔发现星环秘密。", "短", "也短"]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
+    let err = coordinator
+        .run_continue(
+            "rc-no-loop",
+            &story.id,
+            PersistMode::NextChapter { chapter_number: 2 },
+            "",
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("过短"),
+        "应返回散文回退过短，实际: {err}"
+    );
+    assert_eq!(
+        llm.calls.lock().unwrap().len(),
+        3,
+        "大纲 + complete + 散文回退；不得再进 write_chapter（会再调大纲/tool_loop）"
+    );
+    assert_eq!(
+        AgencyRepository::new(pool)
+            .get_run("rc-no-loop")
+            .unwrap()
+            .unwrap()
+            .status,
+        "failed"
+    );
+}
+
 /// v0.30.20: build_continue_writer_context reads characters/world/scenes
 /// from DB, pre-injecting into writer task (eliminates board_read polling).
 #[tokio::test]
@@ -2369,14 +2450,17 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
         r#"{"type":"final","content":"完成"}"#,
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), mock);
+    let mut run = AgencyRun::new("rw-1", "续写");
+    run.story_id = Some(story_id.clone());
+    AgencyRepository::new(pool.clone())
+        .create_run(&run)
+        .unwrap();
+    let board = crate::agency::board::BlackboardService::new(pool.clone());
+    let registry = Arc::new(ToolRegistry::agency_default());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    // 单章续写不再回落到 write_chapter；本契约直接打 tool_loop 路径。
     let err = coordinator
-        .run_continue(
-            "rw-1",
-            &story_id,
-            PersistMode::NextChapter { chapter_number: 1 },
-            "",
-            None,
-        )
+        .write_chapter(&budget, &board, &registry, "rw-1", &story_id, "续写", 1)
         .await
         .unwrap_err();
     assert!(
@@ -2384,8 +2468,6 @@ async fn test_write_chapter_wrong_key_fails_loudly() {
         "错误应含约定 key: {}",
         err
     );
-    let repo = AgencyRepository::new(pool.clone());
-    assert_eq!(repo.get_run("rw-1").unwrap().unwrap().status, "failed");
 }
 
 /// 门判定落审查区的 key 带轮次后缀：首轮 gate-{key}-r1，修订后复审 -r2。

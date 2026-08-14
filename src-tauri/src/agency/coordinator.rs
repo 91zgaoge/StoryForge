@@ -3686,8 +3686,11 @@ impl AgencyCoordinator {
     }
 
     /// 续写主创单次 `complete()`：资产上下文已注入，不再默认 tool_loop。
-    /// 产出 ≥200 字即写入黑板；过短则散文回退；仍失败才走 `write_chapter`
-    /// tool_loop（设计 §4 最后手段）。
+    /// 产出 ≥200 字即写入黑板；过短则散文回退；散文仍失败则直接返回错误。
+    ///
+    /// 不再把 `write_chapter` tool_loop 当最后手段：同一膨胀 prompt 再套
+    /// JSON action 约束会重烧候选链（空 CoT → 小窗口 400 → 本地连接超时），
+    /// 直到前端 600s 看门狗取消。批量续写仍直接走 `write_chapter`。
     async fn write_beat_once(
         &self,
         budget: &Arc<AgencyBudget>,
@@ -3817,30 +3820,18 @@ impl AgencyCoordinator {
             Ok(d) => Ok((d, card)),
             Err(e) => {
                 log::warn!(
-                    "agency: 散文回退失败（{}），最后手段 tool_loop write_chapter run={}",
+                    "agency: 散文回退失败（{}），不再进入 tool_loop write_chapter run={}",
                     e,
                     run_id
                 );
-                let board = self.board();
-                let registry = Arc::new(ToolRegistry::agency_default());
-                self.write_chapter(
-                    budget,
-                    &board,
-                    &registry,
-                    run_id,
-                    story_id,
-                    premise,
-                    chapter_number,
-                )
-                .await
-                .map(|d| (d, card))
+                Err(e)
             }
         }
     }
 
-    /// 写一章草稿（Task 4 run_continue_inner 第 2 步提取）：返回最新有效 draft
-    /// 条目。tool_loop 路径，仅作 `write_beat_once` 失败后的最后手段，以及
-    /// 批量续写 `run_continue_batch`。
+    /// 写一章草稿：tool_loop 路径，仅供批量续写 `run_continue_batch`。
+    /// 单章续写走 `write_beat_once`（complete +
+    /// 散文回退），失败不再落入此路径。
     pub(crate) async fn write_chapter(
         &self,
         budget: &Arc<AgencyBudget>,
