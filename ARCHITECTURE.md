@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.44.1 架构文档
+# StoryMoss (草苔) v0.45.0 架构文档
+
+> **v0.45.0**：提示词运行时组装。`prompts/assembly.rs` 的 `assemble()` 只按槽位拼接 `Layer` 文本，不依赖 `agency`。创世 `writer_first_chapter` / `writer_prose_fallback`、续写 `write_beat_once`、`ToolLoop::run` 的 head 经工厂接线；上下文仍由 BeatCard / `render_writer_user_prompt` 编译。`WriteTimeBundle::to_prompt()` 不动。场景预览默认 `agency_continue`，`timesliced`/`trishot_call3` 映射热路径。architecture_guard：`prompts` ↛ `agency`。验证：`cargo test --lib` 1385 passed / 2 ignored（+18）；`npx vitest run` 590 passed / 3 skipped。v0.44.1 输入无原生描边不变量不变。
 
 > **v0.44.1**：幕前 flush 输入去掉 WKWebView `<textarea>` 原生 inset 边（`appearance-none border-0 shadow-none` + CSS 双杀）。v0.44.0 只拆了外壳卡片，测试未锁输入框本身。验证：`npx vitest run` 590 passed / 3 skipped（+1）。无 Rust 逻辑变更。
 

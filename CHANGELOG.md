@@ -2,6 +2,30 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.45.0（2026-08-14）
+
+创世、续写、工具循环发给模型的提示词改走统一组装入口：只按槽位拼接，不自己编上下文。幕后「提示词」页的场景预览改为实际热路径（Agency 续写/创世），不再假装走已下线的分时/三击模板。
+
+### 功能
+
+- **组装器**：`prompts/assembly.rs` 的 `assemble()` 按层拼接 system/user。创世首章、散文回退、续写 `write_beat_once`、ToolLoop 头部经工厂函数接线。发给模型的正文与接线前金标锁定（常见非空路径）。
+- **场景预览**：`preview_prompt_composition` 默认 `agency_continue`；`timesliced` / `trishot_call3` 别名分别映射续写/创世。IPC 字段不增。
+- **工具用法**：`board_read` / `board_write` / `asset_query` 在工具目录里自带「用法:」行，其它工具不扩。
+- **模板变量**：内置 `agency` / `writer` / `scene_outline` 提示词残留 `{{ident}}` 在 CI fail-closed；运行时仍 fail-open（未知变量原样保留）。
+- **边界**：`prompts` 不得依赖 `agency`（architecture_guard）；`WriteTimeBundle::to_prompt()` 不动；创世 system 仍用内联常量，不换成 `agency_lead_writer_system.md`。
+
+### 测试
+
+- `cargo test --lib`：**1385 passed / 2 ignored**（基线 1367，+18）。
+- `npx vitest run`：**590 passed / 3 skipped**（场景预览默认改断言，计数不变）。
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard.py` 全绿。
+
+### 已知债务
+
+- 空资产 / 空末句锚点路径：`assemble()` 对各层 `trim()`，空白行与旧 `format!` 可能差一行；非常见路径，未做金标。
+- `assemble_tool_loop_head` 先用 `assemble()` 校验再按历史 `format!` 产出 user（锁定 catalog 尾换行）；后续应收成单一构造路径。
+- v0.42.0 规格 §8 真机对照诊断故事再续一拍未跑；ContextPrioritizer 未接 Agency；P3 producer/concept_pack 未接线。
+
 ## v0.44.1（2026-08-14）
 
 幕前输入框去掉 macOS 系统原生描边。v0.44.0 已拆底栏卡片，测试只查外壳 class，WKWebView `<textarea>` 的 inset 边漏网。

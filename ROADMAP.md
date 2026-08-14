@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-14（v0.44.1 幕前输入框去掉系统原生描边）
+> 最后更新: 2026-08-14（v0.45.0 提示词运行时组装）
 
-## ✅ v0.27.x–v0.44.x 已实施完成
+## ✅ v0.27.x–v0.45.x 已实施完成
+
+### ✨ v0.45.0 - 提示词运行时组装 ✅ (2026-08-14)
+
+- [x] `prompts/assembly.rs` 哑拼接器 + 创世/续写/ToolLoop 工厂；P0 非空路径金标。
+- [x] 场景预览改报 Agency 续写/创世；`prompts` ↛ `agency`；三工具用法行；内置模板 leftover CI。
+- [x] 验证：`cargo test --lib` 1385 passed / 2 ignored（+18）；vitest 590 / 3 skipped。
+- **未关闭**：空资产/空末句 trim 金标；ToolLoop head 双构造；v0.42.0 §8 真机探针；P3 producer/concept_pack。
 
 ### ✨ v0.44.1 - 幕前输入框去掉系统原生描边 ✅ (2026-08-14)
 

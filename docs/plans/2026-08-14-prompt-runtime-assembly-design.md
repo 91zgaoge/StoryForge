@@ -1,7 +1,7 @@
 # Prompt Runtime Assembly：提示词当运行时组装
 
 日期：2026-08-14
-状态：已批准，待实施
+状态：已落地（v0.45.0）
 决策来源：对照 DeepSeek Harness「Prompt as Runtime」的学习结论；用户裁定 **Approach C（先组装器）**，且 **P0 连创世主创内联一起收**（不推迟到 P3）。
 
 承接：v0.41.0 Agency 唯一续写路径、v0.42.0 节拍卡资产准入、v0.44.0 墨纸/机械视觉（无关本设计）。本文件不改生成路由、PersistMode、`--ai-*`、落地页。

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.44.1 项目完成状态
+# StoryMoss (草苔) v0.45.0 项目完成状态
 
-> 最后更新: 2026-08-14（v0.44.1 幕前输入框去掉系统原生描边）
+> 最后更新: 2026-08-14（v0.45.0 提示词运行时组装）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.45.0 - 提示词运行时组装（创世/续写/ToolLoop）（2026-08-14）
+
+- **组装**：`assemble()` 哑拼接；创世 `writer_first_chapter` / `writer_prose_fallback`、续写 `write_beat_once`、ToolLoop head 走工厂。`to_prompt()` 不动。
+- **预览**：幕后场景组合默认 Agency 续写；`timesliced`/`trishot_call3` 映射热路径。
+- **P1/P2**：三工具「用法:」行；内置模板残留 `{{ident}}` CI fail-closed，运行时仍 fail-open。
+- **验证**：`cargo test --lib` 1385 passed / 2 ignored（+18）；`npx vitest run` 590 passed / 3 skipped。
+- **未关闭**：空资产/空末句 trim 金标；ToolLoop head 双构造；v0.42.0 §8 真机探针；P3 producer/concept_pack。
 
 ### v0.44.1 - 幕前输入框去掉系统原生描边（2026-08-14）
 

@@ -9,6 +9,7 @@
 - creative_engine 禁止导入 agents
 - narrative 禁止导入 creative_engine / agents / memory
 - domain 禁止导入任何业务模块（仅 std/serde 等基础库）
+- prompts 禁止导入 agency（组装器在 prompts，上下文仍由 agency 编译）
 
 返回值：
 - 0: 通过

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.44.1
+- **版本**: v0.45.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1367 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1385 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 590 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.45.0 - 提示词运行时组装（创世/续写/ToolLoop）
+
+创世首章、续写 `write_beat_once`、ToolLoop 头部改走 `prompts/assembly.rs` 哑拼接器。幕后提示词页场景预览改报 Agency 续写/创世。`board_read`/`board_write`/`asset_query` 自带用法行。内置 agency/writer/scene_outline 残留 `{{ident}}` CI fail-closed。
+
+- **验证**：`cargo test --lib` 1385 passed / 2 ignored（+18）；`npx vitest run` 590 passed / 3 skipped；`tsc` / `format:check` / `architecture_guard.py` 全绿。
+- **未关闭**：空资产/空末句 trim 金标未锁；ToolLoop head 双构造路径；v0.42.0 §8 真机探针仍未跑；P3 producer/concept_pack 未接线。
 
 ### v0.44.1 - 幕前输入框去掉系统原生描边
 
@@ -913,7 +920,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-14 - v0.44.1_
+_最后更新: 2026-08-14 - v0.45.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
