@@ -35,7 +35,7 @@ export const writingStyles: Record<WritingStyleId, WritingStyle> = {
     letterSpacing: 'normal',
     paragraphSpacing: '1.5em',
     paperColor: 'oklch(96.5% 0.008 95)',
-    inkColor: 'oklch(25% 0.015 85)',
+    inkColor: 'oklch(32% 0.015 85)',
     accentColor: 'oklch(58% 0.13 45)',
     quoteStyle: 'border',
   },

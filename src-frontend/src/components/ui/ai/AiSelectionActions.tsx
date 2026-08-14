@@ -52,10 +52,10 @@ const BUSY_LABEL: Record<AiSelectionActionKey, string> = {
 };
 
 const control =
-  'inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-normal text-ai-ink transition-[background-color,color,transform] duration-150 hover:bg-ai-hover active:scale-[0.96]';
+  'inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] font-normal text-ai-ink transition-[background-color,color,transform] duration-300 ease-press hover:bg-ai-hover active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100';
 
 const primary =
-  'inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-ai-ink px-2.5 text-[12.5px] font-normal text-ai-surface transition-[opacity,transform] duration-150 hover:opacity-90 active:scale-[0.96]';
+  'inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-[color-mix(in_oklch,var(--ai-accent)_18%,transparent)] px-2.5 text-[12.5px] font-normal text-ai-accent-ink transition-[opacity,transform] duration-300 ease-press hover:opacity-90 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100';
 
 /** 内嵌私有流式显现（源码 atoms/StreamText 缺失；错峰 delay 模拟流式，无定时器） */
 function SelectionStreamText({ text, onProgress }: { text: string; onProgress?: () => void }) {
@@ -358,7 +358,7 @@ export function AiSelectionActions({
                   type="button"
                   aria-label="发送修改指令"
                   onClick={submitCustom}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ai-ink text-ai-surface transition-[opacity,transform] duration-200 active:scale-[0.94]"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--ai-accent)_18%,transparent)] text-ai-accent-ink transition-[opacity,transform] duration-300 ease-press hover:opacity-90 enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
                 >
                   <ArrowUp size={16} strokeWidth={2.4} aria-hidden />
                 </button>

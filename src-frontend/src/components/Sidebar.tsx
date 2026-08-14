@@ -124,17 +124,8 @@ function resolveActiveView(view: ViewType): ViewType {
   return view;
 }
 
-function impactBadgeClass(impact: NavImpact): string {
-  switch (impact) {
-    case 'hot':
-      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-    case 'warm':
-      return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    case 'cold':
-      return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-    case 'config':
-      return 'bg-sky-500/20 text-sky-400 border-sky-500/30';
-  }
+function impactBadgeClass(_impact: NavImpact): string {
+  return 'text-cinema-500 border-transparent bg-transparent px-0';
 }
 
 function impactShort(impact: NavImpact): string {
@@ -224,7 +215,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           const isCollapsed = collapsed[group.id] === true && !isActiveGroup;
 
           return (
-            <div key={group.id} data-testid={`nav-group-${group.id}`}>
+            <div key={group.id} className="mb-3" data-testid={`nav-group-${group.id}`}>
               <button
                 type="button"
                 onClick={() => toggleGroup(group.id)}

@@ -768,7 +768,7 @@ export function Stories() {
               hover
               className={`group cursor-pointer transition-all ${
                 currentStory?.id === story.id ? 'ring-2 ring-cinema-gold/50' : ''
-              } ${isHighlighted ? 'ring-2 ring-cinema-gold/70 animate-pulse' : ''}`}
+              } ${isHighlighted ? 'ring-1 ring-cinema-gold/40' : ''}`}
               onClick={() => handleSelectStory(story)}
             >
               <CardContent className="p-6">

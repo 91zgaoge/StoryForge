@@ -7,6 +7,7 @@ import {
   type AgentActivityEvent,
   type AgentProgressEvent,
 } from '@/stores/agencyActivityStore';
+import { EmptyHint } from '@/components/ui/EmptyHint';
 import { AiThinking } from '@/components/ui/ai/AiThinking';
 import { AiContextCards } from '@/components/ui/ai/AiContextCards';
 import { getRun, listActivities, listBoard, listRuns } from '@/services/api/agency';
@@ -324,11 +325,7 @@ export default function AgencyStudio() {
         ))}
       </section>
 
-      {!activeRunId && (
-        <p className="rounded border border-dashed p-4 text-sm text-ai-ink-3">
-          暂无活动--启动创世或续写后，这里会实时显示代理动态。
-        </p>
-      )}
+      {!activeRunId && <EmptyHint>暂无活动——启动创世或续写后，这里会实时显示代理动态。</EmptyHint>}
 
       {activeRunId && (
         <section>

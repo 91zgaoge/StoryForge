@@ -516,7 +516,7 @@ export function GeneralSettings({
                       updateSettings({ generation_mode: v });
                     }}
                     disabled={isPending}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                   >
                     <option value="auto">自动 — 有选中文本走完整质检</option>
                     <option value="fast">快速 — 单次生成</option>
@@ -537,7 +537,7 @@ export function GeneralSettings({
                       updateSettings({ health_probe_mode: v });
                     }}
                     disabled={isPending}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                   >
                     <option value="always">持续探测（默认）— 每 10 秒保活，生成时更快</option>
                     <option value="on_demand">仅按需探测 — 闲置时完全静默</option>
@@ -558,7 +558,7 @@ export function GeneralSettings({
                       updateSettings({ chapter_split_mode: v });
                     }}
                     disabled={isPending}
-                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                    className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                   >
                     <option value="word_count">按字数 — 超过上限后在段落边界切出下一章</option>
                     <option value="plot">按情节 — 在时间/地点等场景转换点切章</option>
@@ -594,7 +594,7 @@ export function GeneralSettings({
                         }
                       }}
                       disabled={isPending}
-                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cinema-gold/50"
+                      className="w-full px-3 py-2 bg-cinema-800 border border-cinema-600 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-cinema-gold/30"
                     />
                     <p className="text-xs text-gray-500 mt-1.5">
                       留空使用系统默认 3000 字。按情节模式时此上限仍作「过长才切」的门槛参考。

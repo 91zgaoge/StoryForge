@@ -85,7 +85,7 @@ function deriveTheme(
     charcoalLight: fmt(Math.min(ch.l + 10, 65), ch.c * 0.8, ch.h),
     oliveGray: fmt(Math.min(ch.l + 14, 68), ch.c * 0.65, ch.h),
     stoneGray: fmt(Math.min(ch.l + 20, 72), ch.c * 0.5, ch.h),
-    ink: fmt(Math.max(ch.l - 13, 12), ch.c * 1.1, ch.h),
+    ink: fmt(Math.max(ch.l - 6, 18), ch.c * 1.1, ch.h),
     ivory: fmt(Math.min(p.l + 1.5, 99.5), p.c * 0.6, p.h),
     gold: fmt(Math.min(t.l + 14, 80), Math.max(t.c - 0.03, 0.05), (t.h + 40) % 360),
   };

@@ -101,6 +101,15 @@ describe('AiSelectionActions', () => {
     expect(onRun).toHaveBeenCalledWith('custom', '改成古文腔');
   });
 
+  it('idle 自定义指令发送钮用 accent tint 而非 charcoal bg-ai-ink', async () => {
+    renderBar();
+    await flushPlace();
+    fireEvent.change(screen.getByLabelText('描述修改要求'), { target: { value: '改成古文腔' } });
+    const send = screen.getByRole('button', { name: /发送修改指令/ });
+    expect(send.className).not.toMatch(/bg-ai-ink/);
+    expect(send.getAttribute('style') ?? send.className).toMatch(/ai-accent/);
+  });
+
   it('thinking 阶段显示 shimmer 忙碌标签', () => {
     renderBar({ phase: 'thinking' });
     const busy = screen.getByTestId('ai-selection-busy');
@@ -112,7 +121,10 @@ describe('AiSelectionActions', () => {
     const onDiscard = vi.fn();
     renderBar({ phase: 'result', resultText: '改写后的文字', onAccept, onDiscard });
     expect(screen.getByTestId('ai-selection-stream')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /保留/ }));
+    const keep = screen.getByRole('button', { name: /保留/ });
+    expect(keep.className).not.toMatch(/bg-ai-ink/);
+    expect(keep.className).toMatch(/ai-accent/);
+    fireEvent.click(keep);
     expect(onAccept).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /放弃/ }));
     expect(onDiscard).toHaveBeenCalled();

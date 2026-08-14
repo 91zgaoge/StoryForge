@@ -2,6 +2,27 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.43.0（2026-08-14）
+
+墨纸 / 机械视觉定向进化。幕前输入条去掉聊天 chrome；霞鹜文楷本地加载；幕后对比与阴影收软；去掉装饰性 pulse。
+
+### 功能
+
+- **幕前输入条样板**：`AiPromptBar` 新增 `flush` 变体（幕前必用）。一层纸面、无内层边框。发射键空态透明、有内容陶土淡彩。取消键去 `animate-pulse` / 危险红底。
+- **字体**：霞鹜文楷 woff2 进 `src-frontend/public/fonts/`，`@font-face` 本地加载；去掉幕前 HTML 运行时字体 CDN。
+- **幕后 / 动效**：色板与阴影同色相扩散；`--transition-press`；空闲 pulse/ping 退出主路径；Panel 内外半径级差；侧栏热温冷徽章降对比；空态 `EmptyHint`。
+
+### 测试
+
+- `npx vitest run`：**578 passed / 3 skipped**（基线 556，+22）。
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard.py` 全绿。
+- `cargo test --lib`：本版未重跑（无 Rust 变更；基线 1367 passed / 2 ignored）。
+
+### 已知债务
+
+- v0.42.0 规格 §8 真机对照诊断故事再续一拍未跑；ContextPrioritizer 未接 Agency。
+- 墨纸进化未做设计 §13 全界面人工目视清单以外的截图回归（本机 vitest 契约覆盖 flush / 无 pulse / 字体声明）。
+
 ## v0.42.0（2026-08-14）
 
 Agency 续写按拍选取创作资产：完整角色卡只给本拍录取的人；未上场相关角色一行名单；脏名不进提示词；大纲去重；前文不再叠三场。

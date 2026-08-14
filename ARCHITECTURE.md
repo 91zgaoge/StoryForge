@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.42.0 架构文档
+# StoryMoss (草苔) v0.43.0 架构文档
+
+> **v0.43.0**：墨纸 / 机械视觉定向进化。幕前 `AiPromptBar` 增加 `flush` 变体（底栏一层纸面、陶土淡彩发射、取消无 pulse）；霞鹜文楷 `@font-face` 本地 woff2，去掉 HTML 字体 CDN。幕后 token / `backstageThemes` 对比与阴影收软；`--transition-press`；空态 `EmptyHint`。纯前端，`--ai-*` 17 变量名不变。验证：`npx vitest run` 578 passed / 3 skipped（+22）。v0.42.0 续写资产选取不变量不变。
 
 > **v0.42.0**：续写按拍选取资产。Agency 热路径不再调用 `WriteTimeBundle::to_prompt()` 全量倾倒；新增 `agency/continue_assets.rs`（0 LLM）按 SceneBeatCard 准入名单渲染完整卡（≤8）、未上场一行名单、大纲去重、前文 800 字、资料预算 6000。`to_prompt()` 仍供改写 Full 路径使用。验证：`cargo test --lib` 1367 passed / 2 ignored（+13）。v0.41.2 超窗跳过与单章不回落 tool_loop 不变量不变。
 

@@ -2,10 +2,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { BACKSTAGE_THEME_VARS, backstageThemes, applyBackstageTheme } from '../backstageThemes';
 import { colorThemeList } from '@/frontstage/config/colorThemes';
 
-/** tokens.css 中 cinema/status 变量的现状值（warm 必须与其完全一致，零视觉回归） */
+/** tokens.css 中 cinema/status 变量的现状值（warm 必须与 tokens.css 完全一致） */
 const TOKENS_CSS_CURRENT: Record<string, string> = {
-  '--cinema-950': '#050508',
-  '--cinema-900': '#0a0a0f',
+  '--cinema-950': '#0c0b09',
+  '--cinema-900': '#12110e',
   '--cinema-850': '#0f0f16',
   '--cinema-800': '#151520',
   '--cinema-700': '#1e1e2e',
@@ -14,12 +14,12 @@ const TOKENS_CSS_CURRENT: Record<string, string> = {
   '--cinema-gold': '#d4af37',
   '--cinema-gold-light': '#e8c547',
   '--cinema-gold-dark': '#b8941f',
-  '--cinema-velvet': '#7c3aed',
-  '--status-success': '#22c55e',
-  '--status-success-dim': 'rgba(34, 197, 94, 0.4)',
-  '--status-warning': '#facc15',
-  '--status-danger': '#ef4444',
-  '--status-danger-dim': 'rgba(239, 68, 68, 0.4)',
+  '--cinema-velvet': '#5c5470',
+  '--status-success': '#4a9a6a',
+  '--status-success-dim': 'rgba(74, 154, 106, 0.4)',
+  '--status-warning': '#c4a035',
+  '--status-danger': '#c45c4a',
+  '--status-danger-dim': 'rgba(196, 92, 74, 0.4)',
 };
 
 afterEach(() => {
@@ -44,8 +44,19 @@ describe('backstageThemes', () => {
     }
   });
 
-  it('warm 主题全量 16 值与 tokens.css 现状一致（零视觉回归）', () => {
+  it('warm 主题全量 16 值与 tokens.css 完全一致', () => {
     expect(backstageThemes.warm.vars).toEqual(TOKENS_CSS_CURRENT);
+  });
+
+  it('cinema-950 不是 OLED 纯黑', () => {
+    for (const theme of Object.values(backstageThemes)) {
+      expect(theme.vars['--cinema-950'].toLowerCase()).not.toBe('#050508');
+      expect(theme.vars['--cinema-950'].toLowerCase()).not.toBe('#000000');
+    }
+  });
+
+  it('warm velvet 饱和度低于旧 AI 紫', () => {
+    expect(backstageThemes.warm.vars['--cinema-velvet']).toBe('#5c5470');
   });
 
   it('applyBackstageTheme 注入全部变量到 documentElement', () => {

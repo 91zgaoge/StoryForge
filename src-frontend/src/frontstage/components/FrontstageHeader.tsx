@@ -331,7 +331,7 @@ const FrontstageHeader: React.FC<FrontstageHeaderProps> = ({
             </div>
           )}
           <span className="status-separator">·</span>
-          <span className="status-item" title="当前章节字数 / 全文字数">
+          <span className="status-item tabular-nums" title="当前章节字数 / 全文字数">
             {wordCount} 字 / {totalWordCount} 字
           </span>
           <span className="status-separator">·</span>

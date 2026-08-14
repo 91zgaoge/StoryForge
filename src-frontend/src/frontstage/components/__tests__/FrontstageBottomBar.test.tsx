@@ -211,4 +211,30 @@ describe('FrontstageBottomBar', () => {
     render(<FrontstageBottomBar {...defaultProps} inputValue="" loglineHint="一些 logline 内容" />);
     expect(document.querySelector('.frontstage-input-ghost-inline')).not.toBeInTheDocument();
   });
+
+  it('输入条走 flush 纸面，取消生成无脉冲红块', () => {
+    const { rerender } = render(<FrontstageBottomBar {...defaultProps} inputValue="续写" />);
+    expect(screen.getByTestId('ai-prompt-bar')).toHaveAttribute('data-variant', 'flush');
+    expect(screen.getByTitle('发送')).toBeInTheDocument();
+
+    rerender(<FrontstageBottomBar {...defaultProps} isGenerating={true} />);
+    const cancel = screen.getByTitle('取消生成');
+    expect(cancel.className).not.toMatch(/animate-pulse/);
+    expect(cancel.className).not.toMatch(/status-danger/);
+  });
+
+  it('模型信号与本地生成指示不含 pulse/ping', () => {
+    render(
+      <FrontstageBottomBar
+        {...defaultProps}
+        gatewayModels={[]}
+        isGenerating={true}
+        generationStatus="正在生成…"
+      />
+    );
+    expect(document.querySelector('.model-signal-bar')?.className ?? '').not.toMatch(
+      /animate-pulse/
+    );
+    expect(document.querySelector('.animate-ping')).toBeNull();
+  });
 });

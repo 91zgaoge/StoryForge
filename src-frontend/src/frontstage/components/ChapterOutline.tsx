@@ -219,7 +219,9 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
                       {item.title || '未命名章节'}
                     </p>
                     {item.wordCount !== undefined && (
-                      <p className="text-xs text-[var(--stone-gray)]">{item.wordCount} 字</p>
+                      <p className="text-xs text-[var(--stone-gray)] tabular-nums">
+                        {item.wordCount} 字
+                      </p>
                     )}
                   </>
                 )}
@@ -257,7 +259,9 @@ export const ChapterOutline: React.FC<ChapterOutlineProps> = ({
       {items.length > 0 && (
         <div className="px-4 py-3 border-t border-[var(--warm-sand)] text-xs text-[var(--stone-gray)]">
           <p>共 {items.length} 个章节</p>
-          <p>总计 {items.reduce((sum, item) => sum + (item.wordCount || 0), 0)} 字</p>
+          <p className="tabular-nums">
+            总计 {items.reduce((sum, item) => sum + (item.wordCount || 0), 0)} 字
+          </p>
         </div>
       )}
     </div>

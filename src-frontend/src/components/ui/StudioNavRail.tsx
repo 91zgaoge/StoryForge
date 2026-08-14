@@ -28,8 +28,8 @@ export function StudioNavRail({ activeView = 'dashboard' }: StudioNavRailProps) 
 
   return (
     <nav className="w-16 flex-shrink-0 bg-cinema-900 border-r border-borderSubtle flex flex-col items-center py-4 gap-4">
-      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cinema-gold to-cinema-gold-dark flex items-center justify-center shadow-panel">
-        <Sparkles className="w-5 h-5 text-cinema-900" />
+      <div className="w-10 h-10 rounded-xl bg-cinema-gold/15 flex items-center justify-center">
+        <Sparkles className="w-5 h-5 text-cinema-gold" />
       </div>
 
       <div className="flex-1 flex flex-col items-center gap-2 w-full px-2">

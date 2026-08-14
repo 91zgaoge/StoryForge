@@ -104,6 +104,19 @@ describe('AiPromptBar', () => {
     expect(screen.getByTestId('ai-sweep-overlay')).toBeInTheDocument();
   });
 
+  it('flush 变体去掉内层边框，发送按钮仍可用', () => {
+    const onSend = vi.fn();
+    render(<AiPromptBar variant="flush" value="写一段" onChange={() => {}} onSend={onSend} />);
+    expect(screen.getByTestId('ai-prompt-bar')).toHaveAttribute('data-variant', 'flush');
+    const chrome = screen.getByTestId('ai-prompt-bar').querySelector('[data-chrome]');
+    expect(chrome).toHaveAttribute('data-chrome', 'flush');
+    expect(chrome).not.toHaveClass('border-ai-line');
+    expect(chrome).not.toHaveClass('bg-ai-surface');
+    expect(chrome).toHaveClass('bg-transparent');
+    fireEvent.click(screen.getByTitle('发送'));
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
   it('trailingAction 传入时替换发送按钮', () => {
     render(
       <AiPromptBar
@@ -115,5 +128,15 @@ describe('AiPromptBar', () => {
     );
     expect(screen.getByTitle('取消生成')).toBeInTheDocument();
     expect(screen.queryByTitle('发送')).not.toBeInTheDocument();
+  });
+
+  it('有内容时发射键不用 --ai-ink 实心填充', () => {
+    render(<AiPromptBar value="写一段" onChange={() => {}} onSend={() => {}} />);
+    const send = screen.getByTitle('发送');
+    const style = send.getAttribute('style') ?? '';
+    expect(style).not.toMatch(/var\(--ai-ink\)/);
+    expect(style).toMatch(/color-mix/);
+    expect(style).toMatch(/18%/);
+    expect(style).toMatch(/--ai-accent-ink/);
   });
 });

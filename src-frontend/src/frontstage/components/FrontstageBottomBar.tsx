@@ -115,13 +115,13 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
   const statusClass = (status: ModelHealthSnapshot['status']) => {
     switch (status) {
       case 'healthy':
-        return 'bg-status-success shadow-[0_0_4px_var(--status-success-dim)]';
+        return 'bg-status-success';
       case 'degraded':
-        return 'bg-status-warning animate-pulse';
+        return 'bg-status-warning';
       case 'unhealthy':
-        return 'bg-status-danger shadow-[0_0_4px_var(--status-danger-dim)]';
+        return 'bg-status-danger';
       default:
-        return 'bg-status-warning animate-pulse';
+        return 'bg-status-warning';
     }
   };
 
@@ -205,23 +205,23 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
         {/* 输入框 */}
         <div
           className={[
-            'flex items-center gap-2',
+            'flex items-end gap-2',
             'bg-paper-50 border border-paper-300 rounded-paper',
-            'px-3 py-2',
-            'transition-colors',
-            'focus-within:border-terracotta focus-within:ring-1 focus-within:ring-terracotta/30',
+            'px-2.5 py-1.5',
+            'transition-[border-color] duration-300 ease-press',
+            'focus-within:border-terracotta/50',
           ].join(' ')}
         >
           {/* v0.14.0: 多模型状态指示器 */}
           <div
-            className="relative cursor-pointer flex items-end justify-center h-5"
+            className="relative mb-1.5 flex h-5 cursor-pointer items-end justify-center"
             onMouseEnter={() => setShowModelTooltip(true)}
             onMouseLeave={() => setShowModelTooltip(false)}
           >
             <div className="flex items-end gap-[2px] h-4 cursor-default">
               {gatewayModels.length === 0 ? (
                 <div
-                  className="model-signal-bar w-[3px] min-h-1 rounded-[1px] bg-status-warning animate-pulse"
+                  className="model-signal-bar w-[3px] min-h-1 rounded-[1px] bg-ink-500"
                   style={{ height: '4px' }}
                 />
               ) : (
@@ -294,10 +294,14 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                               <span className="model-tooltip-meta">{cfg.provider}</span>
                             )}
                             {typeof m.ttfb_ms === 'number' && m.ttfb_ms > 0 && (
-                              <span className="model-tooltip-meta">TTFB {m.ttfb_ms}ms</span>
+                              <span className="model-tooltip-meta tabular-nums">
+                                TTFB {m.ttfb_ms}ms
+                              </span>
                             )}
                             {typeof m.tps === 'number' && m.tps > 0 && (
-                              <span className="model-tooltip-meta">{m.tps.toFixed(1)} t/s</span>
+                              <span className="model-tooltip-meta tabular-nums">
+                                {m.tps.toFixed(1)} t/s
+                              </span>
                             )}
                           </div>
                         </div>
@@ -329,8 +333,10 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             )}
           </div>
 
+          <div className="mb-1.5 h-4 w-px shrink-0 self-end bg-paper-300" aria-hidden />
+
           {/* 输入框 + Ghost Hint */}
-          <div className="flex-1 min-w-0 relative">
+          <div className="relative min-w-0 flex-1">
             {ghostHint && !inputValue && (
               <span className="frontstage-input-ghost select-none">
                 {ghostHint}
@@ -357,6 +363,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               </span>
             )}
             <AiPromptBar
+              variant="flush"
               value={inputValue}
               onChange={onInputChange}
               onSend={onInputSubmit}
@@ -368,18 +375,13 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
               trailingAction={
                 isGenerating ? (
                   <button
-                    className={[
-                      'w-7 h-7 rounded-[8px] flex items-center justify-center p-0 flex-shrink-0',
-                      'bg-status-danger/15 text-status-danger',
-                      'hover:bg-status-danger/25',
-                      'transition-colors duration-150',
-                      'animate-pulse',
-                    ].join(' ')}
+                    type="button"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-500 transition-[background-color,color,transform] duration-300 ease-press hover:bg-paper-200 hover:text-ink-900 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
                     onClick={onCancelGeneration}
                     title="取消生成"
                     aria-label="取消生成"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="size-4" strokeWidth={1.75} />
                   </button>
                 ) : undefined
               }
@@ -399,20 +401,14 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
             title={displayMessage}
           >
             <div className="flex items-center gap-2.5 w-full min-w-0">
-              {/* 状态图标：本地生成用心跳，后台活动用类别图标 */}
+              {/* 状态图标：本地生成用陶土 Activity，后台活动用类别图标 */}
               <div className="relative flex items-center justify-center w-5 h-5 flex-shrink-0">
                 {primaryActivity ? (
                   <span className="generation-status-category-icon text-sm leading-none">
                     {categoryIcons[primaryActivity.category]}
                   </span>
                 ) : (
-                  <>
-                    <Activity className="w-4 h-4 text-terracotta animate-pulse" />
-                    <span
-                      className="absolute inline-flex h-full w-full rounded-full bg-terracotta opacity-25 animate-ping"
-                      style={{ animationDuration: '2s' }}
-                    />
-                  </>
+                  <Activity className="w-4 h-4 text-terracotta" />
                 )}
               </div>
 

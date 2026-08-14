@@ -43,6 +43,8 @@ export interface AiPromptBarProps {
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onFocus?: () => void;
   trailingAction?: React.ReactNode;
+  /** card：自带边框底；flush：无内层 chrome，由外层容器提供纸面 */
+  variant?: 'card' | 'flush';
 }
 
 /* 正在输入的最后一个 @词 或 /词（\w 之外补 CJK 区间，中文数据源名可续打筛选） */
@@ -70,6 +72,7 @@ export function AiPromptBar({
   onKeyDown,
   onFocus,
   trailingAction,
+  variant = 'card',
 }: AiPromptBarProps) {
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -170,9 +173,10 @@ export function AiPromptBar({
   };
 
   const currentModel = (models ?? []).find(m => m.key === model);
+  const flush = variant === 'flush';
 
   return (
-    <div className="relative" data-testid="ai-prompt-bar">
+    <div className="relative" data-testid="ai-prompt-bar" data-variant={variant}>
       {/* ── @ / 命令菜单（从输入条上沿向上生长） ── */}
       {menu && (
         <div
@@ -267,7 +271,14 @@ export function AiPromptBar({
       )}
 
       {/* ── 输入条本体 ── */}
-      <div className="relative isolate flex items-end gap-1 overflow-hidden rounded-[10px] border border-ai-line bg-ai-surface p-1.5 transition-colors duration-150 focus-within:border-ai-line-strong">
+      <div
+        data-chrome={flush ? 'flush' : 'card'}
+        className={
+          flush
+            ? 'relative isolate flex items-end gap-1 overflow-visible bg-transparent p-0'
+            : 'relative isolate flex items-end gap-1 overflow-hidden rounded-[10px] border border-ai-line bg-ai-surface p-1.5 transition-colors duration-150 focus-within:border-ai-line-strong'
+        }
+      >
         {/* ai-sweep 扫光覆盖层（模型切换时播放一次；950ms 与 keyframes 同步） */}
         {sweeping && (
           <span
@@ -372,13 +383,15 @@ export function AiPromptBar({
             aria-label="发送"
             disabled={!canSend}
             onClick={send}
-            className="flex size-7 shrink-0 items-center justify-center rounded-[8px] transition-[background-color,color,transform] duration-200 enabled:active:scale-[0.94] disabled:cursor-not-allowed"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform,opacity] duration-300 ease-press enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:cursor-not-allowed disabled:opacity-40"
             style={{
-              background: canSend ? 'var(--ai-ink)' : 'var(--ai-line-strong)',
-              color: canSend ? 'var(--ai-surface)' : 'var(--ai-ink-2)',
+              background: canSend
+                ? 'color-mix(in oklch, var(--ai-accent) 18%, transparent)'
+                : 'transparent',
+              color: canSend ? 'var(--ai-accent-ink)' : 'var(--ai-ink-3)',
             }}
           >
-            <ArrowUp className="size-4" />
+            <ArrowUp className="size-4" strokeWidth={1.75} />
           </button>
         )}
       </div>

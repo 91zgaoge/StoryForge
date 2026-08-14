@@ -73,6 +73,7 @@ export default {
       },
       transitionTimingFunction: {
         spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+        press: 'cubic-bezier(0.32, 0.72, 0, 1)',
       },
       fontFamily: {
         display: ['Cinzel', 'serif'],

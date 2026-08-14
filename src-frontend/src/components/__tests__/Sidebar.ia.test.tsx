@@ -82,6 +82,13 @@ describe('Sidebar IA v0.26.40', () => {
     expect(screen.getByTestId('impact-badge-dashboard')).toHaveTextContent('温');
   });
 
+  it('impact badge 不再使用高饱和色胶囊', () => {
+    render(<Sidebar currentView="stories" onNavigate={onNavigate} />);
+    const badge = screen.getByTestId('impact-badge-stories');
+    expect(badge.className).not.toMatch(/emerald|amber-500|sky-500/);
+    expect(badge.className).toMatch(/text-cinema-/);
+  });
+
   it('点击导航项应回调 onNavigate', () => {
     render(<Sidebar currentView="dashboard" onNavigate={onNavigate} />);
     fireEvent.click(screen.getByText('设置'));

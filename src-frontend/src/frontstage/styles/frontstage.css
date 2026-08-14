@@ -1,5 +1,13 @@
 @tailwind utilities;
 
+@font-face {
+  font-family: 'LXGW WenKai';
+  src: url('/fonts/lxgwwenkai-regular.woff2') format('woff2');
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 /**
  * Frontstage Styles - Claude Reading Experience Design System
  * 
@@ -27,7 +35,7 @@
   --charcoal-light: oklch(48% 0.012 85);
   --olive-gray: oklch(52% 0.01 85);
   --stone-gray: oklch(58% 0.008 85);
-  --ink: oklch(25% 0.015 85);
+  --ink: oklch(32% 0.015 85);
   --ivory: oklch(98% 0.005 95);
   --gold: oklch(72% 0.1 85);
 
@@ -48,6 +56,7 @@
   --transition-fast: 0.15s ease;
   --transition-normal: 0.3s ease;
   --transition-slow: 0.5s ease;
+  --transition-press: 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Writing Style Variables (Dynamic) */
   --fs-font-family: var(--font-serif);
@@ -81,7 +90,7 @@
   /* P2 Task5：幕前浮动层阴影。shadow-float 工具（tailwind.config.js L71）的变量此前仅
      幕后 tokens.css 定义，幕前解析为空导致 P1 AiPromptBar 弹出层无阴影；补齐后
      AiSelectionActions 浮条/结果面板与 P1 幕前组件同步获得预期阴影（属修复）。 */
-  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-float: 0 8px 24px oklch(32% 0.02 85 / 0.14);
 }
 
 /* ===== Global Reset ===== */
@@ -855,7 +864,7 @@ body {
   background-color: var(--parchment-dark);
   border: 1px solid var(--border-cream);
   border-radius: 10px;
-  box-shadow: 0 8px 24px oklch(25% 0.015 85 / 0.08);
+  box-shadow: 0 8px 24px oklch(32% 0.015 85 / 0.08);
   z-index: 50;
   overflow: hidden;
   font-family: var(--font-sans);
@@ -1103,10 +1112,9 @@ body {
    Tailwind 工具类，由本段 CSS 作为唯一样式来源。 */
 .frontstage-input-ghost {
   position: absolute;
-  /* v0.38.x P1：对齐 AiPromptBar 内文本框位置——composer p-1.5(6px) +
-     border(1px) + textarea py-[5px]/px-1(4px)，字号行高与 textarea 一致 */
-  top: 12px;
-  left: 11px;
+  /* flush 变体：无内层 chrome，对齐 textarea py-[5px] / px-1 */
+  top: 5px;
+  left: 4px;
   font-family: var(--font-serif);
   font-size: 13px;
   line-height: 18px;
@@ -3132,6 +3140,9 @@ body.force-hide-ghost .ghost-paragraph {
 
 /* ===== AI 组件动画冻结（P1，与 tokens.css 幕后同款） ===== */
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-press: 0.01s linear;
+  }
   .animate-pixel-on,
   .animate-shimmer-text,
   .animate-ai-fade-up,

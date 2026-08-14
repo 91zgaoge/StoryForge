@@ -1,5 +1,6 @@
 // Component exports
 export { Button } from './ui/Button';
+export { EmptyHint } from './ui/EmptyHint';
 export { Card, CardContent } from './ui/Card';
 export { ConnectionStatus } from './ConnectionStatus';
 // P1 - AI Native Components（生成体验）

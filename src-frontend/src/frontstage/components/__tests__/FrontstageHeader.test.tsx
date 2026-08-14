@@ -73,6 +73,12 @@ describe('FrontstageHeader', () => {
     expect(screen.getByText(/5678 字/)).toBeInTheDocument();
   });
 
+  it('字数使用 tabular-nums', () => {
+    render(<FrontstageHeader {...defaultProps} />);
+    const el = screen.getByTitle('当前章节字数 / 全文字数');
+    expect(el.className).toMatch(/tabular-nums/);
+  });
+
   it('应该显示字体大小', () => {
     render(<FrontstageHeader {...defaultProps} />);
     expect(screen.getByText('18px')).toBeInTheDocument();

@@ -2,6 +2,7 @@ import { useState, useEffect, type CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { ListChecks, Play, Square, Trash2, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { EmptyHint } from '@/components/ui/EmptyHint';
 import { AiCodeBlock } from '@/components/ui/ai/AiCodeBlock';
 import { AiToolChips } from '@/components/ui/ai/AiToolChips';
 import { AiRecommendationCard } from '@/components/ui/ai/AiRecommendationCard';
@@ -632,7 +633,7 @@ export function Tasks() {
       {!isLoading && filteredTasks.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500">
           <ListChecks className="w-12 h-12 mb-3 opacity-30" />
-          <p className="text-sm">暂无任务</p>
+          <EmptyHint>暂无任务</EmptyHint>
           <p className="text-xs mt-1 opacity-50">创建一次性或定时任务来自动化工作流</p>
         </div>
       )}

@@ -17,14 +17,15 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantMap: Record<ButtonVariant, string> = {
-  paper: 'bg-terracotta text-white hover:bg-terracotta-light focus-visible:ring-terracotta/40',
+  paper:
+    'bg-terracotta/15 text-terracotta-dark hover:bg-terracotta/25 focus-visible:ring-terracotta/40',
   cinema:
-    'bg-cinema-gold text-cinema-950 hover:bg-cinema-gold-light focus-visible:ring-cinema-gold/40',
+    'bg-cinema-gold/15 text-cinema-gold hover:bg-cinema-gold/25 focus-visible:ring-cinema-gold/40',
   'cinema-outline':
     'bg-transparent border border-cinema-600 text-cinema-gold hover:bg-cinema-800 focus-visible:ring-cinema-gold/30',
   // Legacy backstage variants mapped to new cinema styles
   primary:
-    'bg-cinema-gold text-cinema-950 hover:bg-cinema-gold-light focus-visible:ring-cinema-gold/40',
+    'bg-cinema-gold/15 text-cinema-gold hover:bg-cinema-gold/25 focus-visible:ring-cinema-gold/40',
   secondary:
     'bg-cinema-800 border border-cinema-700 text-cinema-100 hover:border-cinema-gold/50 hover:bg-cinema-700 focus-visible:ring-cinema-gold/30',
   ghost:
@@ -45,7 +46,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const base =
-      'inline-flex items-center justify-center font-medium transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 disabled:cursor-not-allowed';
+      'inline-flex items-center justify-center font-medium transition-[background-color,color,border-color,transform,opacity] duration-300 ease-press enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 disabled:cursor-not-allowed';
 
     return (
       <button

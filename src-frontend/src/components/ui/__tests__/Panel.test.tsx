@@ -79,4 +79,12 @@ describe('Panel', () => {
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-expanded', 'false');
   });
+
+  it('外壳 bezel + 内芯半径级差', () => {
+    const { container } = render(<Panel title="设定">内容</Panel>);
+    const shell = container.firstChild as HTMLElement;
+    expect(shell.className).toMatch(/p-1/);
+    expect(shell.className).toMatch(/rounded-panel/);
+    expect(container.querySelector('.bg-cinema-850')).not.toBeNull();
+  });
 });

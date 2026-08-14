@@ -36,21 +36,21 @@ export const BACKSTAGE_THEME_VARS = [
 ] as const;
 
 const STATUS = {
-  '--status-success': '#22c55e',
-  '--status-success-dim': 'rgba(34, 197, 94, 0.4)',
-  '--status-warning': '#facc15',
-  '--status-danger': '#ef4444',
-  '--status-danger-dim': 'rgba(239, 68, 68, 0.4)',
+  '--status-success': '#4a9a6a',
+  '--status-success-dim': 'rgba(74, 154, 106, 0.4)',
+  '--status-warning': '#c4a035',
+  '--status-danger': '#c45c4a',
+  '--status-danger-dim': 'rgba(196, 92, 74, 0.4)',
 };
 
 export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
   warm: {
     id: 'warm',
     name: '暖金',
-    description: '深色底 + 金色强调（默认，与现状一致）',
+    description: '木炭底 + 金色强调（默认，抬离 OLED 纯黑）',
     vars: {
-      '--cinema-950': '#050508',
-      '--cinema-900': '#0a0a0f',
+      '--cinema-950': '#0c0b09',
+      '--cinema-900': '#12110e',
       '--cinema-850': '#0f0f16',
       '--cinema-800': '#151520',
       '--cinema-700': '#1e1e2e',
@@ -59,7 +59,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
       '--cinema-gold': '#d4af37',
       '--cinema-gold-light': '#e8c547',
       '--cinema-gold-dark': '#b8941f',
-      '--cinema-velvet': '#7c3aed',
+      '--cinema-velvet': '#5c5470',
       ...STATUS,
     },
   },
@@ -68,7 +68,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
     name: '冷青',
     description: '深夜蓝底 + 青色强调，清新理性',
     vars: {
-      '--cinema-950': '#04080c',
+      '--cinema-950': '#0a1016',
       '--cinema-900': '#081018',
       '--cinema-850': '#0b1620',
       '--cinema-800': '#101d29',
@@ -78,7 +78,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
       '--cinema-gold': '#22d3ee',
       '--cinema-gold-light': '#67e8f9',
       '--cinema-gold-dark': '#0891b2',
-      '--cinema-velvet': '#38bdf8',
+      '--cinema-velvet': '#4a6678',
       ...STATUS,
     },
   },
@@ -87,7 +87,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
     name: '琥珀',
     description: '暖褐底 + 琥珀橙强调，温润古典',
     vars: {
-      '--cinema-950': '#0a0705',
+      '--cinema-950': '#120e0a',
       '--cinema-900': '#120c07',
       '--cinema-850': '#181008',
       '--cinema-800': '#201609',
@@ -97,7 +97,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
       '--cinema-gold': '#f59e0b',
       '--cinema-gold-light': '#fbbf24',
       '--cinema-gold-dark': '#d97706',
-      '--cinema-velvet': '#fb923c',
+      '--cinema-velvet': '#6a5340',
       ...STATUS,
     },
   },
@@ -106,7 +106,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
     name: '靛紫',
     description: '紫夜底 + 靛蓝强调，沉静深邃',
     vars: {
-      '--cinema-950': '#06060c',
+      '--cinema-950': '#0c0c14',
       '--cinema-900': '#0b0b16',
       '--cinema-850': '#100f20',
       '--cinema-800': '#16152c',
@@ -116,7 +116,7 @@ export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
       '--cinema-gold': '#818cf8',
       '--cinema-gold-light': '#a5b4fc',
       '--cinema-gold-dark': '#6366f1',
-      '--cinema-velvet': '#a78bfa',
+      '--cinema-velvet': '#5a5478',
       ...STATUS,
     },
   },

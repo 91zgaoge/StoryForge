@@ -475,7 +475,6 @@ export function NovelCreationWizard({ onComplete, onCancel }: NovelCreationWizar
   const renderCompleted = () => (
     <div className="text-center py-8 space-y-6">
       <div className="relative w-24 h-24 mx-auto">
-        <div className="absolute inset-0 bg-cinema-gold/20 rounded-full animate-ping" />
         <div className="relative w-24 h-24 bg-cinema-gold/10 rounded-full flex items-center justify-center">
           <Check className="w-12 h-12 text-cinema-gold" />
         </div>
