@@ -1,10 +1,10 @@
 /* src-frontend/src/styles/tokens.css */
 :root {
   /* 幕前「墨纸」 */
-  --paper-50: #fdfbf7;
-  --paper-100: #faf6f1;
-  --paper-200: #f2ebe2;
-  --paper-300: #e6ddd1;
+  --paper-50: #f6f4eb;
+  --paper-100: #eceadf;
+  --paper-200: #e5e1d4;
+  --paper-300: #d4d1c6;
   --ink-900: #2a2622;
   --ink-700: #4a453f;
   --ink-500: #7a756d;
@@ -15,11 +15,11 @@
   /* 幕后「机械」——值为 warm 主题默认值；运行时由 backstageThemes.ts 按色调重写 */
   --cinema-950: #0c0b09;
   --cinema-900: #12110e;
-  --cinema-850: #0f0f16;
-  --cinema-800: #151520;
-  --cinema-700: #1e1e2e;
-  --cinema-600: #2a2a3c;
-  --cinema-500: #3a3a50;
+  --cinema-850: #161310;
+  --cinema-800: #1c1916;
+  --cinema-700: #26211c;
+  --cinema-600: #322c25;
+  --cinema-500: #423a31;
   --cinema-gold: #d4af37;
   --cinema-gold-light: #e8c547;
   --cinema-gold-dark: #b8941f;
@@ -62,7 +62,7 @@
 
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease-out;
-  --transition-spring: 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-spring: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   --transition-press: 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 
   --shadow-panel: 0 4px 24px color-mix(in oklch, var(--cinema-950) 55%, transparent);

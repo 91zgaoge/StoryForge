@@ -3,7 +3,15 @@
 @font-face {
   font-family: 'LXGW WenKai';
   src: url('/fonts/lxgwwenkai-regular.woff2') format('woff2');
-  font-weight: 400 500;
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'LXGW WenKai';
+  src: url('/fonts/lxgwwenkai-medium.woff2') format('woff2');
+  font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
@@ -21,11 +29,11 @@
 :root {
   /* OKLCH Color System - 60-30-10 Visual Weight */
   /* 60% - Primary background (paper) */
-  --parchment: oklch(96.5% 0.008 95);
+  --parchment: oklch(96.5% 0.012 95);
   /* 30% - Secondary surfaces (headers, sidebars, borders) */
-  --parchment-dark: oklch(93.5% 0.01 95);
-  --warm-sand: oklch(91% 0.012 95);
-  --border-cream: oklch(94% 0.01 95);
+  --parchment-dark: oklch(93.5% 0.014 95);
+  --warm-sand: oklch(91% 0.018 95);
+  --border-cream: oklch(94% 0.013 95);
   /* 10% - Accent (terracotta) */
   --terracotta: oklch(58% 0.13 45);
   --terracotta-light: oklch(64% 0.14 45);
@@ -141,9 +149,8 @@ body {
 
 /* Selection */
 ::selection {
-  background: var(--terracotta);
+  background: color-mix(in oklch, var(--terracotta) 22%, transparent);
   color: var(--ink);
-  opacity: 0.15;
 }
 
 /* ===== Layout Components ===== */
@@ -386,8 +393,8 @@ body {
 
 /* Selected text */
 .ProseMirror ::selection {
-  background: var(--terracotta);
-  opacity: 0.2;
+  background: color-mix(in oklch, var(--terracotta) 22%, transparent);
+  color: var(--ink);
 }
 
 /* Gap cursor */
@@ -691,21 +698,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 6px;
   border: none;
   background: transparent;
   cursor: pointer;
   transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    transform 0.15s ease;
+    background-color var(--transition-press),
+    color var(--transition-press),
+    transform var(--transition-press);
   color: var(--stone-gray);
 }
 
 .wensi-mode-toggle:hover {
   background-color: var(--warm-sand);
   color: var(--charcoal);
-  transform: scale(1.1);
 }
 
 .wensi-mode-toggle.wensi-active {
@@ -739,25 +745,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--stone-gray);
   cursor: pointer;
   transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    transform 0.15s ease;
-}
-
-.zen-mode-btn:hover {
-  background-color: var(--warm-sand);
-  color: var(--charcoal);
-  transform: scale(1.1);
+    background-color var(--transition-press),
+    color var(--transition-press),
+    transform var(--transition-press);
 }
 
 .zen-mode-btn svg {
-  stroke-width: 2;
+  stroke-width: 1.75;
 }
 
 /* 设置 / 幕后工作室按钮 */
@@ -767,25 +767,39 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--stone-gray);
   cursor: pointer;
   transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    transform 0.15s ease;
+    background-color var(--transition-press),
+    color var(--transition-press),
+    transform var(--transition-press);
 }
 
-.settings-btn:hover {
-  background-color: var(--warm-sand);
-  color: var(--charcoal);
-  transform: scale(1.1);
+.settings-btn:hover,
+.zen-mode-btn:hover {
+  background-color: color-mix(in oklch, var(--terracotta) 18%, transparent);
+  color: var(--terracotta-dark);
 }
 
 .settings-btn svg {
-  stroke-width: 2;
+  stroke-width: 1.75;
+}
+
+.settings-btn:active,
+.zen-mode-btn:active,
+.wensi-mode-toggle:active {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-btn:active,
+  .zen-mode-btn:active,
+  .wensi-mode-toggle:active {
+    transform: none;
+  }
 }
 
 /* Ingest 健康状态指示器 - 统一 VI 风格 */

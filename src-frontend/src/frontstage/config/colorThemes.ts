@@ -96,7 +96,7 @@ export const colorThemes: Record<ColorThemeId, ColorTheme> = {
     'warm',
     '暖赭',
     '暖色纸张 + 赭红强调，默认温馨氛围',
-    'oklch(96.5% 0.008 95)',
+    'oklch(96.5% 0.012 95)',
     'oklch(58% 0.13 45)',
     'oklch(38% 0.015 85)'
   ),

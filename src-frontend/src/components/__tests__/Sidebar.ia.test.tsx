@@ -106,4 +106,11 @@ describe('Sidebar IA v0.26.40', () => {
     expect(screen.getByText('技能')).toBeInTheDocument();
     expect(screen.getByText('拆书')).toBeInTheDocument();
   });
+
+  it('选中项只有金淡彩，没有金边框', () => {
+    render(<Sidebar currentView="stories" onNavigate={onNavigate} />);
+    const item = screen.getByText('故事').closest('button') as HTMLElement;
+    expect(item.className).toMatch(/bg-cinema-gold\/10/);
+    expect(item.className).not.toMatch(/border-cinema-gold/);
+  });
 });

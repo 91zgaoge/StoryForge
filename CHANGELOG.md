@@ -2,6 +2,27 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.44.0（2026-08-14）
+
+墨纸 / 机械视觉定向进化补齐。对照设计把 v0.43.0 未做满的缺口落地：输入无框、Medium 分文件、纸 chroma、选区 22%、顶栏淡彩、暖金内芯同色相、Panel 高光、弹簧 500ms、侧栏去金框。
+
+### 功能
+
+- **P0 输入无框**：底栏 `--parchment-dark`，去掉 `border-t` / 毛玻璃 / 独立卡片壳；`AiPromptBar` 仍走 `flush`。
+- **P1 字体 / 纸 / 顶栏**：霞鹜 Medium 独立 woff2（v1.250 无 Medium 文件，用同 tag Bold 映射 CSS 500，README 已写明）；纸 hue 95；选区陶土 22% mix + `color: var(--ink)`；顶栏设置/禅/文思按钮淡彩 hover + press 0.98，去掉 `scale(1.1)`。
+- **P2 幕后机械**：warm cinema 850–500 与 `tokens.css` / `backstageThemes.warm` 三方同色相；Panel 内芯 inset 顶高光；弹簧 500ms + `motion-reduce` 冻结；侧栏选中去掉金边框。PromptsPanel 加载 pulse 保留，空闲无 pulse。
+
+### 测试
+
+- `npx vitest run`：**589 passed / 3 skipped**（基线 578，+11）。
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard.py` 全绿。
+- `cargo test --lib`：本版未重跑（无 Rust 变更；基线 1367 passed / 2 ignored）。
+
+### 已知债务
+
+- v0.42.0 规格 §8 真机对照诊断故事再续一拍未跑；ContextPrioritizer 未接 Agency。
+- 未做全界面截图回归。顶栏健康探测钮仍是圆钮 `scale(1.1)`（本版范围外）。
+
 ## v0.43.0（2026-08-14）
 
 墨纸 / 机械视觉定向进化。幕前输入条去掉聊天 chrome；霞鹜文楷本地加载；幕后对比与阴影收软；去掉装饰性 pulse。

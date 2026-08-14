@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.43.0
+- **版本**: v0.44.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -99,7 +99,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1367 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 578 passed / 3 skipped
+- `npx vitest run` ✅ 589 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.44.0 - 墨纸 / 机械视觉定向进化补齐
+
+对照 `docs/plans/2026-08-14-ink-paper-mechanical-deepen-design.md` 补齐 v0.43.0 未做满的缺口：幕前输入无框、Medium 分文件、纸 chroma / 选区 22%、顶栏 press、暖金内芯同色相、Panel 高光 + 弹簧 500ms、侧栏去金框。
+
+- **验证**：`npx vitest run` 589 passed / 3 skipped（+11）；`tsc` / `format:check` / `architecture_guard.py` 全绿。无 Rust 变更。
+- **未关闭**：设计全界面人工目视清单未做成截图回归；v0.42.0 §8 真机探针仍未跑。霞鹜 v1.250 无 Medium 文件，本版用同 tag Bold 映射为 CSS 500（README 已写明）。
 
 ### v0.43.0 - 墨纸 / 机械视觉定向进化
 
@@ -899,7 +906,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-14 - v0.43.0_
+_最后更新: 2026-08-14 - v0.44.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

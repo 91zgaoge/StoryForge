@@ -29,7 +29,7 @@ export const Panel: React.FC<PanelProps> = ({
         <ChevronDown
           aria-hidden="true"
           className={[
-            'w-4 h-4 text-cinema-gold/80 transition-transform duration-300 ease-spring',
+            'w-4 h-4 text-cinema-gold/80 transition-transform duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear',
             open ? 'rotate-180' : '',
           ].join(' ')}
         />
@@ -39,7 +39,12 @@ export const Panel: React.FC<PanelProps> = ({
 
   return (
     <div className="rounded-panel border border-borderSubtle bg-cinema-900/40 p-1 shadow-panel">
-      <div className="overflow-hidden rounded-[calc(var(--radius-md)-4px)] bg-cinema-850">
+      <div
+        className="overflow-hidden rounded-[calc(var(--radius-md)-4px)] bg-cinema-850"
+        style={{
+          boxShadow: 'inset 0 1px 0 color-mix(in oklch, white 6%, transparent)',
+        }}
+      >
         {collapsible ? (
           <button
             type="button"
@@ -60,7 +65,7 @@ export const Panel: React.FC<PanelProps> = ({
         <div
           id={contentId}
           className={[
-            'transition-all duration-300 ease-spring overflow-hidden',
+            'transition-all duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear overflow-hidden',
             open ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0',
           ].join(' ')}
         >

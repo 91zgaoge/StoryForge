@@ -247,8 +247,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                         className={cn(
                           'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
                           'hover:bg-cinema-800',
-                          isActive &&
-                            'bg-cinema-gold/10 text-cinema-gold border border-cinema-gold/20',
+                          isActive && 'bg-cinema-gold/10 text-cinema-gold',
                           !isActive && 'text-gray-400'
                         )}
                       >

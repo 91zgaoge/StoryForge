@@ -223,6 +223,21 @@ describe('FrontstageBottomBar', () => {
     expect(cancel.className).not.toMatch(/status-danger/);
   });
 
+  it('输入区无框：外壳无边框圆角独立底，底栏无顶边与毛玻璃', () => {
+    const { container } = render(<FrontstageBottomBar {...defaultProps} inputValue="续写" />);
+    const bar = container.firstChild as HTMLElement;
+    expect(bar.className).not.toMatch(/border-t/);
+    expect(bar.className).not.toMatch(/backdrop-blur/);
+    expect(bar.className).not.toMatch(/bg-paper-100/);
+    expect(bar.className).toMatch(/parchment-dark/);
+
+    const shell = screen.getByTestId('frontstage-input-shell');
+    expect(shell.className).not.toMatch(/\bborder\b/);
+    expect(shell.className).not.toMatch(/rounded-paper/);
+    expect(shell.className).not.toMatch(/bg-paper-50/);
+    expect(shell.className).not.toMatch(/focus-within:border/);
+  });
+
   it('模型信号与本地生成指示不含 pulse/ping', () => {
     render(
       <FrontstageBottomBar

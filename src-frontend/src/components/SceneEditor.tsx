@@ -350,7 +350,7 @@ export function SceneEditor({ scene, characters, onSave, onCancel }: SceneEditor
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`
-              flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors
+              flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear
               ${
                 activeTab === tab.id
                   ? 'bg-cinema-gold text-cinema-900'

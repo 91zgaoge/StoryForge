@@ -16,15 +16,35 @@ describe('霞鹜文楷本地加载', () => {
     expect(woff2.byteLength).toBeGreaterThan(1_000_000);
   });
 
-  it('frontstage.css 以 @font-face 声明 LXGW WenKai 且 font-display:swap', () => {
+  it('frontstage.css 分别声明 Regular 400 与 Medium 500', () => {
     const css = readFileSync(
       resolve(frontendRoot, 'src/frontstage/styles/frontstage.css'),
       'utf-8'
     );
-    expect(css).toMatch(/@font-face\s*\{[^}]*font-family:\s*['"]LXGW WenKai['"]/s);
-    expect(css).toMatch(/font-display:\s*swap/);
-    expect(css).toMatch(/\/fonts\/lxgwwenkai-regular\.woff2/);
-    expect(css).toMatch(/font-weight:\s*400 500/);
+    expect(css).not.toMatch(/font-weight:\s*400 500/);
+    const faces = [...css.matchAll(/@font-face\s*\{[^}]*\}/g)].map(m => m[0]);
+    const wenkai = faces.filter(block => /font-family:\s*['"]LXGW WenKai['"]/.test(block));
+    expect(wenkai.length).toBeGreaterThanOrEqual(2);
+    const regularFace = wenkai.find(block => /lxgwwenkai-regular\.woff2/.test(block));
+    expect(regularFace).toBeDefined();
+    expect(regularFace).toMatch(/font-weight:\s*400;/);
+    expect(regularFace).toMatch(/font-display:\s*swap/);
+    expect(regularFace).not.toMatch(/400 500/);
+    const mediumFace = wenkai.find(block => /lxgwwenkai-medium\.woff2/.test(block));
+    expect(mediumFace).toBeDefined();
+    expect(mediumFace).toMatch(/font-weight:\s*500;/);
+    expect(mediumFace).toMatch(/font-display:\s*swap/);
+  });
+
+  it('public/fonts 含 medium woff2 且体积不超过 regular 的 1.15 倍', () => {
+    const regular = readFileSync(resolve(frontendRoot, 'public/fonts/lxgwwenkai-regular.woff2'));
+    const mediumPath = resolve(frontendRoot, 'public/fonts/lxgwwenkai-medium.woff2');
+    expect(existsSync(mediumPath)).toBe(true);
+    const medium = readFileSync(mediumPath);
+    expect(medium.subarray(0, 4).toString('ascii')).toBe('wOF2');
+    expect(medium.byteLength).toBeGreaterThan(1_000_000);
+    expect(medium.byteLength).toBeLessThanOrEqual(Math.ceil(regular.byteLength * 1.15));
+    expect(medium.equals(regular)).toBe(false);
   });
 
   it('frontstage.html 不再请求 jsdelivr 或 fonts.googleapis', () => {

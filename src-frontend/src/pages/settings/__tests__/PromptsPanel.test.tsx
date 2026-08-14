@@ -80,6 +80,15 @@ describe('PromptsPanel', () => {
     expect(loggedInvoke).toHaveBeenCalledWith('list_prompt_entries');
   });
 
+  it('列表加载完成后标题图标不带 animate-pulse', async () => {
+    const { container } = render(<PromptsPanel />);
+    await waitFor(() => {
+      expect(screen.getByText('核心写作提示词')).toBeInTheDocument();
+    });
+    const pulsing = container.querySelectorAll('.animate-pulse');
+    expect(pulsing.length).toBe(0);
+  });
+
   it('展开提示词后立即显示正文编辑器，不出现 Loading', async () => {
     render(<PromptsPanel />);
 

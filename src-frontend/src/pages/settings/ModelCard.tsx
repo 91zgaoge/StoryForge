@@ -205,7 +205,7 @@ export function ModelCard({
                 disabled={togglingEnabled}
                 onClick={onToggleEnabled}
                 className={cn(
-                  'px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50',
+                  'px-3 py-1.5 text-xs font-medium rounded-lg transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear flex items-center gap-1.5 disabled:opacity-50',
                   model.enabled
                     ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
                     : 'text-gray-400 bg-cinema-800 hover:bg-cinema-700'

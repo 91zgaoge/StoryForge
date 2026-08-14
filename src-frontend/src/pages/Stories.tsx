@@ -1233,7 +1233,7 @@ export function Stories() {
               <div className="flex gap-1 mb-4 p-1 bg-cinema-800 rounded-lg">
                 <button
                   onClick={() => setBlendTab('single')}
-                  className={`flex-1 py-1.5 px-3 rounded-md text-sm transition-colors ${
+                  className={`flex-1 py-1.5 px-3 rounded-md text-sm transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear ${
                     blendTab === 'single'
                       ? 'bg-cinema-700 text-white'
                       : 'text-gray-400 hover:text-gray-200'
@@ -1243,7 +1243,7 @@ export function Stories() {
                 </button>
                 <button
                   onClick={() => setBlendTab('blend')}
-                  className={`flex-1 py-1.5 px-3 rounded-md text-sm transition-colors ${
+                  className={`flex-1 py-1.5 px-3 rounded-md text-sm transition-[background-color,color] duration-500 ease-spring motion-reduce:duration-[0.01s] motion-reduce:ease-linear ${
                     blendTab === 'blend'
                       ? 'bg-cinema-700 text-white'
                       : 'text-gray-400 hover:text-gray-200'

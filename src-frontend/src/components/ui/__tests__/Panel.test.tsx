@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Panel } from '../Panel';
 
@@ -86,5 +89,18 @@ describe('Panel', () => {
     expect(shell.className).toMatch(/p-1/);
     expect(shell.className).toMatch(/rounded-panel/);
     expect(container.querySelector('.bg-cinema-850')).not.toBeNull();
+  });
+
+  it('内芯有 inset 顶边高光，外壳不加第二圈 ring', () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../Panel.tsx'),
+      'utf-8'
+    );
+    const shellOpen = src.indexOf('<div className="rounded-panel');
+    expect(shellOpen).toBeGreaterThanOrEqual(0);
+    const shellClass = src.slice(shellOpen, src.indexOf('>', shellOpen));
+    expect(src).toMatch(/inset 0 1px 0/);
+    expect(shellClass).not.toMatch(/ring-1|ring-2|0 0 0 1px/);
+    expect(src).toMatch(/duration-500/);
   });
 });

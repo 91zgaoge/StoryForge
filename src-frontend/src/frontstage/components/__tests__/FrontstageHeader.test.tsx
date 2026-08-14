@@ -1,7 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import FrontstageHeader from '../FrontstageHeader';
+
+const cssPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../styles/frontstage.css');
+
+function cssRuleBlocks(css: string): { selectors: string; body: string }[] {
+  return [...css.matchAll(/([^{]+)\{([^}]*)\}/g)].map(([, selectors, body]) => ({
+    selectors,
+    body,
+  }));
+}
 
 vi.mock('../IngestHealthIndicator', () => ({
   IngestHealthIndicator: () => null,
@@ -323,5 +335,54 @@ describe('FrontstageHeader', () => {
     expect(screen.getByRole('listbox')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('设置/禅/文思按钮走 press 曲线，无 hover scale 1.1', () => {
+    const css = readFileSync(cssPath, 'utf-8');
+    const headerBtn = /\.settings-btn|\.zen-mode-btn|\.wensi-mode-toggle/;
+    const rules = cssRuleBlocks(css);
+
+    for (const sel of ['.settings-btn', '.zen-mode-btn', '.wensi-mode-toggle']) {
+      const block =
+        css.match(new RegExp(sel.replace('.', '\\.') + '\\s*\\{[^}]+\\}', 's'))?.[0] ?? '';
+      expect(block, sel).toMatch(/--transition-press/);
+      expect(block, sel).toMatch(/border-radius:\s*6px/);
+      expect(block, sel).toMatch(/color:\s*var\(--stone-gray\)/);
+    }
+
+    for (const { selectors, body } of rules) {
+      if (headerBtn.test(selectors + body)) {
+        expect(body, selectors).not.toMatch(/scale\(1\.1\)/);
+      }
+    }
+
+    expect(
+      rules.some(
+        r =>
+          headerBtn.test(r.selectors) &&
+          /color-mix\(\s*in oklch,\s*var\(--terracotta\)\s*18%,\s*transparent\s*\)/.test(r.body)
+      )
+    ).toBe(true);
+
+    for (const sel of [
+      '.settings-btn:active',
+      '.zen-mode-btn:active',
+      '.wensi-mode-toggle:active',
+    ]) {
+      expect(
+        rules.some(r => r.selectors.includes(sel) && /scale\(0\.98\)/.test(r.body)),
+        sel
+      ).toBe(true);
+    }
+
+    const reduced = rules.find(
+      r =>
+        /prefers-reduced-motion:\s*reduce/.test(r.selectors + r.body) &&
+        /transform:\s*none/.test(r.body) &&
+        /\.settings-btn:active/.test(r.selectors + r.body) &&
+        /\.zen-mode-btn:active/.test(r.selectors + r.body) &&
+        /\.wensi-mode-toggle:active/.test(r.selectors + r.body)
+    );
+    expect(reduced).toBeTruthy();
   });
 });

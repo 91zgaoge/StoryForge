@@ -198,20 +198,12 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
       className={[
         'fixed bottom-0 left-0 right-0 z-40',
         'flex flex-col items-center px-4 py-3',
-        'bg-paper-100/90 backdrop-blur-sm border-t border-paper-300',
+        'bg-[var(--parchment-dark)]',
       ].join(' ')}
     >
       <div className="w-full max-w-2xl flex flex-col gap-2">
         {/* 输入框 */}
-        <div
-          className={[
-            'flex items-end gap-2',
-            'bg-paper-50 border border-paper-300 rounded-paper',
-            'px-2.5 py-1.5',
-            'transition-[border-color] duration-300 ease-press',
-            'focus-within:border-terracotta/50',
-          ].join(' ')}
-        >
+        <div data-testid="frontstage-input-shell" className="flex items-end gap-2 px-2.5 py-1.5">
           {/* v0.14.0: 多模型状态指示器 */}
           <div
             className="relative mb-1.5 flex h-5 cursor-pointer items-end justify-center"

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.43.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.44.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.44.0 · 输入条贴着纸面，幕后内芯不再发紫
+
+幕前底栏去掉顶边和毛玻璃，输入区不再自成一张卡片。正文有独立的 Medium 字重文件。纸更暖，划词是半透明陶土而不是整块实心赭。幕后暖金面板内芯跟外壳同色相，折叠展开 500ms，侧栏选中只留金淡彩。
+
+测试：vitest 589 passed / 3 skipped（+11）。
 
 ### v0.43.0 · 幕前输入条不再像聊天框
 
