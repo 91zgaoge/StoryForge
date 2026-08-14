@@ -28,6 +28,9 @@ use crate::{
     },
     error::AppError,
     llm::LlmService,
+    prompts::assembly::{
+        assemble_continue_beat, assemble_genesis_first_chapter, assemble_genesis_prose_fallback,
+    },
     router::TaskType,
 };
 
@@ -2052,12 +2055,16 @@ impl AgencyCoordinator {
             .build_assets_ctx_brief(run_id)
             .await
             .unwrap_or_default();
-        let text = llm.complete(
-            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。",
-            &format!("故事前提：{}\n\n概念设定：{}\n\n创作资产：\n{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。须紧扣故事大纲的起因（第一幕）开篇。故事前提是你的创作方向；创作资产（世界观/大纲/伏笔）是硬约束，须在硬约束内落实前提核心意图，不得自相矛盾。", premise, concept_json, assets_ctx),
-            TaskType::CreativeWriting,
-            8192,
-        ).await?;
+        let assembled = assemble_genesis_first_chapter(premise, &concept_json, &assets_ctx)
+            .map_err(|e| AppError::from(e.to_string()))?;
+        let text = llm
+            .complete(
+                &assembled.system,
+                &assembled.user,
+                TaskType::CreativeWriting,
+                8192,
+            )
+            .await?;
         let text = text.trim().to_string();
         let chars = text.chars().count();
         if chars < 200 {
@@ -2106,13 +2113,12 @@ impl AgencyCoordinator {
         let board = self.board();
         // 读资产区构建上下文（截断防爆上下文），复用首章同款 helper
         let assets_ctx = self.build_assets_ctx_brief(run_id).await?;
+        let assembled = assemble_genesis_prose_fallback(premise, &assets_ctx)
+            .map_err(|e| AppError::from(e.to_string()))?;
         let text = llm
             .complete(
-                "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。",
-                &format!(
-                    "故事前提：{}\n\n创作资产：\n{}\n\n写作要求：章节正文，1500-2500 字，只输出正文，不写标题。故事前提是你的创作方向；创作资产（世界观/大纲/伏笔）是硬约束，须在硬约束内落实前提核心意图，不得自相矛盾。",
-                    premise, assets_ctx
-                ),
+                &assembled.system,
+                &assembled.user,
                 TaskType::CreativeWriting,
                 8192,
             )
