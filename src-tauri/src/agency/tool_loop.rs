@@ -8,6 +8,7 @@ use crate::{
         tools::{ToolContext, ToolRegistry},
     },
     error::AppError,
+    prompts::assembly::assemble_tool_loop_head,
     router::TaskType,
 };
 
@@ -273,13 +274,9 @@ impl ToolLoop {
     ) -> Result<LoopResult, AppError> {
         // head = 工具目录 + 任务（恒定），tail =
         // 逐轮追加的对话；每轮调用前按角色预算截断
-        let head = format!(
-            "{}\n\n你只能输出一个 JSON action，不要输出其他内容：\n\
-             - 调用工具: {{\"type\":\"tool\",\"name\":\"<工具名>\",\"args\":{{...}}}}\n\
-             - 完成任务: {{\"type\":\"final\",\"content\":\"<最终产出>\"}}\n\n任务：\n{}",
-            self.registry.catalog_for_role(role),
-            task
-        );
+        let head = assemble_tool_loop_head(&self.registry.catalog_for_role(role), task)
+            .map_err(|e| AppError::from(e.to_string()))?
+            .user;
         let mut tail = String::new();
         let mut turns: Vec<LoopTurn> = Vec::new();
         let mut parse_failures = 0usize;
