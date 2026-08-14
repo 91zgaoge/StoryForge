@@ -36,6 +36,7 @@ for f in ROOT.iterdir():
 PROHIBITED = {
     "db": {"narrative", "agents", "memory", "creative_engine", "story_system", "pipeline"},
     "domain": MODULES,  # domain 只应依赖基础库，理论上不应依赖任何业务模块
+    "prompts": {"agency"},
 }
 
 # 已知但未修复的依赖方向，供 ROADMAP/重构计划参考，不阻塞 CI。
