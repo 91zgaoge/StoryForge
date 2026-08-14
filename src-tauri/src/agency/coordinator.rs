@@ -3496,6 +3496,7 @@ impl AgencyCoordinator {
         budget: &Arc<AgencyBudget>,
         chapter_number: i32,
         assets_ctx: &str,
+        characters_override: &str,
     ) -> String {
         let key = format!("第{}章", chapter_number);
         // v0.30.31: 无故事大纲时短路（writer 上下文不含【故事大纲】段）--章节
@@ -3517,30 +3518,38 @@ impl AgencyCoordinator {
         let premise_c = premise.to_string();
         let key_c = key.clone();
         let scene_number = chapter_number.to_string();
+        let characters_override = characters_override.to_string();
         let prompt_text = tokio::task::spawn_blocking(move || -> String {
+            use crate::agency::continue_assets::condense_story_outline;
             use crate::db::repositories::{CharacterRepository, StoryOutlineRepository};
             use std::collections::HashMap;
-            let story_outline = StoryOutlineRepository::new(pool.clone())
+            let story_outline_raw = StoryOutlineRepository::new(pool.clone())
                 .get_by_story(&sid)
                 .ok()
                 .flatten()
                 .map(|o| o.content)
                 .unwrap_or_default();
-            let chars = CharacterRepository::new(pool.clone())
-                .get_by_story(&sid)
-                .unwrap_or_default();
-            let characters: String = chars
-                .iter()
-                .map(|c| {
-                    format!(
-                        "- {}：性格{}｜目标{}",
-                        c.name,
-                        c.personality.as_deref().unwrap_or("-"),
-                        c.goals.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+            let story_outline = condense_story_outline(&story_outline_raw, "");
+            let characters = if !characters_override.trim().is_empty() {
+                characters_override
+            } else {
+                let chars = CharacterRepository::new(pool.clone())
+                    .get_by_story(&sid)
+                    .unwrap_or_default();
+                chars
+                    .iter()
+                    .take(crate::agency::continue_assets::ADMITTED_CAP)
+                    .map(|c| {
+                        format!(
+                            "- {}：性格{}｜目标{}",
+                            c.name,
+                            c.personality.as_deref().unwrap_or("-"),
+                            c.goals.as_deref().unwrap_or("-")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
             let scene_info = format!("故事前提：{}\n本章：{}", premise_c, key_c);
             // v0.30.31: 加载世界观与已推进进度（进度指针，解决"凭章号盲推"）
             let world = {
@@ -3703,7 +3712,41 @@ impl AgencyCoordinator {
         current_content: Option<&str>,
     ) -> Result<(BoardItem, crate::agency::beat_card::SceneBeatCard), AppError> {
         let key = format!("第{}章", chapter_number);
-        let assets_ctx = self.build_continue_writer_context(story_id).await;
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let content_for_card = current_content.unwrap_or("").to_string();
+        let (parts, card) = self
+            .db({
+                let pool = pool.clone();
+                let sid = sid.clone();
+                let content_for_card = content_for_card.clone();
+                move || {
+                    let card = crate::agency::beat_card::compile_beat_card(
+                        &pool,
+                        &sid,
+                        &content_for_card,
+                    )?;
+                    Ok((load_continue_context_parts(&pool, &sid), card))
+                }
+            })
+            .await?;
+        let outline_gate = if parts
+            .as_ref()
+            .and_then(|p| p.bundle.story_outline.as_ref())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+        {
+            "【故事大纲】"
+        } else {
+            ""
+        };
+        let chars_var = if let Some(ref p) = parts {
+            let (present, parties, rest) = split_card_cast(&card);
+            let v1 = crate::agency::continue_assets::merge_admitted(&present, &parties, &[], &rest);
+            format_chars_for_outline(p, &v1)
+        } else {
+            String::new()
+        };
         let chapter_outline = if generate_outline {
             self.generate_chapter_outline(
                 run_id,
@@ -3711,33 +3754,49 @@ impl AgencyCoordinator {
                 premise,
                 budget,
                 chapter_number,
-                &assets_ctx,
+                outline_gate,
+                &chars_var,
             )
             .await
         } else {
             String::new()
         };
-        let pool = self.pool.clone();
-        let sid = story_id.to_string();
-        let content_for_card = current_content.unwrap_or("").to_string();
-        let card = self
-            .db(move || crate::agency::beat_card::compile_beat_card(&pool, &sid, &content_for_card))
-            .await?;
-        let mut bundle = assets_ctx;
-        if !chapter_outline.is_empty() {
-            bundle = format!("【本章大纲（必须遵循的章节方向）】\n{chapter_outline}\n\n{bundle}");
-        }
         let instr = if instruction.trim().is_empty() {
             "续写"
         } else {
             instruction
         };
-        let user = crate::agency::beat_card::render_writer_user_prompt(
-            &bundle,
-            &card,
-            instr,
-            current_content.unwrap_or(""),
-        );
+        let user = if let Some(ref p) = parts {
+            let (present, parties, rest) = split_card_cast(&card);
+            let mentioned = crate::agency::continue_assets::names_in_text(
+                &p.table_names,
+                &format!("{}{}{}", chapter_outline, instr, card.next_outline_node),
+            );
+            let admitted = crate::agency::continue_assets::merge_admitted(
+                &present, &parties, &mentioned, &rest,
+            );
+            let assets = render_parts(
+                p,
+                &admitted,
+                &chapter_outline,
+                &card.next_outline_node,
+                card.setting_location.as_deref(),
+                current_content,
+            );
+            crate::agency::beat_card::render_writer_user_prompt(
+                &assets,
+                &card,
+                instr,
+                current_content.unwrap_or(""),
+            )
+        } else {
+            crate::agency::beat_card::render_writer_user_prompt(
+                "",
+                &card,
+                instr,
+                current_content.unwrap_or(""),
+            )
+        };
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
             budget.clone(),
@@ -3843,11 +3902,45 @@ impl AgencyCoordinator {
         chapter_number: i32,
     ) -> Result<BoardItem, AppError> {
         let key = format!("第{}章", chapter_number);
-        // v0.30.20: 预注入 DB 上下文（角色/世界/最近场景），消除 writer 多轮
-        // board_read/asset_query 轮询（tool_loop 从 3-7 轮降到 1-2 轮）。
-        // v0.30.21: assets_ctx 现含故事大纲（整体推进方向）。
-        let assets_ctx = self.build_continue_writer_context(story_id).await;
-        // v0.30.21: 生成本章大纲（服从故事大纲），为 writer 提供章节级约束。
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let (parts, card, latest_content) = self
+            .db({
+                let pool = pool.clone();
+                let sid = sid.clone();
+                move || {
+                    let parts = load_continue_context_parts(&pool, &sid);
+                    let latest = parts
+                        .as_ref()
+                        .and_then(|p| {
+                            p.scenes
+                                .iter()
+                                .max_by_key(|s| s.sequence_number)
+                                .and_then(|s| s.content.clone())
+                        })
+                        .unwrap_or_default();
+                    let card = crate::agency::beat_card::compile_beat_card(&pool, &sid, &latest)?;
+                    Ok((parts, card, latest))
+                }
+            })
+            .await?;
+        let outline_gate = if parts
+            .as_ref()
+            .and_then(|p| p.bundle.story_outline.as_ref())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+        {
+            "【故事大纲】"
+        } else {
+            ""
+        };
+        let chars_var = if let Some(ref p) = parts {
+            let (present, parties, rest) = split_card_cast(&card);
+            let v1 = crate::agency::continue_assets::merge_admitted(&present, &parties, &[], &rest);
+            format_chars_for_outline(p, &v1)
+        } else {
+            String::new()
+        };
         let chapter_outline = self
             .generate_chapter_outline(
                 run_id,
@@ -3855,9 +3948,28 @@ impl AgencyCoordinator {
                 premise,
                 budget,
                 chapter_number,
-                &assets_ctx,
+                outline_gate,
+                &chars_var,
             )
             .await;
+        let assets_ctx = if let Some(ref p) = parts {
+            let (present, parties, rest) = split_card_cast(&card);
+            let mentioned =
+                crate::agency::continue_assets::names_in_text(&p.table_names, &chapter_outline);
+            let admitted = crate::agency::continue_assets::merge_admitted(
+                &present, &parties, &mentioned, &rest,
+            );
+            render_parts(
+                p,
+                &admitted,
+                &chapter_outline,
+                &card.next_outline_node,
+                card.setting_location.as_deref(),
+                Some(&latest_content),
+            )
+        } else {
+            String::new()
+        };
         let writer_task = if assets_ctx.is_empty() && chapter_outline.is_empty() {
             format!("续写{}（1500-2500 字）。必须推进剧情到下一节点，不得原地踏步；遵循世界观规则与约束。禁止重复：同一段落/句子不得出现两次，不得复述前文段落。先 board_read 读资产区、asset_query(kind=scenes) 读最近场景保持连贯，再用 board_write 把完整正文写入 draft 区（item_type=chapter, key={}）。", key, key)
         } else if !chapter_outline.is_empty() {
@@ -5386,45 +5498,78 @@ fn default_role_prompt(prompt_id: &str) -> &'static str {
     }
 }
 
-/// 从 DB 构建 writer 上下文（纯函数，可测试）。
-/// `build_continue_writer_context` 的同步 DB 部分。
-/// 资产段走 WriteTimeBundle 唯一编译器；张力/弧光在 agency 层拼接
-/// （禁止 creative_engine 依赖 agency）。前文/进度/logline 不在 Bundle 内，
-/// 不是角色/世界观的并行真源，仍由本函数追加。
-pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> String {
-    let mut s = match crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
+/// 续写热路径一次加载的 DB 切片。渲染走 `continue_assets`，不经 `to_prompt()`。
+pub(crate) struct ContinueContextParts {
+    pub bundle: crate::creative_engine::write_time_bundle::WriteTimeBundle,
+    pub table_names: Vec<String>,
+    pub scenes: Vec<crate::db::Scene>,
+    pub tensions: Vec<crate::agency::emotional_ledger::InterpersonalTension>,
+    pub arcs: Vec<crate::agency::emotional_ledger::EmotionalArc>,
+    pub logline: Option<String>,
+}
+
+pub(crate) fn load_continue_context_parts(
+    pool: &DbPool,
+    story_id: &str,
+) -> Option<ContinueContextParts> {
+    let bundle = match crate::creative_engine::write_time_bundle::WriteTimeBundle::load_sync(
         pool, story_id, 1, None, None, None,
     ) {
-        Ok(b) => b.to_prompt(),
+        Ok(b) => b,
         Err(e) => {
             log::warn!("continue compiler bundle 失败: {e}");
-            String::new()
+            return None;
         }
     };
-    // 张力/弧光留在 agency 层拼接，不让 creative_engine 依赖 agency
+    let table_names: Vec<String> = bundle
+        .core_characters
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
     let tensions = crate::agency::emotional_ledger::load_tensions(pool, story_id);
-    let rendered = crate::agency::emotional_ledger::render_tensions_for_prompt(&tensions);
-    if !rendered.is_empty() {
-        s.push_str("\n\n");
-        s.push_str(&rendered);
-    }
     let arcs = crate::agency::emotional_ledger::load_arcs(pool, story_id);
-    let rendered = crate::agency::emotional_ledger::render_arcs_for_prompt(&arcs);
-    if !rendered.is_empty() {
-        s.push_str("\n\n");
-        s.push_str(&rendered);
-    }
-    if let Ok(Some(story)) = StoryRepository::new(pool.clone()).get_by_id(story_id) {
-        if let Some(ref ll) = story.logline {
-            if !ll.is_empty() {
-                s.push_str(&format!("\n\n【故事Logline】{}\n", ll));
-            }
-        }
-    }
+    let logline = StoryRepository::new(pool.clone())
+        .get_by_id(story_id)
+        .ok()
+        .flatten()
+        .and_then(|s| s.logline)
+        .filter(|ll| !ll.is_empty());
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(story_id)
         .unwrap_or_default();
-    let mut prior_progress: Vec<_> = scenes
+    Some(ContinueContextParts {
+        bundle,
+        table_names,
+        scenes,
+        tensions,
+        arcs,
+        logline,
+    })
+}
+
+fn evidence_blob(parts: &ContinueContextParts) -> String {
+    let mut scenes = parts.scenes.clone();
+    scenes.sort_by_key(|s| std::cmp::Reverse(s.sequence_number));
+    let mut blob = String::new();
+    for sc in scenes.iter().take(5) {
+        if let Some(ref c) = sc.content {
+            blob.push_str(c);
+            blob.push('\n');
+        }
+        if !sc.characters_present.is_empty() {
+            blob.push_str(&sc.characters_present.join("、"));
+            blob.push('\n');
+        }
+    }
+    if let Some(ref o) = parts.bundle.story_outline {
+        blob.push_str(o);
+    }
+    blob
+}
+
+fn progress_lines_from_parts(parts: &ContinueContextParts) -> Vec<String> {
+    let mut prior: Vec<_> = parts
+        .scenes
         .iter()
         .filter(|sc| {
             sc.outline_content
@@ -5433,8 +5578,8 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
                 .unwrap_or(false)
         })
         .collect();
-    prior_progress.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
-    let progress_lines: Vec<String> = prior_progress
+    prior.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
+    prior
         .into_iter()
         .take(3)
         .map(|sc| {
@@ -5442,39 +5587,181 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
             let truncated: String = o.chars().take(200).collect();
             format!("第{}章：{}", sc.sequence_number, truncated)
         })
+        .collect()
+}
+
+fn split_card_cast(
+    card: &crate::agency::beat_card::SceneBeatCard,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let present: Vec<String> = card
+        .cast
+        .iter()
+        .filter(|c| c.purpose.contains("末段已在场"))
+        .map(|c| c.name.clone())
         .collect();
-    if !progress_lines.is_empty() {
-        s.push_str(&format!(
-            "\n\n【已推进进度（承接此处，推进到下一节点，不得原地踏步）】\n{}\n",
-            progress_lines.join("\n")
-        ));
+    let parties = card.conflict_move.parties.clone();
+    let rest: Vec<String> = card
+        .cast
+        .iter()
+        .filter(|c| !present.iter().any(|p| p == &c.name))
+        .map(|c| c.name.clone())
+        .collect();
+    (present, parties, rest)
+}
+
+pub(crate) fn render_parts(
+    parts: &ContinueContextParts,
+    admitted: &[String],
+    chapter_outline: &str,
+    next_node: &str,
+    location: Option<&str>,
+    current_content: Option<&str>,
+) -> String {
+    use crate::agency::continue_assets::{
+        build_roster, render_continue_assets, slice_prior_prose, ContinueAssetsInput,
+    };
+    let roster = build_roster(&parts.table_names, admitted, &evidence_blob(parts));
+    let latest = parts
+        .scenes
+        .iter()
+        .max_by_key(|s| s.sequence_number)
+        .and_then(|s| s.content.as_deref());
+    let prior_src = current_content
+        .filter(|s| !s.trim().is_empty())
+        .or(latest)
+        .unwrap_or("");
+    let prior_prose = slice_prior_prose(prior_src);
+    let progress = progress_lines_from_parts(parts);
+    let admitted_set: Vec<&str> = admitted.iter().map(|s| s.as_str()).collect();
+    let tension_filtered: Vec<_> = parts
+        .tensions
+        .iter()
+        .filter(|t| {
+            admitted_set.contains(&t.source_name.as_str())
+                || admitted_set.contains(&t.target_name.as_str())
+        })
+        .cloned()
+        .collect();
+    let tensions_text =
+        crate::agency::emotional_ledger::render_tensions_for_prompt(&tension_filtered);
+    let tension_lines: Vec<String> = if tensions_text.is_empty() {
+        vec![]
+    } else {
+        vec![tensions_text]
+    };
+    let arc_filtered: Vec<_> = parts
+        .arcs
+        .iter()
+        .filter(|a| admitted_set.contains(&a.character_name.as_str()))
+        .cloned()
+        .collect();
+    let arcs_text = crate::agency::emotional_ledger::render_arcs_for_prompt(&arc_filtered);
+    let arc_lines: Vec<String> = if arcs_text.is_empty() {
+        vec![]
+    } else {
+        vec![arcs_text]
+    };
+    render_continue_assets(&ContinueAssetsInput {
+        bundle: &parts.bundle,
+        admitted,
+        roster: &roster,
+        location,
+        next_node,
+        chapter_outline,
+        progress_lines: &progress,
+        prior_prose: &prior_prose,
+        tension_lines: &tension_lines,
+        arc_lines: &arc_lines,
+        logline: parts.logline.as_deref(),
+    })
+}
+
+fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -> String {
+    use crate::agency::continue_assets::{build_roster, render_roster_line};
+    let mut s = String::new();
+    for name in admitted {
+        if let Some(c) = parts
+            .bundle
+            .core_characters
+            .iter()
+            .find(|c| c.name == *name)
+        {
+            s.push_str(&format!(
+                "- {}：性格{}｜身份{}\n",
+                c.name,
+                c.personality.as_deref().unwrap_or("-"),
+                c.identity.as_deref().unwrap_or("-"),
+            ));
+        }
     }
-    let mut scenes_sorted = scenes;
-    scenes_sorted.sort_by_key(|sc| std::cmp::Reverse(sc.sequence_number));
-    for (i, sc) in scenes_sorted.iter().take(3).enumerate() {
-        let content: String = sc
-            .content
-            .as_deref()
-            .unwrap_or("")
-            .chars()
-            .take(if i == 0 { 1500 } else { 2000 })
-            .collect();
-        if content.trim().is_empty() {
-            continue;
-        }
-        let title = sc.title.as_deref().unwrap_or("无标题");
-        let line = format!("【前文·第{}场 {}】{}\n", sc.sequence_number, title, content);
-        if i == 0 {
-            s.push_str("\n\n");
-            s.push_str(&line);
-        } else if s.chars().count() + line.chars().count() <= 12000 {
-            s.push_str(&line);
-        } else {
-            s.push_str("…（更多前文已省略）");
-            break;
-        }
+    let roster = build_roster(&parts.table_names, admitted, &evidence_blob(parts));
+    let line = render_roster_line(&roster);
+    if !line.is_empty() {
+        s.push('\n');
+        s.push_str(&line);
     }
     s
+}
+
+/// 同步组装续写主创 user prompt（0 LLM）。测试与 `write_beat_once` 共用。
+pub(crate) fn assemble_continue_user_prompt(
+    pool: &DbPool,
+    story_id: &str,
+    instruction: &str,
+    current_content: &str,
+    chapter_outline: &str,
+) -> Result<(String, crate::agency::beat_card::SceneBeatCard), AppError> {
+    use crate::agency::continue_assets::{merge_admitted, names_in_text};
+    let card = crate::agency::beat_card::compile_beat_card(pool, story_id, current_content)?;
+    let Some(parts) = load_continue_context_parts(pool, story_id) else {
+        let user = crate::agency::beat_card::render_writer_user_prompt(
+            "",
+            &card,
+            instruction,
+            current_content,
+        );
+        return Ok((user, card));
+    };
+    let (present, parties, rest) = split_card_cast(&card);
+    let mentioned = names_in_text(
+        &parts.table_names,
+        &format!(
+            "{}{}{}",
+            chapter_outline, instruction, card.next_outline_node
+        ),
+    );
+    let admitted = merge_admitted(&present, &parties, &mentioned, &rest);
+    let assets = render_parts(
+        &parts,
+        &admitted,
+        chapter_outline,
+        &card.next_outline_node,
+        card.setting_location.as_deref(),
+        Some(current_content),
+    );
+    let user = crate::agency::beat_card::render_writer_user_prompt(
+        &assets,
+        &card,
+        instruction,
+        current_content,
+    );
+    Ok((user, card))
+}
+
+/// 从 DB 构建 writer 上下文（纯函数，可测试）。
+/// 无 BeatCard 时录取角色表前 8 人（设计 §5）。
+pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> String {
+    use crate::agency::continue_assets::ADMITTED_CAP;
+    let Some(parts) = load_continue_context_parts(pool, story_id) else {
+        return String::new();
+    };
+    let admitted: Vec<String> = parts
+        .table_names
+        .iter()
+        .take(ADMITTED_CAP)
+        .cloned()
+        .collect();
+    render_parts(&parts, &admitted, "", "", None, None)
 }
 
 #[cfg(test)]
@@ -5716,8 +6003,8 @@ mod writer_context_tests {
             ctx
         );
         assert!(
-            ctx.contains("【登场角色"),
-            "必须走 WriteTimeBundle 角色段标题 ctx={}",
+            ctx.contains("【本拍角色"),
+            "必须走按拍筛选角色段标题 ctx={}",
             ctx
         );
         assert!(
@@ -5725,5 +6012,107 @@ mod writer_context_tests {
             "coordinator 须在 to_prompt 后拼接张力段 ctx={}",
             ctx
         );
+    }
+
+    #[test]
+    fn build_writer_context_dedupes_outline_and_drops_old_scenes() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("大纲去重与前文"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "阿苔"))
+            .unwrap();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+                 VALUES ('o-orphan', ?1, '【核心冲突】皇权裂痕\n【核心冲突】皇权裂痕', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+                rusqlite::params![story.id],
+            )
+            .unwrap();
+        }
+        let scene_repo = SceneRepository::new(pool.clone());
+        let s1 = scene_repo.create(&story.id, 1, Some("一")).unwrap();
+        scene_repo
+            .update(
+                &s1.id,
+                &SceneUpdate {
+                    content: Some("第一场独有标记AAA 阿苔在场。".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let s2 = scene_repo.create(&story.id, 2, Some("二")).unwrap();
+        scene_repo
+            .update(
+                &s2.id,
+                &SceneUpdate {
+                    content: Some("第二场独有标记XYZ".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let s3 = scene_repo.create(&story.id, 3, Some("三")).unwrap();
+        scene_repo
+            .update(
+                &s3.id,
+                &SceneUpdate {
+                    content: Some("第三场正文阿苔继续走。".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let ctx = build_writer_context_from_db(&pool, &story.id);
+        assert!(ctx.contains("阿苔"), "ctx={ctx}");
+        assert_eq!(
+            ctx.matches("【核心冲突】皇权裂痕").count(),
+            1,
+            "大纲去重失败 ctx={ctx}"
+        );
+        assert!(!ctx.contains("【登场角色（必须严格遵循"));
+        assert!(!ctx.contains("第一场独有标记AAA"), "不得叠三场 ctx={ctx}");
+        assert!(!ctx.contains("第二场独有标记XYZ"), "不得叠三场 ctx={ctx}");
+        assert!(ctx.contains("第三场正文阿苔继续走"), "ctx={ctx}");
+    }
+
+    #[test]
+    fn assembled_user_prompt_omits_non_admitted_emotional_core() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("二十人点三人"))
+            .unwrap();
+        for i in 0..20 {
+            let mut req = char_req(&story.id, &format!("角色{:02}", i));
+            req.emotional_core = Some(format!("角色{:02}的情感内核", i));
+            CharacterRepository::new(pool.clone()).create(req).unwrap();
+        }
+        let scene_repo = SceneRepository::new(pool.clone());
+        let sc = scene_repo.create(&story.id, 1, Some("一")).unwrap();
+        let content = "角色00推门，角色01和角色02跟进来。".to_string();
+        scene_repo
+            .update(
+                &sc.id,
+                &SceneUpdate {
+                    content: Some(content.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (user, _card) =
+            assemble_continue_user_prompt(&pool, &story.id, "续写", &content, "").unwrap();
+        assert!(
+            user.contains("角色00"),
+            "录取者应在 prompt user={}",
+            user.chars().take(400).collect::<String>()
+        );
+        assert!(
+            !user.contains("角色19的情感内核"),
+            "未录取者不得给人设 user 含角色19内核"
+        );
+        assert!(user.contains("【本拍角色"));
+        assert!(!user.contains("【登场角色（必须严格遵循"));
     }
 }

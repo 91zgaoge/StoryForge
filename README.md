@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.41.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.42.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.42.0 · 续写只带上这一拍用得着的角色
+
+长篇续写不再把整张角色表和堆叠大纲全灌进提示词。这一拍上场的人给完整人设（最多 8 人），其余本故事相关角色只留一行名单，从没出场过的脏名直接丢掉。
+
+测试：cargo test 1367 passed / 2 ignored（+13）。对照诊断故事再续一拍的真机验收尚未跑。
 
 ### v0.41.2 · 续写不再卡满 10 分钟
 

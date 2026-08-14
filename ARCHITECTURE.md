@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.41.2 架构文档
+# StoryMoss (草苔) v0.42.0 架构文档
+
+> **v0.42.0**：续写按拍选取资产。Agency 热路径不再调用 `WriteTimeBundle::to_prompt()` 全量倾倒；新增 `agency/continue_assets.rs`（0 LLM）按 SceneBeatCard 准入名单渲染完整卡（≤8）、未上场一行名单、大纲去重、前文 800 字、资料预算 6000。`to_prompt()` 仍供改写 Full 路径使用。验证：`cargo test --lib` 1367 passed / 2 ignored（+13）。v0.41.2 超窗跳过与单章不回落 tool_loop 不变量不变。
 
 > **v0.41.2**：续写超时止血。`GatewayExecutor::generate` 候选循环用 `candidate_fits_prompt`（`prompt_chars/2` + 256 token 补全预留）跳过装不下当前提示的模型，补上路由器 `estimated_input_tokens==0` 与活跃模型插回首位后的漏洞。`write_beat_once` 散文回退失败直接返回，单章不再回落 `write_chapter` tool_loop（批量续写仍走该路径）。验证：`cargo test --lib` 1354 passed / 2 ignored（+4）。v0.41.1 核验不变量不变。
 

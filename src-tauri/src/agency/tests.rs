@@ -2957,7 +2957,7 @@ async fn test_generate_chapter_outline() {
     // 生成章节大纲
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outline = coordinator
-        .generate_chapter_outline("r-co", &story.id, "前提", &budget, 1, &assets_ctx)
+        .generate_chapter_outline("r-co", &story.id, "前提", &budget, 1, &assets_ctx, "")
         .await;
     assert!(!outline.is_empty(), "chapter outline should be non-empty");
     assert!(
@@ -3016,7 +3016,7 @@ async fn test_generate_chapter_outline_skips_without_story_outline() {
     );
     let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
     let outline = coordinator
-        .generate_chapter_outline("r-skip", &story.id, "前提", &budget, 1, &assets_ctx)
+        .generate_chapter_outline("r-skip", &story.id, "前提", &budget, 1, &assets_ctx, "")
         .await;
     assert!(
         outline.is_empty(),

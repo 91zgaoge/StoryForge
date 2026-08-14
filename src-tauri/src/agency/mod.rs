@@ -7,6 +7,7 @@ pub mod board;
 pub mod budget;
 pub mod bus;
 pub mod commands;
+pub mod continue_assets;
 pub mod coordinator;
 pub mod emotional_ledger;
 pub mod eval_harness;

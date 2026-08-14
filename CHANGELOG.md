@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.42.0（2026-08-14）
+
+Agency 续写按拍选取创作资产：完整角色卡只给本拍录取的人；未上场相关角色一行名单；脏名不进提示词；大纲去重；前文不再叠三场。
+
+### 功能
+
+- **确定性筛选（0 额外 LLM）**：新增 `agency/continue_assets.rs`。`write_beat_once` / `write_chapter` 先编译 SceneBeatCard，再按准入名单渲染资产。`WriteTimeBundle::to_prompt()` 全局语义不动，划词改写仍可全量。
+- **未上场名单**：`本拍未上场（禁止新编下列姓名，亦不得当主角使用）` 一行；近 5 场正文/出场列/大纲均未出现的名字视为脏数据，连名单也不列。
+- **体量**：故事大纲去重后 ≤1200 字；筛选后资料硬预算 6000 字；前文只留当前章末 800 字。章节大纲 LLM 不再拼接全表角色。
+
+### 测试
+
+- `cargo test --lib`：**1367 passed / 2 ignored**（基线 1354，+13）。
+- src-frontend `npx vitest run`：本版未重跑（无前端逻辑变更）。
+- `npx tsc --noEmit` 本版未重跑；`cargo +nightly fmt` / `architecture_guard.py` 全绿。
+
+### 已知债务
+
+- 规格 §8 真机对照诊断故事再续一拍未跑（需 LLM）；不得宣称「上下文已智能选取」。
+- `story_outlines` 表内仍无界追加；跨故事脏角色行不删除（注入层忽略不能替代表内收口）。
+- `ContextPrioritizer` 仍未接 Agency；设计 §13 八次续写真机探针未跑。
+- 本地模型连接超时仍可能 60s×2。
+
 ## v0.41.2（2026-08-14）
 
 修复幕前续写顶满 600s 超时：推理模型空正文后，网关不再把超长提示打给装不下的本地模型；单章续写在散文回退失败后不再进入 `write_chapter` tool_loop 重烧一轮候选链。

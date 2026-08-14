@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.41.2 项目完成状态
+# StoryMoss (草苔) v0.42.0 项目完成状态
 
-> 最后更新: 2026-08-14（v0.41.2 续写超时：跳过超窗候选、散文失败不再进 tool_loop）
+> 最后更新: 2026-08-14（v0.42.0 续写按拍选取创作资产）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.42.0 - 续写按拍选取创作资产（2026-08-14）
+
+- **筛选**：`continue_assets.rs` 确定性编译；完整卡 ≤8；未上场一行名单；脏名不进；大纲去重；前文 1 场×800 字；资料预算 6000。
+- **范围**：Agency `write_beat_once` / `write_chapter`；不改 `to_prompt()`。
+- **验证**：`cargo test --lib` 1367 passed / 2 ignored（+13）。
+- **未关闭**：规格 §8 真机探针；表内大纲无界追加；ContextPrioritizer 未接 Agency。
 
 ### v0.41.2 - 续写 600s 超时：跳过超窗候选、散文失败不再进 tool_loop（2026-08-14）
 

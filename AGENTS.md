@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.41.2
+- **版本**: v0.42.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1354 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1367 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 556 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.42.0 - 续写按拍选取创作资产
+
+长篇续写提示词不再全表倾倒。节拍卡当准入名单（≤8 人完整卡）；其余本故事相关角色一行名单；脏名不进；大纲去重；前文只留当前章末 800 字。`to_prompt()` 不动。
+
+- **验证**：`cargo test --lib` 1367 passed / 2 ignored（+13）；无前端逻辑变更。
+- **未关闭**：规格 §8 真机探针未跑；`story_outlines` 表内无界追加；ContextPrioritizer 未接 Agency。
 
 ### v0.41.2 - 续写 600s 超时：跳过超窗候选、散文失败不再进 tool_loop
 
@@ -885,7 +892,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-14 - v0.41.2_
+_最后更新: 2026-08-14 - v0.42.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
