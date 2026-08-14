@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod assembly;
 pub mod commands;
 pub mod engine;
 // v0.17.1: 全局提示词注册表 + 用户覆盖
