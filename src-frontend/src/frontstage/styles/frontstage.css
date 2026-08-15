@@ -27,25 +27,21 @@
 
 /* ===== CSS Variables ===== */
 :root {
-  /* OKLCH Color System - 60-30-10 Visual Weight */
-  /* 60% - Primary background (paper) */
-  --parchment: oklch(96.5% 0.012 95);
-  /* 30% - Secondary surfaces (headers, sidebars, borders) */
-  --parchment-dark: oklch(93.5% 0.014 95);
-  --warm-sand: oklch(91% 0.018 95);
-  --border-cream: oklch(94% 0.013 95);
-  /* 10% - Accent (terracotta) */
-  --terracotta: oklch(58% 0.13 45);
-  --terracotta-light: oklch(64% 0.14 45);
-  --terracotta-dark: oklch(52% 0.12 45);
-  /* Typography neutrals */
-  --charcoal: oklch(38% 0.015 85);
-  --charcoal-light: oklch(48% 0.012 85);
-  --olive-gray: oklch(52% 0.01 85);
-  --stone-gray: oklch(58% 0.008 85);
-  --ink: oklch(32% 0.015 85);
-  --ivory: oklch(98% 0.005 95);
-  --gold: oklch(72% 0.1 85);
+  /* 默认朱红·亮（纸·帘·印）；运行时由 applyColorTheme 重写 */
+  --parchment: rgb(255, 239, 232);
+  --parchment-dark: rgb(254, 225, 217);
+  --warm-sand: color-mix(in oklab, rgb(255, 239, 232) 88%, rgb(25, 14, 9));
+  --border-cream: color-mix(in oklab, rgb(255, 239, 232) 94%, rgb(25, 14, 9));
+  --terracotta: rgb(223, 67, 19);
+  --terracotta-light: color-mix(in oklab, rgb(223, 67, 19) 70%, rgb(255, 239, 232));
+  --terracotta-dark: color-mix(in oklab, rgb(223, 67, 19) 82%, rgb(25, 14, 9));
+  --charcoal: color-mix(in oklab, rgb(25, 14, 9) 88%, rgb(255, 239, 232));
+  --charcoal-light: color-mix(in oklab, rgb(25, 14, 9) 72%, rgb(255, 239, 232));
+  --olive-gray: color-mix(in oklab, rgb(25, 14, 9) 62%, rgb(255, 239, 232));
+  --stone-gray: color-mix(in oklab, rgb(25, 14, 9) 52%, rgb(255, 239, 232));
+  --ink: rgb(25, 14, 9);
+  --ivory: color-mix(in oklab, rgb(255, 239, 232) 70%, rgb(255, 255, 255));
+  --gold: rgb(223, 67, 19);
 
   /* Typography */
   --font-serif:
@@ -75,7 +71,7 @@
   --fs-paper-color: var(--parchment);
   --fs-ink-color: var(--ink);
   --fs-accent-color: var(--terracotta);
-  --text-on-accent: oklch(100% 0 0);
+  --text-on-accent: rgb(255, 250, 242);
 
   /* ===== AI 原生组件语义令牌（P1）——幕前值；幕后同名变量在 tokens.css ===== */
   --ai-surface: var(--ivory);
@@ -90,11 +86,11 @@
   --ai-line-strong: var(--stone-gray);
   --ai-accent: var(--terracotta);
   --ai-accent-ink: var(--terracotta-dark);
-  --ai-accent-tint: oklch(58% 0.13 45 / 0.12);
+  --ai-accent-tint: color-mix(in srgb, var(--terracotta) 12%, transparent);
   --ai-green: oklch(50% 0.18 145);
   --ai-red: oklch(50% 0.18 25);
   --ai-orange: #f59e0b;
-  --ai-on-accent: #ffffff;
+  --ai-on-accent: rgb(255, 250, 242);
   /* P2 Task5：幕前浮动层阴影。shadow-float 工具（tailwind.config.js L71）的变量此前仅
      幕后 tokens.css 定义，幕前解析为空导致 P1 AiPromptBar 弹出层无阴影；补齐后
      AiSelectionActions 浮条/结果面板与 P1 幕前组件同步获得预期阴影（属修复）。 */
@@ -716,12 +712,12 @@ body {
 
 .wensi-mode-toggle.wensi-active {
   color: var(--terracotta);
-  background-color: oklch(58% 0.13 45 / 0.1);
+  background-color: color-mix(in srgb, var(--terracotta) 12%, transparent);
 }
 
 .wensi-mode-toggle.wensi-passive {
   color: var(--gold);
-  background-color: oklch(72% 0.1 85 / 0.15);
+  background-color: color-mix(in srgb, var(--gold) 8%, transparent);
 }
 
 .wensi-mode-toggle.wensi-off {
@@ -1676,7 +1672,7 @@ body {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  background: var(--parchment-dark);
+  background: var(--parchment);
   border: 1px solid var(--warm-sand);
   border-radius: 10px;
   padding: 10px 12px;
@@ -1687,7 +1683,7 @@ body {
   transition:
     opacity 0.2s ease,
     transform 0.2s ease;
-  min-width: 100px;
+  min-width: 196px;
   z-index: 100;
 }
 
@@ -1708,8 +1704,8 @@ body {
 }
 
 .color-theme-options {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 4px;
 }
 

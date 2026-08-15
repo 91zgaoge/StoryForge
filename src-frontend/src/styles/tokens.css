@@ -12,18 +12,18 @@
   --terracotta-light: #d9896e;
   --terracotta-dark: #a85539;
 
-  /* 幕后「机械」——值为 warm 主题默认值；运行时由 backstageThemes.ts 按色调重写 */
-  --cinema-950: #0c0b09;
-  --cinema-900: #12110e;
-  --cinema-850: #161310;
-  --cinema-800: #1c1916;
-  --cinema-700: #26211c;
-  --cinema-600: #322c25;
-  --cinema-500: #423a31;
-  --cinema-gold: #d4af37;
-  --cinema-gold-light: #e8c547;
-  --cinema-gold-dark: #b8941f;
-  --cinema-velvet: #5c5470;
+  /* 幕后「机械」——默认朱红·暗；运行时由 backstageThemes.ts 按色调重写 */
+  --cinema-950: rgb(30, 14, 8);
+  --cinema-900: rgb(50, 26, 16);
+  --cinema-850: rgb(60, 35, 25);
+  --cinema-800: rgb(71, 45, 35);
+  --cinema-700: color-mix(in oklab, rgb(71, 45, 35) 55%, rgb(123, 94, 83));
+  --cinema-600: rgb(123, 94, 83);
+  --cinema-500: color-mix(in oklab, rgb(123, 94, 83) 70%, rgb(249, 241, 236));
+  --cinema-gold: rgb(246, 173, 143);
+  --cinema-gold-light: color-mix(in oklab, rgb(246, 173, 143) 70%, rgb(249, 241, 236));
+  --cinema-gold-dark: color-mix(in oklab, rgb(246, 173, 143) 82%, rgb(30, 14, 8));
+  --cinema-velvet: #862617;
 
   /* 状态 */
   --status-success: #4a9a6a;
@@ -41,18 +41,18 @@
   --ai-field: var(--cinema-800);
   --ai-hover: var(--cinema-700);
   --ai-hover-2: var(--cinema-600);
-  --ai-ink: #eceaf4;
+  --ai-ink: rgb(249, 241, 236);
   --ai-ink-2: #b8b4cc;
   --ai-ink-3: #7d7890;
   --ai-line: var(--cinema-700);
   --ai-line-strong: var(--cinema-500);
   --ai-accent: var(--cinema-gold);
   --ai-accent-ink: var(--cinema-gold-light);
-  --ai-accent-tint: rgba(212, 175, 55, 0.12);
+  --ai-accent-tint: color-mix(in srgb, var(--cinema-gold) 12%, transparent);
   --ai-green: var(--status-success);
   --ai-red: var(--status-danger);
   --ai-orange: var(--status-warning);
-  --ai-on-accent: #ffffff;
+  --ai-on-accent: rgb(68, 49, 41);
 
   /* 共享 */
   --radius-none: 0px;

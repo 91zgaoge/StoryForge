@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.45.1 架构文档
+# StoryMoss (草苔) v0.46.0 架构文档
+
+> **v0.46.0**：传统色主题。12 id（`zhuqing`…`hanxiulv`）各一份亮纸（幕前）+ 一份暗机械（幕后）。存储 `storymoss-color-theme-front` / `-back`；事件 `{ surface, id }`。不变量：幕前 `gold === terracotta`；幕后 `--cinema-gold` 为该色暗面 brand，印色只进 `--cinema-velvet`；改幕前不写 back、不 `applyBackstageTheme`。`--ai-accent-tint` / `--ai-on-accent` 跟随当前窗。不引入 `--dsw-*`。验证：`npx vitest run` 601 passed / 3 skipped（+11）。v0.45.1 续写前文双窗不变量不变。
 
 > **v0.45.1**：续写前文窗口。`slice_prior_prose` 先 `strip_editor_markup`；短章全文，长章开篇 600 + 近文 1800。`compile_beat_card`「末段已在场」改看 `prior_tail_for_cast`。`ending_anchor` 用纯正文。`apply_asset_budget` 裁【前文】从尾截。不叠更早几章正文。验证：`cargo test --lib` 1391 passed / 2 ignored（+6）。v0.45.0 组装器不变量不变。
 

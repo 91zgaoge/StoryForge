@@ -37,8 +37,9 @@ import { loadEditorConfig, STORAGE_KEY } from '@/hooks/contracts/useEditorConfig
 import { defaultStyle } from '@/frontstage/config/writingStyles';
 import {
   getCurrentEditorColors,
-  COLOR_THEME_STORAGE_KEY,
-  type ColorThemeId,
+  COLOR_THEME_STORAGE_KEY_FRONT,
+  COLOR_THEME_STORAGE_KEY_LEGACY,
+  parseThemeEventPayload,
 } from '@/frontstage/config/colorThemes';
 import { listen } from '@tauri-apps/api/event';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -507,15 +508,20 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       const bumpTheme = () => setThemeVersion(v => v + 1);
 
       const handleStorageChange = (e: StorageEvent) => {
-        if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
+        if (
+          e.key === COLOR_THEME_STORAGE_KEY_FRONT ||
+          e.key === COLOR_THEME_STORAGE_KEY_LEGACY ||
+          e.key === null
+        ) {
           bumpTheme();
         }
       };
       window.addEventListener('storage', handleStorageChange);
 
       let unlistenTheme: (() => void) | undefined;
-      void listen<ColorThemeId>('color-theme-changed', () => {
-        bumpTheme();
+      void listen('color-theme-changed', event => {
+        const parsed = parseThemeEventPayload(event.payload);
+        if (parsed?.surface === 'front') bumpTheme();
       })
         .then(fn => {
           unlistenTheme = fn;

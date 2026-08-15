@@ -8,17 +8,17 @@ import { writingStyles } from '@/frontstage/config/writingStyles';
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('幕前墨色抬升', () => {
-  it('frontstage.css 默认 --ink 为 oklch 32%', () => {
+  it('frontstage.css 默认 --ink 为朱红墨', () => {
     const css = readFileSync(
       resolve(frontendRoot, 'src/frontstage/styles/frontstage.css'),
       'utf-8'
     );
-    expect(css).toMatch(/--ink:\s*oklch\(32%/);
+    expect(css).toMatch(/--ink:\s*rgb\(25,\s*14,\s*9\)/);
   });
 
-  it('deriveTheme ink 亮于旧 25% 印刷黑', () => {
-    // fmt 用 toFixed(1)，暖主题 38-6=32 → oklch(32.0% …)
-    expect(colorThemes.warm.ink).toMatch(/oklch\(\s*32/);
+  it('幕前金标与强调同色（印 = 锚色）', () => {
+    expect(colorThemes.zhuhong.gold).toBe(colorThemes.zhuhong.terracotta);
+    expect(colorThemes.zhuhong.terracotta).toBe('rgb(223,67,19)');
   });
 
   it('幕前 --shadow-float 不用纯黑 rgba(0,0,0', () => {
@@ -30,18 +30,16 @@ describe('幕前墨色抬升', () => {
     expect(block).not.toMatch(/rgba\(0,\s*0,\s*0/);
   });
 
-  it('暖赭默认纸 chroma 为 0.012', () => {
+  it('朱红默认纸来自熟宣交付色', () => {
     const css = readFileSync(
       resolve(frontendRoot, 'src/frontstage/styles/frontstage.css'),
       'utf-8'
     );
     const tokens = readFileSync(resolve(frontendRoot, 'src/styles/tokens.css'), 'utf-8');
-    expect(css).toMatch(/--parchment:\s*oklch\(96\.5%\s+0\.012\s+95\)/);
-    expect(css).toMatch(/--parchment-dark:\s*oklch\(93\.5%\s+0\.014\s+95\)/);
-    expect(css).toMatch(/--warm-sand:\s*oklch\(91(?:\.0)?%\s+0\.018\s+95\)/);
-    expect(css).toMatch(/--border-cream:\s*oklch\(94(?:\.0)?%\s+0\.013\s+95\)/);
-    expect(colorThemes.warm.parchment).toMatch(/oklch\(96\.5%\s+0\.012\s+95\)/);
-    expect(colorThemes.cool.parchment).toMatch(/220/);
+    expect(css).toMatch(/--parchment:\s*rgb\(255,\s*239,\s*232\)/);
+    expect(css).toMatch(/--parchment-dark:\s*rgb\(254,\s*225,\s*217\)/);
+    expect(colorThemes.zhuhong.parchment).toBe('rgb(255,239,232)');
+    expect(colorThemes.qunqing.parchment).toBe('rgb(236,246,255)');
     expect(writingStyles.default.paperColor).toMatch(/oklch\(96\.5%\s+0\.012\s+95\)/);
     expect(tokens).toMatch(/--paper-50:\s*#f6f4eb/);
     expect(tokens).toMatch(/--paper-100:\s*#eceadf/);

@@ -1,34 +1,39 @@
 /**
- * 幕后主题全局接线：挂载即应用当前色调对应的幕后深色调，
- * 并监听 storage / Tauri color-theme-changed 双通道实时切换。
- * 在幕后根组件（App.tsx）调用一次。
+ * 幕后主题全局接线：挂载即应用当前幕后色调，
+ * 并监听 storage / Tauri color-theme-changed（仅 surface=back）。
  */
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
-  COLOR_THEME_STORAGE_KEY,
+  COLOR_THEME_STORAGE_KEY_BACK,
+  COLOR_THEME_STORAGE_KEY_LEGACY,
   loadColorTheme,
-  type ColorThemeId,
+  parseThemeEventPayload,
 } from '@/frontstage/config/colorThemes';
 import { applyBackstageTheme } from '@/styles/backstageThemes';
 
 export function useBackstageTheme(): void {
   useEffect(() => {
-    applyBackstageTheme(loadColorTheme());
+    applyBackstageTheme(loadColorTheme('back'));
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
-        applyBackstageTheme(loadColorTheme());
+      if (
+        e.key === COLOR_THEME_STORAGE_KEY_BACK ||
+        e.key === COLOR_THEME_STORAGE_KEY_LEGACY ||
+        e.key === null
+      ) {
+        applyBackstageTheme(loadColorTheme('back'));
       }
     };
     window.addEventListener('storage', handleStorage);
 
-    // cancelled 标志防止 cleanup 先于 listen() promise resolve 时监听器泄漏
-    // （StrictMode 双挂载场景：首次挂载的 cleanup 跑完后 promise 才 resolve）
     let cancelled = false;
     let unlisten: (() => void) | undefined;
-    void listen<ColorThemeId>('color-theme-changed', event => {
-      applyBackstageTheme(event.payload);
+    void listen('color-theme-changed', event => {
+      const parsed = parseThemeEventPayload(event.payload);
+      if (parsed?.surface === 'back') {
+        applyBackstageTheme(parsed.id);
+      }
     })
       .then(fn => {
         if (cancelled) fn();

@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.46.0（2026-08-15）
+
+幕前墨纸与幕后机械改用十二套写作向传统色（纸·帘·印）。焦点色就是锚色本人，不再偏相 40°。幕前顶栏色点与设置页两列分选，互不影响。
+
+### 功能
+
+- **十二套**：竹青、朱红、群青、藤黄、绛紫、菱锰红、荷叶绿、粉绿、黛紫、鷃蓝、皮弁、汉绣绿。默认朱红。
+- **分选**：`storymoss-color-theme-front` / `-back`；旧 key 仅在两边都空时迁一次。顶栏色点只写幕前；设置页点左不影响右。
+- **迁移**：warm→朱红，cool→群青，amber→藤黄，indigo→黛紫。
+- **印=锚色**：幕前 `--gold === --terracotta`；幕后 `--cinema-gold` 为该色暗面 brand，印色只进 `--cinema-velvet`。`--ai-accent-tint` / `--ai-on-accent` 跟随当前窗。
+- **不搬**：不引入 dsh 的 89 `--dsw-*` 令牌或生成器；词表仍是草苔 `--parchment*` / `--terracotta*` / `--cinema-*`。
+
+### 测试
+
+- `npx vitest run`：**601 passed / 3 skipped**（基线 590，+11）。
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard.py` 全绿。
+- 无 Rust 逻辑变更；`cargo test --lib` 基线 1391 passed / 2 ignored。
+
+### 已知债务
+
+- 空资产 / 空末句 trim 金标；ToolLoop head 双构造；v0.42.0 §8 真机探针；P3 producer/concept_pack。
+- 仍不把更早几章全文灌进续写。全界面截图回归未做成自动化。
+
 ## v0.45.1（2026-08-15）
 
 续写只带当前章末 800 字，长章前面的情节模型看不见，衔接会出逻辑和剧情错误。改为短章全文、长章开篇+近文双窗；先剥编辑器 HTML；「谁在场」只看近文。

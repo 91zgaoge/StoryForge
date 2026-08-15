@@ -91,3 +91,6 @@ target
 
 # ZCode local session artifacts
 .zcode/
+
+# Visual brainstorm companion (local mockups)
+.superpowers/

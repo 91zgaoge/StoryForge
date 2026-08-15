@@ -21,10 +21,12 @@ import { useDebounceCallback } from '@/hooks/useDebounceCallback';
 import { EditorSettings } from '@/components/EditorSettings';
 import {
   colorThemeList,
-  applyColorTheme,
   loadColorTheme,
   saveColorTheme,
-  COLOR_THEME_STORAGE_KEY,
+  parseThemeEventPayload,
+  COLOR_THEME_STORAGE_KEY_FRONT,
+  COLOR_THEME_STORAGE_KEY_BACK,
+  COLOR_THEME_STORAGE_KEY_LEGACY,
   type ColorThemeId,
 } from '@/frontstage/config/colorThemes';
 import { applyBackstageTheme, backstageThemes } from '@/styles/backstageThemes';
@@ -42,33 +44,49 @@ const DEFAULT_WRITING_STRATEGY: WritingStrategy = {
 
 // 颜色主题选择器组件
 export function ColorThemeSelector() {
-  const [currentTheme, setCurrentTheme] = useState<ColorThemeId>(() => loadColorTheme());
+  const [frontTheme, setFrontTheme] = useState<ColorThemeId>(() => loadColorTheme('front'));
+  const [backTheme, setBackTheme] = useState<ColorThemeId>(() => loadColorTheme('back'));
 
-  const handleSelect = (themeId: ColorThemeId) => {
-    setCurrentTheme(themeId);
-    applyColorTheme(themeId);
-    applyBackstageTheme(themeId);
-    saveColorTheme(themeId);
+  const handleSelectFront = (themeId: ColorThemeId) => {
+    setFrontTheme(themeId);
+    saveColorTheme('front', themeId);
   };
 
-  // 跨窗口同步：幕前 ColorThemeDot 变更时更新幕后选择器
-  useEffect(() => {
-    const handleThemeChange = (themeId: ColorThemeId) => {
-      setCurrentTheme(themeId);
-      applyColorTheme(themeId);
-      applyBackstageTheme(themeId);
-    };
+  const handleSelectBack = (themeId: ColorThemeId) => {
+    setBackTheme(themeId);
+    applyBackstageTheme(themeId);
+    saveColorTheme('back', themeId);
+  };
 
+  useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
-        handleThemeChange(loadColorTheme());
+      if (e.key === COLOR_THEME_STORAGE_KEY_FRONT || e.key === COLOR_THEME_STORAGE_KEY_LEGACY) {
+        setFrontTheme(loadColorTheme('front'));
+      }
+      if (e.key === COLOR_THEME_STORAGE_KEY_BACK || e.key === COLOR_THEME_STORAGE_KEY_LEGACY) {
+        const id = loadColorTheme('back');
+        setBackTheme(id);
+        applyBackstageTheme(id);
+      }
+      if (e.key === null) {
+        setFrontTheme(loadColorTheme('front'));
+        const backId = loadColorTheme('back');
+        setBackTheme(backId);
+        applyBackstageTheme(backId);
       }
     };
     window.addEventListener('storage', handleStorageChange);
 
     let unlisten: (() => void) | undefined;
-    void listen<ColorThemeId>('color-theme-changed', event => {
-      handleThemeChange(event.payload);
+    void listen('color-theme-changed', event => {
+      const parsed = parseThemeEventPayload(event.payload);
+      if (!parsed) return;
+      if (parsed.surface === 'front') {
+        setFrontTheme(parsed.id);
+      } else {
+        setBackTheme(parsed.id);
+        applyBackstageTheme(parsed.id);
+      }
     })
       .then(fn => {
         unlisten = fn;
@@ -83,41 +101,53 @@ export function ColorThemeSelector() {
     };
   }, []);
 
+  const renderColumn = (
+    surface: 'front' | 'back',
+    current: ColorThemeId,
+    onSelect: (id: ColorThemeId) => void
+  ) => (
+    <div className="flex flex-wrap gap-2">
+      {colorThemeList.map(theme => (
+        <button
+          key={`${surface}-${theme.id}`}
+          onClick={() => onSelect(theme.id)}
+          className={cn(
+            'flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all',
+            current === theme.id
+              ? 'border-cinema-gold bg-cinema-gold/10'
+              : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-600'
+          )}
+          title={theme.description}
+        >
+          <div
+            data-testid={`theme-swatch-${surface === 'front' ? 'frontstage' : 'backstage'}-${theme.id}`}
+            className="w-5 h-5 rounded-full border border-white/10"
+            style={{
+              backgroundColor:
+                surface === 'front'
+                  ? theme.terracotta
+                  : backstageThemes[theme.id].vars['--cinema-gold'],
+            }}
+          />
+          <span className="text-sm text-white">{theme.name}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="space-y-3">
-      <label className="block text-sm text-gray-400">颜色主题</label>
-      <div className="flex flex-wrap gap-3">
-        {colorThemeList.map(theme => (
-          <button
-            key={theme.id}
-            onClick={() => handleSelect(theme.id)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all',
-              currentTheme === theme.id
-                ? 'border-cinema-gold bg-cinema-gold/10'
-                : 'border-cinema-700 bg-cinema-800/50 hover:border-cinema-600'
-            )}
-            title={theme.description}
-          >
-            <div className="flex items-center gap-1">
-              <div
-                data-testid={`theme-swatch-frontstage-${theme.id}`}
-                className="w-5 h-5 rounded-full border border-white/10"
-                style={{ backgroundColor: theme.terracotta }}
-                title="幕前色调"
-              />
-              <div
-                data-testid={`theme-swatch-backstage-${theme.id}`}
-                className="w-5 h-5 rounded-full border border-white/10"
-                style={{ backgroundColor: backstageThemes[theme.id].vars['--cinema-gold'] }}
-                title="幕后色调"
-              />
-            </div>
-            <span className="text-sm text-white">{theme.name}</span>
-          </button>
-        ))}
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <label className="block text-sm text-gray-400">幕前写作</label>
+        {renderColumn('front', frontTheme, handleSelectFront)}
       </div>
-      <p className="text-xs text-gray-500">选择后即时生效，同步影响幕前写作界面与幕后工作台</p>
+      <div className="space-y-2">
+        <label className="block text-sm text-gray-400">幕后工作室</label>
+        {renderColumn('back', backTheme, handleSelectBack)}
+      </div>
+      <p className="text-xs text-gray-500">
+        两列分选。点左边只改写作纸色，点右边只改工作室机械色。
+      </p>
     </div>
   );
 }

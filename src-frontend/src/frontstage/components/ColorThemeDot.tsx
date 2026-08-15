@@ -3,7 +3,7 @@
  *
  * 嵌入在顶部 header 中，"开启文思"按钮左侧
  * 平时：12px 半透明小圆点
- * 悬停：展开 4 色选择面板（向下）
+ * 悬停：展开 12 色选择面板（只改幕前）
  * Zen 模式：隐藏
  */
 
@@ -17,7 +17,9 @@ import {
   loadColorTheme,
   saveColorTheme,
   applyColorTheme,
-  COLOR_THEME_STORAGE_KEY,
+  parseThemeEventPayload,
+  COLOR_THEME_STORAGE_KEY_FRONT,
+  COLOR_THEME_STORAGE_KEY_LEGACY,
 } from '@/frontstage/config/colorThemes';
 
 interface ColorThemeDotProps {
@@ -25,17 +27,15 @@ interface ColorThemeDotProps {
 }
 
 const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
-  const [currentThemeId, setCurrentThemeId] = useState<ColorThemeId>(loadColorTheme);
+  const [currentThemeId, setCurrentThemeId] = useState<ColorThemeId>(() => loadColorTheme('front'));
   const [isHovered, setIsHovered] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 初始化时应用主题
   useEffect(() => {
     applyColorTheme(currentThemeId);
   }, []);
 
-  // 跨窗口同步：幕后 GeneralSettings 变更时更新幕前色调
   useEffect(() => {
     const handleThemeChange = (themeId: ColorThemeId) => {
       setCurrentThemeId(themeId);
@@ -43,15 +43,22 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
     };
 
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === COLOR_THEME_STORAGE_KEY || e.key === null) {
-        handleThemeChange(loadColorTheme());
+      if (
+        e.key === COLOR_THEME_STORAGE_KEY_FRONT ||
+        e.key === COLOR_THEME_STORAGE_KEY_LEGACY ||
+        e.key === null
+      ) {
+        handleThemeChange(loadColorTheme('front'));
       }
     };
     window.addEventListener('storage', handleStorageChange);
 
     let unlisten: (() => void) | undefined;
-    void listen<ColorThemeId>('color-theme-changed', event => {
-      handleThemeChange(event.payload);
+    void listen('color-theme-changed', event => {
+      const parsed = parseThemeEventPayload(event.payload);
+      if (parsed?.surface === 'front') {
+        handleThemeChange(parsed.id);
+      }
     })
       .then(fn => {
         unlisten = fn;
@@ -68,7 +75,7 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
 
   const handleSelect = useCallback((themeId: ColorThemeId) => {
     setCurrentThemeId(themeId);
-    saveColorTheme(themeId);
+    saveColorTheme('front', themeId);
     applyColorTheme(themeId);
     setPanelOpen(false);
     setIsHovered(false);
@@ -90,10 +97,9 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
     }, 200);
   }, []);
 
-  // Zen 模式隐藏
   if (isZenMode) return null;
 
-  const currentTheme = colorThemes[currentThemeId];
+  const currentTheme = colorThemes[currentThemeId] ?? colorThemes.zhuhong;
 
   return (
     <div
@@ -101,9 +107,8 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* 选择面板 - 向下展开 */}
       <div className={cn('color-theme-panel', panelOpen && 'open')}>
-        <div className="color-theme-panel-title">色调</div>
+        <div className="color-theme-panel-title">幕前色调</div>
         <div className="color-theme-options">
           {colorThemeList.map(theme => (
             <button
@@ -119,11 +124,10 @@ const ColorThemeDot: React.FC<ColorThemeDotProps> = ({ isZenMode = false }) => {
         </div>
       </div>
 
-      {/* 状态点 */}
       <div
         className={cn('color-theme-dot', isHovered && 'hovered')}
         style={{ backgroundColor: currentTheme.terracotta }}
-        title="切换色调主题"
+        title="切换幕前色调"
       />
     </div>
   );

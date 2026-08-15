@@ -1,12 +1,15 @@
 /**
- * 幕后深色调主题系统（P0）
+ * 幕后深色调主题（纸 · 帘 · 印）
  *
- * Tailwind 的 cinema 色已映射 var(--cinema-*)（tailwind.config.js），
- * 主题切换 = 运行时重写 documentElement 上的同名变量。
- * 选项 id 与幕前色调主题（colorThemes.ts）一致：warm/cool/amber/indigo，
- * localStorage key 复用 storymoss-color-theme，天然双向同步。
+ * 与幕前同 id 的 12 套传统色；暗面机械。分选后不再与幕前共用一个 storage key。
  */
-import type { ColorThemeId } from '@/frontstage/config/colorThemes';
+import {
+  DEFAULT_COLOR_THEME,
+  THEME_CATALOG,
+  colorThemeList,
+  type ColorThemeId,
+  type DarkSeed,
+} from '@/frontstage/config/colorThemes';
 
 export interface BackstageTheme {
   id: ColorThemeId;
@@ -15,7 +18,6 @@ export interface BackstageTheme {
   vars: Record<string, string>;
 }
 
-/** 每套主题必须给齐的变量（完整性测试遍历此表） */
 export const BACKSTAGE_THEME_VARS = [
   '--cinema-950',
   '--cinema-900',
@@ -43,90 +45,51 @@ const STATUS = {
   '--status-danger-dim': 'rgba(196, 92, 74, 0.4)',
 };
 
-export const backstageThemes: Record<ColorThemeId, BackstageTheme> = {
-  warm: {
-    id: 'warm',
-    name: '暖金',
-    description: '木炭底 + 金色强调（默认，抬离 OLED 纯黑）',
-    vars: {
-      '--cinema-950': '#0c0b09',
-      '--cinema-900': '#12110e',
-      '--cinema-850': '#161310',
-      '--cinema-800': '#1c1916',
-      '--cinema-700': '#26211c',
-      '--cinema-600': '#322c25',
-      '--cinema-500': '#423a31',
-      '--cinema-gold': '#d4af37',
-      '--cinema-gold-light': '#e8c547',
-      '--cinema-gold-dark': '#b8941f',
-      '--cinema-velvet': '#5c5470',
-      ...STATUS,
-    },
-  },
-  cool: {
-    id: 'cool',
-    name: '冷青',
-    description: '深夜蓝底 + 青色强调，清新理性',
-    vars: {
-      '--cinema-950': '#0a1016',
-      '--cinema-900': '#081018',
-      '--cinema-850': '#0b1620',
-      '--cinema-800': '#101d29',
-      '--cinema-700': '#162636',
-      '--cinema-600': '#1f3347',
-      '--cinema-500': '#2c455e',
-      '--cinema-gold': '#22d3ee',
-      '--cinema-gold-light': '#67e8f9',
-      '--cinema-gold-dark': '#0891b2',
-      '--cinema-velvet': '#4a6678',
-      ...STATUS,
-    },
-  },
-  amber: {
-    id: 'amber',
-    name: '琥珀',
-    description: '暖褐底 + 琥珀橙强调，温润古典',
-    vars: {
-      '--cinema-950': '#120e0a',
-      '--cinema-900': '#120c07',
-      '--cinema-850': '#181008',
-      '--cinema-800': '#201609',
-      '--cinema-700': '#2c1e0d',
-      '--cinema-600': '#3d2a12',
-      '--cinema-500': '#523a1b',
-      '--cinema-gold': '#f59e0b',
-      '--cinema-gold-light': '#fbbf24',
-      '--cinema-gold-dark': '#d97706',
-      '--cinema-velvet': '#6a5340',
-      ...STATUS,
-    },
-  },
-  indigo: {
-    id: 'indigo',
-    name: '靛紫',
-    description: '紫夜底 + 靛蓝强调，沉静深邃',
-    vars: {
-      '--cinema-950': '#0c0c14',
-      '--cinema-900': '#0b0b16',
-      '--cinema-850': '#100f20',
-      '--cinema-800': '#16152c',
-      '--cinema-700': '#1d1b3a',
-      '--cinema-600': '#282450',
-      '--cinema-500': '#373266',
-      '--cinema-gold': '#818cf8',
-      '--cinema-gold-light': '#a5b4fc',
-      '--cinema-gold-dark': '#6366f1',
-      '--cinema-velvet': '#5a5478',
-      ...STATUS,
-    },
-  },
-};
+function mix(a: string, b: string, pctA: number): string {
+  return `color-mix(in oklab, ${a} ${pctA}%, ${b})`;
+}
 
-/** 将幕后主题应用到 documentElement；未知 id 回退 warm */
+function varsFromDark(dark: DarkSeed): Record<string, string> {
+  return {
+    '--cinema-950': dark.paper,
+    '--cinema-900': dark.l1,
+    '--cinema-850': dark.l2,
+    '--cinema-800': dark.l3,
+    '--cinema-700': mix(dark.l3, dark.overlay, 55),
+    '--cinema-600': dark.overlay,
+    '--cinema-500': mix(dark.overlay, dark.ink, 70),
+    '--cinema-gold': dark.brand,
+    '--cinema-gold-light': mix(dark.brand, dark.ink, 70),
+    '--cinema-gold-dark': mix(dark.brand, dark.paper, 82),
+    '--cinema-velvet': dark.seal,
+    ...STATUS,
+  };
+}
+
+export const backstageThemes: Record<ColorThemeId, BackstageTheme> = Object.fromEntries(
+  colorThemeList.map(front => {
+    const entry = THEME_CATALOG[front.id];
+    return [
+      front.id,
+      {
+        id: front.id,
+        name: front.name,
+        description: `${entry.family}暗面 + ${front.name}强调`,
+        vars: varsFromDark(entry.dark),
+      } satisfies BackstageTheme,
+    ];
+  })
+) as Record<ColorThemeId, BackstageTheme>;
+
 export function applyBackstageTheme(themeId: ColorThemeId): void {
-  const theme = backstageThemes[themeId] ?? backstageThemes.warm;
+  const theme = backstageThemes[themeId] ?? backstageThemes[DEFAULT_COLOR_THEME];
   const root = document.documentElement;
   for (const key of BACKSTAGE_THEME_VARS) {
     root.style.setProperty(key, theme.vars[key]);
   }
+  const gold = theme.vars['--cinema-gold'];
+  const catalog = THEME_CATALOG[theme.id] ?? THEME_CATALOG[DEFAULT_COLOR_THEME];
+  root.style.setProperty('--ai-accent-tint', `color-mix(in srgb, ${gold} 12%, transparent)`);
+  root.style.setProperty('--ai-on-accent', catalog.dark.onAccent);
+  root.style.setProperty('--ai-ink', catalog.dark.ink);
 }

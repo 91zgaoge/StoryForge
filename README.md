@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.45.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.46.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.46.0 · 十二套传统色，幕前幕后可分开选
+
+幕前顶栏色点只改写作纸面；设置里左右两列分别选幕前 / 幕后。旧四套（暖赭/冷青/琥珀/靛紫）自动迁到朱红/群青/藤黄/黛紫。需要重启到 0.46.0。
+
+测试：`npx vitest run` 601 passed / 3 skipped（+11）。无 Rust 逻辑变更。
 
 ### v0.45.1 · 续写会带上本章开篇和刚写到的近文
 
@@ -390,7 +396,7 @@ v0.27.0–v0.30.0 上线的多代理创作框架取代了旧 GenesisPipeline（�
 | **草苔** | 返回幕后                           |
 | **字数** | 当前章节字数 / 总字数              |
 | **18px** | 当前字号，点击可调                 |
-| **色调** | 暖赭 / 冷青 / 琥珀 / 靛紫 四种配色 |
+| **色调** | 十二套传统色（顶栏色点只改幕前；设置里幕前/幕后分列） |
 | **设置** | 打开设置 / 幕后工作室              |
 | **温**   | 文思模式切换                       |
 
