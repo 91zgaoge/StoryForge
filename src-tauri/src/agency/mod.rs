@@ -3,6 +3,7 @@
 //! 设计：docs/plans/2026-07-17-agency-multi-agent-framework-design.md
 
 pub mod beat_card;
+pub mod beat_state;
 pub mod board;
 pub mod budget;
 pub mod bus;

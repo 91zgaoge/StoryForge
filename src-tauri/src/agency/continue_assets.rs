@@ -25,12 +25,93 @@ pub const TENSION_ARC_CHAR_CAP: usize = 400;
 pub const ROSTER_PREFIX: &str = "本拍未上场（禁止新编下列姓名，亦不得当主角使用）";
 
 pub fn names_in_text(character_names: &[impl AsRef<str>], text: &str) -> Vec<String> {
-    character_names
+    match_character_names(character_names, text)
+}
+
+pub const CONFLICT_VERBS: &[&str] = &["对峙", "反转", "代价", "冲突", "对打", "逼迫", "加压"];
+
+pub fn has_conflict_verb(text: &str) -> bool {
+    CONFLICT_VERBS.iter().any(|v| text.contains(v))
+}
+
+/// 2 字名 → 全名 + 阿末字；≥3 字再加末两字。禁止单字。
+pub fn aliases_for(name: &str) -> Vec<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return vec![];
+    }
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = vec![name.to_string()];
+    if chars.len() >= 2 {
+        if let Some(last) = chars.last() {
+            let nick = format!("阿{last}");
+            if nick != name {
+                out.push(nick);
+            }
+        }
+    }
+    if chars.len() >= 3 {
+        let last2: String = chars[chars.len() - 2..].iter().collect();
+        if last2 != name {
+            out.push(last2);
+        }
+    }
+    out.retain(|s| s.chars().count() >= 2);
+    out.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
+    out.dedup();
+    out
+}
+
+/// 最长别名优先。别名若等于另一角色全名，只归属全名角色。
+pub fn match_character_names(names: &[impl AsRef<str>], text: &str) -> Vec<String> {
+    let canonical: Vec<String> = names
         .iter()
-        .map(|n| n.as_ref())
-        .filter(|n| !n.is_empty() && text.contains(*n))
-        .map(|n| n.to_string())
-        .collect()
+        .map(|n| n.as_ref().trim().to_string())
+        .filter(|n| !n.is_empty())
+        .collect();
+    let exact: std::collections::HashSet<&str> = canonical.iter().map(|s| s.as_str()).collect();
+    let mut pairs: Vec<(usize, String, String)> = Vec::new();
+    for canon in &canonical {
+        for alias in aliases_for(canon) {
+            if alias != *canon && exact.contains(alias.as_str()) {
+                continue;
+            }
+            pairs.push((alias.chars().count(), alias, canon.clone()));
+        }
+    }
+    pairs.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let mut hit = Vec::new();
+    for (_, alias, canon) in pairs {
+        if text.contains(&alias) && !hit.iter().any(|n| n == &canon) {
+            hit.push(canon);
+        }
+    }
+    hit
+}
+
+/// 增量中最后出现的已知地点；与 prev 相同则 None。
+pub fn detect_location_shift(
+    known: &[String],
+    prev: Option<&str>,
+    increment: &str,
+) -> Option<String> {
+    let mut last: Option<(usize, String)> = None;
+    for loc in known {
+        let loc = loc.trim();
+        if loc.is_empty() {
+            continue;
+        }
+        if let Some(idx) = increment.rfind(loc) {
+            if last.as_ref().map(|(i, _)| idx >= *i).unwrap_or(true) {
+                last = Some((idx, loc.to_string()));
+            }
+        }
+    }
+    let n = last.map(|(_, s)| s)?;
+    match prev.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) if p == n => None,
+        _ => Some(n),
+    }
 }
 
 pub fn merge_admitted(
@@ -548,6 +629,43 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         )
     };
 
+    let conflicts = input
+        .bundle
+        .active_conflicts
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            format!(
+                "【活跃冲突（本拍须承接，不得当已解决除非正文写明）】\n{}",
+                truncate_chars(s, 400)
+            )
+        })
+        .unwrap_or_default();
+    let goals = {
+        let raw = input.bundle.character_goals.as_deref().unwrap_or("");
+        if raw.trim().is_empty() {
+            String::new()
+        } else {
+            let kept: Vec<&str> = raw
+                .lines()
+                .filter(|line| {
+                    input
+                        .admitted
+                        .iter()
+                        .any(|n| !n.is_empty() && line.contains(n.as_str()))
+                })
+                .collect();
+            if kept.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "【角色当前目标】\n{}",
+                    truncate_chars(&kept.join("\n"), 400)
+                )
+            }
+        }
+    };
+
     let chapter = if input.chapter_outline.trim().is_empty() {
         input
             .bundle
@@ -638,6 +756,8 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         (cards, true),
         (roster, true),
         (relationships, false),
+        (conflicts, false),
+        (goals, false),
         (chapter, false),
         (progress, false),
         (prior, false),
@@ -924,5 +1044,64 @@ mod tests {
         assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
         assert!(out.contains("禁止时间旅行"));
         assert!(out.contains("章末必须留下"), "预算截前文须保近文 out={out}");
+    }
+
+    #[test]
+    fn aliases_for_two_char_name_includes_a_prefix() {
+        let a = aliases_for("沈砚");
+        assert!(a.contains(&"沈砚".into()));
+        assert!(a.contains(&"阿砚".into()));
+        assert!(!a.iter().any(|s| s.chars().count() == 1));
+    }
+
+    #[test]
+    fn match_character_names_alias_and_no_single_char() {
+        let names: Vec<String> = vec!["沈砚".into(), "白芷".into()];
+        let hit = match_character_names(&names, "阿砚握着罗盘，白芷在侧。");
+        assert!(hit.contains(&"沈砚".into()));
+        assert!(hit.contains(&"白芷".into()));
+        let miss = match_character_names(&names, "白雪落在石阶上。");
+        assert!(!miss.contains(&"白芷".into()));
+    }
+
+    #[test]
+    fn match_character_names_exact_name_wins_over_alias() {
+        let names: Vec<String> = vec!["沈砚".into(), "阿砚".into()];
+        let hit = match_character_names(&names, "阿砚先开口。");
+        assert_eq!(hit, vec!["阿砚".to_string()]);
+    }
+
+    #[test]
+    fn detect_location_shift_picks_last_known_place_in_increment() {
+        let known = vec!["雨巷".into(), "钟楼".into()];
+        let got = detect_location_shift(&known, Some("雨巷"), "他们离开雨巷，潜入钟楼底层。");
+        assert_eq!(got.as_deref(), Some("钟楼"));
+        assert!(detect_location_shift(&known, Some("雨巷"), "继续对话。").is_none());
+    }
+
+    #[test]
+    fn render_includes_filtered_conflicts_and_goals() {
+        let mut bundle = empty_bundle();
+        bundle.active_conflicts = Some("皇权裂痕".into());
+        bundle.character_goals = Some("阿岩：讨回公道\n路人：无关目标".into());
+        let admitted = vec!["阿岩".into()];
+        let input = ContinueAssetsInput {
+            bundle: &bundle,
+            admitted: &admitted,
+            roster: &[],
+            location: None,
+            next_node: "下一节点",
+            chapter_outline: "",
+            progress_lines: &[],
+            prior_prose: "",
+            tension_lines: &[],
+            arc_lines: &[],
+            logline: None,
+        };
+        let out = render_continue_assets(&input);
+        assert!(out.contains("皇权裂痕"), "{out}");
+        assert!(out.contains("讨回公道"), "{out}");
+        assert!(!out.contains("无关目标"), "{out}");
+        assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
     }
 }

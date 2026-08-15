@@ -2,6 +2,31 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.47.0（2026-08-15）
+
+续写质量闭合：堵住编译器空转（债务被自己清零、大纲节点回绕、场外仇敌、计划阵容写回、创世模板回退），补上别名点名 / 场次兑现 / 拍级状态网与一次探针重试。CI 用八拍 mock 契约代替设计验收探针。
+
+### 功能
+
+- **债务只在正文兑现时刷新**：冲突双方点名或加压词、阵容集合变化、地点 shift、伏笔针出现，才清对应 `last_*_beat`。连续两拍闲聊后第三拍卡含中文冲突配额。
+- **下一节点不回绕**：进度行累积不覆盖；全覆盖返回「把当前冲突推进一步」，禁止退回大纲首句。
+- **冲突看本拍阵容**：场外仇敌不再进卡；配额渲染中文硬任务，禁止 Debug 枚举进 prompt。
+- **写回事实出场**：`characters_present` 来自增量点名（含阿+末字别名），空则保留旧列。地点从近文已知地名 shift。
+- **续写过短回退**：同一张节拍卡再 `complete()` 一次，不再走创世散文模板。
+- **沉寂/张力不得无故传送**：无 `CharacterMove` 不塞场外沉寂角色；张力对手须一端已在场。
+- **拍级状态网**：未决线程头尾双锚；末句锚点只约束句法衔接。探针失败可再 complete 一次，仍有缺口落库 + warn，不丢稿。
+- **规范状态进筛选器**：`active_conflicts` / `character_goals` 按录取名筛进 6000 预算。
+
+### 测试
+
+- `cargo test --lib`：**1413 passed / 2 ignored**（基线 1391，+22）。含 `eight_beat_append_quality_contract`。
+- `npx tsc --noEmit` / `npm run format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。无前端逻辑变更。
+
+### 已知债务
+
+- **真机 8 次幕前续写未跑**（设计 §8.2），不得宣称人物丢失/错配、情节推进缓慢、前后文断裂三症状已修复。CI 八拍 mock 是替代物，不是真机。
+- ContextPrioritizer 仍未接 Agency；不叠更早几章全文；空资产 trim 金标；ToolLoop head 双构造。
+
 ## v0.46.0（2026-08-15）
 
 幕前墨纸与幕后机械改用十二套写作向传统色（纸·帘·印）。焦点色就是锚色本人，不再偏相 40°。幕前顶栏色点与设置页两列分选，互不影响。

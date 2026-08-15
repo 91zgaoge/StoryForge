@@ -1394,7 +1394,7 @@ async fn test_continue_writer_prose_fallback() {
         // generate_chapter_outline（Producer 单调用）
         "本章核心冲突：阿苔发现星环秘密。转折：盟友背叛。推进：前往禁区探索真相。场景：对话与追逐交替。",
         "短",              // write_beat_once 过短
-        chapter2.as_str(), // writer_prose_fallback 散文
+        chapter2.as_str(), // 续写回退（同组装，非创世 prose）
     ]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
     let result = coordinator
@@ -1493,7 +1493,7 @@ async fn test_continue_prose_fallback_failure_does_not_enter_tool_loop() {
     assert_eq!(
         llm.calls.lock().unwrap().len(),
         3,
-        "大纲 + complete + 散文回退；不得再进 write_chapter（会再调大纲/tool_loop）"
+        "大纲 + complete + 续写回退；不得再进 write_chapter（会再调大纲/tool_loop）"
     );
     assert_eq!(
         AgencyRepository::new(pool)
@@ -3603,4 +3603,196 @@ async fn test_handle_gate_editor_failure_drops_short_draft() {
         )
         .unwrap();
     assert_eq!(cnt, 0, "短稿丢稿后不应有第二章落库");
+}
+
+#[test]
+fn continue_short_retry_user_keeps_beat_card_not_genesis_premise() {
+    let user = "【本章节拍任务】\n阵容：阿岩\n【续写硬锚点";
+    let retry = continue_short_retry_user(user);
+    assert!(retry.contains("【本章节拍任务】"));
+    assert!(retry.contains("只输出小说正文"));
+    assert!(!retry.contains("故事前提："));
+}
+
+#[test]
+fn eight_beat_append_quality_contract() {
+    use crate::{
+        agency::{beat_card::compile_beat_card, persist::persist_append_with_card},
+        db::repositories::{
+            CharacterRelationshipRepository, CharacterRepository, CreateCharacterRequest,
+            CreateStoryRequest, StoryOutlineRepository, StoryRepository,
+        },
+    };
+
+    let pool = create_test_pool().unwrap();
+    let story = StoryRepository::new(pool.clone())
+        .create(CreateStoryRequest {
+            title: "八拍契约".into(),
+            description: None,
+            genre: Some("玄幻".into()),
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let sid = story.id.clone();
+    let char_repo = CharacterRepository::new(pool.clone());
+    let a = char_repo
+        .create(CreateCharacterRequest {
+            story_id: sid.clone(),
+            name: "阿岩".into(),
+            background: None,
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
+            source: None,
+            is_auto_generated: None,
+            emotional_core: None,
+            emotional_trigger: None,
+            emotional_wound: None,
+            emotional_need: None,
+        })
+        .unwrap();
+    char_repo
+        .create(CreateCharacterRequest {
+            story_id: sid.clone(),
+            name: "林雪".into(),
+            background: None,
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
+            source: None,
+            is_auto_generated: None,
+            emotional_core: None,
+            emotional_trigger: None,
+            emotional_wound: None,
+            emotional_need: None,
+        })
+        .unwrap();
+    let b = char_repo
+        .create(CreateCharacterRequest {
+            story_id: sid.clone(),
+            name: "顾长夜".into(),
+            background: None,
+            personality: None,
+            goals: None,
+            appearance: None,
+            gender: None,
+            age: None,
+            source: None,
+            is_auto_generated: None,
+            emotional_core: None,
+            emotional_trigger: None,
+            emotional_wound: None,
+            emotional_need: None,
+        })
+        .unwrap();
+    CharacterRelationshipRepository::new(pool.clone())
+        .create(
+            &sid,
+            &a.id,
+            &b.id,
+            "仇敌",
+            None,
+            None,
+            Some("恨"),
+            Some(0.9),
+            Some("戒备"),
+            Some(0.6),
+        )
+        .unwrap();
+    StoryOutlineRepository::new(pool.clone())
+        .create(&sid, "开篇灵堂托梦。钟楼破阵。龙脉重封。", None, 3, None)
+        .unwrap();
+    let scene_repo = SceneRepository::new(pool.clone());
+    let mut conn = pool.get().unwrap();
+    let tx = conn.transaction().unwrap();
+    let scene = scene_repo
+        .create_in_tx(&tx, &sid, 1, Some("第一章"))
+        .unwrap();
+    scene_repo
+        .update_in_tx(
+            &tx,
+            &scene.id,
+            &crate::db::repositories::SceneUpdate {
+                content: Some("阿岩站在雨巷。".into()),
+                setting_location: Some("雨巷".into()),
+                characters_present: Some(vec!["阿岩".into(), "顾长夜".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let loc_catalog = scene_repo
+        .create_in_tx(&tx, &sid, 2, Some("地点目录"))
+        .unwrap();
+    scene_repo
+        .update_in_tx(
+            &tx,
+            &loc_catalog.id,
+            &crate::db::repositories::SceneUpdate {
+                setting_location: Some("钟楼".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    tx.commit().unwrap();
+    let scene_id = scene.id;
+    drop(conn);
+
+    let pad = "续写增量正文。".repeat(30);
+    let increments = [
+        format!("阿岩独自在雨巷喝茶。{pad}"),
+        format!("阿岩仍在雨巷里闲话。{pad}"),
+        format!("阿岩对峙顾长夜，冲突加压，代价已经写在刀上。{pad}"),
+        format!("阿岩问顾长夜一句，顾长夜没有答。{pad}"),
+        format!("阿岩把话压回去，顾长夜看向巷口。{pad}"),
+        format!("他们离开雨巷，潜入钟楼底层。阿岩握刀，顾长夜跟入。{pad}"),
+        format!("林雪入场质问阿岩，顾长夜退到钟楼阴影里。{pad}"),
+        format!("林雪逼视阿岩，阿岩没有退。{pad}"),
+    ];
+    let mut content = "阿岩站在雨巷。".to_string();
+    for (i, inc) in increments.iter().enumerate() {
+        let card = compile_beat_card(&pool, &sid, &content).unwrap();
+        if i == 2 {
+            let text = card.expansion_quota_text.clone().unwrap_or_default();
+            let full = card.render_full();
+            assert!(
+                text.contains("冲突") || full.contains("本拍扩张任务"),
+                "beat 3 must carry conflict quota full={full}"
+            );
+            assert!(!full.contains("ConflictEscalation"));
+        }
+        persist_append_with_card(&pool, &scene_id, &content, inc, &card).unwrap();
+        content.push_str(inc);
+    }
+    let scenes = scene_repo.get_by_story(&sid).unwrap();
+    assert_eq!(
+        scenes.iter().filter(|s| s.sequence_number == 1).count(),
+        1,
+        "Append 不得新开章"
+    );
+    let ch1 = scenes.iter().find(|s| s.sequence_number == 1).unwrap();
+    assert!(ch1.characters_present.iter().any(|n| n == "阿岩"));
+    assert!(ch1.characters_present.iter().any(|n| n == "林雪"));
+    assert!(!ch1.characters_present.iter().any(|n| n == "路人甲"));
+    assert_eq!(ch1.setting_location.as_deref(), Some("钟楼"));
+    let last = compile_beat_card(&pool, &sid, &content).unwrap();
+    assert!(
+        !last.next_outline_node.starts_with("开篇灵堂"),
+        "rewound: {}",
+        last.next_outline_node
+    );
+    let prompt = crate::agency::beat_card::render_writer_user_prompt(
+        "【红线】",
+        &last,
+        "续写",
+        &content,
+        None,
+    );
+    assert!(!prompt.contains("最高优先级"));
 }

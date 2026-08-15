@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.46.0
+- **版本**: v0.47.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1391 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1413 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 601 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.47.0 - 续写质量闭合（债务/节点/阵容/状态网）
+
+对照 `docs/plans/2026-08-15-continue-quality-closure-design.md` 落地 P0–P3：债务只在正文兑现时刷新；下一节点不回绕；冲突看本拍阵容；写回事实出场与别名点名；续写过短回退保留节拍卡；拍级状态网 + 一次探针重试；CI `eight_beat_append_quality_contract`。NextChapter 装配先算 SceneUpdate 再开写事务，避免 SQLite unlock_notify 死锁。
+
+- **验证**：`cargo test --lib` 1413 passed / 2 ignored（+22）；`tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。无前端逻辑变更。
+- **未关闭**：真机 8 次幕前续写未跑，不得宣称三症状已修复；ContextPrioritizer 未接 Agency；不叠更早几章全文。
 
 ### v0.46.0 - 传统色主题（纸帘印 + 幕前幕后分选）
 
@@ -934,7 +941,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-15 - v0.46.0_
+_最后更新: 2026-08-15 - v0.47.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

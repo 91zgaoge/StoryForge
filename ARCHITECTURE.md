@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.46.0 架构文档
+# StoryMoss (草苔) v0.47.0 架构文档
+
+> **v0.47.0**：续写质量闭合。`touch_refresh_beats` 只在正文兑现冲突/阵容/地点时刷新；`compile_next_node` 禁止回绕大纲首句；`compile_conflict` 只点名本拍 cast；`persist` 写回增量点名（`match_character_names` 含别名）；`write_beat_once` 过短回退复用 `assemble_continue_beat`，不调用创世 `writer_prose_fallback`。新增 `agency/beat_state.rs`：状态网头尾双锚、末句锚点降权、探针至多一次 `complete()`。`render_continue_assets` 拼接 `active_conflicts`/`character_goals`。NextChapter 装配先算 `SceneUpdate` 再开写事务（避免持 tx 时 `pool.get()` 读 scenes 触发 SQLite unlock_notify 死锁）。不改 `WriteTimeBundle::to_prompt()`、`ExpansionDebt::quota_text()` 原文、`PersistMode`。验证：`cargo test --lib` 1413 passed / 2 ignored（+22）。v0.46.0 传统色不变量不变。
 
 > **v0.46.0**：传统色主题。12 id（`zhuqing`…`hanxiulv`）各一份亮纸（幕前）+ 一份暗机械（幕后）。存储 `storymoss-color-theme-front` / `-back`；事件 `{ surface, id }`。不变量：幕前 `gold === terracotta`；幕后 `--cinema-gold` 为该色暗面 brand，印色只进 `--cinema-velvet`；改幕前不写 back、不 `applyBackstageTheme`。`--ai-accent-tint` / `--ai-on-accent` 跟随当前窗。不引入 `--dsw-*`。验证：`npx vitest run` 601 passed / 3 skipped（+11）。v0.45.1 续写前文双窗不变量不变。
 

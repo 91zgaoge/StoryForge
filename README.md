@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.46.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.47.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.47.0 · 续写按拍兑现人物、冲突和进度
+
+续写不再「卡上写了就算做过」。只有正文真的点名了冲突双方、换了人或换了场，才会清债务；过短时仍带着这一拍的任务重写，不会掉进创世开篇。真机连续 8 次幕前续写还没跑，不能说角色错配/推进慢/前后文断裂已经修好。需要重启到 0.47.0。
+
+测试：`cargo test --lib` 1413 passed / 2 ignored（+22）。无前端逻辑变更。
 
 ### v0.46.0 · 十二套传统色，幕前幕后可分开选
 

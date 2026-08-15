@@ -36,7 +36,22 @@ pub struct SceneBeatCard {
     pub emotion_beat: EmotionBeat,
     pub next_outline_node: String,
     pub expansion_quota: Vec<QuotaItem>,
+    pub expansion_quota_text: Option<String>,
     pub setting_location: Option<String>,
+}
+
+pub fn quota_text_for_beats(
+    debt: &crate::creative_engine::expansion::ExpansionDebt,
+) -> Option<String> {
+    debt.quota_text().map(|s| {
+        s.replace(
+            "【本章扩张任务（硬性要求，必须落实）】",
+            "【本拍扩张任务（硬性要求，必须落实）】",
+        )
+        .replace(" 章——本章", " 拍——本拍")
+        .replace(" 章无更新——本章", " 拍无更新——本拍")
+        .replace(" 章无动静——本章", " 拍无动静——本拍")
+    })
 }
 
 impl SceneBeatCard {
@@ -64,14 +79,10 @@ impl SceneBeatCard {
                 lines.push(format!("地点：{}", loc));
             }
         }
-        if !self.expansion_quota.is_empty() {
-            let q = self
-                .expansion_quota
-                .iter()
-                .map(|i| format!("{:?}", i))
-                .collect::<Vec<_>>()
-                .join("、");
-            lines.push(format!("扩张配额：{}", q));
+        if let Some(ref q) = self.expansion_quota_text {
+            if !q.is_empty() {
+                lines.push(q.clone());
+            }
         }
         lines.join("\n")
     }
@@ -105,6 +116,15 @@ pub fn compile_beat_card(
     story_id: &str,
     current_content: &str,
 ) -> Result<SceneBeatCard, AppError> {
+    compile_beat_card_located(pool, story_id, current_content, None)
+}
+
+pub fn compile_beat_card_located(
+    pool: &DbPool,
+    story_id: &str,
+    current_content: &str,
+    current_scene_location: Option<&str>,
+) -> Result<SceneBeatCard, AppError> {
     let chars = CharacterRepository::new(pool.clone())
         .get_by_story(story_id)
         .map_err(AppError::from)?;
@@ -113,7 +133,11 @@ pub fn compile_beat_card(
     let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
     let mut cast = present_in_text(&chars, &tail);
     let ledger = RotationLedger::load_sync(pool, story_id).unwrap_or_default();
-    if chars.len() >= 3 {
+    let debt = ExpansionDebt::compute(pool, story_id, &ledger).unwrap_or_default();
+    let expansion_quota = debt.triggered();
+    let allow_character_move = expansion_quota.contains(&QuotaItem::CharacterMove);
+
+    if chars.len() >= 3 && allow_character_move {
         if let Some(silent) = ledger
             .character_silence
             .iter()
@@ -131,7 +155,14 @@ pub fn compile_beat_card(
             .partial_cmp(&b.pressure)
             .unwrap_or(std::cmp::Ordering::Equal)
     }) {
-        for name in [&t.source_name, &t.target_name] {
+        let src_in = !t.source_name.is_empty() && cast.iter().any(|c| c.name == t.source_name);
+        let tgt_in = !t.target_name.is_empty() && cast.iter().any(|c| c.name == t.target_name);
+        if src_in ^ tgt_in {
+            let name = if src_in {
+                &t.target_name
+            } else {
+                &t.source_name
+            };
             if !name.is_empty() && !cast.iter().any(|c| c.name == *name) {
                 cast.push(CastMember {
                     name: name.clone(),
@@ -147,7 +178,7 @@ pub fn compile_beat_card(
         });
     }
     cast.truncate(8);
-    if chars.len() >= 3 && cast.len() < 3 {
+    if chars.len() >= 3 && cast.len() < 3 && allow_character_move {
         for c in &chars {
             if cast.len() >= 3 {
                 break;
@@ -161,22 +192,14 @@ pub fn compile_beat_card(
         }
     }
 
-    let conflict_move = compile_conflict(&chars, pool, story_id, protagonist);
+    let conflict_move = compile_conflict(&chars, &cast, pool, story_id, protagonist);
     let emotion_beat = compile_emotion(&chars, &cast, pool, story_id, protagonist);
     let next_outline_node = compile_next_node(pool, story_id);
-    let expansion_quota = ExpansionDebt::compute(pool, story_id, &ledger)
-        .map(|d| d.triggered())
-        .unwrap_or_default();
-    let setting_location = SceneRepository::new(pool.clone())
-        .get_by_story(story_id)
-        .ok()
-        .and_then(|mut scenes| {
-            scenes.sort_by_key(|s| s.sequence_number);
-            scenes
-                .into_iter()
-                .rev()
-                .find_map(|s| s.setting_location.filter(|l| !l.is_empty()))
-        });
+    let expansion_quota_text = quota_text_for_beats(&debt);
+    let setting_location = current_scene_location
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     Ok(SceneBeatCard {
         cast,
@@ -184,27 +207,30 @@ pub fn compile_beat_card(
         emotion_beat,
         next_outline_node,
         expansion_quota,
+        expansion_quota_text,
         setting_location,
     })
 }
 
 fn present_in_text(chars: &[Character], text: &str) -> Vec<CastMember> {
-    chars
-        .iter()
-        .filter(|c| !c.name.is_empty() && text.contains(&c.name))
-        .map(|c| CastMember {
-            name: c.name.clone(),
+    let names: Vec<String> = chars.iter().map(|c| c.name.clone()).collect();
+    crate::agency::continue_assets::match_character_names(&names, text)
+        .into_iter()
+        .map(|name| CastMember {
+            name,
             purpose: "末段已在场，承接行动".into(),
         })
         .collect()
 }
 
-fn compile_conflict(
+pub(crate) fn compile_conflict(
     chars: &[Character],
+    cast: &[CastMember],
     pool: &DbPool,
     story_id: &str,
     protagonist: &str,
 ) -> ConflictMove {
+    let cast_names: Vec<&str> = cast.iter().map(|c| c.name.as_str()).collect();
     let rels = CharacterRelationshipRepository::new(pool.clone())
         .get_by_story(story_id)
         .unwrap_or_default();
@@ -224,14 +250,23 @@ fn compile_conflict(
             .map(|c| c.name.as_str())
             .unwrap_or(protagonist);
         let tgt = r.target_character_name.as_deref().unwrap_or("对方");
+        if !cast_names.contains(&src) || !cast_names.contains(&tgt) {
+            continue;
+        }
         return ConflictMove {
             action: format!("加压：{src} 与 {tgt} 正面对峙，赌注未解，不得只靠对话过渡。"),
             parties: vec![src.to_string(), tgt.to_string()],
         };
     }
+    let parties: Vec<String> = cast.iter().take(2).map(|c| c.name.clone()).collect();
+    let names = if parties.is_empty() {
+        protagonist.to_string()
+    } else {
+        parties.join("、")
+    };
     ConflictMove {
-        action: format!("{protagonist} 必须在本拍与阻力正面对峙，不得只靠对话过渡。"),
-        parties: vec![protagonist.to_string()],
+        action: format!("{names} 必须在本拍与阻力正面对峙，不得只靠对话过渡。"),
+        parties,
     }
 }
 
@@ -301,7 +336,8 @@ fn compile_emotion(
     }
 }
 
-fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
+pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
+    let fallback = "在硬约束内把当前冲突推进一步，不得原地复述末句。".to_string();
     let outline = StoryOutlineRepository::new(pool.clone())
         .get_by_story(story_id)
         .ok()
@@ -309,7 +345,7 @@ fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
         .map(|o| o.content)
         .unwrap_or_default();
     if outline.trim().is_empty() {
-        return "在硬约束内把当前冲突推进一步，不得原地复述末句。".into();
+        return fallback;
     }
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(story_id)
@@ -324,10 +360,10 @@ fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
     let candidates: Vec<&str> = outline
         .split(['\n', '。', '！', '？', ';', '；'])
         .map(str::trim)
-        .filter(|s| s.chars().count() >= 4)
+        .filter(|s| s.chars().count() >= 8)
         .collect();
     for cand in &candidates {
-        let key: String = cand.chars().take(8).collect();
+        let key: String = cand.chars().take(20).collect();
         if key.is_empty() {
             continue;
         }
@@ -335,10 +371,7 @@ fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
             return cand.chars().take(200).collect();
         }
     }
-    candidates
-        .first()
-        .map(|s| s.chars().take(200).collect())
-        .unwrap_or_else(|| "在硬约束内把当前冲突推进一步，不得原地复述末句。".into())
+    fallback
 }
 
 fn last_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
@@ -391,24 +424,33 @@ pub fn ending_anchor(current_content: &str) -> String {
         return String::new();
     };
     format!(
-        "【续写硬锚点（最高优先级，覆盖上方任何「开场/开篇」指令）】\n\
-         正文已写到此处，你必须从下一句无缝衔接，禁止另起开篇、禁止重写醒来/失忆/初入场景。\n\
+        "【续写硬锚点（句法衔接；人物/地点/未决以节拍任务与状态网为准）】\n\
+         正文已写到此处，下一句必须无缝衔接，禁止另起开篇、禁止重写醒来/失忆/初入场景。\n\
+         人物、地点、未决问题以节拍任务与状态网为准；末句只约束句法衔接。\n\
          ——已有正文末句——\n\
          {last}\n\
          ——请紧接上句继续写（可换段，但人物/地点/目标/未决问题必须承接）——"
     )
 }
 
-/// 主创 user prompt：卡全文 → Bundle → 指令 → 卡摘要 → 末句锚点。
+/// 主创 user prompt：卡全文 → 状态网 → Bundle → 指令 → 卡摘要 → 状态摘要 →
+/// 末句锚点。
 pub fn render_writer_user_prompt(
     bundle_prompt: &str,
     card: &SceneBeatCard,
     instruction: &str,
     current_content: &str,
+    state: Option<&crate::agency::beat_state::BeatState>,
 ) -> String {
+    let state_full = state
+        .map(|s| format!("\n\n{}", s.render_full()))
+        .unwrap_or_default();
+    let state_tail = state
+        .map(|s| format!("\n\n{}", s.render_tail_summary()))
+        .unwrap_or_default();
     format!(
-        "{card_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
-         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}\n\n{ending}",
+        "{card_full}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
+         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{ending}",
         card_full = card.render_full(),
         bundle = bundle_prompt,
         instruction = instruction,
@@ -524,15 +566,60 @@ mod tests {
     }
 
     #[test]
-    fn beat_card_cast_includes_silent_character_when_three_exist() {
+    fn beat_card_does_not_teleport_silent_without_character_move() {
         let pool = create_test_pool().unwrap();
         let sid = seed_three_chars_one_silent(&pool);
+        {
+            let conn = pool.get().unwrap();
+            crate::creative_engine::expansion::write_beat_counters(
+                &conn,
+                &sid,
+                crate::creative_engine::expansion::BeatCounters {
+                    append_beats: 1,
+                    last_conflict_beat: 1,
+                    last_cast_refresh_beat: 1,
+                    last_location_beat: 1,
+                    last_foreshadow_beat: 1,
+                },
+            )
+            .unwrap();
+        }
         let card = compile_beat_card(&pool, &sid, "阿岩站在雨里。顾长夜冷笑。").unwrap();
-        assert!(card.cast.len() >= 3 && card.cast.len() <= 8);
-        assert!(card.cast.iter().any(|c| c.name == "林雪"));
+        assert!(
+            !card.cast.iter().any(|c| c.name == "林雪"),
+            "无 CharacterMove 不得传送林雪 cast={:?}",
+            card.cast
+        );
         assert!(!card.conflict_move.action.is_empty());
         assert!(!card.emotion_beat.summary.is_empty());
         assert!(!card.next_outline_node.is_empty());
+    }
+
+    #[test]
+    fn beat_card_cast_includes_silent_when_character_move_quota() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_three_chars_one_silent(&pool);
+        {
+            let conn = pool.get().unwrap();
+            crate::creative_engine::expansion::write_beat_counters(
+                &conn,
+                &sid,
+                crate::creative_engine::expansion::BeatCounters {
+                    append_beats: 3,
+                    last_conflict_beat: 3,
+                    last_cast_refresh_beat: 0,
+                    last_location_beat: 3,
+                    last_foreshadow_beat: 3,
+                },
+            )
+            .unwrap();
+        }
+        let card = compile_beat_card(&pool, &sid, "阿岩站在雨里。顾长夜冷笑。").unwrap();
+        assert!(
+            card.cast.iter().any(|c| c.name == "林雪"),
+            "CharacterMove 应将林雪列入 cast={:?}",
+            card.cast
+        );
     }
 
     #[test]
@@ -561,9 +648,11 @@ mod tests {
             },
             next_outline_node: "夜宴破裂".into(),
             expansion_quota: vec![],
+            expansion_quota_text: None,
             setting_location: Some("夜宴".into()),
         };
-        let prompt = render_writer_user_prompt("【红线】不可飞天", &card, "往下写", "他推开门。");
+        let prompt =
+            render_writer_user_prompt("【红线】不可飞天", &card, "往下写", "他推开门。", None);
         let i_card = prompt.find("【本章节拍任务】").unwrap();
         let i_sum = prompt.find("【节拍摘要】").unwrap();
         let i_end = prompt
@@ -572,6 +661,7 @@ mod tests {
         assert!(i_card < i_sum);
         assert!(i_sum < i_end);
         assert!(prompt.contains("林雪"));
+        assert!(!prompt.contains("最高优先级"));
     }
 
     #[test]
@@ -588,6 +678,7 @@ mod tests {
         assert!(!a.contains("</p>"), "{a}");
         assert!(a.contains("雨还在下"), "{a}");
         assert!(a.contains("他推开门"), "{a}");
+        assert!(!a.contains("最高优先级"), "{a}");
     }
 
     #[test]
@@ -623,5 +714,100 @@ mod tests {
             "开篇人物不得标成末段在场 cast={:?}",
             card.cast
         );
+    }
+
+    #[test]
+    fn quota_text_for_beats_uses_pai_not_debug_enum() {
+        let debt = crate::creative_engine::expansion::ExpansionDebt {
+            conflict: 2,
+            scene: 0,
+            character: 0,
+            foreshadow: 0,
+        };
+        let text = quota_text_for_beats(&debt).expect("quota");
+        assert!(text.contains("本拍扩张任务"));
+        assert!(text.contains("必须"));
+        assert!(!text.contains("ConflictEscalation"));
+        assert!(!text.contains("本章扩张任务"));
+    }
+
+    #[test]
+    fn compile_next_node_does_not_rewind_to_first_sentence() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story_minimal(&pool);
+        StoryOutlineRepository::new(pool.clone())
+            .create(&sid, "开篇灵堂。钟楼破阵。龙脉重封。", None, 3, None)
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let mut conn = pool.get().unwrap();
+        let tx = conn.transaction().unwrap();
+        let scene = scene_repo.create_in_tx(&tx, &sid, 1, Some("章")).unwrap();
+        scene_repo
+            .update_in_tx(
+                &tx,
+                &scene.id,
+                &crate::db::repositories::SceneUpdate {
+                    outline_content: Some(
+                        "进度：开篇灵堂。\n进度：钟楼破阵。\n进度：龙脉重封。".into(),
+                    ),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        tx.commit().unwrap();
+        let node = compile_next_node(&pool, &sid);
+        assert!(!node.starts_with("开篇灵堂"), "rewound: {node}");
+        assert!(node.contains("把当前冲突推进一步") || node.contains("不得原地复述"));
+    }
+
+    #[test]
+    fn compile_conflict_ignores_offstage_enemy() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_three_chars_one_silent(&pool);
+        let chars = CharacterRepository::new(pool.clone())
+            .get_by_story(&sid)
+            .unwrap();
+        let cast = vec![CastMember {
+            name: "林雪".into(),
+            purpose: "末段已在场，承接行动".into(),
+        }];
+        let mv = compile_conflict(&chars, &cast, &pool, &sid, "林雪");
+        assert!(!mv.parties.iter().any(|p| p == "顾长夜"));
+        assert!(!mv.action.contains("顾长夜"));
+    }
+
+    #[test]
+    fn third_compile_after_two_idle_appends_has_conflict_quota_zh() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_three_chars_one_silent(&pool);
+        let scenes = SceneRepository::new(pool.clone())
+            .get_by_story(&sid)
+            .unwrap();
+        let scene_id = scenes.last().unwrap().id.clone();
+        let card = compile_beat_card(&pool, &sid, "阿岩站在雨里。").unwrap();
+        crate::agency::persist::persist_append_with_card(
+            &pool,
+            &scene_id,
+            "阿岩站在雨里。",
+            &"续写增量正文。".repeat(30),
+            &card,
+        )
+        .unwrap();
+        crate::agency::persist::persist_append_with_card(
+            &pool,
+            &scene_id,
+            "阿岩站在雨里。",
+            &"续写增量正文。".repeat(30),
+            &card,
+        )
+        .unwrap();
+        let card3 = compile_beat_card(&pool, &sid, "阿岩站在雨里。").unwrap();
+        let text = card3.expansion_quota_text.clone().unwrap_or_default();
+        let full = card3.render_full();
+        assert!(
+            text.contains("冲突") || full.contains("本拍扩张任务"),
+            "quota missing: {full}"
+        );
+        assert!(!full.contains("ConflictEscalation"));
     }
 }

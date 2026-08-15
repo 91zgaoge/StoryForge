@@ -2938,6 +2938,10 @@ impl AgencyCoordinator {
             &format!("第{}章", chapter_number),
         );
         let generate_outline = matches!(persist, PersistMode::NextChapter { .. });
+        let scene_id_opt = match &persist {
+            PersistMode::Append { scene_id } => Some(scene_id.as_str()),
+            PersistMode::NextChapter { .. } => None,
+        };
         let (draft, card) = self
             .write_beat_once(
                 budget,
@@ -2948,6 +2952,7 @@ impl AgencyCoordinator {
                 generate_outline,
                 instruction,
                 current_content,
+                scene_id_opt,
             )
             .await?;
         self.emit_activity(
@@ -3701,7 +3706,7 @@ impl AgencyCoordinator {
     }
 
     /// 续写主创单次 `complete()`：资产上下文已注入，不再默认 tool_loop。
-    /// 产出 ≥200 字即写入黑板；过短则散文回退；散文仍失败则直接返回错误。
+    /// 产出 ≥200 字即写入黑板；过短则同组装续写回退一次；仍失败则直接返回错误。
     ///
     /// 不再把 `write_chapter` tool_loop 当最后手段：同一膨胀 prompt 再套
     /// JSON action 约束会重烧候选链（空 CoT → 小窗口 400 → 本地连接超时），
@@ -3716,21 +3721,33 @@ impl AgencyCoordinator {
         generate_outline: bool,
         instruction: &str,
         current_content: Option<&str>,
+        scene_id: Option<&str>,
     ) -> Result<(BoardItem, crate::agency::beat_card::SceneBeatCard), AppError> {
         let key = format!("第{}章", chapter_number);
+        let _ = premise;
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let content_for_card = current_content.unwrap_or("").to_string();
+        let scene_id_owned = scene_id.map(|s| s.to_string());
         let (parts, card) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
                 let content_for_card = content_for_card.clone();
+                let scene_id_owned = scene_id_owned.clone();
                 move || {
-                    let card = crate::agency::beat_card::compile_beat_card(
+                    let loc = scene_id_owned.as_ref().and_then(|id| {
+                        SceneRepository::new(pool.clone())
+                            .get_by_id(id)
+                            .ok()
+                            .flatten()
+                            .and_then(|s| s.setting_location)
+                    });
+                    let card = crate::agency::beat_card::compile_beat_card_located(
                         &pool,
                         &sid,
                         &content_for_card,
+                        loc.as_deref(),
                     )?;
                     Ok((load_continue_context_parts(&pool, &sid), card))
                 }
@@ -3774,7 +3791,7 @@ impl AgencyCoordinator {
         };
         let user = if let Some(ref p) = parts {
             let (present, parties, rest) = split_card_cast(&card);
-            let mentioned = crate::agency::continue_assets::names_in_text(
+            let mentioned = crate::agency::continue_assets::match_character_names(
                 &p.table_names,
                 &format!("{}{}{}", chapter_outline, instr, card.next_outline_node),
             );
@@ -3789,18 +3806,22 @@ impl AgencyCoordinator {
                 card.setting_location.as_deref(),
                 current_content,
             );
+            let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
             crate::agency::beat_card::render_writer_user_prompt(
                 &assets,
                 &card,
                 instr,
                 current_content.unwrap_or(""),
+                Some(&state),
             )
         } else {
+            let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
             crate::agency::beat_card::render_writer_user_prompt(
                 "",
                 &card,
                 instr,
                 current_content.unwrap_or(""),
+                Some(&state),
             )
         };
         let llm = BudgetedLlm::new(
@@ -3853,47 +3874,100 @@ impl AgencyCoordinator {
                 }
             }
         }
-        if text.chars().count() >= 200 {
-            let summary: String = text.chars().take(60).collect();
-            let board = self.board();
-            let rid = run_id.to_string();
-            let sid = story_id.to_string();
-            let ckey = key.clone();
-            let item = self
-                .db(move || {
-                    board.write(
-                        &rid,
-                        &sid,
-                        AgentRole::LeadWriter,
-                        BoardZone::Draft,
-                        "chapter",
-                        &ckey,
-                        &text,
-                        &summary,
-                    )
-                })
-                .await?;
-            return Ok((item, card));
-        }
-        log::warn!(
-            "agency: write_beat_once 过短（{} 字符），尝试散文回退 run={}",
-            text.chars().count(),
-            run_id
-        );
-        match self
-            .writer_prose_fallback(run_id, story_id, premise, budget, &key)
-            .await
-        {
-            Ok(d) => Ok((d, card)),
-            Err(e) => {
-                log::warn!(
-                    "agency: 散文回退失败（{}），不再进入 tool_loop write_chapter run={}",
-                    e,
-                    run_id
-                );
-                Err(e)
+        let mut did_short_retry = false;
+        if text.chars().count() < 200 {
+            did_short_retry = true;
+            log::warn!(
+                "agency: write_beat_once 过短（{} 字符），尝试续写回退 run={}",
+                text.chars().count(),
+                run_id
+            );
+            let retry_user = continue_short_retry_user(&user);
+            if let Ok(retry) = llm
+                .complete(&system, &retry_user, TaskType::CreativeWriting, 8192)
+                .await
+            {
+                let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
+                if retry.chars().count() >= 200 {
+                    text = retry;
+                }
             }
         }
+        if text.chars().count() < 200 {
+            return Err(AppError::from(format!(
+                "agency: write_beat_once 过短（{} 字符），续写回退仍失败 run={}",
+                text.chars().count(),
+                run_id
+            )));
+        }
+        let state =
+            compile_continue_beat_state(&card, parts.as_ref(), current_content.unwrap_or(""));
+        let probe0 =
+            crate::agency::beat_state::probe_increment(&text, &card, &state, &card.expansion_quota);
+        if !probe0.gaps.is_empty() && !did_short_retry {
+            let gap_block = format!(
+                "\n\n【缺口（必须在正文里补上，不要解释）】\n{}",
+                probe0
+                    .gaps
+                    .iter()
+                    .map(|g| format!("- {g}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            if let Ok(retry) = llm
+                .complete(
+                    &system,
+                    &format!("{user}{gap_block}"),
+                    TaskType::CreativeWriting,
+                    8192,
+                )
+                .await
+            {
+                let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
+                if retry.chars().count() >= 200 {
+                    let probe1 = crate::agency::beat_state::probe_increment(
+                        &retry,
+                        &card,
+                        &state,
+                        &card.expansion_quota,
+                    );
+                    let better = probe1.gaps.len() < probe0.gaps.len()
+                        || (probe1.gaps.len() == probe0.gaps.len()
+                            && retry.chars().count() > text.chars().count());
+                    if better {
+                        text = retry;
+                    }
+                    let leftover = if better { &probe1.gaps } else { &probe0.gaps };
+                    if !leftover.is_empty() {
+                        log::warn!(
+                            "agency: write_beat_once 探针仍有缺口 run={} gaps={:?}",
+                            run_id,
+                            leftover
+                        );
+                    }
+                }
+            }
+        }
+        let summary: String = text.chars().take(60).collect();
+        let board = self.board();
+        let rid = run_id.to_string();
+        let sid = story_id.to_string();
+        let ckey = key.clone();
+        let item = self
+            .db(move || {
+                board.write(
+                    &rid,
+                    &sid,
+                    AgentRole::LeadWriter,
+                    BoardZone::Draft,
+                    "chapter",
+                    &ckey,
+                    &text,
+                    &summary,
+                )
+            })
+            .await?;
+        Ok((item, card))
     }
 
     /// 写一章草稿：tool_loop 路径，仅供批量续写 `run_continue_batch`。
@@ -3927,7 +4001,9 @@ impl AgencyCoordinator {
                                 .and_then(|s| s.content.clone())
                         })
                         .unwrap_or_default();
-                    let card = crate::agency::beat_card::compile_beat_card(&pool, &sid, &latest)?;
+                    let card = crate::agency::beat_card::compile_beat_card_located(
+                        &pool, &sid, &latest, None,
+                    )?;
                     Ok((parts, card, latest))
                 }
             })
@@ -3962,8 +4038,10 @@ impl AgencyCoordinator {
             .await;
         let assets_ctx = if let Some(ref p) = parts {
             let (present, parties, rest) = split_card_cast(&card);
-            let mentioned =
-                crate::agency::continue_assets::names_in_text(&p.table_names, &chapter_outline);
+            let mentioned = crate::agency::continue_assets::match_character_names(
+                &p.table_names,
+                &chapter_outline,
+            );
             let admitted = crate::agency::continue_assets::merge_admitted(
                 &present, &parties, &mentioned, &rest,
             );
@@ -4212,17 +4290,16 @@ impl AgencyCoordinator {
             )));
         }
         let ingest_text = content.clone();
+        let refresh_inc = content.clone();
         let title_c = format!("第{}章", chapter_number);
         let card_owned = card.cloned();
+        let refresh_card = card_owned.clone();
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
             let repo = crate::db::repositories::SceneRepository::new(pool.clone());
-            let mut conn = pool
-                .get()
-                .map_err(|e| AppError::from(format!("pool: {}", e)))?;
-            let tx = conn.transaction().map_err(AppError::from)?;
-            let scene = repo
-                .create_in_tx(&tx, &sid, chapter_number, Some(&title_c))
-                .map_err(AppError::from)?;
+            // 必须在开写事务之前算完 SceneUpdate：scene_update_from_card 会
+            // 再 pool.get() 读 scenes/characters。若此时本连接已持有未提交
+            // INSERT，另一连接的 SELECT 会在 SQLite unlock_notify 上永远等
+            // （测试池 :memory: + busy_timeout 救不了跨连接写锁）。
             let update = if let Some(ref card) = card_owned {
                 crate::agency::persist::scene_update_from_card(
                     &pool,
@@ -4238,6 +4315,13 @@ impl AgencyCoordinator {
                     ..Default::default()
                 }
             };
+            let mut conn = pool
+                .get()
+                .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+            let tx = conn.transaction().map_err(AppError::from)?;
+            let scene = repo
+                .create_in_tx(&tx, &sid, chapter_number, Some(&title_c))
+                .map_err(AppError::from)?;
             repo.update_in_tx(&tx, &scene.id, &update)
                 .map_err(AppError::from)?;
             tx.commit().map_err(AppError::from)?;
@@ -4247,8 +4331,25 @@ impl AgencyCoordinator {
         .map_err(|e| AppError::from(format!("scene assembly join error: {}", e)))??;
         let pool_beats = self.pool.clone();
         let sid_beats = story_id.to_string();
+        let present = scene.characters_present.clone();
+        let loc = scene.setting_location.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            crate::agency::persist::increment_append_beat(&pool_beats, &sid_beats)
+            if let Some(ref card) = refresh_card {
+                crate::agency::persist::apply_card_beat_refresh(
+                    &pool_beats,
+                    &sid_beats,
+                    card,
+                    &refresh_inc,
+                    &[],
+                    None,
+                    &present,
+                    loc.as_deref(),
+                );
+            } else if let Err(e) =
+                crate::agency::persist::increment_append_beat(&pool_beats, &sid_beats)
+            {
+                log::warn!("increment_append_beat 失败: {e}");
+            }
         })
         .await;
         self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
@@ -5711,6 +5812,36 @@ fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -
     s
 }
 
+pub(crate) fn continue_short_retry_user(user: &str) -> String {
+    format!("只输出小说正文，承接末句，落实节拍任务，禁止分析/提纲/创世开篇。\n\n{user}")
+}
+
+fn compile_continue_beat_state(
+    card: &crate::agency::beat_card::SceneBeatCard,
+    parts: Option<&ContinueContextParts>,
+    current_content: &str,
+) -> crate::agency::beat_state::BeatState {
+    let (present, _, _) = split_card_cast(card);
+    let present = if present.is_empty() {
+        card.cast.iter().map(|c| c.name.clone()).collect()
+    } else {
+        present
+    };
+    let overdue = parts
+        .map(|p| p.bundle.overdue_foreshadowings.as_slice())
+        .unwrap_or(&[]);
+    let progress = parts.map(progress_lines_from_parts).unwrap_or_default();
+    let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    crate::agency::beat_state::compile_beat_state(
+        &present,
+        card.setting_location.as_deref(),
+        &card.next_outline_node,
+        overdue,
+        &tail,
+        &progress,
+    )
+}
+
 /// 同步组装续写主创 user prompt（0 LLM）。测试与 `write_beat_once` 共用。
 pub(crate) fn assemble_continue_user_prompt(
     pool: &DbPool,
@@ -5719,19 +5850,21 @@ pub(crate) fn assemble_continue_user_prompt(
     current_content: &str,
     chapter_outline: &str,
 ) -> Result<(String, crate::agency::beat_card::SceneBeatCard), AppError> {
-    use crate::agency::continue_assets::{merge_admitted, names_in_text};
+    use crate::agency::continue_assets::merge_admitted;
     let card = crate::agency::beat_card::compile_beat_card(pool, story_id, current_content)?;
     let Some(parts) = load_continue_context_parts(pool, story_id) else {
+        let state = compile_continue_beat_state(&card, None, current_content);
         let user = crate::agency::beat_card::render_writer_user_prompt(
             "",
             &card,
             instruction,
             current_content,
+            Some(&state),
         );
         return Ok((user, card));
     };
     let (present, parties, rest) = split_card_cast(&card);
-    let mentioned = names_in_text(
+    let mentioned = crate::agency::continue_assets::match_character_names(
         &parts.table_names,
         &format!(
             "{}{}{}",
@@ -5747,11 +5880,13 @@ pub(crate) fn assemble_continue_user_prompt(
         card.setting_location.as_deref(),
         Some(current_content),
     );
+    let state = compile_continue_beat_state(&card, Some(&parts), current_content);
     let user = crate::agency::beat_card::render_writer_user_prompt(
         &assets,
         &card,
         instruction,
         current_content,
+        Some(&state),
     );
     Ok((user, card))
 }
