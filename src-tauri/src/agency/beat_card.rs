@@ -110,7 +110,8 @@ pub fn compile_beat_card(
         .map_err(AppError::from)?;
     let protagonist = chars.first().map(|c| c.name.as_str()).unwrap_or("主角");
 
-    let mut cast = present_in_text(&chars, current_content);
+    let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    let mut cast = present_in_text(&chars, &tail);
     let ledger = RotationLedger::load_sync(pool, story_id).unwrap_or_default();
     if chars.len() >= 3 {
         if let Some(silent) = ledger
@@ -385,7 +386,8 @@ fn last_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
 /// 末句硬锚点：复制自 `agents::orchestrator::build_ending_anchor`，避免
 /// coordinator 耦合编排器。有正文时返回非空；空正文返回空串。
 pub fn ending_anchor(current_content: &str) -> String {
-    let Some(last) = last_n_sentences(current_content, 2, 280) else {
+    let plain = crate::agency::continue_assets::strip_editor_markup(current_content);
+    let Some(last) = last_n_sentences(&plain, 2, 280) else {
         return String::new();
     };
     format!(
@@ -576,5 +578,50 @@ mod tests {
     fn ending_anchor_empty_when_no_content() {
         assert!(ending_anchor("").is_empty());
         assert!(ending_anchor("   ").is_empty());
+    }
+
+    #[test]
+    fn ending_anchor_strips_html_tags() {
+        let html = "<p>他推开门。</p><p>雨还在下。</p>";
+        let a = ending_anchor(html);
+        assert!(!a.contains("<p>"), "{a}");
+        assert!(!a.contains("</p>"), "{a}");
+        assert!(a.contains("雨还在下"), "{a}");
+        assert!(a.contains("他推开门"), "{a}");
+    }
+
+    #[test]
+    fn cast_present_only_from_chapter_tail() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("末段点名"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "青梧甲"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "客栈乙"))
+            .unwrap();
+        let opening = "青梧甲在雨里立誓。";
+        let middle = "闲笔。".repeat(800);
+        let ending = "客栈乙扣上匣子。";
+        let card =
+            compile_beat_card(&pool, &story.id, &format!("{opening}{middle}{ending}")).unwrap();
+        let present: Vec<_> = card
+            .cast
+            .iter()
+            .filter(|c| c.purpose.contains("末段已在场"))
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(
+            present.contains(&"客栈乙"),
+            "近文人物应标末段在场 cast={:?}",
+            card.cast
+        );
+        assert!(
+            !present.contains(&"青梧甲"),
+            "开篇人物不得标成末段在场 cast={:?}",
+            card.cast
+        );
     }
 }

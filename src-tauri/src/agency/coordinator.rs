@@ -6118,7 +6118,8 @@ mod writer_context_tests {
         );
         assert!(
             !user.contains("角色19的情感内核"),
-            "未录取者不得给人设 user 含角色19内核"
+            "未录取者不得给人设 user={}",
+            user
         );
         assert!(user.contains("【本拍角色"));
         assert!(!user.contains("【登场角色（必须严格遵循"));

@@ -1,4 +1,6 @@
-# StoryMoss (草苔) v0.45.0 架构文档
+# StoryMoss (草苔) v0.45.1 架构文档
+
+> **v0.45.1**：续写前文窗口。`slice_prior_prose` 先 `strip_editor_markup`；短章全文，长章开篇 600 + 近文 1800。`compile_beat_card`「末段已在场」改看 `prior_tail_for_cast`。`ending_anchor` 用纯正文。`apply_asset_budget` 裁【前文】从尾截。不叠更早几章正文。验证：`cargo test --lib` 1391 passed / 2 ignored（+6）。v0.45.0 组装器不变量不变。
 
 > **v0.45.0**：提示词运行时组装。`prompts/assembly.rs` 的 `assemble()` 只按槽位拼接 `Layer` 文本，不依赖 `agency`。创世 `writer_first_chapter` / `writer_prose_fallback`、续写 `write_beat_once`、`ToolLoop::run` 的 head 经工厂接线；上下文仍由 BeatCard / `render_writer_user_prompt` 编译。`WriteTimeBundle::to_prompt()` 不动。场景预览默认 `agency_continue`，`timesliced`/`trishot_call3` 映射热路径。architecture_guard：`prompts` ↛ `agency`。验证：`cargo test --lib` 1385 passed / 2 ignored（+18）；`npx vitest run` 590 passed / 3 skipped。v0.44.1 输入无原生描边不变量不变。
 

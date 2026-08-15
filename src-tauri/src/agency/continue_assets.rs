@@ -14,7 +14,12 @@ pub const WORLD_CONCEPT_CHAR_CAP: usize = 400;
 pub const WORLD_RULE_CAP: usize = 5;
 pub const ROSTER_NAME_CAP: usize = 40;
 pub const ASSET_CHAR_BUDGET: usize = 6000;
-pub const PRIOR_PROSE_CHAR_CAP: usize = 800;
+/// 长章双窗：开篇窗口。与 `PRIOR_TAIL_CHAR_CAP` 合计为注入上限。
+pub const PRIOR_HEAD_CHAR_CAP: usize = 600;
+/// 长章双窗：近文窗口（衔接用）。预算收缩时也优先保住这段。
+pub const PRIOR_TAIL_CHAR_CAP: usize = 1800;
+/// 短章整段可进时的上限（开篇+近文）。
+pub const PRIOR_PROSE_CHAR_CAP: usize = PRIOR_HEAD_CHAR_CAP + PRIOR_TAIL_CHAR_CAP;
 pub const CHAPTER_OUTLINE_CHAR_CAP: usize = 800;
 pub const TENSION_ARC_CHAR_CAP: usize = 400;
 pub const ROSTER_PREFIX: &str = "本拍未上场（禁止新编下列姓名，亦不得当主角使用）";
@@ -60,13 +65,79 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     }
 }
 
-pub fn slice_prior_prose(text: &str) -> String {
-    let n = text.chars().count();
-    if n <= PRIOR_PROSE_CHAR_CAP {
-        text.to_string()
-    } else {
-        text.chars().skip(n - PRIOR_PROSE_CHAR_CAP).collect()
+/// 幕前编辑器传 HTML。提示词必须用纯正文，否则 800/2400 字预算会被标签吃掉。
+pub fn strip_editor_markup(text: &str) -> String {
+    let raw = text.trim();
+    if raw.is_empty() {
+        return String::new();
     }
+    if !raw.contains('<') && !raw.contains('&') {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut in_tag = false;
+    let mut tag = String::new();
+    for c in raw.chars() {
+        if c == '<' {
+            in_tag = true;
+            tag.clear();
+            continue;
+        }
+        if in_tag {
+            if c == '>' {
+                in_tag = false;
+                let t = tag.trim().trim_start_matches('/').to_ascii_lowercase();
+                let name = t.split(|ch: char| ch.is_whitespace()).next().unwrap_or("");
+                if matches!(
+                    name,
+                    "p" | "div" | "br" | "h1" | "h2" | "h3" | "li" | "tr" | "blockquote"
+                ) {
+                    out.push('\n');
+                }
+            } else {
+                tag.push(c);
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    let decoded = out
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'");
+    let mut collapsed = decoded;
+    while collapsed.contains("\n\n\n") {
+        collapsed = collapsed.replace("\n\n\n", "\n\n");
+    }
+    collapsed.trim().to_string()
+}
+
+/// 节拍卡「末段已在场」只看近文窗口，避免开篇人物被当成还在场。
+pub fn prior_tail_for_cast(text: &str) -> String {
+    let plain = strip_editor_markup(text);
+    let n = plain.chars().count();
+    if n <= PRIOR_TAIL_CHAR_CAP {
+        plain
+    } else {
+        plain.chars().skip(n - PRIOR_TAIL_CHAR_CAP).collect()
+    }
+}
+
+/// 当前章（Append）或最近一场（NextChapter）的前文：短章全文；
+/// 长章保留开篇 + 近文，中间省略。不叠更早场次的正文。
+pub fn slice_prior_prose(text: &str) -> String {
+    let plain = strip_editor_markup(text);
+    let n = plain.chars().count();
+    if n <= PRIOR_PROSE_CHAR_CAP {
+        return plain;
+    }
+    let head: String = plain.chars().take(PRIOR_HEAD_CHAR_CAP).collect();
+    let tail: String = plain.chars().skip(n - PRIOR_TAIL_CHAR_CAP).collect();
+    format!("{head}\n…（本章中间已省略）…\n{tail}")
 }
 
 pub fn condense_story_outline(raw: &str, next_node: &str) -> String {
@@ -344,6 +415,33 @@ fn take_chars(s: &str, max: usize) -> String {
     }
 }
 
+/// 预算收缩：普通段保标题（从头截）；【前文】保近文（从尾截，
+/// 并留下「【前文】」前缀）。
+fn shrink_part(s: &str, new_len: usize) -> String {
+    let n = s.chars().count();
+    if n <= new_len {
+        return s.to_string();
+    }
+    const PRIOR_PREFIX: &str = "【前文】";
+    if s.starts_with(PRIOR_PREFIX) {
+        let prefix_n = PRIOR_PREFIX.chars().count();
+        if new_len <= prefix_n {
+            return PRIOR_PREFIX.chars().take(new_len).collect();
+        }
+        let body: String = s.chars().skip(prefix_n).collect();
+        let keep = new_len - prefix_n;
+        let bn = body.chars().count();
+        let tail = if bn <= keep {
+            body
+        } else {
+            body.chars().skip(bn - keep).collect()
+        };
+        format!("{PRIOR_PREFIX}{tail}")
+    } else {
+        s.chars().take(new_len).collect()
+    }
+}
+
 /// `protected=true` 的段不得删光；超预算时从非保护段（通常是前文）往前截。
 /// 预算收缩禁止使用带「已截断」后缀的
 /// `truncate_chars`（后缀会让长度不降反升）。
@@ -366,7 +464,7 @@ pub fn apply_asset_budget(parts: &[(String, bool)]) -> String {
         if cur <= over {
             items[i].0.clear();
         } else {
-            let next = take_chars(&items[i].0, cur - over);
+            let next = shrink_part(&items[i].0, cur - over);
             if next.chars().count() >= cur {
                 items[i].0.clear();
             } else {
@@ -777,5 +875,54 @@ mod tests {
         assert!(!out.contains("不得进本拍"));
         assert!(out.contains("旧剑将出鞘"));
         assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
+    }
+
+    #[test]
+    fn slice_prior_prose_keeps_opening_and_ending_of_long_chapter() {
+        let opening = "开篇标记青梧镇雨夜。".repeat(60);
+        let middle = "中间标记不该出现。".repeat(200);
+        let ending = "章末标记他扣上匣子。".repeat(180);
+        let out = slice_prior_prose(&format!("{opening}{middle}{ending}"));
+        assert!(out.contains("开篇标记青梧镇雨夜"), "out={out}");
+        assert!(out.contains("章末标记他扣上匣子"), "out={out}");
+        assert!(out.contains("本章中间已省略"), "out={out}");
+        assert!(
+            !out.contains("中间标记不该出现"),
+            "中间不得整段灌入 out={}",
+            out.chars().take(200).collect::<String>()
+        );
+    }
+
+    #[test]
+    fn slice_prior_prose_strips_html_and_keeps_last_paragraph() {
+        let html = format!("<p>{}</p><p>乙收刀，转身离开客栈。</p>", "甲".repeat(3000));
+        let out = slice_prior_prose(&html);
+        assert!(!out.contains("<p>"), "out={out}");
+        assert!(!out.contains("</p>"), "out={out}");
+        assert!(out.contains("乙收刀，转身离开客栈"), "out={out}");
+        assert!(out.contains("甲"), "开篇窗口应仍有甲 out={out}");
+    }
+
+    #[test]
+    fn slice_prior_prose_short_chapter_kept_in_full() {
+        let text = "短章全文都要进。他推开门。";
+        assert_eq!(slice_prior_prose(text), text);
+    }
+
+    #[test]
+    fn budget_shrinks_prior_from_the_tail() {
+        let redline = "【⚠️ 世界观红线（绝不可违背，违反即判定为严重错误）】\n禁止时间旅行";
+        let cards = "【本拍角色（须遵循当前状态）】\n- 姓名：甲 | 情感内核：核";
+        let roster = format!("{ROSTER_PREFIX}乙、丙");
+        let prior = format!("【前文】{}章末必须留下", "哈".repeat(8000));
+        let out = apply_asset_budget(&[
+            (redline.to_string(), true),
+            (cards.to_string(), true),
+            (roster.clone(), true),
+            (prior, false),
+        ]);
+        assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
+        assert!(out.contains("禁止时间旅行"));
+        assert!(out.contains("章末必须留下"), "预算截前文须保近文 out={out}");
     }
 }
