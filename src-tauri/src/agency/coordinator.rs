@@ -2771,6 +2771,42 @@ impl AgencyCoordinator {
         });
     }
 
+    /// 角色表空且已有正文时，续写前从章节提取角色（60s fail-open）。
+    /// 测试环境无 app_handle 则跳过。不改 asset_bridge（ingest 枢纽风险高）。
+    async fn hot_path_extract_from_prose(&self, run_id: &str, story_id: &str, prose: &str) {
+        let Some(app) = self.app_handle.clone() else {
+            return;
+        };
+        let llm_service = LlmService::new(app.clone());
+        let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+            .with_pool(self.pool.clone())
+            .with_app_handle(app);
+        let ingest_content = crate::memory::ingest::IngestContent {
+            text: prose.to_string(),
+            source: format!("agency:hot-extract:{}", story_id),
+            story_id: story_id.to_string(),
+            scene_id: None,
+        };
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            pipeline.ingest(&ingest_content),
+        )
+        .await
+        {
+            Ok(Ok(_)) => log::info!(
+                "agency: 热路径正文提取完成 run={} story={}",
+                run_id,
+                story_id
+            ),
+            Ok(Err(e)) => log::warn!(
+                "agency: 热路径正文提取失败 run={} err={}（续写继续）",
+                run_id,
+                e
+            ),
+            Err(_) => log::warn!("agency: 热路径正文提取超时 run={}（续写继续）", run_id),
+        }
+    }
+
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
     /// `persist` 决定落库方式：NextChapter 走质量门 + 新章装配；Append 把
     /// 增量直接合并进既有场景（不跑同步质量门，editor 后台质检）。
@@ -3235,6 +3271,8 @@ impl AgencyCoordinator {
                         "agency: 已有正文，跳过按书名发明资产补齐 story={}",
                         story_id
                     );
+                    self.hot_path_extract_from_prose(run_id, story_id, &prose)
+                        .await;
                     self.spawn_producer_resume(run_id, story_id);
                 } else {
                     // 空书：producer 现场补齐；熔断不挡住续写，salvage + 后台续跑
