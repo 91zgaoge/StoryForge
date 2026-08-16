@@ -18,6 +18,7 @@ pub mod learning;
 pub mod materialize;
 pub mod models;
 pub mod persist;
+pub mod prose_ground;
 pub mod repository;
 pub mod roles;
 pub mod session;
