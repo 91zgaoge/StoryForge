@@ -2850,6 +2850,52 @@ async fn test_ensure_world_building_generates_when_missing() {
 
 /// v0.30.21: ensure_story_outline 在故事大纲缺失时强制生成并落库。
 #[tokio::test]
+async fn test_ensure_methodology_default_writes_scene_structure_when_empty() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "方法论默认".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    AgencyCoordinator::persist_default_methodology_if_empty(&pool, &story.id).unwrap();
+    let got = crate::db::repositories::StoryRepository::new(pool)
+        .get_by_id(&story.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.methodology_id.as_deref(), Some("scene_structure"));
+    assert_eq!(got.methodology_step, Some(1));
+}
+
+#[tokio::test]
+async fn test_ensure_methodology_default_does_not_override_hero_journey() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "已选英雄之旅".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: Some("hero_journey".into()),
+            reference_book_id: None,
+        })
+        .unwrap();
+    AgencyCoordinator::persist_default_methodology_if_empty(&pool, &story.id).unwrap();
+    let got = crate::db::repositories::StoryRepository::new(pool)
+        .get_by_id(&story.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.methodology_id.as_deref(), Some("hero_journey"));
+}
+
+/// v0.30.21: ensure_story_outline 在故事大纲缺失时强制生成并落库。
+#[tokio::test]
 async fn test_ensure_story_outline_generates_when_missing() {
     let pool = create_test_pool().unwrap();
     let story = crate::db::repositories::StoryRepository::new(pool.clone())

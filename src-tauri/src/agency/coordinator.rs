@@ -22,7 +22,7 @@ use crate::{
         tools::{ToolContext, ToolRegistry},
     },
     db::{
-        dto::CreateStoryRequest,
+        dto::{CreateStoryRequest, UpdateStoryRequest},
         repositories::{SceneRepository, SceneUpdate, StoryRepository},
         DbPool,
     },
@@ -3045,6 +3045,49 @@ impl AgencyCoordinator {
         })
     }
 
+    /// 未选定创作方法论时落库场景结构规范（情节冲突）。已有 id 不覆盖。
+    /// 设计：docs/plans/2026-08-16-prose-grounded-outline-design.md §3 / §7
+    pub(crate) fn persist_default_methodology_if_empty(
+        pool: &DbPool,
+        story_id: &str,
+    ) -> Result<(), AppError> {
+        use crate::agency::prose_ground::resolve_methodology_id;
+        let repo = StoryRepository::new(pool.clone());
+        let story = repo
+            .get_by_id(story_id)
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(format!("story not found: {story_id}")))?;
+        let empty_id = story
+            .methodology_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none();
+        let empty_step = story.methodology_step.is_none() || story.methodology_step == Some(0);
+        if !empty_id && !empty_step {
+            return Ok(());
+        }
+        let id = resolve_methodology_id(story.methodology_id.as_deref());
+        repo.update(
+            story_id,
+            &UpdateStoryRequest {
+                title: None,
+                description: None,
+                genre: None,
+                tone: None,
+                pacing: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: if empty_id { Some(id.to_string()) } else { None },
+                methodology_step: if empty_step { Some(1) } else { None },
+                reference_book_id: None,
+                strategy_json: None,
+            },
+        )
+        .map_err(AppError::from)?;
+        Ok(())
+    }
+
     /// 资产确认/补齐（Task 4 run_continue_inner 第 1 步提取）：
     /// 先查 characters 表；为空则先从本 story 历史黑板条目落库，仍无再让
     /// producer 现场补齐。
@@ -3056,6 +3099,12 @@ impl AgencyCoordinator {
         story_id: &str,
         premise: &str,
     ) -> Result<(), AppError> {
+        {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || Self::persist_default_methodology_if_empty(&pool, &sid))
+                .await?;
+        }
         let character_count = {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
