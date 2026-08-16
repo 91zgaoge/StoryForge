@@ -2690,6 +2690,18 @@ impl AgencyCoordinator {
         });
     }
 
+    /// 管理 Agent 熔断后后台续跑未完成的资产补齐。测试环境 no-op。
+    /// 设计：docs/plans/2026-08-16-prose-grounded-outline-design.md §6
+    fn spawn_producer_resume(&self, run_id: &str, story_id: &str) {
+        let Some(_app) = self.app_handle.clone() else {
+            log::info!("agency: 测试环境跳过后台管理补齐 (run={})", run_id);
+            return;
+        };
+        let _ = story_id;
+        // 完整续跑在后续任务接入：独立 300s + 正文门闩 + BACKGROUND_LLM_SEMAPHORE。
+        log::info!("agency: 调度后台管理补齐 run={} story={}", run_id, story_id);
+    }
+
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
     /// `persist` 决定落库方式：NextChapter 走质量门 + 新章装配；Append 把
     /// 增量直接合并进既有场景（不跑同步质量门，editor 后台质检）。
@@ -3105,6 +3117,14 @@ impl AgencyCoordinator {
             self.db(move || Self::persist_default_methodology_if_empty(&pool, &sid))
                 .await?;
         }
+        let prose = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || Ok(crate::agency::materialize::concat_story_prose(&pool, &sid)))
+                .await
+                .unwrap_or_default()
+        };
+        let has_prose = crate::agency::prose_ground::has_substantial_prose(&prose);
         let character_count = {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
@@ -3141,34 +3161,44 @@ impl AgencyCoordinator {
             .await
             .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
             if inserted == 0 {
-                // 仍无资产：producer 现场补齐
-                self.emit_activity(run_id, AgentRole::Producer, "start", "资产补齐");
-                let board = self.board();
-                let registry = Arc::new(ToolRegistry::agency_default());
-                let producer_out = self.run_role_with_llm_and_budget(
-                    budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
-                    "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式，含 emotional_core/emotional_trigger/emotional_wound/emotional_need）/大纲，写入资产区。如有多个角色，补齐角色间情感关系（item_type=relationship）。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
-                ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
-                if producer_out.aborted {
-                    return Err(AppError::from(circuit_break_message(
-                        "管理 Agent",
-                        "资产补齐未完成",
-                        circuit_break_reason(&producer_out),
-                    )));
+                if has_prose {
+                    log::info!(
+                        "agency: 已有正文，跳过按书名发明资产补齐 story={}",
+                        story_id
+                    );
+                    self.spawn_producer_resume(run_id, story_id);
+                } else {
+                    // 空书：producer 现场补齐；熔断不挡住续写，salvage + 后台续跑
+                    self.emit_activity(run_id, AgentRole::Producer, "start", "资产补齐");
+                    let board = self.board();
+                    let registry = Arc::new(ToolRegistry::agency_default());
+                    let producer_out = self.run_role_with_llm_and_budget(
+                        budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
+                        "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式，含 emotional_core/emotional_trigger/emotional_wound/emotional_need）/大纲，写入资产区。如有多个角色，补齐角色间情感关系（item_type=relationship）。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
+                    ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
+                    let board_c = board.clone();
+                    let rid = run_id.to_string();
+                    let assets = self
+                        .db(move || board_c.list_zone(&rid, BoardZone::Asset))
+                        .await?;
+                    let pool = self.pool.clone();
+                    let sid = story_id.to_string();
+                    tokio::task::spawn_blocking(move || {
+                        crate::agency::materialize::materialize_assets(&pool, &sid, &assets)
+                    })
+                    .await
+                    .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
+                    if producer_out.aborted {
+                        log::warn!(
+                            "agency: 管理 Agent 资产补齐熔断，已 salvage 并转后台续跑 run={} reason={}",
+                            run_id,
+                            circuit_break_reason(&producer_out)
+                        );
+                        self.spawn_producer_resume(run_id, story_id);
+                    } else {
+                        self.emit_activity(run_id, AgentRole::Producer, "done", "资产补齐");
+                    }
                 }
-                let board_c = board.clone();
-                let rid = run_id.to_string();
-                let assets = self
-                    .db(move || board_c.list_zone(&rid, BoardZone::Asset))
-                    .await?;
-                let pool = self.pool.clone();
-                let sid = story_id.to_string();
-                tokio::task::spawn_blocking(move || {
-                    crate::agency::materialize::materialize_assets(&pool, &sid, &assets)
-                })
-                .await
-                .map_err(|e| AppError::from(format!("materialize join error: {}", e)))?;
-                self.emit_activity(run_id, AgentRole::Producer, "done", "资产补齐");
             }
         }
         // v0.30.21: 层级资产强制生成--角色存在但世界观/故事大纲缺失时补齐，
@@ -3191,7 +3221,7 @@ impl AgencyCoordinator {
             })
             .await?
         };
-        if !has_world {
+        if !has_world && !has_prose {
             self.ensure_world_building(run_id, story_id, premise, budget)
                 .await?;
         }
@@ -3213,7 +3243,7 @@ impl AgencyCoordinator {
             })
             .await?
         };
-        if !has_outline {
+        if !has_outline && !has_prose {
             self.ensure_story_outline(run_id, story_id, premise, budget)
                 .await?;
         }

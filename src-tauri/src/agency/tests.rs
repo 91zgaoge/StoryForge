@@ -1744,7 +1744,7 @@ async fn test_logline_stored_after_genesis() {
 
 #[tokio::test]
 async fn test_continue_fails_without_assets_and_producer_aborts() {
-    // 无资产且 producer 熔断 → failed（验证资产补齐路径的熔断传播）
+    // v0.49: 管理熔断不再以「资产补齐未完成」挡住续写；空书仍可能在写作阶段失败。
     let pool = create_test_pool().unwrap();
     let story = crate::db::repositories::StoryRepository::new(pool.clone())
         .create(crate::db::dto::CreateStoryRequest {
@@ -1759,29 +1759,12 @@ async fn test_continue_fails_without_assets_and_producer_aborts() {
         .unwrap();
     let llm = MockLlm::scripted(vec!["不是 JSON", "还不是", "依然不是"]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
-    let err = coordinator
-        .run_continue(
-            "rc-2",
-            &story.id,
-            PersistMode::NextChapter { chapter_number: 1 },
-            "",
-            None,
-        )
+    let repo = AgencyRepository::new(pool.clone());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .ensure_assets(&budget, &repo, "rc-2-assets", &story.id, "续写")
         .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("管理")
-            || err.to_string().contains("熔断")
-            || err.to_string().contains("资产")
-    );
-    assert_eq!(
-        AgencyRepository::new(pool.clone())
-            .get_run("rc-2")
-            .unwrap()
-            .unwrap()
-            .status,
-        "failed"
-    );
+        .expect("管理熔断不得让 ensure_assets 失败");
 }
 
 /// T3 遗留修复：build_review_context 填充 previous_chapters 后，
@@ -2892,6 +2875,58 @@ async fn test_ensure_methodology_default_does_not_override_hero_journey() {
         .unwrap()
         .unwrap();
     assert_eq!(got.methodology_id.as_deref(), Some("hero_journey"));
+}
+
+#[tokio::test]
+async fn test_ensure_assets_with_prose_does_not_require_producer_loop() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "帝国的烟火".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let scene = SceneRepository::new(pool.clone())
+        .create(&story.id, 1, Some("第一章"))
+        .unwrap();
+    let mut prose = "知启纪元八百四十七年。大奉帝国西北边陲重镇，黑崎州城。\
+第二代镇北王苏会山端坐大堂。"
+        .to_string();
+    while prose.chars().count() < 200 {
+        prose.push_str("镇北王府大堂里红毡铺地，黑卫军肃立。");
+    }
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE scenes SET content = ?1 WHERE id = ?2",
+            rusqlite::params![prose, scene.id],
+        )
+        .unwrap();
+    }
+    let llm = MockLlm::scripted(vec![]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
+    let repo = AgencyRepository::new(pool);
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .ensure_assets(
+            &budget,
+            &repo,
+            "r-prose",
+            &story.id,
+            "续写《帝国的烟火》第1章",
+        )
+        .await
+        .expect("有正文时不得为补资产去按书名发明");
+    assert!(
+        llm.calls.lock().unwrap().is_empty(),
+        "有正文时不应调用管理 Agent tool_loop / 标题大纲: {:?}",
+        llm.calls.lock().unwrap()
+    );
 }
 
 /// v0.30.21: ensure_story_outline 在故事大纲缺失时强制生成并落库。
