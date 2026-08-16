@@ -1211,6 +1211,13 @@ async fn test_run_continue_append_keeps_scene_and_releases_run() {
         .unwrap()
         .unwrap();
     assert_eq!(run1.status, "completed", "装配后必须立即释放 active run");
+    let assets = crate::agency::board::BlackboardService::new(pool.clone())
+        .list_zone("ap-1", crate::agency::models::BoardZone::Asset)
+        .unwrap();
+    assert!(
+        !assets.is_empty(),
+        "Append 落库后当前 run 资产栏应有节拍投影: {assets:?}"
+    );
     assert_eq!(
         mock.calls.lock().unwrap().len(),
         1,

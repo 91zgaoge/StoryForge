@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.49.1 架构文档
+# StoryMoss (草苔) v0.50.0 架构文档
 
+> **v0.50.0**：续写三角色闭环。`agency/continue_loop.rs` 把后台活动写入 `agency_activity_log`（spawn 即 start，退出必 done）；Append 后把 BeatCard 投影到当前 run Asset 区，ingest 再补正文接地的角色/故事/世界观。`scenes.outline_content` 写成 `【当前场大纲】`，`compile_next_node` 优先读 `下一拍`；ingest 见该标记不覆盖。`load_open_review_issues` 跨 run 取最多 2 条 `gate:revise` 进节拍卡。不改 `WriteTimeBundle::to_prompt()`，不接 ContextPrioritizer，不 DELETE 脏角色行，不自动改写已落库章节。验证：`cargo test --lib` 1449 passed / 2 ignored（+13）；`npx vitest run` 590 passed / 3 skipped（+2）。真机未跑，不得宣称唱反调已修复。
+>
 > **v0.49.1**：卸掉幕前划词浮条。`RichTextEditor` 不再挂载 `AiSelectionActions`；组件从 `components/ui/ai/` 删除。选区只服务右键菜单与 `insertText` 当前选区替换。底部 `AiPromptBar` 仍是改写入口。v0.49.0 续写正文真相源不变量不变。验证：`npx vitest run` 588 passed / 3 skipped（−17）。无 Rust 逻辑变更。
 >
 > **v0.49.0**：有实质正文时资产真相源是 `scenes.content`，不是书名。`agency/prose_ground.rs` 姓名门闩 / `outline_is_grounded` / 默认 `scene_structure`。`ensure_assets` 跳过标题发明 Producer tool_loop；`producer_out.aborted` 不 Err。`ensure_story_outline` 有正文走方法论归纳。`compile_next_node` 未接地当空。`probe_increment` 拦场外开篇。不改 `WriteTimeBundle::to_prompt()`，不接 ContextPrioritizer，不 DELETE 脏角色行。验证：`cargo test --lib` 1436 passed / 2 ignored（+18）。真机未跑，不得宣称唱反调已修复。

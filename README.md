@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.49.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.50.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.50.0 · 续写后能在工作室看见资产，审查意见会进下一拍
+
+点续写后，幕后代理工作室会列出这一拍的人物和当前场大纲，卡片能点进去看。管理回流结束会显示完成或失败，不再停在「开始」。上一拍编辑指出的问题会成为下一拍必须兑现的任务。请升级到 0.50.0 并重启。同一开头的真机续写还没重跑，不能说「和前文唱反调」已经消失。
+
+测试：`cargo test --lib` 1449 passed / 2 ignored（+13）；`npx vitest run` 590 passed / 3 skipped（+2）。
 
 ### v0.49.1 · 划词不再弹出润色条
 

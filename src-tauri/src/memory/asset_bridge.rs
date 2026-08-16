@@ -657,17 +657,29 @@ fn sync_scene_outline(
     let ts = now();
     let mut wrote = 0usize;
     if !text.is_empty() {
-        match conn.execute(
-            "UPDATE scenes SET outline_content = ?3, updated_at = ?4 \
+        let existing: String = conn
+            .query_row(
+                "SELECT COALESCE(outline_content, '') FROM scenes WHERE id = ?1 AND story_id = ?2",
+                params![scene_id, story_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
+        // BeatCard 写成的当前场大纲是续写真相源，ingest 不得覆盖。
+        if existing.contains("【当前场大纲】") {
+            // keep BeatCard outline
+        } else {
+            match conn.execute(
+                "UPDATE scenes SET outline_content = ?3, updated_at = ?4 \
              WHERE id = ?1 AND story_id = ?2 AND ( \
                  outline_content IS NULL OR TRIM(outline_content) = '' \
                  OR COALESCE(source, 'user_created') IN ('ingest', 'agency', 'auto_placeholder') \
              )",
-            params![scene_id, story_id, text, ts],
-        ) {
-            Ok(n) => wrote += n,
-            Err(e) => {
-                log::warn!("[AssetBridge] 写入场景大纲失败: {}", e);
+                params![scene_id, story_id, text, ts],
+            ) {
+                Ok(n) => wrote += n,
+                Err(e) => {
+                    log::warn!("[AssetBridge] 写入场景大纲失败: {}", e);
+                }
             }
         }
     }

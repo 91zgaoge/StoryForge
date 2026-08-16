@@ -217,6 +217,15 @@ impl AgencyRepository {
         )
     }
 
+    /// 将黑板条目标为 resolved / active / proposed。无新列，复用 status。
+    pub fn set_item_status(&self, item_id: &str, status: &str) -> Result<usize, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "UPDATE agency_board_items SET status = ?2, updated_at = ?3 WHERE id = ?1",
+            params![item_id, status, now()],
+        )
+    }
+
     /// 并发护栏：同一 story 是否存在 pending/running 的 run。
     pub fn has_running_run_for_story(&self, story_id: &str) -> Result<bool, rusqlite::Error> {
         let conn = self.pool.get().map_err(pool_err)?;

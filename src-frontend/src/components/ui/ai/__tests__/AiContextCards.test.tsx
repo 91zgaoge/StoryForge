@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { AiContextCards, type AiContextCardItem } from '../AiContextCards';
 
 const items: AiContextCardItem[] = [
@@ -47,5 +47,13 @@ describe('AiContextCards', () => {
     render(<AiContextCards title="t" items={items} />);
     const badge = screen.getByText('✗');
     expect(badge.style.background).toContain('var(--ai-ink-3)');
+  });
+
+  it('onItemActivate 时卡片可点', () => {
+    const onItemActivate = vi.fn();
+    render(<AiContextCards title="t" items={items} onItemActivate={onItemActivate} />);
+    fireEvent.click(screen.getByText('合同红线'));
+    expect(onItemActivate).toHaveBeenCalledTimes(1);
+    expect(onItemActivate.mock.calls[0][0].key).toBe('a');
   });
 });

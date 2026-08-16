@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.49.1 项目完成状态
+# StoryMoss (草苔) v0.50.0 项目完成状态
 
-> 最后更新: 2026-08-16（v0.49.1 卸掉幕前划词润色浮条）
+> 最后更新: 2026-08-16（v0.50.0 续写三角色闭环：资产可见 / 当场大纲 / 审查进下一拍）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.50.0 - 续写三角色闭环（2026-08-16）
+
+- **根因（executed）**：回流不写当前 run 黑板；spawn 裸 emit 不落库；`start` 在信号量之后；审查 revise 不进下一拍 BeatCard。
+- **修复**：活动日志 start/done 全覆盖；节拍卡投影资产栏可点；`【当前场大纲】` 落库并优先作下一拍；revise 最多 2 条进卡，兑现后 resolved。
+- **验证**：`cargo test --lib` 1449 passed / 2 ignored（+13）；vitest 590 / 3 skipped（+2）。
+- **未关闭**：真机同一开头再续写未跑，不得宣称唱反调已修复。
 
 ### v0.49.1 - 卸掉幕前划词润色浮条（2026-08-16）
 

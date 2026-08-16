@@ -30,6 +30,8 @@ pub struct EmotionBeat {
     pub summary: String,
 }
 
+pub const CURRENT_SCENE_OUTLINE_MARK: &str = "【当前场大纲】";
+
 #[derive(Debug, Clone)]
 pub struct SceneBeatCard {
     pub cast: Vec<CastMember>,
@@ -39,6 +41,7 @@ pub struct SceneBeatCard {
     pub expansion_quota: Vec<QuotaItem>,
     pub expansion_quota_text: Option<String>,
     pub setting_location: Option<String>,
+    pub open_review_issues: Vec<String>,
 }
 
 pub fn quota_text_for_beats(
@@ -83,6 +86,41 @@ impl SceneBeatCard {
         if let Some(ref q) = self.expansion_quota_text {
             if !q.is_empty() {
                 lines.push(q.clone());
+            }
+        }
+        if !self.open_review_issues.is_empty() {
+            lines.push("【待兑现审查】".into());
+            for (i, issue) in self.open_review_issues.iter().take(2).enumerate() {
+                lines.push(format!("{}. {}", i + 1, issue));
+            }
+        }
+        lines.join("\n")
+    }
+
+    /// Append 写入 `scenes.outline_content` 的结构化当前场大纲（0 LLM）。
+    pub fn render_scene_outline(&self) -> String {
+        let mut lines = vec![CURRENT_SCENE_OUTLINE_MARK.to_string()];
+        let cast = self
+            .cast
+            .iter()
+            .map(|c| c.name.as_str())
+            .filter(|n| !n.is_empty())
+            .collect::<Vec<_>>()
+            .join("、");
+        lines.push(format!(
+            "在场：{}",
+            if cast.is_empty() {
+                "待定".into()
+            } else {
+                cast
+            }
+        ));
+        lines.push(format!("冲突：{}", self.conflict_move.action));
+        lines.push(format!("情感：{}", self.emotion_beat.summary));
+        lines.push(format!("下一拍：{}", self.next_outline_node));
+        if let Some(ref loc) = self.setting_location {
+            if !loc.is_empty() {
+                lines.push(format!("地点：{}", loc));
             }
         }
         lines.join("\n")
@@ -187,6 +225,7 @@ pub fn compile_beat_card_located(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let open_review_issues = crate::agency::continue_loop::load_open_review_issues(pool, story_id);
 
     Ok(SceneBeatCard {
         cast,
@@ -196,6 +235,7 @@ pub fn compile_beat_card_located(
         expansion_quota,
         expansion_quota_text,
         setting_location,
+        open_review_issues,
     })
 }
 
@@ -323,8 +363,36 @@ fn compile_emotion(
     }
 }
 
+pub fn next_node_from_scene_outline(outline: &str) -> Option<String> {
+    if !outline.contains(CURRENT_SCENE_OUTLINE_MARK) {
+        return None;
+    }
+    for line in outline.lines() {
+        if let Some(rest) = line.trim().strip_prefix("下一拍：") {
+            let n = rest.trim();
+            if n.chars().count() >= 2 {
+                return Some(n.chars().take(200).collect());
+            }
+        }
+    }
+    None
+}
+
 pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: &str) -> String {
     let shot = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    let scenes = SceneRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default();
+    if let Some(latest) = scenes.last() {
+        if let Some(node) =
+            next_node_from_scene_outline(latest.outline_content.as_deref().unwrap_or(""))
+        {
+            let key: String = node.chars().take(20).collect();
+            if key.is_empty() || !shot.contains(&key) {
+                return node;
+            }
+        }
+    }
     let names: Vec<String> = CharacterRepository::new(pool.clone())
         .get_by_story(story_id)
         .unwrap_or_default()
@@ -364,9 +432,6 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
     if outline.trim().is_empty() {
         return method_fallback;
     }
-    let scenes = SceneRepository::new(pool.clone())
-        .get_by_story(story_id)
-        .unwrap_or_default();
     let mut recent: Vec<&str> = scenes
         .iter()
         .filter_map(|s| s.outline_content.as_deref())
@@ -672,6 +737,7 @@ mod tests {
             expansion_quota: vec![],
             expansion_quota_text: None,
             setting_location: Some("夜宴".into()),
+            open_review_issues: vec![],
         };
         let prompt =
             render_writer_user_prompt("【红线】不可飞天", &card, "往下写", "他推开门。", None);
@@ -941,5 +1007,106 @@ mod tests {
             "quota missing: {full}"
         );
         assert!(!full.contains("ConflictEscalation"));
+    }
+
+    #[test]
+    fn compile_next_node_prefers_current_scene_outline() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story_minimal(&pool);
+        StoryOutlineRepository::new(pool.clone())
+            .create(
+                &sid,
+                "三年后京城火起奉乾帝崩。苏会山在席间把酒盏捏出裂纹。",
+                None,
+                3,
+                None,
+            )
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let mut conn = pool.get().unwrap();
+        let tx = conn.transaction().unwrap();
+        let scene = scene_repo.create_in_tx(&tx, &sid, 1, Some("章")).unwrap();
+        scene_repo
+            .update_in_tx(
+                &tx,
+                &scene.id,
+                &crate::db::repositories::SceneUpdate {
+                    outline_content: Some(
+                        "【当前场大纲】\n在场：阿岩\n冲突：加压\n情感：怒\n下一拍：留在夜宴厅对质"
+                            .into(),
+                    ),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        tx.commit().unwrap();
+        let node = compile_next_node(&pool, &sid, "阿岩推开门。");
+        assert!(
+            node.contains("留在夜宴厅"),
+            "应读当前场大纲下一拍, got={node}"
+        );
+        assert!(!node.contains("奉乾帝"), "不得改走书纲, got={node}");
+    }
+
+    #[test]
+    fn beat_card_render_full_includes_open_review_issues() {
+        let card = SceneBeatCard {
+            cast: vec![CastMember {
+                name: "林雪".into(),
+                purpose: "质问".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["林雪".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "怒".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: None,
+            open_review_issues: vec!["苏会山与曹元佩的冲突未兑现".into()],
+        };
+        let full = card.render_full();
+        assert!(full.contains("【待兑现审查】"));
+        assert!(full.contains("苏会山"));
+        assert!(card.render_scene_outline().contains("【当前场大纲】"));
+        assert!(card.render_scene_outline().contains("下一拍：夜宴破裂"));
+    }
+
+    #[test]
+    fn compile_beat_card_injects_prior_run_revise_issues() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story_minimal(&pool);
+        let repo = crate::agency::repository::AgencyRepository::new(pool.clone());
+        repo.create_run(&crate::agency::models::AgencyRun::new("old-r", "续写"))
+            .unwrap();
+        repo.set_run_story("old-r", &sid).unwrap();
+        let board = crate::agency::board::BlackboardService::new(pool.clone());
+        let content = serde_json::json!({
+            "outcome": "revise",
+            "issues": ["苏会山与曹元佩的冲突未兑现"],
+        })
+        .to_string();
+        board
+            .write(
+                "old-r",
+                &sid,
+                crate::agency::models::AgentRole::EditorAuditor,
+                crate::agency::models::BoardZone::Review,
+                "gate",
+                "gate-ch2-r1",
+                &content,
+                "gate:revise 1 条问题",
+            )
+            .unwrap();
+        let card = compile_beat_card(&pool, &sid, "阿岩走了。").unwrap();
+        assert!(
+            card.open_review_issues.iter().any(|i| i.contains("苏会山")),
+            "got={:?}",
+            card.open_review_issues
+        );
+        assert!(card.render_full().contains("【待兑现审查】"));
     }
 }

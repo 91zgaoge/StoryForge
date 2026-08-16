@@ -12,6 +12,7 @@ import { AiThinking } from '@/components/ui/ai/AiThinking';
 import { AiContextCards } from '@/components/ui/ai/AiContextCards';
 import { getRun, listActivities, listBoard, listRuns } from '@/services/api/agency';
 import type { BoardItem } from '@/services/api/agency';
+import type { ViewType } from '@/types';
 
 /** 角色事件流中的 role 值（AgentRole::as_str）-> 显示名 */
 const ROLES = AGENCY_ROLES;
@@ -35,6 +36,22 @@ const ZONES: { key: BoardItem['zone']; name: string }[] = [
 ];
 
 const ZONE_NAMES: Record<string, string> = Object.fromEntries(ZONES.map(z => [z.key, z.name]));
+
+function boardItemView(itemType: string): ViewType | null {
+  switch (itemType) {
+    case 'character':
+    case 'relationship':
+      return 'characters';
+    case 'world':
+      return 'world_building';
+    case 'outline':
+    case 'scene_outline':
+    case 'story_outline':
+      return 'stories';
+    default:
+      return null;
+  }
+}
 
 function hhmmss(at: number) {
   const d = new Date(at);
@@ -84,6 +101,7 @@ function timelineKey(t: TimelineEntry): string {
 
 export default function AgencyStudio() {
   const currentStory = useAppStore(s => s.currentStory);
+  const setCurrentView = useAppStore(s => s.setCurrentView);
   // 实时事件由 App.tsx 常驻监听器写入 agencyActivityStore
   //（本组件条件挂载，组件内监听会随卸载销毁）。
   const activities = useAgencyActivityStore(s => s.activities);
@@ -342,11 +360,24 @@ export default function AgencyStudio() {
                   <AiContextCards
                     title={z.name}
                     count={byZone(z.key).length}
+                    onItemActivate={
+                      z.key === 'asset'
+                        ? item => {
+                            const boardItem = byZone('asset').find(i => i.id === item.key);
+                            const view = boardItem ? boardItemView(boardItem.item_type) : null;
+                            if (view) setCurrentView(view);
+                          }
+                        : undefined
+                    }
                     items={byZone(z.key).map(item => ({
                       key: item.id,
                       title: item.key,
                       meta: `v${item.version} · ${item.status}`,
                       body: item.summary,
+                      source:
+                        z.key === 'asset' && boardItemView(item.item_type)
+                          ? { label: '打开', badge: '→', tone: 'accent' as const }
+                          : undefined,
                     }))}
                   />
                 )}

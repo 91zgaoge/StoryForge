@@ -271,7 +271,7 @@ fn scene_fields_from_facts(
     story_id: &str,
     card: &crate::agency::beat_card::SceneBeatCard,
     increment: &str,
-    existing_outline: Option<&str>,
+    _existing_outline: Option<&str>,
     prev_present: &[String],
     prev_location: Option<&str>,
 ) -> (crate::db::repositories::SceneUpdate, RefreshFlags) {
@@ -306,10 +306,7 @@ fn scene_fields_from_facts(
         },
         character_conflicts: conflicts,
         setting_location: shift.clone(),
-        outline_content: Some(merge_progress_line(
-            existing_outline,
-            &card.next_outline_node,
-        )),
+        outline_content: Some(card.render_scene_outline()),
         ..Default::default()
     };
     (update, flags)
@@ -682,6 +679,7 @@ mod tests {
             expansion_quota: vec![],
             expansion_quota_text: None,
             setting_location: Some("夜宴厅".into()),
+            open_review_issues: vec![],
         }
     }
 
@@ -704,8 +702,19 @@ mod tests {
         assert_eq!(scene.setting_location.as_deref(), Some("夜宴厅"));
         assert!(scene
             .outline_content
+            .as_deref()
             .unwrap_or_default()
             .contains("夜宴破裂"));
+        assert!(scene
+            .outline_content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("【当前场大纲】"));
+        assert!(scene
+            .outline_content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("下一拍"));
     }
 
     #[test]
@@ -755,6 +764,7 @@ mod tests {
             expansion_quota: vec![],
             expansion_quota_text: None,
             setting_location: Some("夜宴厅".into()),
+            open_review_issues: vec![],
         };
         let scene_repo = SceneRepository::new(pool.clone());
         let update = scene_update_from_card(&pool, &story_id, &card, long_increment(), None);

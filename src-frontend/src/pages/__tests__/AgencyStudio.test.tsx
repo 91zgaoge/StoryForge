@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const { setCurrentView } = vi.hoisted(() => ({ setCurrentView: vi.fn() }));
 
 vi.mock('@/services/api/agency', () => ({
   listBoard: vi.fn().mockResolvedValue([]),
@@ -9,7 +11,10 @@ vi.mock('@/services/api/agency', () => ({
 }));
 vi.mock('@/stores/appStore', () => ({
   useAppStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ currentStory: { id: 's1', title: '工作室书' } }),
+    sel({
+      currentStory: { id: 's1', title: '工作室书' },
+      setCurrentView,
+    }),
 }));
 
 import AgencyStudio from '../AgencyStudio';
@@ -190,5 +195,23 @@ describe('AgencyStudio', () => {
     expect((await screen.findAllByText('管理 done 概念')).length).toBe(1);
     expect((await screen.findAllByText('管理 start 概念')).length).toBe(1);
     expect((await screen.findAllByText('concept running 正在构思故事概念')).length).toBe(1);
+  });
+
+  it('点击资产卡跳到对应幕后页', async () => {
+    const CHAR_ITEM = {
+      ...BOARD_ITEM_1,
+      id: 'b-char',
+      item_type: 'character',
+      key: 'character:苏会山',
+      summary: '苏会山',
+    };
+    vi.mocked(listRuns).mockResolvedValue([RUN_1]);
+    vi.mocked(listBoard).mockResolvedValue([CHAR_ITEM]);
+    vi.mocked(getRun).mockResolvedValue(RUN_1);
+    setCurrentView.mockClear();
+
+    renderStudio();
+    fireEvent.click(await screen.findByText('character:苏会山'));
+    expect(setCurrentView).toHaveBeenCalledWith('characters');
   });
 });

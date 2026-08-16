@@ -2,6 +2,28 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.50.0（2026-08-16）
+
+幕后代理工作室续写后资产栏空、管理只有 `start 资产回流` 没有 `done`、编辑 `gate:revise` 不进下一拍。根因：三条路径不相通——回流不写当前 run 黑板、后台 spawn 不落活动日志、审查问题不进节拍卡。本版把本拍变化投影到资产栏，后台必有 done，当前场大纲和审查问题约束下一拍。
+
+### 修复
+
+- **后台信号**：资产回流 / 后台审查 / 管理补齐在 spawn 时就 `start`，成功 / 失败 / 超时 / 未获得锁都有 `done`，并写入 `agency_activity_log`。
+- **资产栏**：Append 落库后把阵容与 `【当前场大纲】` 写入当前 run Asset 区；回流成功再投影正文里出现过的角色 / 故事增量 / 世界观。卡片可点进角色、故事、世界构建。
+- **当前场大纲**：落库写成结构化大纲；下一拍优先读 `下一拍：`，ingest 不得覆盖该块。
+- **审查约束下一拍**：未解决的 `gate:revise` 最多 2 条进入节拍卡 `【待兑现审查】`；本拍正文点名后标 `resolved`。不自动改写已落库章节。
+
+### 测试
+
+- `cargo test --lib`：**1449 passed / 2 ignored**（+13）。
+- `npx vitest run`：**590 passed / 3 skipped**（+2）。
+- `tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。
+
+### 已知债务
+
+- 真机须用同一开头再点续写。未跑不得宣称唱反调已修复。
+- 角色表脏行不自动 DELETE。`ContextPrioritizer` 未接 Agency。计划区本轮仍空。
+
 ## v0.49.1（2026-08-16）
 
 幕前划词弹出的「润色 / 扩写 / 指令」浮条挡住打字、选区塌不下去。v0.48.1 改成够长才出，用户仍觉得完全无用。本版卸掉该入口。

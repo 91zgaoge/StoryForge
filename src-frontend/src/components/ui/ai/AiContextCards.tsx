@@ -30,6 +30,7 @@ export interface AiContextCardsProps {
   count?: number;
   items: AiContextCardItem[];
   className?: string;
+  onItemActivate?: (item: AiContextCardItem) => void;
 }
 
 const TONE_BG: Record<NonNullable<AiContextCardSource['tone']>, string> = {
@@ -40,7 +41,13 @@ const TONE_BG: Record<NonNullable<AiContextCardSource['tone']>, string> = {
   neutral: 'var(--ai-ink-3)',
 };
 
-export function AiContextCards({ title, count, items, className }: AiContextCardsProps) {
+export function AiContextCards({
+  title,
+  count,
+  items,
+  className,
+  onItemActivate,
+}: AiContextCardsProps) {
   return (
     <div className={cn('flex w-full flex-col gap-2', className)} data-testid="ai-context-cards">
       <div className="animate-fade-in flex items-center gap-2 px-0.5">
@@ -52,47 +59,56 @@ export function AiContextCards({ title, count, items, className }: AiContextCard
         )}
       </div>
 
-      {items.map((item, i) => (
-        <div
-          key={item.key}
-          className="animate-ai-fade-up overflow-hidden rounded-[12px] border border-ai-line bg-ai-surface"
-          style={{ animationDelay: `${i * 100}ms` }}
-        >
-          <div className="flex items-center gap-2.5 border-b border-ai-line px-3 py-2">
-            <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-ai-ink">
-              <AlignLeft size={11} strokeWidth={2.5} aria-hidden className="shrink-0" />
-              <span className="truncate">{item.title}</span>
-            </span>
-            {item.meta && (
-              <span className="ml-auto shrink-0 text-[12px] text-ai-ink-3 tabular-nums">
-                {item.meta}
-              </span>
+      {items.map((item, i) => {
+        const clickable = Boolean(onItemActivate);
+        const CardTag = clickable ? 'button' : 'div';
+        return (
+          <CardTag
+            key={item.key}
+            type={clickable ? 'button' : undefined}
+            onClick={clickable ? () => onItemActivate?.(item) : undefined}
+            className={cn(
+              'animate-ai-fade-up overflow-hidden rounded-[12px] border border-ai-line bg-ai-surface text-left',
+              clickable && 'cursor-pointer hover:bg-ai-hover'
             )}
-          </div>
-          {item.body && (
-            <p className="px-3 pt-2 pb-1 text-[12.5px] leading-relaxed text-ai-ink-2">
-              {item.body}
-            </p>
-          )}
-          {item.source && (
-            <div className={cn('px-3 pb-3', item.body ? 'pt-1' : 'pt-2')}>
-              <span
-                className="animate-pop-in inline-flex h-6 items-center gap-1.5 rounded-full border border-ai-line bg-ai-inset px-2 text-[12px] font-medium text-ai-ink-2 transition-colors duration-300 hover:bg-ai-hover"
-                style={{ animationDelay: `${400 + i * 80}ms` }}
-              >
-                <span
-                  className="flex size-3.5 items-center justify-center rounded-[4px] text-[7px] font-bold text-ai-on-accent"
-                  style={{ background: TONE_BG[item.source.tone ?? 'neutral'] }}
-                >
-                  {item.source.badge}
-                </span>
-                {item.source.label}
-                <ArrowUpRight size={9} strokeWidth={2.5} aria-hidden />
+            style={{ animationDelay: `${i * 100}ms` }}
+          >
+            <div className="flex items-center gap-2.5 border-b border-ai-line px-3 py-2">
+              <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-ai-ink">
+                <AlignLeft size={11} strokeWidth={2.5} aria-hidden className="shrink-0" />
+                <span className="truncate">{item.title}</span>
               </span>
+              {item.meta && (
+                <span className="ml-auto shrink-0 text-[12px] text-ai-ink-3 tabular-nums">
+                  {item.meta}
+                </span>
+              )}
             </div>
-          )}
-        </div>
-      ))}
+            {item.body && (
+              <p className="px-3 pt-2 pb-1 text-[12.5px] leading-relaxed text-ai-ink-2">
+                {item.body}
+              </p>
+            )}
+            {item.source && (
+              <div className={cn('px-3 pb-3', item.body ? 'pt-1' : 'pt-2')}>
+                <span
+                  className="animate-pop-in inline-flex h-6 items-center gap-1.5 rounded-full border border-ai-line bg-ai-inset px-2 text-[12px] font-medium text-ai-ink-2 transition-colors duration-300 hover:bg-ai-hover"
+                  style={{ animationDelay: `${400 + i * 80}ms` }}
+                >
+                  <span
+                    className="flex size-3.5 items-center justify-center rounded-[4px] text-[7px] font-bold text-ai-on-accent"
+                    style={{ background: TONE_BG[item.source.tone ?? 'neutral'] }}
+                  >
+                    {item.source.badge}
+                  </span>
+                  {item.source.label}
+                  <ArrowUpRight size={9} strokeWidth={2.5} aria-hidden />
+                </span>
+              </div>
+            )}
+          </CardTag>
+        );
+      })}
     </div>
   );
 }

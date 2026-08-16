@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.49.1
+- **版本**: v0.50.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1436 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1449 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 588 passed / 3 skipped
+- `npx vitest run` ✅ 590 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.50.0 - 续写三角色闭环（资产可见 / 当场大纲 / 审查进下一拍）
+
+幕后工作室续写后资产栏空、管理只有 start 没有 done、编辑 revise 不进下一拍。本版：后台 spawn 落活动日志且必有 done；本拍阵容与当前场大纲投影到当前 run 资产栏（可点）；Append 写入 `【当前场大纲】`；未解决 revise 最多 2 条进入下一拍节拍卡。
+
+- **验证**：`cargo test --lib` 1449 passed / 2 ignored（+13）；`npx vitest run` 590 passed / 3 skipped（+2）。
+- **契约**：`bg_done_detail_covers_all_exits` / `persist_activity_writes_start_and_done`；`production_change_projects_to_current_run_asset_zone`；`append_writeback` 含 `【当前场大纲】`；`compile_beat_card_injects_prior_run_revise_issues`；工作室资产卡点击 `setCurrentView`。
+- **未关闭**：真机须用同一开头再点续写；不得宣称唱反调已修复。角色表脏行不自动删除；ContextPrioritizer 未接 Agency。
 
 ### v0.49.1 - 卸掉幕前划词润色浮条
 
@@ -969,7 +977,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-16 - v0.49.1_
+_最后更新: 2026-08-16 - v0.50.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

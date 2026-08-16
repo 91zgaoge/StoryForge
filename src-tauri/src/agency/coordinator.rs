@@ -1365,15 +1365,12 @@ impl AgencyCoordinator {
             // 3s 轮询拉取，不依赖 Tauri 事件到达隐藏窗口。
             let pool = self.pool.clone();
             let run_id_s = run_id.to_string();
-            let role_s = role.as_str().to_string();
             let action_s = action.to_string();
             let detail_s = detail.to_string();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = AgencyRepository::new(pool)
-                    .log_activity(&run_id_s, &role_s, &action_s, &detail_s)
-                {
-                    log::warn!("agency: failed to persist activity log: {}", e);
-                }
+                crate::agency::continue_loop::persist_activity(
+                    &pool, &run_id_s, role, &action_s, &detail_s,
+                );
             });
         }
     }
@@ -2490,6 +2487,32 @@ impl AgencyCoordinator {
         Ok((draft, scene.id))
     }
 
+    /// 本拍阵容/当前场大纲投影到当前 run 资产栏；兑现上一拍审查问题。
+    fn close_beat_loop(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        card: &crate::agency::beat_card::SceneBeatCard,
+        increment: &str,
+    ) {
+        let names: Vec<String> = card.cast.iter().map(|c| c.name.clone()).collect();
+        let outline = card.render_scene_outline();
+        let projections = crate::agency::continue_loop::beat_card_asset_projections(
+            &names,
+            &outline,
+            card.setting_location.as_deref(),
+        );
+        crate::agency::continue_loop::project_assets_to_run(
+            &self.pool,
+            run_id,
+            story_id,
+            &projections,
+        );
+        crate::agency::continue_loop::resolve_addressed_review_issues(
+            &self.pool, story_id, increment,
+        );
+    }
+
     /// v0.30.35：后台 spawn editor 质检（fire-and-forget）。测试环境
     /// （无 app_handle）no-op。质检在独立 300s deadline 下运行，不受
     /// smart_execute 600s 整体超时限制；结果经 `genesis-qc-result` 事件
@@ -2518,20 +2541,21 @@ impl AgencyCoordinator {
             let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
             let board = BlackboardService::with_events(pool.clone(), &app);
             let registry = Arc::new(ToolRegistry::agency_default());
-            let _ = app.emit(
-                EVENT_AGENT_ACTIVITY,
-                serde_json::json!({
-                    "run_id": run_id,
-                    "role": AgentRole::EditorAuditor.as_str(),
-                    "action": "start",
-                    "detail": "后台审查",
-                }),
-            );
+            crate::agency::continue_loop::emit_logged_activity(
+                &app,
+                &pool,
+                &run_id,
+                AgentRole::EditorAuditor,
+                "start",
+                "后台审查",
+            )
+            .await;
             let result = evaluate_gate_impl(
                 &llm, &budget, &pool, &board, &registry, &run_id, &story_id, &premise, &draft, 1,
                 deadline,
             )
             .await;
+            let qc_failed = result.is_err();
             let payload = match result {
                 Ok((GateOutcome::Passed { .. }, _)) => serde_json::json!({
                     "story_id": story_id,
@@ -2573,15 +2597,23 @@ impl AgencyCoordinator {
                 }
             };
             let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
-            let _ = app.emit(
-                EVENT_AGENT_ACTIVITY,
-                serde_json::json!({
-                    "run_id": run_id,
-                    "role": AgentRole::EditorAuditor.as_str(),
-                    "action": "done",
-                    "detail": "后台审查",
-                }),
-            );
+            let done = if qc_failed {
+                crate::agency::continue_loop::bg_done_detail(
+                    "后台审查",
+                    crate::agency::continue_loop::BgExit::Failed,
+                )
+            } else {
+                "后台审查".to_string()
+            };
+            crate::agency::continue_loop::emit_logged_activity(
+                &app,
+                &pool,
+                &run_id,
+                AgentRole::EditorAuditor,
+                "done",
+                &done,
+            )
+            .await;
         });
     }
 
@@ -2602,29 +2634,50 @@ impl AgencyCoordinator {
         let scene_id = scene_id.to_string();
         let content = content.to_string();
         tauri::async_runtime::spawn(async move {
-            // 后台 LLM 串行化：与所有其他后台任务（scene ingest/audit/insight）
-            // 共享 BACKGROUND_LLM_SEMAPHORE（permit=1），避免批量续写时第 n 章
-            // ingest 与第 n+1 章写作/editor_qc 直接并发争抢本地模型。
-            // 获取顺序对齐 scene_service.rs:136-156：先 BG_LLM 再 MEMORY_WRITER。
+            use crate::agency::continue_loop::{bg_done_detail, emit_logged_activity, BgExit};
+            emit_logged_activity(
+                &app,
+                &pool,
+                &run_id,
+                AgentRole::Producer,
+                "start",
+                "资产回流",
+            )
+            .await;
             let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
             if bg_permit.is_err() {
                 log::warn!("agency: 资产回流未获取到后台 LLM 串行许可 (run={})", run_id);
+                emit_logged_activity(
+                    &app,
+                    &pool,
+                    &run_id,
+                    AgentRole::Producer,
+                    "done",
+                    &bg_done_detail("资产回流", BgExit::NoLock),
+                )
+                .await;
                 return;
             }
             let _bg_permit = bg_permit.unwrap();
 
-            // 全局并发背压：与 orchestrator 后台 ingest 共享信号量（最多 2 个并发）
             let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
                 .acquire()
                 .await;
             if permit.is_err() {
                 log::warn!("agency: 资产回流未获取到 ingest 并发许可 (run={})", run_id);
+                emit_logged_activity(
+                    &app,
+                    &pool,
+                    &run_id,
+                    AgentRole::Producer,
+                    "done",
+                    &bg_done_detail("资产回流", BgExit::NoLock),
+                )
+                .await;
                 return;
             }
             let _permit = permit.unwrap();
 
-            // 独立取消令牌 + 独立 deadline 300s：不与 writer 主流程共享取消
-            // 令牌或 deadline，超时仅中止本次后台 ingest，不影响正文落库。
             let cancel = tokio_util::sync::CancellationToken::new();
             let timer_cancel = cancel.clone();
             let timer = tauri::async_runtime::spawn(async move {
@@ -2632,31 +2685,21 @@ impl AgencyCoordinator {
                 timer_cancel.cancel();
             });
 
-            let _ = app.emit(
-                EVENT_AGENT_ACTIVITY,
-                serde_json::json!({
-                    "run_id": run_id,
-                    "role": AgentRole::Producer.as_str(),
-                    "action": "start",
-                    "detail": "资产回流",
-                }),
-            );
             let llm_service = LlmService::new(app.clone());
             let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
                 .with_pool(pool.clone())
                 .with_app_handle(app.clone());
             let ingest_content = crate::memory::ingest::IngestContent {
-                text: content,
+                text: content.clone(),
                 source: format!("agency:scene:{}", scene_id),
                 story_id: story_id.clone(),
                 scene_id: Some(scene_id.clone()),
             };
-            match pipeline
+            let exit = match pipeline
                 .ingest_with_cancel(&ingest_content, Some(&cancel))
                 .await
             {
                 Ok(result) => {
-                    // KG 持久化：agency 路径此前完全没有，对齐 orchestrator.rs 做法
                     let kg_repo =
                         crate::db::repositories::KnowledgeGraphRepository::new(pool.clone());
                     if let Err(e) = kg_repo.save_entities_batch(&result.entities) {
@@ -2665,6 +2708,13 @@ impl AgencyCoordinator {
                     if let Err(e) = kg_repo.save_relations_batch(&result.relations) {
                         log::warn!("agency: 资产回流 KG 关系落库失败 (run={}): {}", run_id, e);
                     }
+                    let extra = crate::agency::continue_loop::ingest_board_projections(
+                        &result.analysis,
+                        &content,
+                    );
+                    crate::agency::continue_loop::project_assets_to_run(
+                        &pool, &run_id, &story_id, &extra,
+                    );
                     log::info!(
                         "agency: 资产回流完成 (run={}, story={}): {} entities, {} relations",
                         run_id,
@@ -2672,21 +2722,31 @@ impl AgencyCoordinator {
                         result.entities.len(),
                         result.relations.len()
                     );
+                    if cancel.is_cancelled() {
+                        BgExit::Timeout
+                    } else {
+                        BgExit::Success
+                    }
                 }
                 Err(e) => {
                     log::warn!("agency: 后台资产回流失败 (run={}): {}", run_id, e);
+                    if cancel.is_cancelled() {
+                        BgExit::Timeout
+                    } else {
+                        BgExit::Failed
+                    }
                 }
-            }
+            };
             timer.abort();
-            let _ = app.emit(
-                EVENT_AGENT_ACTIVITY,
-                serde_json::json!({
-                    "run_id": run_id,
-                    "role": AgentRole::Producer.as_str(),
-                    "action": "done",
-                    "detail": "资产回流",
-                }),
-            );
+            emit_logged_activity(
+                &app,
+                &pool,
+                &run_id,
+                AgentRole::Producer,
+                "done",
+                &bg_done_detail("资产回流", exit),
+            )
+            .await;
         });
     }
 
@@ -2701,7 +2761,29 @@ impl AgencyCoordinator {
         let run_id = run_id.to_string();
         let story_id = story_id.to_string();
         tauri::async_runtime::spawn(async move {
+            use crate::agency::continue_loop::{bg_done_detail, emit_logged_activity, BgExit};
+            emit_logged_activity(
+                &app,
+                &pool,
+                &run_id,
+                AgentRole::Producer,
+                "start",
+                "后台补齐",
+            )
+            .await;
             let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
+            if bg_permit.is_err() {
+                emit_logged_activity(
+                    &app,
+                    &pool,
+                    &run_id,
+                    AgentRole::Producer,
+                    "done",
+                    &bg_done_detail("后台补齐", BgExit::NoLock),
+                )
+                .await;
+                return;
+            }
             let labeled: Arc<dyn LoopLlm> = Arc::new(
                 AgencyLlm::new(
                     app.clone(),
@@ -2721,20 +2803,16 @@ impl AgencyCoordinator {
                 #[cfg(test)]
                 activity_log: Mutex::new(Vec::new()),
             };
-            let _ = app.emit(
-                EVENT_AGENT_ACTIVITY,
-                serde_json::json!({
-                    "run_id": run_id,
-                    "role": AgentRole::Producer.as_str(),
-                    "action": "start",
-                    "detail": "后台补齐",
-                }),
-            );
             let timed = tokio::time::timeout(std::time::Duration::from_secs(300), async {
                 let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
                 let sid = story_id.clone();
+                let pool_p = pool.clone();
                 let prose = worker
-                    .db(move || Ok(crate::agency::materialize::concat_story_prose(&pool, &sid)))
+                    .db(move || {
+                        Ok(crate::agency::materialize::concat_story_prose(
+                            &pool_p, &sid,
+                        ))
+                    })
                     .await
                     .unwrap_or_default();
                 let has_prose = crate::agency::prose_ground::has_substantial_prose(&prose);
@@ -2755,18 +2833,21 @@ impl AgencyCoordinator {
                     .await;
             })
             .await;
-            if timed.is_err() {
+            let exit = if timed.is_err() {
                 log::warn!("agency: 后台管理补齐超时 run={}", run_id);
-            }
-            let _ = app.emit(
-                EVENT_AGENT_ACTIVITY,
-                serde_json::json!({
-                    "run_id": run_id,
-                    "role": AgentRole::Producer.as_str(),
-                    "action": "done",
-                    "detail": "后台补齐",
-                }),
-            );
+                BgExit::Timeout
+            } else {
+                BgExit::Success
+            };
+            emit_logged_activity(
+                &app,
+                &pool,
+                &run_id,
+                AgentRole::Producer,
+                "done",
+                &bg_done_detail("后台补齐", exit),
+            )
+            .await;
             drop(bg_permit);
         });
     }
@@ -3113,6 +3194,7 @@ impl AgencyCoordinator {
             .await
             .map_err(|e| AppError::from(format!("append persist join error: {}", e)))??;
             self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
+            self.close_beat_loop(run_id, story_id, &card, &increment);
             // 资产回流（best-effort 后台）与章里程碑检查点，与 handle_gate 对齐
             self.spawn_asset_ingest(run_id, story_id, &outcome.scene_id, &outcome.full_content);
             self.checkpoint_auto(
@@ -4589,6 +4671,7 @@ impl AgencyCoordinator {
         let ingest_text = content.clone();
         let refresh_inc = content.clone();
         let title_c = format!("第{}章", chapter_number);
+        let loop_card = card.cloned();
         let card_owned = card.cloned();
         let refresh_card = card_owned.clone();
         let scene = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
@@ -4650,6 +4733,9 @@ impl AgencyCoordinator {
         })
         .await;
         self.emit_activity(run_id, AgentRole::Producer, "done", "装配");
+        if let Some(ref card) = loop_card {
+            self.close_beat_loop(run_id, story_id, card, &ingest_text);
+        }
         self.spawn_asset_ingest(run_id, story_id, &scene.id, &ingest_text);
         self.checkpoint_auto(run_id, story_id, "chapter", Some(chapter_number), budget)
             .await;

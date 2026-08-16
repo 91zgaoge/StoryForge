@@ -251,6 +251,7 @@ mod tests {
             expansion_quota: vec![QuotaItem::NewScene, QuotaItem::ConflictEscalation],
             expansion_quota_text: None,
             setting_location: Some("雨巷".into()),
+            open_review_issues: vec![],
         };
         let state = BeatState {
             present: vec!["阿岩".into(), "林雪".into()],
@@ -292,6 +293,7 @@ mod tests {
             expansion_quota: vec![],
             expansion_quota_text: None,
             setting_location: Some("镇北王府大堂".into()),
+            open_review_issues: vec![],
         };
         let state = BeatState {
             present: vec!["苏亦铁".into(), "曹元佩".into()],
