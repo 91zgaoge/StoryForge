@@ -11,10 +11,64 @@
 
 use rusqlite::params;
 
-use crate::{agency::models::BoardItem, db::DbPool};
+use crate::{
+    agency::{
+        models::BoardItem,
+        prose_ground::{has_substantial_prose, name_in_prose, outline_is_grounded},
+    },
+    db::DbPool,
+};
 
 fn now() -> String {
     chrono::Local::now().to_rfc3339()
+}
+
+fn load_story_prose(conn: &rusqlite::Connection, story_id: &str) -> String {
+    let mut stmt = match conn.prepare(
+        "SELECT COALESCE(content, '') FROM scenes WHERE story_id = ?1 ORDER BY sequence_number",
+    ) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+    let rows = match stmt.query_map(params![story_id], |r| r.get::<_, String>(0)) {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
+    let mut out = String::new();
+    for row in rows.flatten() {
+        out.push_str(&row);
+        out.push('\n');
+    }
+    out
+}
+
+fn character_name_from_item(item: &BoardItem) -> Option<String> {
+    let parsed = crate::agency::coordinator::parse_lenient::<serde_json::Value>(&item.content)?;
+    let name = parsed.get("name").and_then(|x| x.as_str()).unwrap_or("");
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn load_registered_names(conn: &rusqlite::Connection, story_id: &str) -> Vec<String> {
+    let mut stmt = match conn.prepare("SELECT name FROM characters WHERE story_id = ?1") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match stmt.query_map(params![story_id], |r| r.get::<_, String>(0)) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    rows.flatten().collect()
+}
+
+pub(crate) fn concat_story_prose(pool: &DbPool, story_id: &str) -> String {
+    let Ok(conn) = pool.get() else {
+        return String::new();
+    };
+    load_story_prose(&conn, story_id)
 }
 
 /// 按角色名查 characters 表 id（relationship 落库时解析 source/target）。
@@ -40,6 +94,26 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
             return 0;
         }
     };
+    let prose = load_story_prose(&conn, story_id);
+    let gate = has_substantial_prose(&prose);
+    let mut candidates: Vec<String> = load_registered_names(&conn, story_id);
+    if gate {
+        for item in items.iter().filter(|i| i.status == "active") {
+            let nt = match item.item_type.as_str() {
+                "worldbuilding" | "world_building" => "world",
+                "story_outline" => "outline",
+                "emotional_relationship" | "bond" => "relationship",
+                other => other,
+            };
+            if nt == "character" {
+                if let Some(n) = character_name_from_item(item) {
+                    if !candidates.iter().any(|c| c == &n) {
+                        candidates.push(n);
+                    }
+                }
+            }
+        }
+    }
     for item in items.iter().filter(|i| i.status == "active") {
         // item_type 别名归一化：兼容本地模型经 board_write 写入的变体
         let normalized_type = match item.item_type.as_str() {
@@ -105,6 +179,10 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                     log::warn!("materialize: 角色条目 {} 缺 name，跳过", item.key);
                     continue;
                 }
+                if gate && !name_in_prose(&name, &prose) {
+                    log::warn!("materialize: 角色「{}」未出现在已有正文，跳过落库", name);
+                    continue;
+                }
                 let id = uuid::Uuid::new_v4().to_string();
                 let ts = now();
                 // story_id+name upsert：已存在同名角色时刷新字段（创世重跑/资产
@@ -148,6 +226,10 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                 }
             }
             "outline" => {
+                if gate && !outline_is_grounded(&item.content, &prose, &candidates) {
+                    log::warn!("materialize: 大纲未接地（含正文未出现的角色名），跳过落库");
+                    continue;
+                }
                 let id = uuid::Uuid::new_v4().to_string();
                 let ts = now();
                 let result = conn.execute(
@@ -341,6 +423,105 @@ mod tests {
             )
             .unwrap();
         assert!(bg.contains("已刷新"));
+    }
+
+    fn seed_su_prose(pool: &crate::db::DbPool, story_id: &str) {
+        use crate::db::repositories::SceneRepository;
+        let scene = SceneRepository::new(pool.clone())
+            .create(story_id, 1, Some("第一章"))
+            .unwrap();
+        let mut prose = "知启纪元八百四十七年。大奉帝国西北边陲重镇，黑崎州城。\
+第二代镇北王苏会山端坐大堂。大少爷苏亦铁红装肃立。"
+            .to_string();
+        while prose.chars().count() < 200 {
+            prose.push_str("镇北王府大堂里红毡铺地，黑卫军肃立。");
+        }
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE scenes SET content = ?1 WHERE id = ?2",
+            rusqlite::params![prose, scene.id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_materialize_drops_names_absent_from_prose() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        seed_su_prose(&pool, "s1");
+        let items = vec![
+            item(
+                "character",
+                "苏",
+                r#"{"name":"苏会山","background":"镇北王","personality":"刚","goals":"护边"}"#,
+            ),
+            item(
+                "character",
+                "费",
+                r#"{"name":"费迪南三世","background":"皇帝","personality":"疑","goals":"烟火节"}"#,
+            ),
+        ];
+        let n = materialize_assets(&pool, "s1", &items);
+        assert_eq!(n, 1);
+        let conn = pool.get().unwrap();
+        let names: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT name FROM characters WHERE story_id='s1' ORDER BY name")
+                .unwrap();
+            stmt.query_map([], |r| r.get(0))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        assert_eq!(names, vec!["苏会山".to_string()]);
+    }
+
+    #[test]
+    fn test_materialize_without_prose_keeps_genesis_names() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let items = vec![
+            item(
+                "character",
+                "苏",
+                r#"{"name":"苏会山","background":"镇北王","personality":"刚","goals":"护边"}"#,
+            ),
+            item(
+                "character",
+                "费",
+                r#"{"name":"费迪南三世","background":"皇帝","personality":"疑","goals":"烟火节"}"#,
+            ),
+        ];
+        assert_eq!(materialize_assets(&pool, "s1", &items), 2);
+    }
+
+    #[test]
+    fn test_materialize_skips_ungrounded_outline_when_prose_exists() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        seed_su_prose(&pool, "s1");
+        let items = vec![
+            item(
+                "character",
+                "费",
+                r#"{"name":"费迪南三世","background":"皇帝","personality":"疑","goals":"烟火节"}"#,
+            ),
+            item(
+                "outline",
+                "大纲",
+                "第一卷·灰烬低语。费迪南三世为撑烟火节加征火药税。",
+            ),
+        ];
+        assert_eq!(materialize_assets(&pool, "s1", &items), 0);
+        let conn = pool.get().unwrap();
+        let outlines: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM story_outlines WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(outlines, 0);
     }
 
     #[test]
