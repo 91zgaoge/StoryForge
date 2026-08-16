@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.48.1 架构文档
+# StoryMoss (草苔) v0.49.0 架构文档
 
+> **v0.49.0**：有实质正文时资产真相源是 `scenes.content`，不是书名。`agency/prose_ground.rs` 姓名门闩 / `outline_is_grounded` / 默认 `scene_structure`。`ensure_assets` 跳过标题发明 Producer tool_loop；`producer_out.aborted` 不 Err。`ensure_story_outline` 有正文走方法论归纳。`compile_next_node` 未接地当空。`probe_increment` 拦场外开篇。不改 `WriteTimeBundle::to_prompt()`，不接 ContextPrioritizer，不 DELETE 脏角色行。验证：`cargo test --lib` 1436 passed / 2 ignored（+18）。真机未跑，不得宣称唱反调已修复。
+>
 > **v0.48.1**：划词浮条 `AiSelectionActions` 改为 ≥4 字且 `mouseup` 后才挂载；idle 默认无 `<input>`（点「指令」才展开）。Esc 塌选区。写作主路径不再被改写条挡住。v0.48.0 续写镜头/落库不变量不变。
 >
 > **v0.48.0**：续写按镜头在场。`PRIOR_CAST_CHAR_CAP=500` 与散文近文 1800 分离；`compile_beat_card` 不再按角色表补位；`compile_next_node` 吃当前正文，跳过不点名本拍在场者的书大纲句；`persist_append_inner` 底稿取 DB 与客户端更长者；`probe_increment` 在 `NewScene` 时不罚丢掉已在场者；幕前连续续写先 `appendAiContent` 未确认幽灵。验证：`cargo test --lib` 1418 passed / 2 ignored（+5）。v0.47.0 债务兑现 / 节点不回绕 / 事实写回不变量仍成立。

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.48.1 项目完成状态
+# StoryMoss (草苔) v0.49.0 项目完成状态
 
-> 最后更新: 2026-08-16（v0.48.1 划词浮条不再挡住手工写作）
+> 最后更新: 2026-08-16（v0.49.0 续写大纲以正文为真相源）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.49.0 - 续写大纲以正文为真相源（2026-08-16）
+
+- **根因（executed）**：空角色表 → Producer 按标题发明费迪南；`ensure_story_outline` 不读章节；熔断仍 materialize；书大纲点名即可换 POV。
+- **修复**：正文门闩；场景结构默认方法论；熔断不 Err；未接地大纲不注入；场外开篇探针；热路径 ingest。
+- **验证**：`cargo test --lib` 1436 passed / 2 ignored（+18）。
+- **未关闭**：真机同一开头再续写未跑，不得宣称唱反调已修复。
 
 ### v0.48.1 - 划词浮条不再挡住手工写作（2026-08-16）
 

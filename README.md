@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.48.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.49.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.49.0 · 续写跟着已经写下的章节走，不再按书名另起一套
+
+有正文时不会再用书名去发明另一批主角和大纲。空着的创作方法会落成「场景结构」（目标→冲突→灾难）。管理补齐失败也不再把整次续写掐死。请升级到 0.49.0 并重启。同一开头的真机续写还没重跑，不能说「和前文唱反调」已经消失。
+
+测试：`cargo test --lib` 1436 passed / 2 ignored（+18）。
 
 ### v0.48.1 · 划词润色条不再挡住打字
 

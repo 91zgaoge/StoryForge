@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.49.0（2026-08-16）
+
+《帝国的烟火》续写从镇北王府切到费迪南三世帝都。根因：空角色表时管理 Agent 按书名发明资产；大纲不读 `scenes.content`；熔断仍把脏黑板落库；书大纲一句点名即可换 POV。本版有正文时大纲/角色以章节为真相源，按创作方法论（默认场景结构）往下推，高峰未完不得换场换主角。
+
+### 修复
+
+- **禁止按书名发明**：章节 ≥200 字时跳过 Producer 标题补齐；落库前姓名门闩丢掉正文未出现的角色名。
+- **从正文归纳大纲**：`ensure_story_outline` 走场景结构而非 PROBLEM；未接地 LLM 输出拒绝落库；脏三卷 UPDATE 为接地版。
+- **管理熔断不挡续写**：salvage + `spawn_producer_resume`（300s 后台，测试环境 no-op）。
+- **未接地书纲不注入**：`compile_next_node` 当空，回落本场方法论下一拍。
+- **场外开篇探针**：增量前 80 字只点名已登记场外角色则记缺口；未接地名不进续写名单。
+- **热路径提取**：角色表空且有正文时 ingest 60s fail-open（测试环境跳过）。不改 `asset_bridge`（ingest 枢纽）。
+
+### 测试
+
+- `cargo test --lib`：**1436 passed / 2 ignored**（基线 1418，+18）。
+- `npx vitest run`：**605 passed / 3 skipped**。`tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。
+
+### 已知债务
+
+- 真机须用同一开头再点续写。未跑不得宣称唱反调已修复。
+- 角色表脏行不自动 DELETE。`ContextPrioritizer` 未接 Agency。
+
 ## v0.48.1（2026-08-16）
 
 划词改写浮条（润色/扩写）挡住正文打字。v0.39.0 起选中任意文字就会弹出带输入框的浮条；拖选时浮条出现在 mouseup 落点上，输入框抢焦点，点浮条又因 preventDefault 塌不了选区，手工写作被卡住。

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.48.1
+- **版本**: v0.49.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1418 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1436 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 605 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.49.0 - 续写大纲以正文为真相源
+
+有章节正文时禁止按书名发明角色/大纲；空方法论落库场景结构规范；管理 Agent 熔断改为 salvage + 后台续跑，不挡住续写。未接地书大纲不当下一节点；探针拦截场外开篇。
+
+- **验证**：`cargo test --lib` 1436 passed / 2 ignored（+18）；`npx vitest run` 605 passed / 3 skipped；`tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。
+- **契约（设计 §11）**：`title_inventions_dropped_when_absent_from_prose` / `test_materialize_drops_names_absent_from_prose`；`ferdinand_outline_is_not_grounded` / `compile_next_node_ignores_ungrounded_book_outline`；`test_ensure_methodology_default_writes_scene_structure_when_empty`；`test_ensure_assets_with_prose_does_not_require_producer_loop`；`probe_rejects_offshot_pov_opening`。
+- **未关闭**：真机须用同一开头再点续写；**不得宣称「唱反调」已修复**。角色表脏行不自动删除；ContextPrioritizer 未接 Agency。
 
 ### v0.48.1 - 划词浮条不再挡住手工写作
 
@@ -954,7 +962,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-16 - v0.48.1_
+_最后更新: 2026-08-16 - v0.49.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
