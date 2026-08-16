@@ -434,7 +434,7 @@ impl AgentTool for StoryInfoTool {
         "story_info"
     }
     fn description(&self) -> &'static str {
-        "读取当前故事的基本信息（标题/类型/简介）"
+        "读取当前故事的基本信息（标题/类型/简介）与已有正文开篇摘录"
     }
     fn args_schema(&self) -> serde_json::Value {
         serde_json::json!({})
@@ -447,6 +447,8 @@ impl AgentTool for StoryInfoTool {
     ) -> Result<String, AppError> {
         let pool = ctx.pool.clone();
         let story_id = ctx.story_id.clone();
+        let pool_prose = ctx.pool.clone();
+        let sid_prose = ctx.story_id.clone();
         let info = tokio::task::spawn_blocking(move || -> Result<Option<(String, String, String)>, AppError> {
             let conn = pool.get().map_err(|e| AppError::from(format!("pool: {}", e)))?;
             let info = conn.query_row(
@@ -457,12 +459,27 @@ impl AgentTool for StoryInfoTool {
             Ok(info)
         }).await
             .map_err(|e| AppError::from(format!("story_info join error: {}", e)))??;
+        let prose = tokio::task::spawn_blocking(move || {
+            crate::agency::materialize::concat_story_prose(&pool_prose, &sid_prose)
+        })
+        .await
+        .unwrap_or_default();
 
         match info {
             Some((title, genre, desc)) => {
                 let context = CreativeContextTool.load_context(ctx, 1).await?;
 
                 let mut out = format!("标题: {}\n类型: {}\n简介: {}", title, genre, desc);
+                if crate::agency::prose_ground::has_substantial_prose(&prose) {
+                    let plain = crate::agency::continue_assets::strip_editor_markup(&prose);
+                    let excerpt: String = plain
+                        .chars()
+                        .take(crate::agency::prose_ground::STORY_INFO_PROSE_CHARS)
+                        .collect();
+                    out.push_str("\n\n已有正文开篇：\n");
+                    out.push_str(&excerpt);
+                    out.push_str("\n禁止发明下列正文未出现的姓名。");
+                }
                 out.push_str("\n\n创作上下文：");
                 out.push_str(&format!(
                     "\n叙事阶段: {}",
@@ -852,6 +869,52 @@ mod tests {
         let info = tool.execute(&context, serde_json::json!({})).await.unwrap();
         assert!(info.contains("星海拾荒者"));
         assert!(info.contains("科幻"));
+    }
+
+    #[tokio::test]
+    async fn test_story_info_includes_prose_excerpt() {
+        use crate::db::repositories::SceneRepository;
+
+        let pool = create_test_pool().unwrap();
+        let created = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "帝国的烟火".into(),
+                description: Some("空简介不得当情节".into()),
+                genre: Some("历史".into()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let scene = SceneRepository::new(pool.clone())
+            .create(&created.id, 1, Some("第一章"))
+            .unwrap();
+        let mut prose = "知启纪元八百四十七年。第二代镇北王苏会山端坐大堂。".to_string();
+        while prose.chars().count() < 200 {
+            prose.push_str("红毡铺地。");
+        }
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "UPDATE scenes SET content = ?1 WHERE id = ?2",
+                rusqlite::params![prose, scene.id],
+            )
+            .unwrap();
+        }
+        let registry = ToolRegistry::agency_default();
+        let mut context = ctx(pool, AgentRole::Producer);
+        context.story_id = created.id;
+        let tool = registry
+            .get_for_role(AgentRole::Producer, "story_info")
+            .unwrap();
+        let info = tool.execute(&context, serde_json::json!({})).await.unwrap();
+        assert!(info.contains("苏会山"), "须附开篇摘录: {}", info);
+        assert!(
+            info.contains("禁止发明") && info.contains("正文未出现"),
+            "须禁止按书名发明姓名: {}",
+            info
+        );
     }
 
     #[test]

@@ -3225,9 +3225,10 @@ impl AgencyCoordinator {
             self.ensure_world_building(run_id, story_id, premise, budget)
                 .await?;
         }
-        let has_outline = {
+        let need_outline = {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
+            let prose_c = prose.clone();
             self.db(move || -> Result<bool, AppError> {
                 let conn = pool
                     .get()
@@ -3239,11 +3240,34 @@ impl AgencyCoordinator {
                         |r| r.get(0),
                     )
                     .map_err(AppError::from)?;
-                Ok(n > 0)
+                if n == 0 {
+                    return Ok(true);
+                }
+                if !crate::agency::prose_ground::has_substantial_prose(&prose_c) {
+                    return Ok(false);
+                }
+                let content: String = conn
+                    .query_row(
+                        "SELECT COALESCE(content, '') FROM story_outlines WHERE story_id = ?1 LIMIT 1",
+                        rusqlite::params![sid],
+                        |r| r.get(0),
+                    )
+                    .map_err(AppError::from)?;
+                let mut stmt = conn
+                    .prepare("SELECT name FROM characters WHERE story_id = ?1")
+                    .map_err(AppError::from)?;
+                let names: Vec<String> = stmt
+                    .query_map(rusqlite::params![sid], |r| r.get(0))
+                    .map_err(AppError::from)?
+                    .flatten()
+                    .collect();
+                Ok(!crate::agency::prose_ground::outline_is_grounded(
+                    &content, &prose_c, &names,
+                ))
             })
             .await?
         };
-        if !has_outline && !has_prose {
+        if need_outline {
             self.ensure_story_outline(run_id, story_id, premise, budget)
                 .await?;
         }
@@ -3412,9 +3436,9 @@ impl AgencyCoordinator {
         Ok(())
     }
 
-    /// v0.30.21: 强制生成故事大纲（服从世界观）。
-    /// 单次 Producer LLM 调用，不跑 tool_loop，不抢主创 LLM。
-    /// 失败时 log::warn 并返回 Ok(())。
+    /// 强制生成/校正故事大纲。有实质正文时从章节+创作方法论归纳，
+    /// 禁止 PROBLEM 骨架与按书名发明；落库前过姓名门闩。无正文时保留
+    /// PROBLEM 空书路径。失败 log::warn 并返回 Ok(())。
     async fn ensure_story_outline(
         &self,
         run_id: &str,
@@ -3422,98 +3446,156 @@ impl AgencyCoordinator {
         premise: &str,
         budget: &Arc<AgencyBudget>,
     ) -> Result<(), AppError> {
-        // 读世界观（故事大纲必须服从世界观约束）
-        let world_ctx = {
+        let prose = {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
-            self.db(move || -> Result<String, AppError> {
-                use crate::db::repositories::WorldBuildingRepository;
-                let wb = WorldBuildingRepository::new(pool)
-                    .get_by_story(&sid)
-                    .map_err(AppError::from)?;
-                Ok(match wb {
-                    Some(w) => format!(
-                        "概念：{}\n历史：{}",
-                        w.concept,
-                        w.history.as_deref().unwrap_or("-")
-                    ),
-                    None => "（暂无世界观）".to_string(),
-                })
-            })
-            .await
-            .unwrap_or_default()
+            self.db(move || Ok(crate::agency::materialize::concat_story_prose(&pool, &sid)))
+                .await
+                .unwrap_or_default()
         };
-        // 读已有角色摘要
+        let has_prose = crate::agency::prose_ground::has_substantial_prose(&prose);
         let chars_ctx = {
             let pool = self.pool.clone();
             let sid = story_id.to_string();
+            let prose_c = prose.clone();
+            let filter = has_prose;
             self.db(move || -> Result<String, AppError> {
                 use crate::db::repositories::CharacterRepository;
                 let chars = CharacterRepository::new(pool)
                     .get_by_story(&sid)
                     .map_err(AppError::from)?;
                 let mut ctx = String::new();
-                for c in chars.iter().take(5) {
-                    let line =
-                        format!("- {}：目标{}\n", c.name, c.goals.as_deref().unwrap_or("-"),);
-                    ctx.push_str(&line);
+                let mut n = 0usize;
+                for c in chars.iter() {
+                    if filter && !crate::agency::prose_ground::name_in_prose(&c.name, &prose_c) {
+                        continue;
+                    }
+                    ctx.push_str(&format!(
+                        "- {}：目标{}\n",
+                        c.name,
+                        c.goals.as_deref().unwrap_or("-"),
+                    ));
+                    n += 1;
+                    if n >= 5 {
+                        break;
+                    }
                 }
                 Ok(ctx)
             })
             .await
             .unwrap_or_default()
         };
-        // v0.30.22: 读 logline（PROBLEM 框架生成的核心方向）
-        let logline_ctx = {
-            let pool = self.pool.clone();
-            let sid = story_id.to_string();
-            self.db(move || -> Result<String, AppError> {
-                let story = StoryRepository::new(pool)
-                    .get_by_id(&sid)
-                    .map_err(AppError::from)?;
-                Ok(story
-                    .and_then(|s| s.logline)
-                    .filter(|l| !l.is_empty())
-                    .unwrap_or_default())
-            })
-            .await
-            .unwrap_or_default()
+        let chars_line = if chars_ctx.is_empty() {
+            "（暂无角色卡）"
+        } else {
+            chars_ctx.as_str()
+        };
+        let (system, user) = if has_prose {
+            let (methodology_id, step) = {
+                let pool = self.pool.clone();
+                let sid = story_id.to_string();
+                self.db(move || -> Result<(String, Option<String>), AppError> {
+                    let story = StoryRepository::new(pool)
+                        .get_by_id(&sid)
+                        .map_err(AppError::from)?;
+                    let id = story.as_ref().and_then(|s| s.methodology_id.as_deref());
+                    let resolved =
+                        crate::agency::prose_ground::resolve_methodology_id(id).to_string();
+                    let step = story.and_then(|s| s.methodology_step.map(|n| n.to_string()));
+                    Ok((resolved, step))
+                })
+                .await
+                .unwrap_or_else(|_| ("scene_structure".into(), Some("1".into())))
+            };
+            let prompt_id = crate::agents::service::map_methodology_to_prompt_id(
+                &methodology_id,
+                step.as_deref(),
+            )
+            .unwrap_or_else(|| "methodology_scene_structure".into());
+            let system = crate::prompts::registry::resolve_prompt_default(&prompt_id)
+                .unwrap_or_else(|| {
+                    "你必须遵循场景结构规范。目标场景：目标→冲突→灾难。反应场景：反应→困境→决定。\
+                     只归纳已有正文，不得发明未出场主角。"
+                        .to_string()
+                });
+            let excerpt = crate::agency::continue_assets::slice_prior_prose(&prose);
+            let user = format!(
+                "以下是已有章节正文（只归纳这些文字，不得按书名另起一套情节）：\n{}\n\n\
+                 已有角色：\n{}\n\n\
+                 请按上述创作方法论归纳故事大纲，并规划下一拍如何推进。\
+                 只归纳已有正文；往下发展必须用该方法论（目标→冲突→灾难 / 反应→困境→决定），\
+                 不得发明未在正文出场的主角，不得把书名或空简介当成情节前提。",
+                excerpt, chars_line
+            );
+            (system, user)
+        } else {
+            let world_ctx = {
+                let pool = self.pool.clone();
+                let sid = story_id.to_string();
+                self.db(move || -> Result<String, AppError> {
+                    use crate::db::repositories::WorldBuildingRepository;
+                    let wb = WorldBuildingRepository::new(pool)
+                        .get_by_story(&sid)
+                        .map_err(AppError::from)?;
+                    Ok(match wb {
+                        Some(w) => format!(
+                            "概念：{}\n历史：{}",
+                            w.concept,
+                            w.history.as_deref().unwrap_or("-")
+                        ),
+                        None => "（暂无世界观）".to_string(),
+                    })
+                })
+                .await
+                .unwrap_or_default()
+            };
+            let logline_ctx = {
+                let pool = self.pool.clone();
+                let sid = story_id.to_string();
+                self.db(move || -> Result<String, AppError> {
+                    let story = StoryRepository::new(pool)
+                        .get_by_id(&sid)
+                        .map_err(AppError::from)?;
+                    Ok(story
+                        .and_then(|s| s.logline)
+                        .filter(|l| !l.is_empty())
+                        .unwrap_or_default())
+                })
+                .await
+                .unwrap_or_default()
+            };
+            let system = crate::prompts::registry::resolve_prompt_default_with_vars(
+                "agency_problem_outline",
+                &HashMap::new(),
+            )
+            .unwrap_or_else(|| {
+                "你是故事大纲规划师。根据世界观和角色，生成包含三幕结构、核心冲突和转折点的故事大纲。\
+                 大纲必须服从世界观的设定和约束--冲突根植于世界观的权力结构和矛盾。\
+                 不要泛泛而谈，要给出具体的核心冲突、转折点和推进方向。\
+                 只输出故事大纲正文，不要输出 JSON 或标题前缀。"
+                    .to_string()
+            });
+            let user = format!(
+                "故事前提：{}\n\n世界观设定：\n{}\n\n角色：\n{}\n\n{}请生成故事大纲（800-1500 字），包含：\n\
+                 1. 核心冲突（根植于世界观的矛盾）\n\
+                 2. 三幕结构（起因/发展/高潮与结局）\n\
+                 3. 关键转折点（至少 3 个）\n\
+                 4. 整体推进方向（故事往哪走）",
+                premise,
+                world_ctx,
+                chars_line,
+                if logline_ctx.is_empty() {
+                    String::new()
+                } else {
+                    format!("故事 Logline：{}\n\n", logline_ctx)
+                }
+            );
+            (system, user)
         };
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::Producer, story_id),
             budget.clone(),
             AgentRole::Producer,
-        );
-        // v0.30.22: 从 registry 加载 PROBLEM 大纲提示词（支持用户覆盖）
-        let system = crate::prompts::registry::resolve_prompt_default_with_vars(
-            "agency_problem_outline",
-            &HashMap::new(),
-        )
-        .unwrap_or_else(|| {
-            "你是故事大纲规划师。根据世界观和角色，生成包含三幕结构、核心冲突和转折点的故事大纲。\
-             大纲必须服从世界观的设定和约束--冲突根植于世界观的权力结构和矛盾。\
-             不要泛泛而谈，要给出具体的核心冲突、转折点和推进方向。\
-             只输出故事大纲正文，不要输出 JSON 或标题前缀。"
-                .to_string()
-        });
-        let user = format!(
-            "故事前提：{}\n\n世界观设定：\n{}\n\n角色：\n{}\n\n{}请生成故事大纲（800-1500 字），包含：\n\
-             1. 核心冲突（根植于世界观的矛盾）\n\
-             2. 三幕结构（起因/发展/高潮与结局）\n\
-             3. 关键转折点（至少 3 个）\n\
-             4. 整体推进方向（故事往哪走）",
-            premise,
-            world_ctx,
-            if chars_ctx.is_empty() {
-                "（暂无角色卡）"
-            } else {
-                &chars_ctx
-            },
-            if logline_ctx.is_empty() {
-                String::new()
-            } else {
-                format!("故事 Logline：{}\n\n", logline_ctx)
-            }
         );
         let text = llm
             .complete(&system, &user, TaskType::Analysis, 4096)
@@ -3534,6 +3616,36 @@ impl AgencyCoordinator {
             );
             return Ok(());
         }
+        if has_prose {
+            let names = {
+                let pool = self.pool.clone();
+                let sid = story_id.to_string();
+                self.db(move || -> Result<Vec<String>, AppError> {
+                    let conn = pool
+                        .get()
+                        .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                    let mut stmt = conn
+                        .prepare("SELECT name FROM characters WHERE story_id = ?1")
+                        .map_err(AppError::from)?;
+                    let names: Vec<String> = stmt
+                        .query_map(rusqlite::params![sid], |r| r.get(0))
+                        .map_err(AppError::from)?
+                        .flatten()
+                        .collect();
+                    Ok(names)
+                })
+                .await
+                .unwrap_or_default()
+            };
+            if !crate::agency::prose_ground::outline_is_grounded(&text, &prose, &names) {
+                log::warn!(
+                    "agency: 故事大纲未接地，拒绝落库 run={} story={}",
+                    run_id,
+                    story_id
+                );
+                return Ok(());
+            }
+        }
         let pool = self.pool.clone();
         let sid = story_id.to_string();
         let content = text.clone();
@@ -3541,7 +3653,6 @@ impl AgencyCoordinator {
             .db(move || -> Result<(), AppError> {
                 use crate::db::repositories::StoryOutlineRepository;
                 let repo = StoryOutlineRepository::new(pool);
-                // 已有则更新，否则创建
                 let existing = repo.get_by_story(&sid).map_err(AppError::from)?;
                 if existing.is_some() {
                     repo.update(&sid, Some(&content), None)

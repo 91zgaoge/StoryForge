@@ -31,6 +31,8 @@ struct MockLlm {
     responses: Mutex<VecDeque<String>>,
     /// 已收调用记录（user_prompt 原文），供调用顺序断言。
     calls: Mutex<Vec<String>>,
+    /// complete() 的 system prompt，供大纲方法论断言。
+    systems: Mutex<Vec<String>>,
     /// complete_json 调用记录（F3 JSON mode 断言用；同时计入 calls）。
     json_calls: Mutex<Vec<String>>,
 }
@@ -40,6 +42,7 @@ impl MockLlm {
         Arc::new(Self {
             responses: Mutex::new(lines.into_iter().map(String::from).collect()),
             calls: Mutex::new(Vec::new()),
+            systems: Mutex::new(Vec::new()),
             json_calls: Mutex::new(Vec::new()),
         })
     }
@@ -58,11 +61,12 @@ impl MockLlm {
 impl LoopLlm for MockLlm {
     async fn complete(
         &self,
-        _s: &str,
+        s: &str,
         u: &str,
         _t: crate::router::TaskType,
         _m: i32,
     ) -> Result<String, AppError> {
+        self.systems.lock().unwrap().push(s.to_string());
         self.next(u)
     }
 
@@ -2907,6 +2911,12 @@ async fn test_ensure_assets_with_prose_does_not_require_producer_loop() {
             rusqlite::params![prose, scene.id],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o-grounded', ?1, '【转折点】苏会山在镇北王府大堂迎亲。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
     }
     let llm = MockLlm::scripted(vec![]);
     let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
@@ -2982,6 +2992,175 @@ async fn test_ensure_story_outline_generates_when_missing() {
     assert!(
         outline.unwrap().content.contains("核心冲突"),
         "outline content should contain generated text"
+    );
+}
+
+fn su_family_prose() -> String {
+    let mut prose = "知启纪元八百四十七年。大奉帝国西北边陲重镇，黑崎州城。\
+第二代镇北王苏会山端坐大堂。大少爷苏亦铁红装肃立。"
+        .to_string();
+    while prose.chars().count() < 200 {
+        prose.push_str("镇北王府大堂里红毡铺地，黑卫军肃立。");
+    }
+    prose
+}
+
+/// 有正文时大纲从章节归纳，用场景结构而非 PROBLEM；脏的费迪南大纲被 UPDATE。
+#[tokio::test]
+async fn test_ensure_story_outline_from_prose_uses_scene_structure_not_problem() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "帝国的烟火".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let scene = SceneRepository::new(pool.clone())
+        .create(&story.id, 1, Some("第一章"))
+        .unwrap();
+    let prose = su_family_prose();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE scenes SET content = ?1 WHERE id = ?2",
+            rusqlite::params![prose, scene.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c-fer', ?1, '费迪南三世', '', '', '', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o-dirty', ?1, '第一卷·灰烬低语。费迪南三世为撑烟火节加征火药税。艾拉偷入工坊。塞尔吉奥在火山口守夜。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let grounded = "【核心冲突】镇北王府迎亲遇刺。苏会山在大堂护住苏亦铁。\
+下一拍按场景结构写在场者的反应、困境与决定，不得换场换主角。\
+已发生：黑崎州城、镇北王府大堂、苏会山端坐、红毡铺地、黑卫军肃立。\
+本场尚未写完灾难后的反应，须留在王府大堂推进。";
+    let llm = MockLlm::scripted(vec![grounded]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
+    let repo = AgencyRepository::new(pool.clone());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .ensure_assets(
+            &budget,
+            &repo,
+            "r-outline-prose",
+            &story.id,
+            "续写《帝国的烟火》第1章",
+        )
+        .await
+        .unwrap();
+    let systems = llm.systems.lock().unwrap().clone();
+    let calls = llm.calls.lock().unwrap().clone();
+    assert!(
+        !systems.is_empty() && !calls.is_empty(),
+        "有正文且大纲未接地时应归纳大纲"
+    );
+    assert!(
+        systems[0].contains("目标") && systems[0].contains("灾难"),
+        "system 须来自场景结构方法论，实际: {}",
+        systems[0]
+    );
+    assert!(
+        !systems[0].contains("PROBLEM"),
+        "有正文时不得用 PROBLEM 当大纲骨架: {}",
+        systems[0]
+    );
+    assert!(
+        calls[0].contains("苏会山"),
+        "user 须含正文摘录: {}",
+        calls[0]
+    );
+    assert!(
+        calls[0].contains("目标→冲突→灾难") || calls[0].contains("已有章节正文"),
+        "user 须要求从正文归纳而非只给书名: {}",
+        calls[0]
+    );
+    let outline = crate::db::repositories::StoryOutlineRepository::new(pool.clone())
+        .get_by_story(&story.id)
+        .unwrap()
+        .expect("应 UPDATE 为接地大纲");
+    assert!(
+        outline.content.contains("苏会山"),
+        "接地大纲应落库，实际: {}",
+        outline.content
+    );
+    assert!(!outline.content.contains("费迪南"));
+}
+
+/// 模型按书名发明费迪南时拒绝落库。
+#[tokio::test]
+async fn test_ensure_story_outline_rejects_ungrounded_llm_output() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "帝国的烟火".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    let scene = SceneRepository::new(pool.clone())
+        .create(&story.id, 1, Some("第一章"))
+        .unwrap();
+    let prose = su_family_prose();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "UPDATE scenes SET content = ?1 WHERE id = ?2",
+            rusqlite::params![prose, scene.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c-fer', ?1, '费迪南三世', '', '', '', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let invented = "第一卷·灰烬低语。费迪南三世为撑烟火节加征火药税，\
+艾拉潜入工坊盗火。塞尔吉奥在都城火山口守夜。三幕结构：征税、盗火、火山。\
+关键转折点：烟火节、工坊、火山口。整体推进方向：帝国都城的权力斗争。";
+    let llm = MockLlm::scripted(vec![invented]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm.clone());
+    let repo = AgencyRepository::new(pool.clone());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .ensure_assets(
+            &budget,
+            &repo,
+            "r-outline-reject",
+            &story.id,
+            "续写《帝国的烟火》第1章",
+        )
+        .await
+        .unwrap();
+    assert!(
+        !llm.calls.lock().unwrap().is_empty(),
+        "有正文无大纲时应尝试归纳，再因未接地拒绝落库"
+    );
+    let outline = crate::db::repositories::StoryOutlineRepository::new(pool.clone())
+        .get_by_story(&story.id)
+        .unwrap();
+    assert!(
+        outline.is_none(),
+        "未接地大纲不得落库: {:?}",
+        outline.map(|o| o.content)
     );
 }
 
