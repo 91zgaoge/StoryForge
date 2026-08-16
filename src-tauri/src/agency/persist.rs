@@ -407,7 +407,17 @@ fn persist_append_inner(
     if cleaned_inc.chars().count() < 200 {
         return Err(AppError::from("续写增量过短，拒绝落库"));
     }
-    let full = join_content(cleaned_old, cleaned_inc);
+    // 客户端快照可能仍是未接受幽灵之前的正文；DB 若已更长，接到 DB
+    // 上，禁止覆盖掉上一拍。
+    let db_raw = scene.content.as_deref().unwrap_or("").trim();
+    let db_n = crate::agency::continue_assets::strip_editor_markup(db_raw)
+        .chars()
+        .count();
+    let client_n = crate::agency::continue_assets::strip_editor_markup(cleaned_old)
+        .chars()
+        .count();
+    let base = if db_n > client_n { db_raw } else { cleaned_old };
+    let full = join_content(base, cleaned_inc);
     let (mut update, flags) = if let Some(card) = card {
         scene_fields_from_facts(
             pool,
@@ -607,6 +617,45 @@ mod tests {
             .unwrap();
         assert_eq!(scenes.len(), 1);
         assert_eq!(scenes[0].content.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn append_stale_client_snapshot_does_not_wipe_previous_increment() {
+        let pool = create_test_pool().unwrap();
+        let (story_id, scene_id) = seed_story_with_scene(&pool);
+        let first = persist_append(
+            &pool,
+            &PersistMode::Append {
+                scene_id: scene_id.clone(),
+            },
+            "旧文开头。",
+            &long_increment(),
+        )
+        .unwrap();
+        let second_inc = "第二拍增量正文。".repeat(30);
+        let second = persist_append(
+            &pool,
+            &PersistMode::Append {
+                scene_id: scene_id.clone(),
+            },
+            "旧文开头。",
+            &second_inc,
+        )
+        .unwrap();
+        assert!(
+            second.full_content.contains("续写增量正文。"),
+            "上一拍不得被客户端旧快照覆盖 got={}",
+            second.full_content
+        );
+        assert!(second.full_content.contains("第二拍增量正文。"));
+        assert!(second.full_content.len() > first.full_content.len());
+        let scenes = SceneRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap();
+        assert_eq!(
+            scenes[0].content.as_deref(),
+            Some(second.full_content.as_str())
+        );
     }
 
     fn dummy_card() -> crate::agency::beat_card::SceneBeatCard {

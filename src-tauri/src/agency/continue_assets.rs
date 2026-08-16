@@ -18,6 +18,9 @@ pub const ASSET_CHAR_BUDGET: usize = 6000;
 pub const PRIOR_HEAD_CHAR_CAP: usize = 600;
 /// 长章双窗：近文窗口（衔接用）。预算收缩时也优先保住这段。
 pub const PRIOR_TAIL_CHAR_CAP: usize = 1800;
+/// 节拍卡「谁必须还在场」只看这一拍镜头，不看整段近文。
+/// 1800 字会把章前半的人算进本拍，探针再要求增量点齐全员 → 人丢了仍落库。
+pub const PRIOR_CAST_CHAR_CAP: usize = 500;
 /// 短章整段可进时的上限（开篇+近文）。
 pub const PRIOR_PROSE_CHAR_CAP: usize = PRIOR_HEAD_CHAR_CAP + PRIOR_TAIL_CHAR_CAP;
 pub const CHAPTER_OUTLINE_CHAR_CAP: usize = 800;
@@ -197,14 +200,14 @@ pub fn strip_editor_markup(text: &str) -> String {
     collapsed.trim().to_string()
 }
 
-/// 节拍卡「末段已在场」只看近文窗口，避免开篇人物被当成还在场。
+/// 节拍卡「末段已在场」只看本拍镜头，避免开篇/章中人物被当成还在场。
 pub fn prior_tail_for_cast(text: &str) -> String {
     let plain = strip_editor_markup(text);
     let n = plain.chars().count();
-    if n <= PRIOR_TAIL_CHAR_CAP {
+    if n <= PRIOR_CAST_CHAR_CAP {
         plain
     } else {
-        plain.chars().skip(n - PRIOR_TAIL_CHAR_CAP).collect()
+        plain.chars().skip(n - PRIOR_CAST_CHAR_CAP).collect()
     }
 }
 
@@ -1044,6 +1047,15 @@ mod tests {
         assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
         assert!(out.contains("禁止时间旅行"));
         assert!(out.contains("章末必须留下"), "预算截前文须保近文 out={out}");
+    }
+
+    #[test]
+    fn prior_tail_for_cast_is_shot_window() {
+        let long = format!("{}客栈乙扣上匣子。", "闲笔。".repeat(400));
+        let tail = prior_tail_for_cast(&long);
+        assert!(tail.chars().count() <= PRIOR_CAST_CHAR_CAP);
+        assert!(tail.contains("客栈乙"));
+        assert!(!tail.contains("青梧甲"));
     }
 
     #[test]

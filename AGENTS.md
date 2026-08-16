@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.47.0
+- **版本**: v0.48.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1413 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1418 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 601 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.48.0 - 续写按镜头在场、禁止旧快照覆盖、未确认幽灵先写入
+
+对照 v0.47.0 真机失败（《帝国的烟火》2026-08-16 晨）：在场窗口过大、角色表补位、书大纲未落地当前席、连续续写丢幽灵并用旧快照覆盖。P0：镜头 500 字阵容、去掉补位、下一节点须点名本拍在场者、落库取更长底稿、末句禁复述已完成动作、NewScene 不罚丢人、连续续写先 `appendAiContent` 未确认幽灵。
+
+- **验证**：`cargo test --lib` 1418 passed / 2 ignored（+5）；`npx vitest run` 601 passed / 3 skipped；`tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。
+- **未关闭**：真机 8 次须在 0.48.0 上重跑；v0.47.0 真机已失败，不得宣称五症状已修复。角色表脏行不清理；ContextPrioritizer 未接 Agency。
 
 ### v0.47.0 - 续写质量闭合（债务/节点/阵容/状态网）
 
@@ -941,7 +948,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-15 - v0.47.0_
+_最后更新: 2026-08-16 - v0.48.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

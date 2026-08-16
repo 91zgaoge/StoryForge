@@ -176,7 +176,7 @@ pub fn probe_increment(
             gaps.push("沉寂角色未入场".into());
         }
     }
-    if named_cast >= 1 {
+    if named_cast >= 1 && !quota.contains(&QuotaItem::NewScene) {
         for name in &state.present {
             let named = matched.iter().any(|n| n == name);
             let left = increment.contains("离场") || increment.contains("离开");

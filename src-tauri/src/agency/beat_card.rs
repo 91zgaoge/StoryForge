@@ -178,23 +178,9 @@ pub fn compile_beat_card_located(
         });
     }
     cast.truncate(8);
-    if chars.len() >= 3 && cast.len() < 3 && allow_character_move {
-        for c in &chars {
-            if cast.len() >= 3 {
-                break;
-            }
-            if !cast.iter().any(|m| m.name == c.name) {
-                cast.push(CastMember {
-                    name: c.name.clone(),
-                    purpose: "补位上场".into(),
-                });
-            }
-        }
-    }
-
     let conflict_move = compile_conflict(&chars, &cast, pool, story_id, protagonist);
     let emotion_beat = compile_emotion(&chars, &cast, pool, story_id, protagonist);
-    let next_outline_node = compile_next_node(pool, story_id);
+    let next_outline_node = compile_next_node(pool, story_id, current_content);
     let expansion_quota_text = quota_text_for_beats(&debt);
     let setting_location = current_scene_location
         .map(str::trim)
@@ -336,7 +322,7 @@ fn compile_emotion(
     }
 }
 
-pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
+pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: &str) -> String {
     let fallback = "在硬约束内把当前冲突推进一步，不得原地复述末句。".to_string();
     let outline = StoryOutlineRepository::new(pool.clone())
         .get_by_story(story_id)
@@ -357,6 +343,14 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
     recent.reverse();
     recent.truncate(3);
     let covered = recent.join("");
+    let names: Vec<String> = CharacterRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    let present = crate::agency::continue_assets::match_character_names(&names, &tail);
     let candidates: Vec<&str> = outline
         .split(['\n', '。', '！', '？', ';', '；'])
         .map(str::trim)
@@ -367,9 +361,13 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str) -> String {
         if key.is_empty() {
             continue;
         }
-        if !covered.contains(&key) {
-            return cand.chars().take(200).collect();
+        if covered.contains(&key) {
+            continue;
         }
+        if !present.is_empty() && !present.iter().any(|n| cand.contains(n.as_str())) {
+            continue;
+        }
+        return cand.chars().take(200).collect();
     }
     fallback
 }
@@ -424,12 +422,13 @@ pub fn ending_anchor(current_content: &str) -> String {
         return String::new();
     };
     format!(
-        "【续写硬锚点（句法衔接；人物/地点/未决以节拍任务与状态网为准）】\n\
-         正文已写到此处，下一句必须无缝衔接，禁止另起开篇、禁止重写醒来/失忆/初入场景。\n\
-         人物、地点、未决问题以节拍任务与状态网为准；末句只约束句法衔接。\n\
+        "【续写硬锚点】\n\
+         正文已写到此处。必须从末句之后继续，禁止另起开篇，禁止重写醒来/失忆/初入场景，\
+         禁止用换一种说法重复末两句里已经完成的动作（饮酒、递盏、天气、跪拜等）。\n\
+         人物、地点、未决问题以节拍任务与状态网为准，但不得与末句已发生的事实打架。\n\
          ——已有正文末句——\n\
          {last}\n\
-         ——请紧接上句继续写（可换段，但人物/地点/目标/未决问题必须承接）——"
+         ——请紧接上句继续写——"
     )
 }
 
@@ -755,9 +754,79 @@ mod tests {
             )
             .unwrap();
         tx.commit().unwrap();
-        let node = compile_next_node(&pool, &sid);
+        let node = compile_next_node(&pool, &sid, "");
         assert!(!node.starts_with("开篇灵堂"), "rewound: {node}");
         assert!(node.contains("把当前冲突推进一步") || node.contains("不得原地复述"));
+    }
+
+    #[test]
+    fn compile_next_node_skips_book_beats_without_present_cast() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story_minimal(&pool);
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&sid, "苏会山"))
+            .unwrap();
+        StoryOutlineRepository::new(pool.clone())
+            .create(
+                &sid,
+                "三年后京城火起奉乾帝崩。苏会山在席间把酒盏捏出裂纹。",
+                None,
+                3,
+                None,
+            )
+            .unwrap();
+        let node = compile_next_node(&pool, &sid, "盖头轻晃。苏会山接过酒盏，一饮而尽。");
+        assert!(
+            node.contains("苏会山"),
+            "下一节点须落在本拍在场者身上, got={node}"
+        );
+        assert!(
+            !node.contains("奉乾帝"),
+            "不得跳到与本拍无关的书纲, got={node}"
+        );
+    }
+
+    #[test]
+    fn cast_is_shot_window_not_whole_near_prose() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("镜头在场"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "曹元佩"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "苏会山"))
+            .unwrap();
+        let text = format!(
+            "曹元佩站在廊下记那一步之差。{}苏会山饮尽杯中酒。",
+            "雪落。".repeat(200)
+        );
+        let card = compile_beat_card(&pool, &story.id, &text).unwrap();
+        let present: Vec<_> = card
+            .cast
+            .iter()
+            .filter(|c| c.purpose.contains("末段已在场"))
+            .map(|c| c.name.as_str())
+            .collect();
+        assert!(present.contains(&"苏会山"), "cast={:?}", card.cast);
+        assert!(
+            !present.contains(&"曹元佩"),
+            "章中人物不得算本拍必须在场 cast={:?}",
+            card.cast
+        );
+        assert!(
+            !card.cast.iter().any(|c| c.purpose.contains("补位上场")),
+            "不得按角色表顺序补位 cast={:?}",
+            card.cast
+        );
+    }
+
+    #[test]
+    fn ending_anchor_forbids_paraphrasing_last_actions() {
+        let a = ending_anchor("苏会山一饮而尽。窗外风声渐紧。");
+        assert!(a.contains("禁止用换一种说法"), "{a}");
+        assert!(a.contains("一饮而尽"), "{a}");
     }
 
     #[test]

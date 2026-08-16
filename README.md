@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.47.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.48.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,12 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.48.0 · 续写按镜头接着写，连续续写不再丢掉上一段
+
+0.47.0 真机续写仍会把不在镜头里的人拉回来、用旧快照盖掉刚写的一段。本版「谁必须还在场」只看末几百字；连续点续写会先把未确认的灰色正文写进章节。真机 8 次还要在 0.48.0 上重跑，不能说人物错配和情节混乱已经修好。需要重启到 0.48.0。
+
+测试：`cargo test --lib` 1418 passed / 2 ignored（+5）。
 
 ### v0.47.0 · 续写按拍兑现人物、冲突和进度
 

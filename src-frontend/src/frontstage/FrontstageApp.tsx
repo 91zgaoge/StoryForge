@@ -453,6 +453,24 @@ const FrontstageApp: React.FC = () => {
     [isTextAlreadyInEditor, markAccepted]
   );
 
+  // Agency 续写在生成时已落库；未 Tab 确认的幽灵若被丢弃，下一拍会从旧正文分叉，
+  // 落库再用客户端旧快照覆盖上一拍。新续写前先写入正文。
+  const commitPendingGhostBeforeContinue = useCallback(
+    (reason: string): boolean => {
+      const ghost = generatedTextRef.current;
+      if (!ghost || ghost.trim().length < 10) return false;
+      logToBackend('frontstage:commit_pending_ghost', 'accept pending ghost before next continue', {
+        reason,
+        ghostLen: ghost.length,
+        preview: ghost.slice(0, 80),
+      });
+      setGeneratedText('');
+      appendAiContentRef.current?.(ghost, 'auto');
+      return true;
+    },
+    [setGeneratedText]
+  );
+
   // v0.23.99: 父组件层监控 generatedText 渲染窗口，便于在 backend log 中确认幽灵文本是否应该出现
   useEffect(() => {
     if (generatedText && generatedText.length > 10) {
@@ -3470,6 +3488,7 @@ const FrontstageApp: React.FC = () => {
         }
       }
 
+      commitPendingGhostBeforeContinue('handleRequestGeneration');
       setGeneratedText('');
       genesisDeliveryRef.current = 'idle';
       // v0.26.42: 续写入口同步解除幽灵渲染锁（与 handleSmartGeneration 对齐）
@@ -3830,7 +3849,14 @@ const FrontstageApp: React.FC = () => {
         setOrchestratorStatus(null);
       }
     },
-    [isGenerating, settings, clearAccepted, selectChapter, setGeneratedText]
+    [
+      isGenerating,
+      settings,
+      clearAccepted,
+      selectChapter,
+      setGeneratedText,
+      commitPendingGhostBeforeContinue,
+    ]
   );
 
   // Accept AI generation
@@ -4295,26 +4321,24 @@ const FrontstageApp: React.FC = () => {
       }
       const isBootstrap = classification.is_new_novel;
 
-      // v0.26.22 Bug D: 重入守卫——存在未接受的幽灵文本时，先丢弃再开新生成。
-      // 根因（creative_workflow.log 2026-07-07）：第 2 次续写结果生成后幽灵已设，
-      // 用户 7 秒后发起第 3 次续写，旧幽灵未被丢弃，current_content_len 未并入，
-      // 导致两份续写结果竞争 + 混乱卡死。自动丢弃并提示，避免阻塞用户。
+      // Agency Append 生成即落库。未确认幽灵若丢弃，下一拍从旧正文分叉且覆盖 DB。
       if (!isBootstrap && generatedTextRef.current.length > 0) {
-        frontstageLogger.warn('[SmartGeneration] 检测到未接受的幽灵文本，发起新生成前自动丢弃', {
-          ghostLen: generatedTextRef.current.length,
+        const committed = commitPendingGhostBeforeContinue('handleSmartGeneration');
+        frontstageLogger.warn('[SmartGeneration] 未确认幽灵已写入正文再续写', {
+          committed,
+          ghostCommitted: committed,
         });
-        setGeneratedText('');
-        setOrchestratorStatus({
-          stepType: 'busy',
-          message: '上一次续写结果尚未确认，已自动丢弃，正在重新生成...',
-        });
-        setTimeout(() => {
-          setOrchestratorStatus(current =>
-            current?.message === '上一次续写结果尚未确认，已自动丢弃，正在重新生成...'
-              ? null
-              : current
-          );
-        }, 2500);
+        if (committed) {
+          setOrchestratorStatus({
+            stepType: 'busy',
+            message: '已先写入上一段续写，正在继续...',
+          });
+          setTimeout(() => {
+            setOrchestratorStatus(current =>
+              current?.message === '已先写入上一段续写，正在继续...' ? null : current
+            );
+          }, 2500);
+        }
       }
 
       // v0.23.82: 新建小说时强制初始化幕前状态，避免旧故事的内容/幽灵文本/章节引用残留，
@@ -4881,7 +4905,15 @@ const FrontstageApp: React.FC = () => {
         }
       }
     },
-    [isGenerating, settings, clearAccepted, selectChapter, setGeneratedText, stories]
+    [
+      isGenerating,
+      settings,
+      clearAccepted,
+      selectChapter,
+      setGeneratedText,
+      stories,
+      commitPendingGhostBeforeContinue,
+    ]
   );
 
   // 底部输入栏提交
