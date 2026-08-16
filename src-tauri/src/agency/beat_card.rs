@@ -6,6 +6,7 @@ use crate::{
     db::{
         repositories::{
             CharacterRelationshipRepository, CharacterRepository, StoryOutlineRepository,
+            StoryRepository,
         },
         Character, DbPool, SceneRepository,
     },
@@ -323,15 +324,45 @@ fn compile_emotion(
 }
 
 pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: &str) -> String {
-    let fallback = "在硬约束内把当前冲突推进一步，不得原地复述末句。".to_string();
-    let outline = StoryOutlineRepository::new(pool.clone())
+    let shot = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    let names: Vec<String> = CharacterRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    let present = crate::agency::continue_assets::match_character_names(&names, &shot);
+    let methodology_id = StoryRepository::new(pool.clone())
+        .get_by_id(story_id)
+        .ok()
+        .flatten()
+        .and_then(|s| s.methodology_id);
+    let methodology_id =
+        crate::agency::prose_ground::resolve_methodology_id(methodology_id.as_deref());
+    let method_fallback =
+        crate::agency::prose_ground::methodology_next_node(methodology_id, &shot, &present);
+    let raw_outline = StoryOutlineRepository::new(pool.clone())
         .get_by_story(story_id)
         .ok()
         .flatten()
         .map(|o| o.content)
         .unwrap_or_default();
+    let scene_prose = crate::agency::materialize::concat_story_prose(pool, story_id);
+    let prose = if crate::agency::prose_ground::has_substantial_prose(&scene_prose) {
+        scene_prose
+    } else {
+        current_content.to_string()
+    };
+    let outline = if raw_outline.trim().is_empty()
+        || (crate::agency::prose_ground::has_substantial_prose(&prose)
+            && !crate::agency::prose_ground::outline_is_grounded(&raw_outline, &prose, &names))
+    {
+        String::new()
+    } else {
+        raw_outline
+    };
     if outline.trim().is_empty() {
-        return fallback;
+        return method_fallback;
     }
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(story_id)
@@ -343,14 +374,6 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
     recent.reverse();
     recent.truncate(3);
     let covered = recent.join("");
-    let names: Vec<String> = CharacterRepository::new(pool.clone())
-        .get_by_story(story_id)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|c| c.name)
-        .collect();
-    let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
-    let present = crate::agency::continue_assets::match_character_names(&names, &tail);
     let candidates: Vec<&str> = outline
         .split(['\n', '。', '！', '？', ';', '；'])
         .map(str::trim)
@@ -369,7 +392,7 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
         }
         return cand.chars().take(200).collect();
     }
-    fallback
+    method_fallback
 }
 
 fn last_n_sentences(text: &str, n: usize, max_chars: usize) -> Option<String> {
@@ -756,7 +779,13 @@ mod tests {
         tx.commit().unwrap();
         let node = compile_next_node(&pool, &sid, "");
         assert!(!node.starts_with("开篇灵堂"), "rewound: {node}");
-        assert!(node.contains("把当前冲突推进一步") || node.contains("不得原地复述"));
+        assert!(
+            node.contains("把当前冲突推进一步")
+                || node.contains("不得原地复述")
+                || node.contains("场景结构")
+                || node.contains("不得另起开篇"),
+            "covered 书纲应变空并回落方法论下一拍, got={node}"
+        );
     }
 
     #[test]
@@ -783,6 +812,40 @@ mod tests {
         assert!(
             !node.contains("奉乾帝"),
             "不得跳到与本拍无关的书纲, got={node}"
+        );
+    }
+
+    #[test]
+    fn compile_next_node_ignores_ungrounded_book_outline() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_story_minimal(&pool);
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&sid, "苏会山"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&sid, "费迪南三世"))
+            .unwrap();
+        StoryOutlineRepository::new(pool.clone())
+            .create(
+                &sid,
+                "第一卷·灰烬低语。费迪南三世为撑烟火节加征火药税。费迪南得知苏会山遇刺。",
+                None,
+                3,
+                None,
+            )
+            .unwrap();
+        let mut shot = "盖头轻晃。苏会山接过酒盏，一饮而尽。".to_string();
+        while shot.chars().count() < 200 {
+            shot.push_str("红毡未干。");
+        }
+        let node = compile_next_node(&pool, &sid, &shot);
+        assert!(
+            !node.contains("费迪南"),
+            "未接地书大纲不得充当下一节点 got={node}"
+        );
+        assert!(
+            node.contains("苏会山") || node.contains("反应") || node.contains("场景结构"),
+            "应回落到本场方法论下一拍 got={node}"
         );
     }
 
