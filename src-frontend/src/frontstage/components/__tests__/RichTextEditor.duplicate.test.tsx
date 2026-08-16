@@ -99,6 +99,7 @@ vi.mock('lucide-react', () => ({
   Check: () => null,
   // P2 Task5: AiSelectionActions 引入的图标（RichTextEditor 传递依赖）
   Type: () => null,
+  PenLine: () => null,
   Scissors: () => null,
   ArrowUp: () => null,
   ChevronRight: () => null,

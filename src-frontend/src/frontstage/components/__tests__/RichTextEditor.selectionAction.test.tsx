@@ -26,6 +26,7 @@ function createFakeEditor() {
       setContent: vi.fn(),
       insertContent: vi.fn(),
       insertContentAt: vi.fn(),
+      setTextSelection: vi.fn(),
     },
     chain: () => chainable,
     on: (event: string, cb: () => void) => {
@@ -93,6 +94,7 @@ vi.mock('lucide-react', () => ({
   X: () => null,
   Check: () => null,
   Type: () => null,
+  PenLine: () => null,
   Scissors: () => null,
   ArrowUp: () => null,
   ChevronRight: () => null,
@@ -209,5 +211,13 @@ describe('RichTextEditor 划词浮条状态重置（P2 Task5 I2）', () => {
       '改写后的文字'
     );
     expect(onShowStatus).toHaveBeenCalledWith('已替换为改写内容');
+  });
+
+  it('短于 4 字的选区不出现划词浮条，避免点选误拖挡住打字', () => {
+    render(<RichTextEditor content="<p>initial</p>" onChange={() => {}} />);
+    fireSelection(1, 2, '被');
+    expect(screen.queryByTestId('ai-selection-actions')).toBeNull();
+    fireSelection(1, 5, '被选文字');
+    expect(screen.getByTestId('ai-selection-actions')).toBeInTheDocument();
   });
 });

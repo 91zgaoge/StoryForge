@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.48.0
+- **版本**: v0.48.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -99,7 +99,7 @@ type:
 - `cargo check` ✅ 零错误
 - `cargo test -p storymoss` ✅ 1418 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 601 passed / 3 skipped
+- `npx vitest run` ✅ 605 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,12 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.48.1 - 划词浮条不再挡住手工写作
+
+v0.39.0 划词 AI 操作条（润色/扩写/改写）在任意选区、拖选过程中弹出，自带输入框抢焦点，mouseup 落在浮条上后选区塌不下去。改为 ≥4 字且鼠标松开后才出现；idle 默认无输入框；Esc 收起。
+
+- **验证**：`npx vitest run` 605 passed / 3 skipped（+4）；`tsc` / `format:check` / `architecture_guard.py` 全绿。无 Rust 逻辑变更。
 
 ### v0.48.0 - 续写按镜头在场、禁止旧快照覆盖、未确认幽灵先写入
 
@@ -948,7 +954,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-16 - v0.48.0_
+_最后更新: 2026-08-16 - v0.48.1_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

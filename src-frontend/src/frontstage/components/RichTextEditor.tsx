@@ -86,6 +86,7 @@ import { EditorContextMenu } from './EditorContextMenu';
 import { AiStreamingText } from '@/components/ui/ai/AiStreamingText';
 import {
   AiSelectionActions,
+  shouldOfferSelectionActions,
   type AiSelectionActionKey,
   type AiSelectionPhase,
 } from '@/components/ui/ai/AiSelectionActions';
@@ -305,6 +306,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
     // thinking 开始后锁定选区范围与选文快照，用户后续改动选区不影响替换目标；
     // 快照用于「保留」前校验选区内容未被改动（P2 Task5 评审整改 I2②）
     const selectionActionRangeRef = useRef<{ from: number; to: number; text: string } | null>(null);
+    const pointerSelectingRef = useRef(false);
 
     // ===== 编辑器内 Slash 指令输入框 =====
     const [showSlashInput, setShowSlashInput] = useState(false);
@@ -708,27 +710,47 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [content, editor]);
 
-    // 选区变化跟踪（用于角色卡片弹窗）
+    // 选区变化跟踪（划词浮条 + 角色卡片）。拖选过程中不弹出：否则浮条会出现在
+    // mouseup 落点上，preventDefault 让选区塌不下去，正文再也点不进去。
     useEffect(() => {
       if (!editor) return;
 
-      const handleSelectionUpdate = () => {
+      const applySelectionFromEditor = () => {
         const { selection } = editor.state;
         if (selection.empty) {
           setSelectedRange(null);
           return;
         }
         const text = editor.state.doc.textBetween(selection.from, selection.to, '\n');
-        if (!text.trim()) {
+        if (!shouldOfferSelectionActions(text)) {
           setSelectedRange(null);
           return;
         }
         setSelectedRange({ from: selection.from, to: selection.to, text: text.trim() });
       };
 
+      const handleSelectionUpdate = () => {
+        if (pointerSelectingRef.current) return;
+        applySelectionFromEditor();
+      };
+
+      const onPointerDown = () => {
+        pointerSelectingRef.current = true;
+      };
+      const onPointerUp = () => {
+        if (!pointerSelectingRef.current) return;
+        pointerSelectingRef.current = false;
+        applySelectionFromEditor();
+      };
+
       editor.on('selectionUpdate', handleSelectionUpdate);
+      const viewDom = editor.view?.dom as HTMLElement | undefined;
+      viewDom?.addEventListener('mousedown', onPointerDown);
+      window.addEventListener('mouseup', onPointerUp);
       return () => {
         editor.off('selectionUpdate', handleSelectionUpdate);
+        viewDom?.removeEventListener('mousedown', onPointerDown);
+        window.removeEventListener('mouseup', onPointerUp);
       };
     }, [editor]);
 
@@ -1051,10 +1073,18 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setSelectionAction({ phase: 'idle' });
     }, [editor, selectionAction.resultText, onShowStatus]);
 
-    const handleSelectionDiscard = useCallback(() => {
+    const dismissSelectionBar = useCallback(() => {
       selectionActionRangeRef.current = null;
       setSelectionAction({ phase: 'idle' });
-    }, []);
+      setSelectedRange(null);
+      if (editor && !editor.state.selection.empty) {
+        editor.commands.setTextSelection(editor.state.selection.to);
+      }
+    }, [editor]);
+
+    const handleSelectionDiscard = useCallback(() => {
+      dismissSelectionBar();
+    }, [dismissSelectionBar]);
 
     // 关闭 slash 输入框并插入 /
     const handleSlashInsertSlash = useCallback(() => {
@@ -1122,11 +1152,23 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           onRejectGeneration();
           return;
         }
+
+        if (e.key === 'Escape' && selectedRange && !generatedText) {
+          e.preventDefault();
+          dismissSelectionBar();
+        }
       };
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [generatedText, handleAcceptAndContinue, onRejectGeneration, isZenMode]);
+    }, [
+      generatedText,
+      handleAcceptAndContinue,
+      onRejectGeneration,
+      isZenMode,
+      selectedRange,
+      dismissSelectionBar,
+    ]);
 
     // 暴露方法给父组件
     useImperativeHandle(

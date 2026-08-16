@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.48.0 项目完成状态
+# StoryMoss (草苔) v0.48.1 项目完成状态
 
-> 最后更新: 2026-08-16（v0.48.0 续写按镜头在场、禁止旧快照覆盖、未确认幽灵先写入）
+> 最后更新: 2026-08-16（v0.48.1 划词浮条不再挡住手工写作）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.48.1 - 划词浮条不再挡住手工写作（2026-08-16）
+
+- **根因**：v0.39.0 `AiSelectionActions` 任意选区即出条，拖选中浮条接住 mouseup，输入框抢焦点。
+- **修复**：≥4 字 + 鼠标松开后才出；idle 无输入框；Esc 塌选区。
+- **验证**：`npx vitest run` 605 passed / 3 skipped（+4）。
 
 ### v0.48.0 - 续写按镜头在场、禁止旧快照覆盖、未确认幽灵先写入（2026-08-16）
 

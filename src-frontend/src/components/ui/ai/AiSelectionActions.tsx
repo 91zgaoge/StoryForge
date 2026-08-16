@@ -15,7 +15,17 @@
  * - shadow-overlay → shadow-float（需宿主窗口定义 --shadow-float，幕前见 frontstage.css）。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, ChevronRight, RefreshCw, Scissors, Sparkles, Type, X } from 'lucide-react';
+import {
+  ArrowUp,
+  Check,
+  ChevronRight,
+  PenLine,
+  RefreshCw,
+  Scissors,
+  Sparkles,
+  Type,
+  X,
+} from 'lucide-react';
 import { segmentStreamText } from './AiStreamingText';
 import { cn } from '@/utils/cn';
 
@@ -43,6 +53,13 @@ const ACTIONS: {
   { key: 'expand', label: '扩写', icon: Type },
   { key: 'rewrite', label: '改写', icon: Scissors },
 ];
+
+/** 短于此时长的选区多半是点选误拖，不弹出浮条以免挡住打字。 */
+export const SELECTION_ACTION_MIN_CHARS = 4;
+
+export function shouldOfferSelectionActions(text: string): boolean {
+  return Array.from(text.trim()).length >= SELECTION_ACTION_MIN_CHARS;
+}
 
 const BUSY_LABEL: Record<AiSelectionActionKey, string> = {
   polish: '润色中',
@@ -105,6 +122,7 @@ export function AiSelectionActions({
   onDiscard,
 }: AiSelectionActionsProps) {
   const [expanded, setExpanded] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [lastAction, setLastAction] = useState<AiSelectionActionKey>('polish');
   // 重试时携带上次自定义指令（M2：否则 custom 重试静默无效）
@@ -118,8 +136,14 @@ export function AiSelectionActions({
   const lastWidthRef = useRef(0);
   const widthAnimationRef = useRef<Animation | null>(null);
 
-  const visible = selectedText.trim().length > 0;
+  const visible = shouldOfferSelectionActions(selectedText);
   const hasPrompt = prompt.trim().length > 0;
+
+  useEffect(() => {
+    setCustomOpen(false);
+    setPrompt('');
+    setExpanded(false);
+  }, [selectedText]);
 
   /* 贴在最末一个选区行下方，横向对准整个选区中心；rAF 批合测量 */
   const place = useCallback(() => {
@@ -281,88 +305,97 @@ export function AiSelectionActions({
 
           {phase === 'idle' && (
             <>
-              {/* 自定义指令输入（有内容时吃掉动作区宽度） */}
-              <div
-                className="flex min-w-0 items-center overflow-hidden transition-[max-width,opacity,transform] duration-[400ms]"
-                style={{
-                  maxWidth: expanded ? 0 : 145,
-                  opacity: expanded ? 0 : 1,
-                  transform: expanded ? 'translateX(-8px)' : 'translateX(0)',
-                  transitionTimingFunction: 'cubic-bezier(0.23,1,0.32,1)',
-                }}
-              >
-                <input
-                  value={prompt}
-                  onChange={e => setPrompt(e.target.value)}
-                  onKeyDown={e => {
-                    // IME 组词中 Enter 是上屏键，不得提交（同 AiPromptBar isComposing 守卫先例）
-                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      submitCustom();
-                    }
-                  }}
-                  aria-label="描述修改要求"
-                  placeholder="描述修改要求…"
-                  className="h-7 w-[145px] bg-transparent pr-2.5 pl-3 text-[12.5px] text-ai-ink placeholder:text-ai-ink-3"
-                />
-              </div>
-
-              <div
-                className="flex min-w-0 items-center gap-0.5 overflow-hidden transition-[max-width,opacity,transform] duration-[400ms]"
-                style={{
-                  maxWidth: hasPrompt ? 0 : expanded ? 300 : 150,
-                  opacity: hasPrompt ? 0 : 1,
-                  transform: hasPrompt ? 'translateX(-8px)' : 'translateX(0)',
-                  transitionTimingFunction: 'cubic-bezier(0.23,1,0.32,1)',
-                }}
-              >
-                {!expanded && <span className="mx-1 h-4 w-px shrink-0 bg-ai-line-strong" />}
-                {ACTIONS.slice(0, expanded ? 3 : 2).map(({ key, label, icon: Icon }) => (
-                  <button key={key} type="button" onClick={() => run(key)} className={control}>
-                    <Icon size={14} strokeWidth={1.8} aria-hidden />
-                    {label}
+              {customOpen ? (
+                <>
+                  <input
+                    value={prompt}
+                    onChange={e => setPrompt(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setCustomOpen(false);
+                        setPrompt('');
+                        return;
+                      }
+                      // IME 组词中 Enter 是上屏键，不得提交（同 AiPromptBar isComposing 守卫先例）
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        submitCustom();
+                      }
+                    }}
+                    aria-label="描述修改要求"
+                    placeholder="描述修改要求…"
+                    autoFocus
+                    className="h-7 w-[145px] bg-transparent pr-2.5 pl-3 text-[12.5px] text-ai-ink placeholder:text-ai-ink-3"
+                  />
+                  <button
+                    type="button"
+                    aria-label="取消自定义指令"
+                    onClick={() => {
+                      setCustomOpen(false);
+                      setPrompt('');
+                    }}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-ai-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-ai-hover-2 hover:text-ai-ink-2 active:scale-[0.96]"
+                  >
+                    <X size={14} strokeWidth={1.8} aria-hidden />
                   </button>
-                ))}
-                <span className="mx-0.5 h-4 w-px shrink-0 bg-ai-line" />
-                <button
-                  type="button"
-                  aria-label={expanded ? '收起操作' : '展开更多操作'}
-                  aria-expanded={expanded}
-                  onClick={() => setExpanded(v => !v)}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full text-ai-ink transition-[background-color,transform] duration-200 hover:bg-ai-hover active:scale-[0.96]"
-                >
-                  <ChevronRight
-                    size={14}
-                    strokeWidth={1.8}
-                    aria-hidden
-                    className="transition-transform duration-[400ms]"
+                  <div
+                    className="flex min-w-0 items-center overflow-hidden transition-[max-width,opacity,transform] duration-[400ms]"
                     style={{
-                      transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                      maxWidth: hasPrompt ? 30 : 0,
+                      opacity: hasPrompt ? 1 : 0,
+                      transform: hasPrompt ? 'scale(1)' : 'scale(0.88)',
                       transitionTimingFunction: 'cubic-bezier(0.23,1,0.32,1)',
                     }}
-                  />
-                </button>
-              </div>
-
-              {/* 有自定义文本时的发送钮 */}
-              <div
-                className="flex min-w-0 items-center overflow-hidden transition-[max-width,opacity,transform] duration-[400ms]"
-                style={{
-                  maxWidth: hasPrompt ? 30 : 0,
-                  opacity: hasPrompt ? 1 : 0,
-                  transform: hasPrompt ? 'scale(1)' : 'scale(0.88)',
-                  transitionTimingFunction: 'cubic-bezier(0.23,1,0.32,1)',
-                }}
-              >
-                <button
-                  type="button"
-                  aria-label="发送修改指令"
-                  onClick={submitCustom}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--ai-accent)_18%,transparent)] text-ai-accent-ink transition-[opacity,transform] duration-300 ease-press hover:opacity-90 enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
-                >
-                  <ArrowUp size={16} strokeWidth={2.4} aria-hidden />
-                </button>
-              </div>
+                  >
+                    <button
+                      type="button"
+                      aria-label="发送修改指令"
+                      onClick={submitCustom}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--ai-accent)_18%,transparent)] text-ai-accent-ink transition-[opacity,transform] duration-300 ease-press hover:opacity-90 enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
+                    >
+                      <ArrowUp size={16} strokeWidth={2.4} aria-hidden />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {ACTIONS.slice(0, expanded ? 3 : 2).map(({ key, label, icon: Icon }) => (
+                    <button key={key} type="button" onClick={() => run(key)} className={control}>
+                      <Icon size={14} strokeWidth={1.8} aria-hidden />
+                      {label}
+                    </button>
+                  ))}
+                  <span className="mx-0.5 h-4 w-px shrink-0 bg-ai-line" />
+                  <button
+                    type="button"
+                    aria-label="自定义指令"
+                    onClick={() => setCustomOpen(true)}
+                    className={control}
+                  >
+                    <PenLine size={14} strokeWidth={1.8} aria-hidden />
+                    指令
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={expanded ? '收起操作' : '展开更多操作'}
+                    aria-expanded={expanded}
+                    onClick={() => setExpanded(v => !v)}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-ai-ink transition-[background-color,transform] duration-200 hover:bg-ai-hover active:scale-[0.96]"
+                  >
+                    <ChevronRight
+                      size={14}
+                      strokeWidth={1.8}
+                      aria-hidden
+                      className="transition-transform duration-[400ms]"
+                      style={{
+                        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transitionTimingFunction: 'cubic-bezier(0.23,1,0.32,1)',
+                      }}
+                    />
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
