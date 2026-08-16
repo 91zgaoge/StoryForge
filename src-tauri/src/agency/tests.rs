@@ -2939,6 +2939,20 @@ async fn test_ensure_assets_with_prose_does_not_require_producer_loop() {
     );
 }
 
+#[tokio::test]
+async fn test_spawn_producer_resume_noop_in_test_env() {
+    let pool = create_test_pool().unwrap();
+    let llm = MockLlm::scripted(vec!["should-not-run"]);
+    let coordinator = AgencyCoordinator::for_test(pool, llm.clone());
+    coordinator.spawn_producer_resume("r-resume", "story-x");
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    assert!(
+        llm.calls.lock().unwrap().is_empty(),
+        "测试环境后台补齐必须 no-op: {:?}",
+        llm.calls.lock().unwrap()
+    );
+}
+
 /// v0.30.21: ensure_story_outline 在故事大纲缺失时强制生成并落库。
 #[tokio::test]
 async fn test_ensure_story_outline_generates_when_missing() {

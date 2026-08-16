@@ -2692,14 +2692,83 @@ impl AgencyCoordinator {
 
     /// 管理 Agent 熔断后后台续跑未完成的资产补齐。测试环境 no-op。
     /// 设计：docs/plans/2026-08-16-prose-grounded-outline-design.md §6
-    fn spawn_producer_resume(&self, run_id: &str, story_id: &str) {
-        let Some(_app) = self.app_handle.clone() else {
+    pub(crate) fn spawn_producer_resume(&self, run_id: &str, story_id: &str) {
+        let Some(app) = self.app_handle.clone() else {
             log::info!("agency: 测试环境跳过后台管理补齐 (run={})", run_id);
             return;
         };
-        let _ = story_id;
-        // 完整续跑在后续任务接入：独立 300s + 正文门闩 + BACKGROUND_LLM_SEMAPHORE。
-        log::info!("agency: 调度后台管理补齐 run={} story={}", run_id, story_id);
+        let pool = self.pool.clone();
+        let run_id = run_id.to_string();
+        let story_id = story_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
+            let labeled: Arc<dyn LoopLlm> = Arc::new(
+                AgencyLlm::new(
+                    app.clone(),
+                    run_id.clone(),
+                    AgentRole::Producer,
+                    story_id.clone(),
+                )
+                .with_label("bg-producer-resume"),
+            );
+            let worker = AgencyCoordinator {
+                app_handle: Some(app.clone()),
+                pool: pool.clone(),
+                llm: Some(labeled),
+                progress_sink: Mutex::new(None),
+                model_count_override: None,
+                run_deadline: Mutex::new(None),
+                #[cfg(test)]
+                activity_log: Mutex::new(Vec::new()),
+            };
+            let _ = app.emit(
+                EVENT_AGENT_ACTIVITY,
+                serde_json::json!({
+                    "run_id": run_id,
+                    "role": AgentRole::Producer.as_str(),
+                    "action": "start",
+                    "detail": "后台补齐",
+                }),
+            );
+            let timed = tokio::time::timeout(std::time::Duration::from_secs(300), async {
+                let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+                let sid = story_id.clone();
+                let prose = worker
+                    .db(move || Ok(crate::agency::materialize::concat_story_prose(&pool, &sid)))
+                    .await
+                    .unwrap_or_default();
+                let has_prose = crate::agency::prose_ground::has_substantial_prose(&prose);
+                let _ = worker
+                    .db({
+                        let pool = worker.pool.clone();
+                        let sid = story_id.clone();
+                        move || Self::persist_default_methodology_if_empty(&pool, &sid)
+                    })
+                    .await;
+                if !has_prose {
+                    let _ = worker
+                        .ensure_world_building(&run_id, &story_id, "后台补齐", &budget)
+                        .await;
+                }
+                let _ = worker
+                    .ensure_story_outline(&run_id, &story_id, "后台补齐", &budget)
+                    .await;
+            })
+            .await;
+            if timed.is_err() {
+                log::warn!("agency: 后台管理补齐超时 run={}", run_id);
+            }
+            let _ = app.emit(
+                EVENT_AGENT_ACTIVITY,
+                serde_json::json!({
+                    "run_id": run_id,
+                    "role": AgentRole::Producer.as_str(),
+                    "action": "done",
+                    "detail": "后台补齐",
+                }),
+            );
+            drop(bg_permit);
+        });
     }
 
     /// 续写循环（串行）：资产确认/补齐 → 写作 → 质量门 → 装配。
@@ -5866,6 +5935,20 @@ fn evidence_blob(parts: &ContinueContextParts) -> String {
     blob
 }
 
+fn grounded_table_names(parts: &ContinueContextParts) -> Vec<String> {
+    let prose: String = parts
+        .scenes
+        .iter()
+        .filter_map(|s| s.content.as_deref())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if crate::agency::prose_ground::has_substantial_prose(&prose) {
+        crate::agency::prose_ground::filter_names_to_prose(&parts.table_names, &prose)
+    } else {
+        parts.table_names.clone()
+    }
+}
+
 fn progress_lines_from_parts(parts: &ContinueContextParts) -> Vec<String> {
     let mut prior: Vec<_> = parts
         .scenes
@@ -5919,7 +6002,11 @@ pub(crate) fn render_parts(
     use crate::agency::continue_assets::{
         build_roster, render_continue_assets, slice_prior_prose, ContinueAssetsInput,
     };
-    let roster = build_roster(&parts.table_names, admitted, &evidence_blob(parts));
+    let roster = build_roster(
+        &grounded_table_names(parts),
+        admitted,
+        &evidence_blob(parts),
+    );
     let latest = parts
         .scenes
         .iter()
@@ -5993,7 +6080,11 @@ fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -
             ));
         }
     }
-    let roster = build_roster(&parts.table_names, admitted, &evidence_blob(parts));
+    let roster = build_roster(
+        &grounded_table_names(parts),
+        admitted,
+        &evidence_blob(parts),
+    );
     let line = render_roster_line(&roster);
     if !line.is_empty() {
         s.push('\n');
@@ -6022,14 +6113,23 @@ fn compile_continue_beat_state(
         .unwrap_or(&[]);
     let progress = parts.map(progress_lines_from_parts).unwrap_or_default();
     let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
-    crate::agency::beat_state::compile_beat_state(
+    let mut state = crate::agency::beat_state::compile_beat_state(
         &present,
         card.setting_location.as_deref(),
         &card.next_outline_node,
         overdue,
         &tail,
         &progress,
-    )
+    );
+    if let Some(parts) = parts {
+        state.offshot = parts
+            .table_names
+            .iter()
+            .filter(|n| !present.iter().any(|p| p == *n))
+            .cloned()
+            .collect();
+    }
+    state
 }
 
 /// 同步组装续写主创 user prompt（0 LLM）。测试与 `write_beat_once` 共用。

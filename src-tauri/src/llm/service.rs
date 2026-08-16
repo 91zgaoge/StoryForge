@@ -1529,6 +1529,7 @@ impl<R: Runtime> LlmService<R> {
                 | "tri-shot-refiner"
                 | "bg-auto-rewriter"
                 | "bg-ingest"
+                | "bg-producer-resume"
                 // v0.23.44: IngestPipeline 的 LLM 调用全部静默。
                 // 根因（日志确认）：创世正文返回后，IngestPipeline 并发发起多个
                 // "记忆-内容分析" LLM 调用，is_silent_background=false 导致进度事件
