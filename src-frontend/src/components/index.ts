@@ -28,7 +28,6 @@ export { AiContextCards } from './ui/ai/AiContextCards';
 export { AiToolChips } from './ui/ai/AiToolChips';
 export { AiRecommendationCard } from './ui/ai/AiRecommendationCard';
 export { AiTaskRows } from './ui/ai/AiTaskRows';
-export { AiSelectionActions } from './ui/ai/AiSelectionActions';
 export type {
   AiContextCardsProps,
   AiContextCardItem,
@@ -45,11 +44,6 @@ export type {
   AiTaskRowDetail,
   AiTaskRowStatus,
 } from './ui/ai/AiTaskRows';
-export type {
-  AiSelectionActionsProps,
-  AiSelectionActionKey,
-  AiSelectionPhase,
-} from './ui/ai/AiSelectionActions';
 // P3 - AI Native Components（数据展示）
 export { AiSearchList } from './ui/ai/AiSearchList';
 export { AiCodeBlock } from './ui/ai/AiCodeBlock';

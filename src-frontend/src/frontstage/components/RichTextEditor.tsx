@@ -22,7 +22,6 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
-import { Sparkles, X, Check } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { extractMessage } from '@/utils/errorHandler';
 import { textToParagraphsHtml } from '@/utils/format';
@@ -84,12 +83,6 @@ import { AiSuggestionNode } from '../tiptap/AiSuggestionNode';
 // import { SceneDividerNode } from '@/frontstage/extensions/SceneDividerNode';
 import { EditorContextMenu } from './EditorContextMenu';
 import { AiStreamingText } from '@/components/ui/ai/AiStreamingText';
-import {
-  AiSelectionActions,
-  shouldOfferSelectionActions,
-  type AiSelectionActionKey,
-  type AiSelectionPhase,
-} from '@/components/ui/ai/AiSelectionActions';
 
 interface RichTextEditorProps {
   content: string;
@@ -291,23 +284,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       [generatedText, isHidingGhost, isGenerating, hideGhostUntil, logToBackend]
     );
 
-    // 选区状态（用于角色卡片弹窗）
-    const [selectedRange, setSelectedRange] = useState<{
-      from: number;
-      to: number;
-      text: string;
-    } | null>(null);
-
-    // 划词 AI 操作浮条状态（P2 Task5）：phase 由浮条动作驱动，结果经 insertContentAt 替换选区
-    const [selectionAction, setSelectionAction] = useState<{
-      phase: AiSelectionPhase;
-      resultText?: string;
-    }>({ phase: 'idle' });
-    // thinking 开始后锁定选区范围与选文快照，用户后续改动选区不影响替换目标；
-    // 快照用于「保留」前校验选区内容未被改动（P2 Task5 评审整改 I2②）
-    const selectionActionRangeRef = useRef<{ from: number; to: number; text: string } | null>(null);
-    const pointerSelectingRef = useRef(false);
-
     // ===== 编辑器内 Slash 指令输入框 =====
     const [showSlashInput, setShowSlashInput] = useState(false);
     const [slashInputText, setSlashInputText] = useState('');
@@ -400,14 +376,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
         editorProps: {
           attributes: {
             class: 'prose prose-lg focus:outline-none',
-          },
-          handleDOMEvents: {
-            mousedown: (view, event) => {
-              if ((event as MouseEvent).button === 0) {
-                setSelectedRange(null);
-              }
-              return false;
-            },
           },
           handleKeyDown: (view, event) => {
             // Slash 指令输入框 — 首次输入 /
@@ -710,64 +678,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       }
     }, [content, editor]);
 
-    // 选区变化跟踪（划词浮条 + 角色卡片）。拖选过程中不弹出：否则浮条会出现在
-    // mouseup 落点上，preventDefault 让选区塌不下去，正文再也点不进去。
-    useEffect(() => {
-      if (!editor) return;
-
-      const applySelectionFromEditor = () => {
-        const { selection } = editor.state;
-        if (selection.empty) {
-          setSelectedRange(null);
-          return;
-        }
-        const text = editor.state.doc.textBetween(selection.from, selection.to, '\n');
-        if (!shouldOfferSelectionActions(text)) {
-          setSelectedRange(null);
-          return;
-        }
-        setSelectedRange({ from: selection.from, to: selection.to, text: text.trim() });
-      };
-
-      const handleSelectionUpdate = () => {
-        if (pointerSelectingRef.current) return;
-        applySelectionFromEditor();
-      };
-
-      const onPointerDown = () => {
-        pointerSelectingRef.current = true;
-      };
-      const onPointerUp = () => {
-        if (!pointerSelectingRef.current) return;
-        pointerSelectingRef.current = false;
-        applySelectionFromEditor();
-      };
-
-      editor.on('selectionUpdate', handleSelectionUpdate);
-      const viewDom = editor.view?.dom as HTMLElement | undefined;
-      viewDom?.addEventListener('mousedown', onPointerDown);
-      window.addEventListener('mouseup', onPointerUp);
-      return () => {
-        editor.off('selectionUpdate', handleSelectionUpdate);
-        viewDom?.removeEventListener('mousedown', onPointerDown);
-        window.removeEventListener('mouseup', onPointerUp);
-      };
-    }, [editor]);
-
-    // 选区变化/塌陷时重置划词浮条状态（P2 Task5 评审整改 I2①）：
-    // 清锁使在飞 smartExecute 的迟到结果被丢弃（见 handleSelectionRun 守卫），
-    // 防止旧 result 在新选区上复活、「保留」把旧 resultText 插到过期 from/to。
-    // 以 from:to:text 原始字符串为键，避免 selectionUpdate 产生同值新对象导致误重置。
-    const selectionActionKey = selectedRange
-      ? `${selectedRange.from}:${selectedRange.to}:${selectedRange.text}`
-      : null;
-    useEffect(() => {
-      selectionActionRangeRef.current = null;
-      setSelectionAction(prev =>
-        prev.phase === 'idle' && !prev.resultText ? prev : { phase: 'idle' }
-      );
-    }, [selectionActionKey]);
-
     // 处理角色名点击
     useEffect(() => {
       if (!editor || !containerRef.current || !characters || characters.length === 0) return;
@@ -1007,85 +917,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       setSlashInputText('');
     }, []);
 
-    // ===== 划词 AI 操作浮条（P2 Task5）=====
-    // 与 inline suggestion（L857-907）同一 smartExecute agent 入口；
-    // 结果不走幽灵管线（光标追加语义不符），由用户「保留」时 insertContentAt 直接替换选区。
-    const handleSelectionRun = useCallback(
-      async (action: AiSelectionActionKey, customInstruction?: string) => {
-        if (!editor || !selectedRange) return;
-        const PRESET_INSTRUCTIONS: Record<Exclude<AiSelectionActionKey, 'custom'>, string> = {
-          polish: '润色这段文字，保持原意与篇幅',
-          expand: '扩写这段文字，丰富细节与画面感',
-          rewrite: '改写这段文字，换一种表达方式',
-        };
-        const instruction =
-          action === 'custom' ? customInstruction?.trim() || '' : PRESET_INSTRUCTIONS[action];
-        if (!instruction) return;
-        selectionActionRangeRef.current = {
-          from: selectedRange.from,
-          to: selectedRange.to,
-          text: selectedRange.text,
-        };
-        setSelectionAction({ phase: 'thinking' });
-        try {
-          const result = await smartExecute({
-            user_input: instruction,
-            current_content: editor.getHTML() || '',
-            selected_text: selectedRange.text,
-          });
-          // 等待期间选区已变化/被重置（锁被清空或被新动作替换）→ 丢弃迟到结果
-          const locked = selectionActionRangeRef.current;
-          if (!locked || locked.from !== selectedRange.from || locked.to !== selectedRange.to)
-            return;
-          const text = (result.final_content || '').replace(/<[^>]*>/g, '').trim();
-          if (text) {
-            setSelectionAction({ phase: 'result', resultText: text });
-          } else {
-            setSelectionAction({ phase: 'idle' });
-            onShowStatus?.('未获得改写结果');
-          }
-        } catch (err) {
-          rtEditorLogger.error('Selection action failed', { error: err });
-          onShowStatus?.(`划词改写失败：${extractMessage(err)}`);
-          setSelectionAction({ phase: 'idle' });
-        }
-      },
-      [editor, selectedRange, onShowStatus]
-    );
-
-    const handleSelectionAccept = useCallback(() => {
-      const range = selectionActionRangeRef.current;
-      const text = selectionAction.resultText;
-      if (editor && range && text) {
-        // I2②: 替换前校验锁定选区仍在文档内且内容与快照一致，不符则放弃替换
-        const inDoc = range.from >= 0 && range.to <= editor.state.doc.content.size;
-        const current = inDoc
-          ? editor.state.doc.textBetween(range.from, range.to, '\n').trim()
-          : '';
-        if (inDoc && current === range.text) {
-          editor.commands.insertContentAt({ from: range.from, to: range.to }, text);
-          onShowStatus?.('已替换为改写内容');
-        } else {
-          onShowStatus?.('选区内容已变化，已放弃替换');
-        }
-      }
-      selectionActionRangeRef.current = null;
-      setSelectionAction({ phase: 'idle' });
-    }, [editor, selectionAction.resultText, onShowStatus]);
-
-    const dismissSelectionBar = useCallback(() => {
-      selectionActionRangeRef.current = null;
-      setSelectionAction({ phase: 'idle' });
-      setSelectedRange(null);
-      if (editor && !editor.state.selection.empty) {
-        editor.commands.setTextSelection(editor.state.selection.to);
-      }
-    }, [editor]);
-
-    const handleSelectionDiscard = useCallback(() => {
-      dismissSelectionBar();
-    }, [dismissSelectionBar]);
-
     // 关闭 slash 输入框并插入 /
     const handleSlashInsertSlash = useCallback(() => {
       setShowSlashInput(false);
@@ -1152,23 +983,11 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           onRejectGeneration();
           return;
         }
-
-        if (e.key === 'Escape' && selectedRange && !generatedText) {
-          e.preventDefault();
-          dismissSelectionBar();
-        }
       };
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [
-      generatedText,
-      handleAcceptAndContinue,
-      onRejectGeneration,
-      isZenMode,
-      selectedRange,
-      dismissSelectionBar,
-    ]);
+    }, [generatedText, handleAcceptAndContinue, onRejectGeneration, isZenMode]);
 
     // 暴露方法给父组件
     useImperativeHandle(
@@ -1176,13 +995,9 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
       () => ({
         insertText: (text: string) => {
           if (editor) {
-            if (selectedRange) {
-              editor
-                .chain()
-                .focus()
-                .setTextSelection({ from: selectedRange.from, to: selectedRange.to })
-                .insertContent(text)
-                .run();
+            const { from, to } = editor.state.selection;
+            if (from !== to) {
+              editor.chain().focus().setTextSelection({ from, to }).insertContent(text).run();
             } else {
               editor.chain().focus().insertContent(text).run();
             }
@@ -1330,7 +1145,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           }
         },
       }),
-      [editor, selectedRange]
+      [editor]
     );
 
     // AI 生成时自动滚动到编辑器底部，让幽灵文本和 Tab/Esc 提示可见
@@ -1552,20 +1367,6 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           )}
         </div>
 
-        {/* 划词 AI 操作浮条（P2 Task5）：生成中/幽灵文本显示中/禅模式不出现，
-            避免与 ghost 树（L1369-1389）和萤火提示抢占视觉焦点 */}
-        {selectedRange && !generatedText && !isGenerating && !isZenMode && (
-          <AiSelectionActions
-            containerRef={containerRef}
-            selectedText={selectedRange.text}
-            phase={selectionAction.phase}
-            resultText={selectionAction.resultText}
-            onRun={handleSelectionRun}
-            onAccept={handleSelectionAccept}
-            onDiscard={handleSelectionDiscard}
-          />
-        )}
-
         {/* 编辑器右键菜单 */}
         <EditorContextMenu
           visible={contextMenu.visible}
@@ -1573,7 +1374,7 @@ const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(
           y={contextMenu.y}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0 })}
           editor={editor}
-          hasSelection={!!selectedRange}
+          hasSelection={!editor.state.selection.empty}
         />
 
         {/* 角色卡片弹窗 */}

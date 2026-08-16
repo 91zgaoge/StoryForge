@@ -2,6 +2,25 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.49.1（2026-08-16）
+
+幕前划词弹出的「润色 / 扩写 / 指令」浮条挡住打字、选区塌不下去。v0.48.1 改成够长才出，用户仍觉得完全无用。本版卸掉该入口。
+
+### 修复
+
+- **不再弹出划词条**：`RichTextEditor` 不再挂载 `AiSelectionActions`；选中正文只保留系统选区与右键剪切/复制。
+- **删除死件**：`AiSelectionActions.tsx` 及其测试从组件库移除。润色/扩写改走底部指令栏。
+
+### 测试
+
+- `npx vitest run`：**588 passed / 3 skipped**（基线 605，−17：删组件测试 14、改宿主 4→1）。
+- 无 Rust 逻辑变更。`tsc` / `format:check` / `architecture_guard.py` 全绿。
+
+### 已知债务
+
+- 真机须用同一开头再点续写。未跑不得宣称唱反调已修复。
+- 角色表脏行不自动 DELETE。`ContextPrioritizer` 未接 Agency。
+
 ## v0.49.0（2026-08-16）
 
 《帝国的烟火》续写从镇北王府切到费迪南三世帝都。根因：空角色表时管理 Agent 按书名发明资产；大纲不读 `scenes.content`；熔断仍把脏黑板落库；书大纲一句点名即可换 POV。本版有正文时大纲/角色以章节为真相源，按创作方法论（默认场景结构）往下推，高峰未完不得换场换主角。
