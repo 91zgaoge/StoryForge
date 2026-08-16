@@ -16,6 +16,8 @@ pub struct BeatState {
     pub present: Vec<String>,
     pub locations: Vec<(String, String)>,
     pub threads: Vec<OpenThread>,
+    /// 角色表内、本拍未在场的已登记名。探针用来拦场外开篇。
+    pub offshot: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -125,6 +127,7 @@ pub fn compile_beat_state(
         present: present.to_vec(),
         locations,
         threads,
+        offshot: Vec::new(),
     }
 }
 
@@ -183,6 +186,14 @@ pub fn probe_increment(
             if !named && !left {
                 gaps.push(format!("丢掉已在场者：{name}"));
             }
+        }
+    }
+    if !quota.contains(&QuotaItem::NewScene) && !state.offshot.is_empty() {
+        let opening: String = increment.chars().take(80).collect();
+        let off = crate::agency::continue_assets::match_character_names(&state.offshot, &opening);
+        let on = crate::agency::continue_assets::match_character_names(&state.present, &opening);
+        if !off.is_empty() && on.is_empty() {
+            gaps.push("增量以场外角色开篇".into());
         }
     }
     BeatProbe { named_cast, gaps }
@@ -245,6 +256,7 @@ mod tests {
             present: vec!["阿岩".into(), "林雪".into()],
             locations: vec![("阿岩".into(), "雨巷".into())],
             threads: vec![],
+            offshot: vec![],
         };
         let probe = probe_increment(
             "他叹了口气，继续喝茶。",
@@ -254,5 +266,49 @@ mod tests {
         );
         assert!(!probe.gaps.is_empty());
         assert!(probe.gaps.join("").contains("在场") || probe.named_cast < 2);
+    }
+
+    #[test]
+    fn probe_rejects_offshot_pov_opening() {
+        let card = SceneBeatCard {
+            cast: vec![
+                CastMember {
+                    name: "苏亦铁".into(),
+                    purpose: "末段已在场".into(),
+                },
+                CastMember {
+                    name: "曹元佩".into(),
+                    purpose: "末段已在场".into(),
+                },
+            ],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["苏亦铁".into(), "曹元佩".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "惊".into(),
+            },
+            next_outline_node: "留在大堂".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("镇北王府大堂".into()),
+        };
+        let state = BeatState {
+            present: vec!["苏亦铁".into(), "曹元佩".into()],
+            locations: vec![("苏亦铁".into(), "镇北王府大堂".into())],
+            threads: vec![],
+            offshot: vec!["费迪南三世".into()],
+        };
+        let probe = probe_increment(
+            "费迪南三世在都城宫殿里批阅奏折，烟火节的税单堆满御案。",
+            &card,
+            &state,
+            &[],
+        );
+        assert!(
+            probe.gaps.iter().any(|g| g.contains("场外")),
+            "须拦截场外开篇 gaps={:?}",
+            probe.gaps
+        );
     }
 }
