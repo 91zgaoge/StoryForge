@@ -368,7 +368,7 @@ const FrontstageBottomBar: React.FC<FrontstageBottomBarProps> = ({
                 isGenerating ? (
                   <button
                     type="button"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-500 transition-[background-color,color,transform] duration-300 ease-press hover:bg-paper-200 hover:text-ink-900 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
+                    className="flex size-7 shrink-0 appearance-none items-center justify-center rounded-md border-0 bg-transparent text-ink-500 shadow-none transition-[background-color,color,transform] duration-300 ease-press hover:bg-[color-mix(in_oklch,var(--terracotta)_18%,transparent)] hover:text-[color:var(--terracotta-dark)] active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100"
                     onClick={onCancelGeneration}
                     title="取消生成"
                     aria-label="取消生成"

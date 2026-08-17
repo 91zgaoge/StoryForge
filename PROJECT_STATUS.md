@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.51.0 项目完成状态
+# StoryMoss (草苔) v0.51.1 项目完成状态
 
-> 最后更新: 2026-08-17（v0.51.0 手写/粘贴正文触发三角色观察）
+> 最后更新: 2026-08-17（v0.51.1 幕前取消键去掉系统原生凸起）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.51.1 - 幕前取消键去掉系统原生凸起（2026-08-17）
+
+- **根因（executed）**：macOS WKWebView 给未设 `appearance-none` 的 `<button>` 画 Aqua 凸起灰块；取消键休息态无透明底。
+- **修复**：取消键 / 发射键 `appearance-none border-0 shadow-none`；取消键 `bg-transparent` + 顶栏陶土 hover；flush CSS 双杀 UA 按钮。
+- **验证**：vitest 取消键 / 发射键契约。无 Rust 逻辑变更。
 
 ### v0.51.0 - 手写/粘贴正文触发三角色观察（2026-08-17）
 

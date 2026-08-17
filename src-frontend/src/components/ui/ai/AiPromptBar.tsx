@@ -383,7 +383,7 @@ export function AiPromptBar({
             aria-label="发送"
             disabled={!canSend}
             onClick={send}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform,opacity] duration-300 ease-press enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex size-7 shrink-0 appearance-none items-center justify-center rounded-md border-0 shadow-none transition-[background-color,color,transform,opacity] duration-300 ease-press enabled:active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:cursor-not-allowed disabled:opacity-40"
             style={{
               background: canSend
                 ? 'color-mix(in oklch, var(--ai-accent) 18%, transparent)'

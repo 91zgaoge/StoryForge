@@ -138,6 +138,14 @@ describe('AiPromptBar', () => {
     expect(screen.queryByTitle('发送')).not.toBeInTheDocument();
   });
 
+  it('发射键去掉系统原生按钮外观', () => {
+    render(<AiPromptBar variant="flush" value="写一段" onChange={() => {}} onSend={() => {}} />);
+    const send = screen.getByTitle('发送');
+    expect(send.className).toMatch(/\bappearance-none\b/);
+    expect(send.className).toMatch(/\bborder-0\b/);
+    expect(send.className).toMatch(/\bshadow-none\b/);
+  });
+
   it('有内容时发射键不用 --ai-ink 实心填充', () => {
     render(<AiPromptBar value="写一段" onChange={() => {}} onSend={() => {}} />);
     const send = screen.getByTitle('发送');

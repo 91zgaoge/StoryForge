@@ -1122,6 +1122,14 @@ body {
   background-color: transparent;
 }
 
+/* v0.51.1: 同路径下 <button> 仍会画成系统凸起灰块（取消键截图）。双杀 UA 按钮。 */
+[data-testid='ai-prompt-bar'][data-variant='flush'] button {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  box-shadow: none;
+}
+
 /* ===== Frontstage Input Ghost Hint（幕前输入栏幽灵提示层）=====
    Task 5（UI 重塑）清理 frontstage.css 旧样式时误删此处规则，导致
    logline 后缀失去灰色 + 小字号样式并发生层叠错位。此处恢复：显式

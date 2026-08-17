@@ -221,6 +221,10 @@ describe('FrontstageBottomBar', () => {
     const cancel = screen.getByTitle('取消生成');
     expect(cancel.className).not.toMatch(/animate-pulse/);
     expect(cancel.className).not.toMatch(/status-danger/);
+    expect(cancel.className).toMatch(/\bappearance-none\b/);
+    expect(cancel.className).toMatch(/\bborder-0\b/);
+    expect(cancel.className).toMatch(/\bshadow-none\b/);
+    expect(cancel.className).toMatch(/\bbg-transparent\b/);
   });
 
   it('输入区无框：外壳无边框圆角独立底，底栏无顶边与毛玻璃', () => {

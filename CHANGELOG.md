@@ -2,6 +2,21 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.51.1（2026-08-17）
+
+幕前生成中的取消键被 macOS WKWebView 画成系统 Aqua 凸起灰块，和墨纸扁平顶栏/输入条不合。根因与 v0.44.1 textarea 原生 inset 边同类：`<button>` 未设 `appearance-none` / `border-0` / `bg-transparent`。
+
+### 修复
+
+- **取消键**：透明底、无边无影，hover 与顶栏设置键同脚印（陶土 18% tint），不要红 pulse、不要灰凸块。
+- **发射键**：同样卸掉系统原生按钮外观。
+- **CSS 双杀**：flush 输入条内 `button` 强制 `-webkit-appearance: none`。
+
+### 测试
+
+- `npx vitest run`：取消键 / 发射键 `appearance-none` 契约。
+- 无 Rust 逻辑变更。
+
 ## v0.51.0（2026-08-17）
 
 幕前手写或粘贴正文会自动保存、也会自动分章，但代理工作室三个代理不开工。根因：三角色只在创世或点续写时建 Agency run；`update_scene` 的 30s 空闲只跑 Ingest 与分章。

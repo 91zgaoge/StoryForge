@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.51.0 架构文档
+# StoryMoss (草苔) v0.51.1 架构文档
 
+> **v0.51.1**：幕前取消键 / 发射键卸掉 macOS WKWebView Aqua 原生按钮外观（`appearance-none` + flush CSS 双杀）。无架构/生成链路变更。v0.51.0 观察不变量不变。
+>
 > **v0.51.0**：手写/粘贴正文触发三角色观察。`agency/observe.rs` 与自动分章同一 30s 空闲窗口；`decide_post_commit_work` 分流 Observe / Ingest / Skip。观察 run id=`observe-{story_id}`，status=`observing`/`idle`（不用 pending/running，以免撞 V109）。主创不写 `scenes.content`、不加续写拍数。编辑 `bg-observe-editor` 静默且不发 `genesis-qc-result`。禁止 `observe` → `story_system`（由 scene_service 调观察）。验证：`cargo test --lib` 1463 passed / 2 ignored（+9）；`npx vitest run` 592 passed / 3 skipped（+1）。v0.50.2 分章标题/Append 前缀守卫不变量不变。
 >
 > **v0.50.2**：自动分章重排后派生标题跟随 `chapter_number`（`is_generic_chapter_title`）；幕前 `displayChapterTitle` 对「第N章 / 第一章」按章号显示。`append_base_content`：DB 为客户端前缀且多出 ≥200 字时用截断后的 DB，避免把溢出写回。V130 修存量标题。不自动删除已重复正文。验证：`cargo test --lib` 1454 passed / 2 ignored（+4）；`npx vitest run` 591 passed / 3 skipped（+1）。

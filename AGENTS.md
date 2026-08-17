@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.0
+- **版本**: v0.51.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1463 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1463 passed / 2 ignored（本版未重跑，无 Rust 逻辑变更）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 592 passed / 3 skipped
+- `npx vitest run` ✅ 593 passed / 3 skipped（+1）
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,13 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.1 - 幕前取消键去掉系统原生凸起
+
+生成中底栏 X 被 macOS WKWebView 画成 Aqua 灰凸块。取消键与发射键加 `appearance-none border-0 shadow-none`；取消键透明底 + 顶栏同款陶土 hover；flush 路径 CSS 双杀 UA 按钮。
+
+- **验证**：`npx vitest run` 取消键 / 发射键 `appearance-none` 契约。无 Rust 逻辑变更。
+- **契约**：`FrontstageBottomBar` 取消生成无脉冲红块且 `appearance-none`；`AiPromptBar` 发射键去掉系统原生按钮外观。
 
 ### v0.51.0 - 手写/粘贴正文触发三角色观察
 
@@ -1001,7 +1008,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-17 - v0.51.0_
+_最后更新: 2026-08-17 - v0.51.1_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
