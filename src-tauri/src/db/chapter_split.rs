@@ -270,12 +270,34 @@ pub fn plan_split(
     })
 }
 
+pub(crate) fn canonical_chapter_title(chapter_number: i32) -> String {
+    format!("第{}章", chapter_number)
+}
+
+/// 「第N章」「第一章」这类由章号派生的标题。自定义名（「临江夜雨」）不是。
+pub(crate) fn is_generic_chapter_title(title: &str) -> bool {
+    let t = title.trim();
+    let mut chars = t.chars();
+    if chars.next() != Some('第') || !t.ends_with('章') {
+        return false;
+    }
+    let mid: String = t
+        .chars()
+        .skip(1)
+        .take(t.chars().count().saturating_sub(2))
+        .collect();
+    !mid.is_empty()
+        && mid
+            .chars()
+            .all(|c| c.is_ascii_digit() || "一二三四五六七八九十百千零〇两".contains(c))
+}
+
 /// 纯函数：由合约 goal 推导章节标题（可单测）。
 fn title_from_goal(goal: Option<&str>, chapter_number: i32) -> String {
     const MAX_TITLE_CHARS: usize = 30;
     match goal.map(str::trim).filter(|g| !g.is_empty()) {
         Some(g) => g.chars().take(MAX_TITLE_CHARS).collect(),
-        None => format!("第{}章", chapter_number),
+        None => canonical_chapter_title(chapter_number),
     }
 }
 
@@ -383,6 +405,26 @@ pub(crate) fn split_chapter_in_tx(
             params![id, now],
         )?;
     }
+    // 派生标题跟随新章号，否则列表会出现「第7章」后面还挂一个「第6章」。
+    // 手写标题（临江夜雨）随内容走，不改。
+    for id in &renumbered_chapter_ids {
+        let (num, title): (i32, Option<String>) = tx.query_row(
+            "SELECT chapter_number, title FROM chapters WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if is_generic_chapter_title(title.as_deref().unwrap_or("")) {
+            let new_title = canonical_chapter_title(num);
+            tx.execute(
+                "UPDATE chapters SET title = ?2, updated_at = ?3 WHERE id = ?1",
+                params![id, &new_title, now],
+            )?;
+            tx.execute(
+                "UPDATE scenes SET title = ?2, updated_at = ?3 WHERE chapter_id = ?1",
+                params![id, &new_title, now],
+            )?;
+        }
+    }
     // 同步重排 scenes.sequence_number（本库其与章号对齐；按 story 范围
     // 降序逐行 +1，避开 UNIQUE(story_id, sequence_number) 冲突）
     let renumbered_scene_ids: Vec<String> = {
@@ -456,7 +498,7 @@ pub(crate) fn split_chapter_in_tx(
             story_id,
             new_number,
             &new_title,
-            plan.overflow.len() as i32,
+            TextUtils::chinese_word_count(&plan.overflow) as i32,
             now
         ],
     )?;
@@ -582,5 +624,15 @@ mod tests {
     fn title_from_goal_falls_back_when_missing_or_blank() {
         assert_eq!(title_from_goal(None, 7), "第7章");
         assert_eq!(title_from_goal(Some("   "), 7), "第7章");
+    }
+
+    #[test]
+    fn generic_chapter_title_matches_arabic_and_chinese_numerals() {
+        assert!(is_generic_chapter_title("第6章"));
+        assert!(is_generic_chapter_title("第一章"));
+        assert!(is_generic_chapter_title(" 第12章 "));
+        assert!(!is_generic_chapter_title("临江夜雨"));
+        assert!(!is_generic_chapter_title("第一章 开端"));
+        assert!(!is_generic_chapter_title(""));
     }
 }

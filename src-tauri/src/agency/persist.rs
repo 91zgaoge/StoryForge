@@ -425,13 +425,7 @@ fn persist_append_inner(
     // 客户端快照可能仍是未接受幽灵之前的正文；DB 若已更长，接到 DB
     // 上，禁止覆盖掉上一拍。
     let db_raw = scene.content.as_deref().unwrap_or("").trim();
-    let db_n = crate::agency::continue_assets::strip_editor_markup(db_raw)
-        .chars()
-        .count();
-    let client_n = crate::agency::continue_assets::strip_editor_markup(cleaned_old)
-        .chars()
-        .count();
-    let base = if db_n > client_n { db_raw } else { cleaned_old };
+    let base = append_base_content(db_raw, cleaned_old);
     let full = join_content(base, cleaned_inc);
     let (mut update, flags) = if let Some(card) = card {
         scene_fields_from_facts(
@@ -474,6 +468,27 @@ fn persist_append_inner(
         chapter_number: scene.sequence_number,
         full_content: full,
     })
+}
+
+/// 分章截断后客户端仍可能持有旧全文。DB 是其前缀且多出的部分够长，
+/// 视为溢出已迁走，用 DB 做底稿。短增量（未保存打字）仍用客户端。
+const SPLIT_RESTORE_MIN_EXTRA_CHARS: usize = 200;
+
+pub(crate) fn append_base_content<'a>(db_raw: &'a str, client: &'a str) -> &'a str {
+    let db_plain = crate::agency::continue_assets::strip_editor_markup(db_raw);
+    let client_plain = crate::agency::continue_assets::strip_editor_markup(client);
+    let db_n = db_plain.chars().count();
+    let client_n = client_plain.chars().count();
+    if db_n > client_n {
+        db_raw
+    } else if db_n > 0
+        && client_n.saturating_sub(db_n) >= SPLIT_RESTORE_MIN_EXTRA_CHARS
+        && client_plain.starts_with(&db_plain)
+    {
+        db_raw
+    } else {
+        client
+    }
 }
 
 fn looks_like_html(s: &str) -> bool {
@@ -702,6 +717,22 @@ mod tests {
             scenes[0].content.as_deref(),
             Some(second.full_content.as_str())
         );
+    }
+
+    #[test]
+    fn append_base_prefers_db_when_client_is_pre_split_superset() {
+        let keep = "截断后留在旧章的正文。".repeat(20);
+        let overflow = "已经迁到新章的溢出正文。".repeat(20);
+        let client = format!("{keep}{overflow}");
+        assert!(overflow.chars().count() >= 200);
+        assert_eq!(append_base_content(&keep, &client), keep.as_str());
+    }
+
+    #[test]
+    fn append_base_keeps_short_unsaved_client_suffix() {
+        let db = "已落库正文。";
+        let client = "已落库正文。又打了几个字";
+        assert_eq!(append_base_content(db, client), client);
     }
 
     fn dummy_card() -> crate::agency::beat_card::SceneBeatCard {

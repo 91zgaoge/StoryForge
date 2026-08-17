@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.50.1 项目完成状态
+# StoryMoss (草苔) v0.50.2 项目完成状态
 
-> 最后更新: 2026-08-17（v0.50.1 自动分章后续写不再误报「请先打开一个章节」）
+> 最后更新: 2026-08-17（v0.50.2 自动分章后章节名跟随章号，续写不再把切走的正文写回）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.50.2 - 自动分章后章节名跟随章号（2026-08-17）
+
+- **根因（executed）**：`split_chapter_in_tx` 重排只 +1 `chapter_number`；`persist_append` 在客户端旧全文更长时用客户端做底稿，把溢出写回已截断章。
+- **修复**：派生标题跟随新号；`displayChapterTitle` 按章号显示；Append 前缀守卫；V130 修存量标题。
+- **验证**：`cargo test --lib` 1454 passed / 2 ignored（+4）；vitest 591 / 3 skipped（+1）。
+- **未关闭**：已重复的第 3–6 章正文不自动删。
 
 ### v0.50.1 - 自动分章后续写不再误报「请先打开一个章节」（2026-08-17）
 

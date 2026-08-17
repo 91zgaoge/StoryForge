@@ -80,7 +80,7 @@ describe('FrontstageHeader', () => {
 
   it('应该显示章节标题和字数统计', () => {
     render(<FrontstageHeader {...defaultProps} />);
-    expect(screen.getByText('第一章')).toBeInTheDocument();
+    expect(screen.getByText('第1章')).toBeInTheDocument();
     expect(screen.getByText(/1234 字/)).toBeInTheDocument();
     expect(screen.getByText(/5678 字/)).toBeInTheDocument();
   });
@@ -262,7 +262,7 @@ describe('FrontstageHeader', () => {
       />
     );
 
-    await userEvent.click(screen.getByText('第一章'));
+    await userEvent.click(screen.getByText('第1章'));
     await waitFor(() => {
       expect(screen.getByRole('listbox', { name: '章节列表' })).toBeInTheDocument();
     });
@@ -271,7 +271,7 @@ describe('FrontstageHeader', () => {
     expect(screen.getByRole('option', { name: '第2章' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '临江夜雨' })).toBeInTheDocument();
     // 当前章节高亮
-    expect(screen.getByRole('option', { name: '第一章' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('option', { name: '第1章' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('下拉中选中其他章节应调用 onSelectChapter 并关闭菜单', async () => {
@@ -305,7 +305,7 @@ describe('FrontstageHeader', () => {
     );
 
     await user.click(screen.getByLabelText('展开章节列表'));
-    await user.click(screen.getByRole('option', { name: '第一章' }));
+    await user.click(screen.getByRole('option', { name: '第1章' }));
     expect(onSelectChapter).not.toHaveBeenCalled();
   });
 
@@ -320,7 +320,7 @@ describe('FrontstageHeader', () => {
       />
     );
 
-    await user.dblClick(screen.getByText('第一章'));
+    await user.dblClick(screen.getByText('第1章'));
     expect(screen.getByLabelText('编辑章节名称')).toBeInTheDocument();
     // 等待超过单击延迟（250ms），确认下拉未弹出
     await new Promise(resolve => setTimeout(resolve, 350));

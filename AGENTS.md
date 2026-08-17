@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.50.1
+- **版本**: v0.50.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1450 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1454 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 590 passed / 3 skipped
+- `npx vitest run` ✅ 591 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.50.2 - 自动分章后章节名跟随章号，续写不再把切走的正文写回
+
+下拉出现「第7章」后面还挂「第6章」，第 3–6 章开头同一段验尸。根因：重排只改 `chapter_number`；续写客户端旧全文比截断后的 DB 长，被当成底稿写回。本版派生标题跟随新号；幕前按章号显示；Append 在 DB 为前缀且多出 ≥200 字时用 DB；V130 修存量标题。
+
+- **验证**：`cargo test --lib` 1454 passed / 2 ignored（+4）；`npx vitest run` 591 passed / 3 skipped（+1）。
+- **契约**：`generic_chapter_title_matches_arabic_and_chinese_numerals`；中间章切开旧章标题变 `第4章`；`append_base_prefers_db_when_client_is_pre_split_superset`；`v130_retitles_stale_generic_and_keeps_custom`；`displayChapterTitle` 第6章@8 → 第8章。
+- **未关闭**：已重复的第 3–6 章正文不自动删。真机须用同一开头再点续写。
 
 ### v0.50.1 - 自动分章后续写不再误报「请先打开一个章节」
 
@@ -985,7 +993,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-17 - v0.50.1_
+_最后更新: 2026-08-17 - v0.50.2_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

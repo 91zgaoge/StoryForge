@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.50.1 架构文档
+# StoryMoss (草苔) v0.50.2 架构文档
 
+> **v0.50.2**：自动分章重排后派生标题跟随 `chapter_number`（`is_generic_chapter_title`）；幕前 `displayChapterTitle` 对「第N章 / 第一章」按章号显示。`append_base_content`：DB 为客户端前缀且多出 ≥200 字时用截断后的 DB，避免把溢出写回。V130 修存量标题。不自动删除已重复正文。验证：`cargo test --lib` 1454 passed / 2 ignored（+4）；`npx vitest run` 591 passed / 3 skipped（+1）。
+>
 > **v0.50.1**：自动分章后幕前 `sceneId` 曾回落 `chapter.id`，Agency Append 在 scenes 表找不到并误报「请先打开一个章节」。分章切章补拉 `get_chapter_scenes`；`resolve_append_scene_id` 与 `update_scene` heal 同口径（id 是 scene 原样，id 是 chapter 则取该章关联 scene），贯穿 `run_continue_inner` 与 `persist_append`。禁止猜最新有内容场景。验证：`cargo test --lib` 1450 passed / 2 ignored（+1）；`npx vitest run` 590 passed / 3 skipped。v0.50.0 三角色闭环不变量不变。
 >
 > **v0.50.0**：续写三角色闭环。`agency/continue_loop.rs` 把后台活动写入 `agency_activity_log`（spawn 即 start，退出必 done）；Append 后把 BeatCard 投影到当前 run Asset 区，ingest 再补正文接地的角色/故事/世界观。`scenes.outline_content` 写成 `【当前场大纲】`，`compile_next_node` 优先读 `下一拍`；ingest 见该标记不覆盖。`load_open_review_issues` 跨 run 取最多 2 条 `gate:revise` 进节拍卡。不改 `WriteTimeBundle::to_prompt()`，不接 ContextPrioritizer，不 DELETE 脏角色行，不自动改写已落库章节。验证：`cargo test --lib` 1449 passed / 2 ignored（+13）；`npx vitest run` 590 passed / 3 skipped（+2）。真机未跑，不得宣称唱反调已修复。

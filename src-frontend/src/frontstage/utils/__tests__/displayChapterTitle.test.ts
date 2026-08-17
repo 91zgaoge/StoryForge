@@ -14,8 +14,15 @@ describe('displayChapterTitle', () => {
     expect(displayChapterTitle({ chapter_number: 12 })).toBe('第12章');
   });
 
+  it('派生章号标题跟 chapter_number，不照显示过期库标题', () => {
+    expect(displayChapterTitle({ chapter_number: 1, title: '第一章' })).toBe('第1章');
+    expect(displayChapterTitle({ chapter_number: 8, title: '第6章' })).toBe('第8章');
+    expect(displayChapterTitle({ chapter_number: 2, title: '第2章' })).toBe('第2章');
+  });
+
   it('真实标题 → 原样 trim', () => {
     expect(displayChapterTitle({ chapter_number: 1, title: ' 开端 ' })).toBe('开端');
-    expect(displayChapterTitle({ chapter_number: 1, title: '第一章' })).toBe('第一章');
+    expect(displayChapterTitle({ chapter_number: 3, title: '临江夜雨' })).toBe('临江夜雨');
+    expect(displayChapterTitle({ chapter_number: 1, title: '第一章 开端' })).toBe('第一章 开端');
   });
 });
