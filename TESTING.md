@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.50.0)
+# 🧪 StoryMoss 自动化测试环境 (v0.50.1)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.50.1 变更说明
+
+- 自动分章后续写：分页不含新章时补拉 `get_chapter_scenes`；`resolve_append_scene_id` 把 chapter id 解析成关联 scene。
+- 测试调整：Rust +1（1450）；vitest 计数不变（590，改既有分章契约）。
+- 全量基线：`cargo test --lib` 1450 passed / 2 ignored（+1）；`npx vitest run` 590 passed / 3 skipped。
 
 ### v0.50.0 变更说明
 

@@ -3075,22 +3075,31 @@ impl AgencyCoordinator {
         // 并行循环共用同一 Arc）
         // Append 的章号取目标场景序号（用于 premise/进度提示；落库章号以
         // persist_append 读回的 sequence_number 为准）。
-        let chapter_number = match &persist {
-            PersistMode::NextChapter { chapter_number } => *chapter_number,
+        // 幕前分章后可能传来 chapter.id，先解析成关联 scene，再贯穿本拍。
+        let (persist, chapter_number) = match persist {
+            PersistMode::NextChapter { chapter_number } => {
+                (PersistMode::NextChapter { chapter_number }, chapter_number)
+            }
             PersistMode::Append { scene_id } => {
                 let pool = self.pool.clone();
                 let sid = scene_id.clone();
-                tokio::task::spawn_blocking(move || -> Result<i32, AppError> {
-                    let scene = SceneRepository::new(pool)
-                        .get_by_id(&sid)
-                        .map_err(AppError::from)?
-                        .ok_or_else(|| {
-                            AppError::validation_failed("请先打开一个章节", Some("no_scene"))
-                        })?;
-                    Ok(scene.sequence_number)
-                })
-                .await
-                .map_err(|e| AppError::from(format!("append scene lookup join error: {}", e)))??
+                let (resolved, seq) =
+                    tokio::task::spawn_blocking(move || -> Result<(String, i32), AppError> {
+                        let resolved =
+                            crate::agency::persist::resolve_append_scene_id(&pool, &sid)?;
+                        let scene = SceneRepository::new(pool)
+                            .get_by_id(&resolved)
+                            .map_err(AppError::from)?
+                            .ok_or_else(|| {
+                                AppError::validation_failed("请先打开一个章节", Some("no_scene"))
+                            })?;
+                        Ok((resolved, scene.sequence_number))
+                    })
+                    .await
+                    .map_err(|e| {
+                        AppError::from(format!("append scene lookup join error: {}", e))
+                    })??;
+                (PersistMode::Append { scene_id: resolved }, seq)
             }
         };
         let title = self

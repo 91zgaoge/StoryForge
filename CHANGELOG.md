@@ -2,6 +2,27 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.50.1（2026-08-17）
+
+幕前第 6 章已打开、底栏显示「Agency 续写中」，却弹出 `VALIDATION_FAILED`「请先打开一个章节」。开启文思活跃会立刻发续写，把这条路径打到脸上。根因不是没开章节，也不是设置缺项：自动分章切到第 6 章后，场景分页首页只有 1–5 章，`sceneId` 回落成章节 id；续写在 `scenes` 表按这个 id 查找失败。
+
+### 修复
+
+- **分章补拉场景**：自动切到新章时按 `chapter_id` 调 `get_chapter_scenes`，把真实 scene 并进列表，`selectChapter` 不再把 `chapter.id` 当成 `sceneId`。
+- **续写解析 chapter→scene**：`resolve_append_scene_id` 与 `update_scene` heal 同口径——id 已是 scene 原样用；id 是 chapter 且该章已有关联 scene 则改用该 scene。贯穿 `run_continue_inner` 与 `persist_append`。禁止猜「最新有内容场景」。
+
+### 测试
+
+- `cargo test --lib`：**1450 passed / 2 ignored**（+1：`append_chapter_id_resolves_to_linked_scene`）。
+- `npx vitest run`：**590 passed / 3 skipped**（分章契约改为分页不含新章，断言 `get_chapter_scenes`）。
+- `tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。
+
+### 已知债务
+
+- 真机须用同一开头再点续写。未跑不得宣称唱反调已修复。
+- 角色表脏行不自动 DELETE。`ContextPrioritizer` 未接 Agency。
+- 当前已打开会话若 `sceneId` 仍是章节 id，升级后后端会解析；重启或再点一次该章更干净。
+
 ## v0.50.0（2026-08-16）
 
 幕后代理工作室续写后资产栏空、管理只有 `start 资产回流` 没有 `done`、编辑 `gate:revise` 不进下一拍。根因：三条路径不相通——回流不写当前 run 黑板、后台 spawn 不落活动日志、审查问题不进节拍卡。本版把本拍变化投影到资产栏，后台必有 done，当前场大纲和审查问题约束下一拍。

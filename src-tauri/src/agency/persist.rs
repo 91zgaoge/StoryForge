@@ -36,6 +36,23 @@ pub fn resolve_persist_mode(
     Ok(PersistMode::Append { scene_id: sid })
 }
 
+/// 续写 Append 的 scene 主键。幕前自动分章后分页场景列表常不含新章，
+/// `selectChapter` 会把 `chapter.id` 回落成 sceneId 传来。与
+/// `update_scene` heal 同口径：id 已是 scene → 原样；id 是 chapter 且该章
+/// 已有关联 scene → 用该 scene；否则 `no_scene`。禁止猜「最新有内容场景」。
+pub fn resolve_append_scene_id(pool: &DbPool, id: &str) -> Result<String, AppError> {
+    let repo = crate::db::repositories::SceneRepository::new(pool.clone());
+    if repo.get_by_id(id).map_err(AppError::from)?.is_some() {
+        return Ok(id.to_string());
+    }
+    let linked = repo.get_by_chapter(id).map_err(AppError::from)?;
+    linked
+        .into_iter()
+        .next()
+        .map(|s| s.id)
+        .ok_or_else(|| AppError::validation_failed("请先打开一个章节", Some("no_scene")))
+}
+
 /// 幕前续写进 Agency Append：必须是续写意图，且没有划词选区（选区走改写）。
 pub fn should_agency_append_continue(is_continuation: bool, selected_text: Option<&str>) -> bool {
     is_continuation && selected_text.map(str::trim).unwrap_or("").is_empty()
@@ -394,9 +411,10 @@ fn persist_append_inner(
     let PersistMode::Append { scene_id } = mode else {
         return Err(AppError::from("persist_append 只接受 Append"));
     };
+    let scene_id = resolve_append_scene_id(pool, scene_id)?;
     let repo = crate::db::repositories::SceneRepository::new(pool.clone());
     let scene = repo
-        .get_by_id(scene_id)
+        .get_by_id(&scene_id)
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::validation_failed("请先打开一个章节", Some("no_scene")))?;
     let cleaned_old = current_content.trim();
@@ -432,7 +450,7 @@ fn persist_append_inner(
         )
     };
     update.content = Some(full.clone());
-    repo.update(scene_id, &update).map_err(AppError::from)?;
+    repo.update(&scene_id, &update).map_err(AppError::from)?;
     if let Err(e) = increment_append_beat(pool, &scene.story_id) {
         log::warn!("increment_append_beat 失败: {e}");
     }
@@ -561,6 +579,37 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("请先打开一个章节") || err.to_string().contains("不存在"));
+    }
+
+    /// 幕前自动分章后常把 chapter.id 当成 scene_id 传来。
+    /// 契约：id 命中 chapters 且该章已有关联 scene 时，Append 接到该 scene，
+    /// 不得报「请先打开一个章节」。
+    #[test]
+    fn append_chapter_id_resolves_to_linked_scene() {
+        let pool = create_test_pool().unwrap();
+        let (_story_id, scene_id) = seed_story_with_scene(&pool);
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&scene_id)
+            .unwrap()
+            .unwrap();
+        let chapter_id = scene
+            .chapter_id
+            .expect("create_in_tx 必须给 scene 挂 chapter_id");
+        assert_ne!(chapter_id, scene_id);
+        assert_eq!(
+            resolve_append_scene_id(&pool, &chapter_id).unwrap(),
+            scene_id
+        );
+        let out = persist_append(
+            &pool,
+            &PersistMode::Append {
+                scene_id: chapter_id,
+            },
+            "旧文开头。",
+            &long_increment(),
+        )
+        .unwrap();
+        assert_eq!(out.scene_id, scene_id);
     }
 
     #[test]

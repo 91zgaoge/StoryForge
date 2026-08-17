@@ -664,6 +664,26 @@ const FrontstageApp: React.FC = () => {
               error: e,
             });
           }
+          // 分页首页不含新章（第 6 章及以后）。必须按 chapter_id 补拉，
+          // 否则 selectChapter 把 sceneId 回落成 chapter.id，续写报「请先打开一个章节」。
+          try {
+            const chapterScenes = await loggedInvoke<Scene[]>('get_chapter_scenes', {
+              chapter_id: chapterId,
+            });
+            if (Array.isArray(chapterScenes) && chapterScenes.length > 0) {
+              const map = new Map((freshScenes ?? []).map(s => [s.id, s]));
+              chapterScenes.forEach(s => map.set(s.id, s));
+              freshScenes = Array.from(map.values()).sort(
+                (a, b) => a.sequence_number - b.sequence_number
+              );
+              setScenes(freshScenes);
+            }
+          } catch (e) {
+            frontstageLogger.error('[SplitAutoSwitch] Failed to load chapter scenes', {
+              error: e,
+              chapterId,
+            });
+          }
           // 新章未必在已加载分页内（无 content），交由 selectChapter 懒加载完整章节后切换；
           // 懒加载链路递归 selectChapter(full, opts)，opts.scenes 随之传到最终解析点
           selectChapter(

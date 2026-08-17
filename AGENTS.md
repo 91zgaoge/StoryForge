@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.50.0
+- **版本**: v0.50.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1449 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1450 passed / 2 ignored
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 590 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.50.1 - 自动分章后续写不再误报「请先打开一个章节」
+
+第 6 章已打开、文思活跃立刻续写，却弹出 `VALIDATION_FAILED`「请先打开一个章节」。根因：`SCENES_PAGE_SIZE=5`，分章切到第 6 章后分页首页没有新章 scene，`sceneId` 回落 `chapter.id`，Agency Append 在 scenes 表找不到。本版分章补拉 `get_chapter_scenes`；后端 `resolve_append_scene_id` 把 chapter id 解析成关联 scene。
+
+- **验证**：`cargo test --lib` 1450 passed / 2 ignored（+1）；`npx vitest run` 590 passed / 3 skipped。
+- **契约**：`append_chapter_id_resolves_to_linked_scene`；分章自动切换 `sceneId === 'scene-2'` 且调用 `get_chapter_scenes`。
+- **未关闭**：真机须用同一开头再点续写；不得宣称唱反调已修复。角色表脏行不自动删除；ContextPrioritizer 未接 Agency。
 
 ### v0.50.0 - 续写三角色闭环（资产可见 / 当场大纲 / 审查进下一拍）
 
@@ -977,7 +985,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-16 - v0.50.0_
+_最后更新: 2026-08-17 - v0.50.1_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

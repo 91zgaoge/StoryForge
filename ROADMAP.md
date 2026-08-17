@@ -1,8 +1,15 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-16（v0.50.0 续写三角色闭环）
+> 最后更新: 2026-08-17（v0.50.1 自动分章后续写不再误报「请先打开一个章节」）
 
 ## ✅ v0.27.x–v0.50.x 已实施完成
+
+### ✨ v0.50.1 - 自动分章后续写不再误报「请先打开一个章节」 ✅ (2026-08-17)
+
+- [x] 分章自动切换补拉 `get_chapter_scenes`，`sceneId` 不再回落 `chapter.id`。
+- [x] `resolve_append_scene_id`：chapter id → 该章关联 scene（与 `update_scene` heal 同口径）。
+- [x] 验证：`cargo test --lib` 1450 passed / 2 ignored（+1）；vitest 590 / 3 skipped。
+- **未关闭**：真机须用同一开头再点续写，不得宣称唱反调已修复。
 
 ### ✨ v0.50.0 - 续写三角色闭环 ✅ (2026-08-16)
 

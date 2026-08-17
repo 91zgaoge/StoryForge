@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.50.0 项目完成状态
+# StoryMoss (草苔) v0.50.1 项目完成状态
 
-> 最后更新: 2026-08-16（v0.50.0 续写三角色闭环：资产可见 / 当场大纲 / 审查进下一拍）
+> 最后更新: 2026-08-17（v0.50.1 自动分章后续写不再误报「请先打开一个章节」）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.50.1 - 自动分章后续写不再误报「请先打开一个章节」（2026-08-17）
+
+- **根因（executed）**：`SCENES_PAGE_SIZE=5`，自动分章切到第 6 章后分页首页没有新章 scene；`selectChapter` 把 `sceneId` 回落成 `chapter.id`；Agency Append `get_by_id` 在 scenes 表找不到，误报 `no_scene`。文思活跃只是立刻发续写，把这条路径打出来。
+- **修复**：分章补拉 `get_chapter_scenes`；`resolve_append_scene_id` 与 heal 同口径解析 chapter→scene，贯穿 `run_continue_inner` 与 `persist_append`。
+- **验证**：`cargo test --lib` 1450 passed / 2 ignored（+1）；vitest 590 / 3 skipped。
+- **未关闭**：真机同一开头再续写未跑，不得宣称唱反调已修复。
 
 ### v0.50.0 - 续写三角色闭环（2026-08-16）
 
