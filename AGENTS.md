@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.50.2
+- **版本**: v0.51.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1454 passed / 2 ignored
+- `cargo test -p storymoss` ✅ 1463 passed / 2 ignored
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 591 passed / 3 skipped
+- `npx vitest run` ✅ 592 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.0 - 手写/粘贴正文触发三角色观察
+
+幕前写满一段并停手 30 秒后，代理工作室会出现「观察」run：管理回流资产、主创编译当前场大纲与下一拍（不改正文）、编辑审查只写审查区。与自动分章同一空闲窗口；该场多出 ≥200 字才重跑；创世/续写进行中则让路只做 Ingest。观察不用 `running`，以免挡住点续写。
+
+- **验证**：`cargo test --lib` 1463 passed / 2 ignored（+9）；`npx vitest run` 592 passed / 3 skipped（+1）。
+- **契约**：`should_observe_requires_two_hundred_char_growth`；`apply_observe_writer_writes_outline_not_prose_or_beats`；`has_blocking_creative_run_ignores_observe`；`observe_editor_label_is_silent_background`；工作室「观察中」轨迹。
+- **未关闭**：真机须粘贴 ≥200 字停手 30s 核对时间线；整章替换未多 200 字不重跑；分章新章等下次保存。
 
 ### v0.50.2 - 自动分章后章节名跟随章号，续写不再把切走的正文写回
 
@@ -993,7 +1001,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-17 - v0.50.2_
+_最后更新: 2026-08-17 - v0.51.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

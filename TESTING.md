@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.50.2)
+# 🧪 StoryMoss 自动化测试环境 (v0.51.0)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.51.0 变更说明
+
+- 手写/粘贴正文观察：30s 同窗 Observe/Ingest/Skip；主创不改正文；观察 run 不撞 V109；编辑静默。
+- 测试调整：Rust +9（1463）；vitest +1（592）。
+- 全量基线：`cargo test --lib` 1463 passed / 2 ignored（+9）；`npx vitest run` 592 passed / 3 skipped（+1）。
 
 ### v0.50.2 变更说明
 

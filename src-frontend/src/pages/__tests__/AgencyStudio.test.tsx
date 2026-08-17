@@ -197,6 +197,48 @@ describe('AgencyStudio', () => {
     expect((await screen.findAllByText('concept running 正在构思故事概念')).length).toBe(1);
   });
 
+  it('观察 run 显示观察中且轨迹为工作中', async () => {
+    const OBSERVE_RUN = {
+      ...RUN_1,
+      id: 'observe-s1',
+      premise: '观察',
+      status: 'observing',
+      phase: 'observe',
+    };
+    vi.mocked(listRuns).mockResolvedValue([OBSERVE_RUN]);
+    vi.mocked(getRun).mockResolvedValue(OBSERVE_RUN);
+    useAgencyActivityStore.setState({
+      storyId: 's1',
+      activeRunId: 'observe-s1',
+      activities: [
+        { run_id: 'observe-s1', role: 'producer', action: 'start', detail: '资产回流', at: 1000 },
+        {
+          run_id: 'observe-s1',
+          role: 'lead_writer',
+          action: 'start',
+          detail: '编译节拍',
+          at: 1100,
+        },
+        {
+          run_id: 'observe-s1',
+          role: 'editor_auditor',
+          action: 'start',
+          detail: '后台审查',
+          at: 1200,
+        },
+      ],
+      progress: [],
+    });
+
+    renderStudio();
+    expect((await screen.findAllByText(/观察中/)).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('当前执行轨迹')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-thinking-spinner')).toBeInTheDocument();
+    expect(screen.getByText('管理 start 资产回流')).toBeInTheDocument();
+    expect(screen.getByText('主创 start 编译节拍')).toBeInTheDocument();
+    expect(screen.getByText('编辑审计 start 后台审查')).toBeInTheDocument();
+  });
+
   it('点击资产卡跳到对应幕后页', async () => {
     const CHAR_ITEM = {
       ...BOARD_ITEM_1,

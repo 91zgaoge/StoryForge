@@ -2,6 +2,29 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.51.0（2026-08-17）
+
+幕前手写或粘贴正文会自动保存、也会自动分章，但代理工作室三个代理不开工。根因：三角色只在创世或点续写时建 Agency run；`update_scene` 的 30s 空闲只跑 Ingest 与分章。
+
+### 新增
+
+- **手写观察编排**：与自动分章同一 30s 空闲窗口。该场比上次观察多出 ≥200 字则开观察 run（premise=`观察`）。管理做资产回流，主创编译当前场大纲与下一拍节拍卡（不改正文、不加续写拍数），编辑审查只写审查区。
+- **让路**：创世/续写 `pending`/`running` 时本轮只 Ingest。观察 status 用 `observing`/`idle`，不占用 V109「每故事一个进行中 run」，点续写不会被挡住。
+- **工作室**：观察中显示「观察中」轨迹；停手后时间线可见三角色 start/done。
+
+### 测试
+
+- `cargo test --lib`：**1463 passed / 2 ignored**（+9）。
+- `npx vitest run`：**592 passed / 3 skipped**（+1）。
+- `tsc` / `format:check` / `architecture_guard.py` / `cargo +nightly fmt` 全绿。
+
+### 已知债务
+
+- 整章替换但字数未多 200 不重跑。
+- auto_commit 的 KG/mini_review 仍可能与观察管理各烧一轮 LLM。
+- 分章切出的新章要等下一次保存才会观察。
+- 真机：粘贴 ≥200 字，停手 30s，工作室「观察」run 出现三角色 start/done，正文不被改写。未跑不得宣称已在真机验证。
+
 ## v0.50.2（2026-08-17）
 
 幕前章节下拉「第一章、第2章…第7章、第6章」乱序同名；第 3–6 章开头大段重复。根因有两层：自动分章重排只 +1 章号、不改「第N章」标题；续写若仍拿着分章前的旧全文，会把已经切走的溢出写回旧章。

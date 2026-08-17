@@ -125,7 +125,7 @@ impl SceneIngestor {
         });
     }
 
-    fn spawn_ingest_now(
+    pub(crate) fn spawn_ingest_now(
         scene_id: String,
         pool: DbPool,
         app_handle: AppHandle,
@@ -373,8 +373,12 @@ impl SceneService {
         updates: &SceneUpdate,
         automation_service: &AutomationService,
     ) {
-        // 1. 自动 Ingest（内容或关键元数据变更时）——v0.26.50 防抖，避免打字抢模型
-        if SceneIngestor::should_ingest(updates) {
+        // 1. 自动 Ingest：仅元数据变更立刻防抖；正文变更交给 schedule_commit_and_split
+        //    同窗观察/ingest，避免双烧。
+        if crate::agency::observe::should_spawn_ingest_on_update(
+            updates.content.is_some(),
+            SceneIngestor::should_ingest(updates),
+        ) {
             SceneIngestor::spawn_ingest_debounced(
                 scene_id.to_string(),
                 self.pool.clone(),
@@ -524,6 +528,13 @@ impl SceneService {
                         .flatten()
                         .unwrap_or(scene);
 
+                    let pool_for_obs = pool.clone();
+                    let app_for_obs = app_handle.clone();
+                    let vs_for_obs = vector_store.clone();
+                    let story_for_obs = story_id_for_commit.clone();
+                    let scene_for_obs = scene_id_for_commit.clone();
+                    let content_for_obs = scene_for_commit.content.clone().unwrap_or_default();
+
                     let service = SceneCommitService::new(pool);
                     let store: Option<&dyn VectorStore> = Some(vector_store.as_ref());
                     if let Err(e) = service
@@ -544,6 +555,40 @@ impl SceneService {
                             scene_id_for_commit,
                             e
                         );
+                    }
+
+                    if content_changed_for_split {
+                        let pool_d = pool_for_obs.clone();
+                        let sid = story_for_obs.clone();
+                        let scid = scene_for_obs.clone();
+                        let chars = content_for_obs.chars().count();
+                        let work = tokio::task::spawn_blocking(move || {
+                            crate::agency::observe::lookup_post_commit_work(
+                                &pool_d, &sid, &scid, chars,
+                            )
+                        })
+                        .await
+                        .ok();
+                        match work {
+                            Some(crate::agency::observe::PostCommitWork::Observe) => {
+                                crate::agency::observe::spawn_observe_run(
+                                    app_for_obs,
+                                    pool_for_obs,
+                                    story_for_obs,
+                                    scene_for_obs,
+                                    content_for_obs,
+                                );
+                            }
+                            Some(crate::agency::observe::PostCommitWork::Ingest) => {
+                                SceneIngestor::spawn_ingest_now(
+                                    scene_for_obs,
+                                    pool_for_obs,
+                                    app_for_obs,
+                                    vs_for_obs,
+                                );
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }

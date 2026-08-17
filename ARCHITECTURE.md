@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.50.2 架构文档
+# StoryMoss (草苔) v0.51.0 架构文档
 
+> **v0.51.0**：手写/粘贴正文触发三角色观察。`agency/observe.rs` 与自动分章同一 30s 空闲窗口；`decide_post_commit_work` 分流 Observe / Ingest / Skip。观察 run id=`observe-{story_id}`，status=`observing`/`idle`（不用 pending/running，以免撞 V109）。主创不写 `scenes.content`、不加续写拍数。编辑 `bg-observe-editor` 静默且不发 `genesis-qc-result`。禁止 `observe` → `story_system`（由 scene_service 调观察）。验证：`cargo test --lib` 1463 passed / 2 ignored（+9）；`npx vitest run` 592 passed / 3 skipped（+1）。v0.50.2 分章标题/Append 前缀守卫不变量不变。
+>
 > **v0.50.2**：自动分章重排后派生标题跟随 `chapter_number`（`is_generic_chapter_title`）；幕前 `displayChapterTitle` 对「第N章 / 第一章」按章号显示。`append_base_content`：DB 为客户端前缀且多出 ≥200 字时用截断后的 DB，避免把溢出写回。V130 修存量标题。不自动删除已重复正文。验证：`cargo test --lib` 1454 passed / 2 ignored（+4）；`npx vitest run` 591 passed / 3 skipped（+1）。
 >
 > **v0.50.1**：自动分章后幕前 `sceneId` 曾回落 `chapter.id`，Agency Append 在 scenes 表找不到并误报「请先打开一个章节」。分章切章补拉 `get_chapter_scenes`；`resolve_append_scene_id` 与 `update_scene` heal 同口径（id 是 scene 原样，id 是 chapter 则取该章关联 scene），贯穿 `run_continue_inner` 与 `persist_append`。禁止猜最新有内容场景。验证：`cargo test --lib` 1450 passed / 2 ignored（+1）；`npx vitest run` 590 passed / 3 skipped。v0.50.0 三角色闭环不变量不变。
@@ -299,7 +301,7 @@ SQLite / LanceDB / File System
 #### 领域服务层 (`src-tauri/src/story_system/`)
 
 - `chapter_service.rs`：章节变更后的伏笔检测、自动化触发（v0.23.74: `ChapterCommitDebouncer` 已由 `SceneCommitDebouncer` 接替）
-- `scene_service.rs`：场景内容变更后的 KG Ingest、向量索引、world_building 刷新、**SceneCommitDebouncer**（30s 防抖 auto_commit）
+- `scene_service.rs`：场景内容变更后的 KG Ingest、向量索引、world_building 刷新、**SceneCommitDebouncer**（30s 防抖 auto_commit + 分章 + v0.51.0 观察/Ingest 同窗分流）
 - `commit_service.rs`：`SceneCommitService` — 场景级 commit，驱动 5 个 Projection Writer
 - `mod.rs`：`StorySystemEngine`、ContractTree / RuntimeContract
 
@@ -921,6 +923,8 @@ function assertUnreachable(x: never): never {
 - `tools.rs`：工具注册表（按角色白名单，内置黑板/故事工具）
 - `roles.rs`：三角色 spec 与系统提示词
 - `coordinator.rs`：创世/续写协调器——质量门判定（`evaluate_gate`）、并行稳态循环（编辑审第 N 章与主创写第 N+1 章并发）、request_id 定点取消
+- `continue_loop.rs`：续写后台回流/活动日志；`run_asset_ingest` 供续写与观察共用
+- `observe.rs`：手写/粘贴正文观察编排（设计 `docs/plans/2026-08-17-prose-observe-agency-design.md`）
 - `gate.rs`：质量门规则复检（规则问题归并 + 复检上下文构建）；门径为编辑裁决 + 规则复检 + 至多 1 轮修订，未过门不装配
 - `budget.rs`：AgencyBudget——按角色并发信号量（writer/producer/editor）+ run 级 token 预算硬上限（默认 30 万 tokens）+ agency 全局 LLM 并发闸门（跨 run 在途上限 3，request_id RAII 注册，锁序：先 run 级角色预算后全局闸门）
 - `materialize.rs`：创作资产自动落库（characters / world_buildings / story_outlines）
@@ -1226,6 +1230,7 @@ StoryMoss/
     → VectorProjectionWriter    → LanceDB VectorRecord
   → projection_status_json 记录各 Writer 状态
 → 发射 sync-event: DataRefresh + IngestionCompleted
+→ v0.51.0 正文变更：`lookup_post_commit_work` → Observe（三角色）/ Ingest / Skip
 ```
 
 > **v0.7.3 变更**：`ChapterCommitService` 重命名为 `SceneCommitService`，`chapter_commits` 表重命名为 `scene_commits`（Migration 70），提交粒度从 Chapter 对齐到 Scene。  

@@ -116,6 +116,8 @@ pub struct AgencyRun {
     pub updated_at: String,
 }
 
+pub const OBSERVE_PREMISE: &str = "观察";
+
 impl AgencyRun {
     pub fn new(id: impl Into<String>, premise: impl Into<String>) -> Self {
         let now = chrono::Local::now().to_rfc3339();

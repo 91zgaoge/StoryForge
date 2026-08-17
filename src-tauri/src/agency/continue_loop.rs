@@ -400,6 +400,89 @@ pub fn upsert_run_asset(
     }
 }
 
+/// 资产回流本体（不含 start/done 活动信号）。观察与续写 spawn 共用，
+/// 避免手写正文与续写各写一套 ingest。
+pub async fn run_asset_ingest(
+    app: &tauri::AppHandle,
+    pool: &DbPool,
+    run_id: &str,
+    story_id: &str,
+    scene_id: &str,
+    content: &str,
+) -> BgExit {
+    let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
+    if bg_permit.is_err() {
+        log::warn!("agency: 资产回流未获取到后台 LLM 串行许可 (run={})", run_id);
+        return BgExit::NoLock;
+    }
+    let _bg_permit = bg_permit.unwrap();
+
+    let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
+        .acquire()
+        .await;
+    if permit.is_err() {
+        log::warn!("agency: 资产回流未获取到 ingest 并发许可 (run={})", run_id);
+        return BgExit::NoLock;
+    }
+    let _permit = permit.unwrap();
+
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let timer_cancel = cancel.clone();
+    let timer = tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        timer_cancel.cancel();
+    });
+
+    let llm_service = crate::llm::LlmService::new(app.clone());
+    let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
+        .with_pool(pool.clone())
+        .with_app_handle(app.clone());
+    let ingest_content = crate::memory::ingest::IngestContent {
+        text: content.to_string(),
+        source: format!("agency:scene:{}", scene_id),
+        story_id: story_id.to_string(),
+        scene_id: Some(scene_id.to_string()),
+    };
+    let exit = match pipeline
+        .ingest_with_cancel(&ingest_content, Some(&cancel))
+        .await
+    {
+        Ok(result) => {
+            let kg_repo = crate::db::repositories::KnowledgeGraphRepository::new(pool.clone());
+            if let Err(e) = kg_repo.save_entities_batch(&result.entities) {
+                log::warn!("agency: 资产回流 KG 实体落库失败 (run={}): {}", run_id, e);
+            }
+            if let Err(e) = kg_repo.save_relations_batch(&result.relations) {
+                log::warn!("agency: 资产回流 KG 关系落库失败 (run={}): {}", run_id, e);
+            }
+            let extra = ingest_board_projections(&result.analysis, content);
+            project_assets_to_run(pool, run_id, story_id, &extra);
+            log::info!(
+                "agency: 资产回流完成 (run={}, story={}): {} entities, {} relations",
+                run_id,
+                story_id,
+                result.entities.len(),
+                result.relations.len()
+            );
+            if cancel.is_cancelled() {
+                BgExit::Timeout
+            } else {
+                BgExit::Success
+            }
+        }
+        Err(e) => {
+            log::warn!("agency: 后台资产回流失败 (run={}): {}", run_id, e);
+            if cancel.is_cancelled() {
+                BgExit::Timeout
+            } else {
+                BgExit::Failed
+            }
+        }
+    };
+    timer.abort();
+    exit
+}
+
 pub fn project_assets_to_run(
     pool: &DbPool,
     run_id: &str,

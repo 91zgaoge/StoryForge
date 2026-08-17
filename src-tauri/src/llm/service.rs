@@ -1510,62 +1510,7 @@ impl<R: Runtime> LlmService<R> {
         // GenerationPhase::Completed，若它们继续 emit 普通 progress event
         // 会让前端误以为主流程仍在跑（实测「写第二章」场景下被这些后台事件
         // 拖到 200s 假超时）。
-        let is_silent_background = matches!(
-            label,
-            "model_gateway_probe"
-                | "pre-call-probe"
-                | "input_hint"
-                | "intent_detection"
-                | "async-audit-inspector"
-                | "async-insight"
-                | "async-deep-insight"
-                | "background-summary"
-                // v0.23 TriShot：关键路径与后台 agent 的 LLM 调用全部静默，
-                // 避免与主流程进度事件混淆。tri-shot-router/refiner 属关键路径
-                // 前置调用（主流程仍在 PreparingContext 阶段，由 execute_trishot
-                // 自行发射细粒度进度，不依赖心跳）；bg-auto-rewriter/bg-ingest 属
-                // 正文返回后的后台 agent，必须静默以免触发 v0.16.2 的假超时。
-                | "tri-shot-router"
-                | "tri-shot-refiner"
-                | "bg-auto-rewriter"
-                | "bg-ingest"
-                | "bg-producer-resume"
-                // v0.23.44: IngestPipeline 的 LLM 调用全部静默。
-                // 根因（日志确认）：创世正文返回后，IngestPipeline 并发发起多个
-                // "记忆-内容分析" LLM 调用，is_silent_background=false 导致进度事件
-                // 覆盖前端主活动状态（"准备上下文"卡住），且本地模型无法处理并发
-                // 请求返回 INTERNAL_ERROR，大量错误事件涌入导致前端页面崩溃。
-                | "记忆-内容分析"
-                | "记忆-生成知识"
-                | "记忆-叙事事件提取"
-                // v0.23.58: 创世后台 pipeline 的所有 LLM 调用静默。
-                // 根因（日志确认）：创世快速阶段成功后（故事+第一章已生成），后台
-                // pipeline 继续执行策略选择/世界观/大纲/角色/场景/伏笔等 LLM 调用，
-                // 其进度事件非静默地显示到前端，覆盖"已完成"状态，让前端误以为
-                // 仍在生成中，最终 600s 超时。注意：生成故事概念属快速阶段（用户
-                // 需看到进度），不在此列表中。
-                | "strategy_select"
-                | "生成世界观设定"
-                | "生成故事大纲"
-                | "生成角色"
-                | "生成场景大纲"
-                | "生成伏笔"
-                // v0.24.4: SceneCommitService 在 auto_commit 中调用的 mini_review
-                // 属后台静默质检，不应向前端发射进度事件。实测其在正文返回后仍
-                // 每 10s 发射心跳，导致前端在后台任务期间持续重绘，增加崩溃风险。
-                | "mini_review"
-                // v0.26.22: AutoContractBuilder 的 4 个 LLM 调用全部静默。
-                // 根因（creative_workflow.log 2026-07-07 确认）：续写完成/Tab 接受后
-                // 触发的 auto_contract 管线（master_setting 49s + chapter 184s +
-                // scene_outline 151s ≈ 6 分钟）非静默发射进度事件，使
-                // isAnyBackendActive:true 长达 6 分钟，阻塞用户发起新续写——
-                // 即用户反馈的"近似卡死"。静默后 auto_contract 仍在后台补齐合同，
-                // 但不再阻塞前端活动状态。
-                | "auto_contract_master_setting"
-                | "auto_contract_chapter"
-                | "auto_contract_scene_outline"
-                | "auto_contract_default_character"
-        );
+        let is_silent_background = is_silent_background_label(label);
 
         // v0.23.11: 只有非静默/非探测调用才更新诊断提示词，避免 probe prompt
         // "Respond with exactly the word OK." 覆盖用户真正关心的生成提示词。
@@ -2737,6 +2682,41 @@ impl<R: Runtime> Clone for LlmService<R> {
     }
 }
 
+/// 后台 LLM 标签：不发射心跳、不拉高幕前 isGenerating。
+pub(crate) fn is_silent_background_label(label: &str) -> bool {
+    matches!(
+        label,
+        "model_gateway_probe"
+            | "pre-call-probe"
+            | "input_hint"
+            | "intent_detection"
+            | "async-audit-inspector"
+            | "async-insight"
+            | "async-deep-insight"
+            | "background-summary"
+            | "tri-shot-router"
+            | "tri-shot-refiner"
+            | "bg-auto-rewriter"
+            | "bg-ingest"
+            | "bg-producer-resume"
+            | "记忆-内容分析"
+            | "记忆-生成知识"
+            | "记忆-叙事事件提取"
+            | "strategy_select"
+            | "生成世界观设定"
+            | "生成故事大纲"
+            | "生成角色"
+            | "生成场景大纲"
+            | "生成伏笔"
+            | "mini_review"
+            | "auto_contract_master_setting"
+            | "auto_contract_chapter"
+            | "auto_contract_scene_outline"
+            | "auto_contract_default_character"
+            | "bg-observe-editor"
+    )
+}
+
 // =============================================================================
 // W4-B5: 配额逻辑单元测试
 // =============================================================================
@@ -2744,6 +2724,12 @@ impl<R: Runtime> Clone for LlmService<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observe_editor_label_is_silent_background() {
+        assert!(is_silent_background_label("bg-observe-editor"));
+        assert!(!is_silent_background_label("smart_execute"));
+    }
 
     #[test]
     fn test_build_writing_prompt_without_context() {

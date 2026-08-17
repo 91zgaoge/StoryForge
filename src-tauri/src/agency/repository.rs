@@ -135,6 +135,57 @@ impl AgencyRepository {
         rows.collect::<Result<Vec<_>, _>>()
     }
 
+    /// 每故事一条观察 run：premise 固定为「观察」。
+    pub fn find_observe_run(&self, story_id: &str) -> Result<Option<AgencyRun>, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.query_row(
+            "SELECT id, story_id, premise, status, phase, result_json, error_message, created_at, updated_at
+             FROM agency_runs WHERE story_id = ?1 AND premise = ?2 ORDER BY created_at ASC LIMIT 1",
+            params![story_id, crate::agency::models::OBSERVE_PREMISE],
+            |row| {
+                Ok(AgencyRun {
+                    id: row.get(0)?,
+                    story_id: row.get(1)?,
+                    premise: row.get(2)?,
+                    status: row.get(3)?,
+                    phase: row.get(4)?,
+                    result_json: row.get(5)?,
+                    error_message: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )
+        .optional()
+    }
+
+    pub fn has_blocking_creative_run(&self, story_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM agency_runs
+             WHERE story_id = ?1 AND status IN ('pending', 'running') AND premise != ?2",
+            params![story_id, crate::agency::models::OBSERVE_PREMISE],
+            |row| row.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// 观察 run 可反复 idle↔observing（不用 pending/running，以免撞 V109
+    /// 每故事一活跃 run）。
+    pub fn save_observe_state(
+        &self,
+        run_id: &str,
+        status: &str,
+        result_json: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.pool.get().map_err(pool_err)?;
+        conn.execute(
+            "UPDATE agency_runs SET status = ?2, result_json = ?3, updated_at = ?4 WHERE id = ?1",
+            params![run_id, status, result_json, now()],
+        )?;
+        Ok(())
+    }
+
     // ---- board items (legacy section header kept) ----
 
     pub fn insert_item(&self, item: &BoardItem) -> Result<(), rusqlite::Error> {

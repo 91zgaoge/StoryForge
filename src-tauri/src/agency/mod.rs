@@ -18,6 +18,7 @@ pub mod graders;
 pub mod learning;
 pub mod materialize;
 pub mod models;
+pub mod observe;
 pub mod persist;
 pub mod prose_ground;
 pub mod repository;

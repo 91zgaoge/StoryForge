@@ -320,10 +320,13 @@ pub async fn update_scene(
         })??;
 
     // v0.26.50: AutoIngest 走 SceneIngestor
-    // 防抖路径，避免每次自动保存立刻抢本地模型。 其余副作用（world_building /
-    // scene_updated / automation）仍在下方同步触发。
+    // 防抖路径，避免每次自动保存立刻抢本地模型。正文变更改由
+    // schedule_commit_and_split 同窗观察/ingest（v0.51.0）。
     let should_ingest = crate::story_system::scene_service::SceneIngestor::should_ingest(&updates);
-    if should_ingest {
+    if crate::agency::observe::should_spawn_ingest_on_update(
+        updates.content.is_some(),
+        should_ingest,
+    ) {
         crate::story_system::scene_service::SceneIngestor::spawn_ingest_debounced(
             scene_id.clone(),
             pool.inner().clone(),

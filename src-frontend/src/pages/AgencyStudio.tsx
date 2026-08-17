@@ -63,6 +63,10 @@ function roleName(key: string): string {
   return ROLE_NAMES[key] ?? key;
 }
 
+function isAgencyRunActive(status: string): boolean {
+  return status === 'pending' || status === 'running' || status === 'observing';
+}
+
 function runStatusLabel(status: string): string {
   switch (status) {
     case 'completed':
@@ -75,6 +79,10 @@ function runStatusLabel(status: string): string {
       return '等待';
     case 'running':
       return '运行中';
+    case 'observing':
+      return '观察中';
+    case 'idle':
+      return '待命';
     default:
       return status;
   }
@@ -265,7 +273,7 @@ export default function AgencyStudio() {
       historicalTimeline.push({ at: startTs, text, detail: text });
     }
     const endTs = new Date(run.updated_at).getTime();
-    if (!isNaN(endTs) && run.status !== 'pending' && run.status !== 'running') {
+    if (!isNaN(endTs) && !isAgencyRunActive(run.status) && run.status !== 'idle') {
       const text = `运行${runStatusLabel(run.status)} - ${run.phase}`;
       historicalTimeline.push({
         at: endTs,
@@ -343,7 +351,11 @@ export default function AgencyStudio() {
         ))}
       </section>
 
-      {!activeRunId && <EmptyHint>暂无活动——启动创世或续写后，这里会实时显示代理动态。</EmptyHint>}
+      {!activeRunId && (
+        <EmptyHint>
+          暂无活动——创世、续写，或在幕前写满一段正文并停手后，这里会实时显示代理动态。
+        </EmptyHint>
+      )}
 
       {activeRunId && (
         <section>
@@ -394,13 +406,13 @@ export default function AgencyStudio() {
             <AiThinking
               title="当前执行轨迹"
               doneTitle="执行轨迹（已结束）"
-              working={run?.status === 'running'}
+              working={isAgencyRunActive(run?.status ?? '')}
               rows={runActivities.slice(-12).map(a => ({
                 id: `${a.role}|${a.action}|${a.detail}|${a.at}`,
                 primary: `${roleName(a.role)} ${a.action}`,
                 secondary: a.detail || undefined,
               }))}
-              defaultExpanded={run?.status === 'running'}
+              defaultExpanded={isAgencyRunActive(run?.status ?? '')}
             />
           </div>
         )}

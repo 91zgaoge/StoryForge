@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.50.2 项目完成状态
+# StoryMoss (草苔) v0.51.0 项目完成状态
 
-> 最后更新: 2026-08-17（v0.50.2 自动分章后章节名跟随章号，续写不再把切走的正文写回）
+> 最后更新: 2026-08-17（v0.51.0 手写/粘贴正文触发三角色观察）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.51.0 - 手写/粘贴正文触发三角色观察（2026-08-17）
+
+- **根因（executed）**：三角色只在创世/点续写建 run；`update_scene` 30s 空闲只跑分章与 Ingest。
+- **修复**：`agency/observe.rs` 同窗观察编排；观察 run `observing`/`idle` 不撞 V109；主创不改正文；编辑 `bg-observe-editor` 静默。
+- **验证**：`cargo test --lib` 1463 passed / 2 ignored（+9）；vitest 592 / 3 skipped（+1）。
+- **未关闭**：真机未跑；整章替换未多 200 字不重跑；分章新章等下次保存。
 
 ### v0.50.2 - 自动分章后章节名跟随章号（2026-08-17）
 

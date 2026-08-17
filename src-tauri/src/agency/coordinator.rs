@@ -2634,7 +2634,9 @@ impl AgencyCoordinator {
         let scene_id = scene_id.to_string();
         let content = content.to_string();
         tauri::async_runtime::spawn(async move {
-            use crate::agency::continue_loop::{bg_done_detail, emit_logged_activity, BgExit};
+            use crate::agency::continue_loop::{
+                bg_done_detail, emit_logged_activity, run_asset_ingest,
+            };
             emit_logged_activity(
                 &app,
                 &pool,
@@ -2644,100 +2646,7 @@ impl AgencyCoordinator {
                 "资产回流",
             )
             .await;
-            let bg_permit = crate::concurrency::BACKGROUND_LLM_SEMAPHORE.acquire().await;
-            if bg_permit.is_err() {
-                log::warn!("agency: 资产回流未获取到后台 LLM 串行许可 (run={})", run_id);
-                emit_logged_activity(
-                    &app,
-                    &pool,
-                    &run_id,
-                    AgentRole::Producer,
-                    "done",
-                    &bg_done_detail("资产回流", BgExit::NoLock),
-                )
-                .await;
-                return;
-            }
-            let _bg_permit = bg_permit.unwrap();
-
-            let permit = crate::memory::writer::MEMORY_WRITER_SEMAPHORE
-                .acquire()
-                .await;
-            if permit.is_err() {
-                log::warn!("agency: 资产回流未获取到 ingest 并发许可 (run={})", run_id);
-                emit_logged_activity(
-                    &app,
-                    &pool,
-                    &run_id,
-                    AgentRole::Producer,
-                    "done",
-                    &bg_done_detail("资产回流", BgExit::NoLock),
-                )
-                .await;
-                return;
-            }
-            let _permit = permit.unwrap();
-
-            let cancel = tokio_util::sync::CancellationToken::new();
-            let timer_cancel = cancel.clone();
-            let timer = tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-                timer_cancel.cancel();
-            });
-
-            let llm_service = LlmService::new(app.clone());
-            let pipeline = crate::memory::ingest::IngestPipeline::new(llm_service)
-                .with_pool(pool.clone())
-                .with_app_handle(app.clone());
-            let ingest_content = crate::memory::ingest::IngestContent {
-                text: content.clone(),
-                source: format!("agency:scene:{}", scene_id),
-                story_id: story_id.clone(),
-                scene_id: Some(scene_id.clone()),
-            };
-            let exit = match pipeline
-                .ingest_with_cancel(&ingest_content, Some(&cancel))
-                .await
-            {
-                Ok(result) => {
-                    let kg_repo =
-                        crate::db::repositories::KnowledgeGraphRepository::new(pool.clone());
-                    if let Err(e) = kg_repo.save_entities_batch(&result.entities) {
-                        log::warn!("agency: 资产回流 KG 实体落库失败 (run={}): {}", run_id, e);
-                    }
-                    if let Err(e) = kg_repo.save_relations_batch(&result.relations) {
-                        log::warn!("agency: 资产回流 KG 关系落库失败 (run={}): {}", run_id, e);
-                    }
-                    let extra = crate::agency::continue_loop::ingest_board_projections(
-                        &result.analysis,
-                        &content,
-                    );
-                    crate::agency::continue_loop::project_assets_to_run(
-                        &pool, &run_id, &story_id, &extra,
-                    );
-                    log::info!(
-                        "agency: 资产回流完成 (run={}, story={}): {} entities, {} relations",
-                        run_id,
-                        story_id,
-                        result.entities.len(),
-                        result.relations.len()
-                    );
-                    if cancel.is_cancelled() {
-                        BgExit::Timeout
-                    } else {
-                        BgExit::Success
-                    }
-                }
-                Err(e) => {
-                    log::warn!("agency: 后台资产回流失败 (run={}): {}", run_id, e);
-                    if cancel.is_cancelled() {
-                        BgExit::Timeout
-                    } else {
-                        BgExit::Failed
-                    }
-                }
-            };
-            timer.abort();
+            let exit = run_asset_ingest(&app, &pool, &run_id, &story_id, &scene_id, &content).await;
             emit_logged_activity(
                 &app,
                 &pool,
@@ -5573,7 +5482,7 @@ async fn editor_verdict_prose_fallback(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn evaluate_gate_impl(
+pub(crate) async fn evaluate_gate_impl(
     llm: &Arc<dyn LoopLlm>,
     budget: &Arc<AgencyBudget>,
     pool: &DbPool,
