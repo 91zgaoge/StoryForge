@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.51.1 架构文档
+# StoryMoss (草苔) v0.51.2 架构文档
 
+> **v0.51.2**：`detect_and_strip_bare_cot` 增加节拍卡/约束清单强切断（全文扫描，从首个命中行切到文末）。续写 `CONTINUE_BEAT_SYSTEM` 禁止输出任务分析。sanitize 清空后既有 write_beat 过短重试仍生效。无路由/落库契约变更。v0.51.1 墨纸按钮不变量不变。
+>
 > **v0.51.1**：幕前取消键 / 发射键卸掉 macOS WKWebView Aqua 原生按钮外观（`appearance-none` + flush CSS 双杀）。无架构/生成链路变更。v0.51.0 观察不变量不变。
 >
 > **v0.51.0**：手写/粘贴正文触发三角色观察。`agency/observe.rs` 与自动分章同一 30s 空闲窗口；`decide_post_commit_work` 分流 Observe / Ingest / Skip。观察 run id=`observe-{story_id}`，status=`observing`/`idle`（不用 pending/running，以免撞 V109）。主创不写 `scenes.content`、不加续写拍数。编辑 `bg-observe-editor` 静默且不发 `genesis-qc-result`。禁止 `observe` → `story_system`（由 scene_service 调观察）。验证：`cargo test --lib` 1463 passed / 2 ignored（+9）；`npx vitest run` 592 passed / 3 skipped（+1）。v0.50.2 分章标题/Append 前缀守卫不变量不变。

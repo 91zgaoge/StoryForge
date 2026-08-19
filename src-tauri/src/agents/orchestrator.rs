@@ -4417,8 +4417,32 @@ fn deduplicate_consecutive_paragraphs(text: &str) -> String {
 /// 散文而非小说正文（"这是一个小说续写任务，需要我以专业作者身份..."）。
 ///
 /// 检测策略：扫描前 2000 字符内的非空行，统计命中 CoT 信号词的行数。
+/// 节拍卡 / 约束清单被本地模型原样写进正文时的强切断短语。单行命中即从该行
+/// 切到文末（前文若是正文则保留）。这些是提示词行话，几乎不会出现在小说里。
+const BEAT_CARD_LEAK_SIGNALS: &[&str] = &[
+    "我们需要续写小说章节正文",
+    "只输出章节正文。用户",
+    "用户给了大量约束",
+    "本拍任务：",
+    "本拍必须离开",
+    "本拍状态网",
+    "【本拍",
+    "状态网：在场",
+    "禁止忘掉已在场者",
+    "世界观红线：",
+    "硬锚点禁止",
+    "当前末句：",
+    "禁止新编下列姓名",
+    "待兑现审查",
+    "扩张任务：",
+    "不得只靠对话过渡",
+];
+
 /// 若 ≥3 行命中，判定为 CoT 泄露，尝试找到正文起点（第一个不含信号词且 >20
 /// 字符的行）；找不到则返回空字符串。
+///
+/// 另：节拍卡规划（「本拍任务」「状态网」等）即使出现在复述正文之后、超出
+/// 前 2000 字窗口，也从首个强信号行切到文末。
 ///
 /// 设计原则：保守检测，宁可漏检也不误删正文。信号词组合是分析性语言的强信号，
 /// 小说正文几乎不会同时命中 3+ 行。
@@ -4428,7 +4452,25 @@ pub(crate) fn detect_and_strip_bare_cot(text: &str) -> String {
     }
 
     let lines: Vec<&str> = text.lines().collect();
-    // 只扫描前 2000 字符范围内的行，避免长正文误触发
+    if let Some(cut) = lines.iter().position(|line| {
+        let t = line.trim();
+        !t.is_empty() && BEAT_CARD_LEAK_SIGNALS.iter().any(|sig| t.contains(sig))
+    }) {
+        let prefix = lines[..cut].iter().copied().collect::<Vec<_>>().join("\n");
+        let prefix = prefix.trim();
+        if prefix.is_empty() {
+            log::warn!("[detect_and_strip_bare_cot] 节拍卡/约束清单泄露：从文首切断，已清空");
+            return String::new();
+        }
+        log::warn!(
+            "[detect_and_strip_bare_cot] 节拍卡/约束清单泄露：从第 {} 行切断，保留前缀 {} 字符",
+            cut + 1,
+            prefix.chars().count()
+        );
+        return prefix.to_string();
+    }
+
+    // 只扫描前 2000 字符范围内的行，避免长正文误触发（DeepSeek 思维链多在文首）
     let mut char_count = 0usize;
     let scan_limit = lines
         .iter()
@@ -4876,6 +4918,60 @@ mod tests {
             "不足 3 行命中不应剥离"
         );
         assert!(result.contains("空气是粘稠的"));
+    }
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_qwen_beat_card_dump_returns_empty() {
+        // v0.51.2：本地 Qwen 把节拍卡/状态网/约束规划写进 content，且常挤在
+        // 少数长段里、或接在复述正文之后。旧检测只扫前 2000 字且要 ≥3 行旧
+        // 信号词，会放行。
+        let dump = "我们需要续写小说章节正文，只输出章节正文。用户给了大量约束。需要严格从末句之后继续，不能重写已有动作。当前末句：苏会山头脸皮肉崩裂。\n\
+                    本拍任务：阵容：曹元佩、苏亦铁、苏会山。\n\
+                    冲突：加压：苏会山与明成公主正面对峙，赌注未解，不得只靠对话过渡。\n\
+                    状态网：在场：曹元佩、苏亦铁、苏会山、明成公主。\n\
+                    世界观红线：黑崎赤雪牛、精钢、武运堂。\n\
+                    必须离开当前场景，开辟有叙事功能的新场景。";
+        let result = detect_and_strip_bare_cot(dump);
+        assert!(
+            result.is_empty(),
+            "节拍卡规划全文应清空以触发主创重试，实际: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_strips_beat_card_after_prose() {
+        let prose = "血雾还没落尽。苏会山没有倒下去，断手抓住苏亦铁的衣领，往西跨院的方向踉跄。";
+        let dump = "我们需要续写小说章节正文，只输出章节正文。用户给了大量约束。\n\
+                    本拍任务：阵容：曹元佩、苏亦铁。\n\
+                    状态网：在场：曹元佩、苏亦铁、苏会山。";
+        let text = format!("{}\n\n{}", prose, dump);
+        let result = detect_and_strip_bare_cot(&text);
+        assert!(
+            result.contains("往西跨院的方向踉跄"),
+            "应保留规划之前的正文，实际: {}",
+            result
+        );
+        assert!(
+            !result.contains("本拍任务"),
+            "不应保留节拍卡规划，实际: {}",
+            result
+        );
+        assert!(!result.contains("用户给了大量约束"));
+    }
+
+    #[test]
+    fn test_sanitize_novel_output_drops_qwen_beat_card_leak() {
+        let dump = "我们需要续写小说章节正文，只输出章节正文。用户给了大量约束。当前末句：苏会山头脸皮肉崩裂。\n\
+                    本拍任务：阵容：刺客、明成公主。\n\
+                    状态网：在场：苏会山、苏亦铁。\n\
+                    世界观红线：黑崎赤雪牛。";
+        let result = sanitize_novel_output(dump);
+        assert!(
+            result.is_empty(),
+            "sanitize 应对节拍卡泄露返回空，实际: {}",
+            result
+        );
     }
 
     #[test]

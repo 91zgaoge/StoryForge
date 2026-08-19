@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.1
+- **版本**: v0.51.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,16 +97,24 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1463 passed / 2 ignored（本版未重跑，无 Rust 逻辑变更）
-- `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 593 passed / 3 skipped（+1）
+- `cargo test -p storymoss` ✅ 1466 passed / 2 ignored（+3）
+- `npx tsc --noEmit` ✅ 本版未重跑（无前端逻辑变更）
+- `npx vitest run` ✅ 本版未重跑（593 passed / 3 skipped）
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
-- `npm run format:check` ✅
+- `npm run format:check` ✅ 本版未重跑
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.2 - 续写切断节拍卡/约束规划泄露
+
+本地 Qwen 主创把节拍卡、状态网、约束清单写进正文（有时接在复述已有场面之后）。`detect_and_strip_bare_cot` 增加节拍卡行话全文切断；规划在文首则清空触发重试。续写 system 禁止输出任务分析。
+
+- **验证**：`cargo test --lib` 1466 passed / 2 ignored（+3）；既有 DeepSeek CoT 用例仍绿。
+- **契约**：`test_detect_and_strip_bare_cot_qwen_beat_card_dump_returns_empty`；`test_detect_and_strip_bare_cot_strips_beat_card_after_prose`；`test_sanitize_novel_output_drops_qwen_beat_card_leak`。
+- **未关闭**：真机须用同一开头再点续写；不得宣称续写质量/唱反调已修复。GitNexus 索引在 StoryForge→StoryMoss 改名后需 `node .gitnexus/run.cjs analyze`。
 
 ### v0.51.1 - 幕前取消键去掉系统原生凸起
 
@@ -1008,7 +1016,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-17 - v0.51.1_
+_最后更新: 2026-08-19 - v0.51.2_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

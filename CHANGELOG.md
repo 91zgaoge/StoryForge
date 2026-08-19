@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.51.2（2026-08-19）
+
+本地 Qwen（如 Qwen3.8-27B）做主创续写时，把节拍卡、状态网、约束规划整段写进章节正文，有时还接在复述已有场面之后。根因：v0.30.45 的裸 CoT 检测只认旧思维链套话、只扫前 2000 字且要 ≥3 行命中；节拍卡行话（「本拍任务」「用户给了大量约束」）不在信号表里，复述正文又把规划推到扫描窗口之外。
+
+### 修复
+
+- **切断节拍卡泄露**：`detect_and_strip_bare_cot` 对提示词行话做全文扫描，从首个命中行切到文末；规划在文首则清空以触发主创重试，规划在正文之后则只留前缀。
+- **提示词**：续写 system 补一句禁止输出任务分析 / 状态网 / 本拍规划。
+
+### 测试
+
+- `cargo test --lib`：**1466 passed / 2 ignored**（+3）。节拍卡全文清空、正文后规划剥离、`sanitize_novel_output` 放行空串重试；既有 DeepSeek CoT 用例仍绿。
+
 ## v0.51.1（2026-08-17）
 
 幕前生成中的取消键被 macOS WKWebView 画成系统 Aqua 凸起灰块，和墨纸扁平顶栏/输入条不合。根因与 v0.44.1 textarea 原生 inset 边同类：`<button>` 未设 `appearance-none` / `border-0` / `bg-transparent`。

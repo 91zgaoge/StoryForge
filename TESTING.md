@@ -1,8 +1,14 @@
-# 🧪 StoryMoss 自动化测试环境 (v0.51.1)
+# 🧪 StoryMoss 自动化测试环境 (v0.51.2)
 
 本机已配置 Playwright 无头浏览器自动化测试环境，专为 AI 助手设计。
 
 ## 测试统计
+
+### v0.51.2 变更说明
+
+- 续写切断节拍卡/约束规划泄露：`detect_and_strip_bare_cot` 强信号全文切断。
+- 测试调整：Rust CoT / sanitize +3；continue_beat system 断言同步。
+- 全量基线：`cargo test --lib` 1466 passed / 2 ignored（+3）。
 
 ### v0.51.1 变更说明
 
