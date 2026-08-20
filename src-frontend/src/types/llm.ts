@@ -271,11 +271,11 @@ export interface AppSettings {
     embedding?: string;
     multimodal?: string;
     image?: string;
-    /** v0.23.66: 创作模型（正文生成、Writer、改写） */
+    /** v0.23.66: 创作模型（主创续写与正文） */
     creative?: string;
-    /** v0.23.66: 工具模型（路由、探测、JSON 提取） */
+    /** v0.23.66: 工具模型（管理 Agent、意图分类、JSON） */
     tool?: string;
-    /** v0.23.66: 后台任务模型（BGP/Genesis 后台流水线） */
+    /** v0.23.66: 后台任务模型（编辑审计、资产回流） */
     background?: string;
   };
 

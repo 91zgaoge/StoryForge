@@ -351,19 +351,19 @@ const ROLE_CONFIG: Record<
 > = {
   creative: {
     label: '创作模型',
-    desc: '正文生成、Writer、改写 — 质量优先',
+    desc: '主创续写与正文 — 质量优先。不要给管理和回流用。',
     icon: <Paintbrush className="w-4 h-4" />,
     color: 'text-amber-400',
   },
   tool: {
     label: '工具模型',
-    desc: 'Call 1 路由、探测、JSON 提取 — 速度优先',
+    desc: '管理 Agent、意图分类、JSON — 速度优先，须与创作模型分开。',
     icon: <Wrench className="w-4 h-4" />,
     color: 'text-blue-400',
   },
   background: {
     label: '后台任务模型',
-    desc: 'BGP 审计/入库/洞察、Genesis 后台流水线',
+    desc: '编辑审计、资产回流、后台入库 — 不得占用创作模型。',
     icon: <Settings className="w-4 h-4" />,
     color: 'text-purple-400',
   },
@@ -410,7 +410,7 @@ function ModelRoleCard({
       <CardContent className="p-4">
         <h3 className="text-base font-semibold text-white">模型角色分配</h3>
         <p className="text-xs text-gray-500 mt-1 mb-3">
-          为不同任务类型指定默认模型。未设置时网关自动分配（快模型→工具，闲置→后台，创作回退当前模型）。
+          三角色对应这三档：主创→创作，管理→工具，编辑审计与资产回流→后台。未设置时网关自动分配。
         </p>
         <div className="space-y-3">
           {(Object.entries(ROLE_CONFIG) as [ModelRoleKey, (typeof ROLE_CONFIG)['creative']][]).map(

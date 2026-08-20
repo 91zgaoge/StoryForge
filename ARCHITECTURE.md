@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.51.5 架构文档
+# StoryMoss (草苔) v0.51.6 架构文档
 
+> **v0.51.6**：`GatewayExecutor::generate` 在 `select_candidates` 角色置顶之后，不再把当前活跃/创作模型抬回工具档、后台档链头。创作档仍置顶。主创→Creative，管理→Tool，编辑审计与资产回流→Background。无落库变更。
+>
 > **v0.51.5**：进行中的 Agency 续写（`active_run`）不是 UserAction 中断。`AgentInterruptionModal` 对此错误不渲染；二次点击不盖纸面。无路由/落库变更。
 >
 > **v0.51.3**：`condense_story_outline` 切断规划提纲后再注入续写；`write_beat_once` 过短重试受剩余 deadline（90s）约束；网关 `CANCELLATION` 终止候选链。v0.51.2 节拍卡切断不变量不变。

@@ -830,9 +830,9 @@ impl Default for ModelKind {
 /// 模型角色 — 指定模型在网关调度中的默认用途
 ///
 /// 用户可为不同任务类型指定不同模型：
-/// - `Creative`：正文生成、Writer、改写 → 质量优先
-/// - `Tool`：Call 1 路由合成、探测、意图识别、JSON 提取 → 速度优先
-/// - `Background`：BGP 审计/入库/洞察、Genesis 后台流水线 → 不抢占前台模型
+/// - `Creative`：主创续写与正文 → 质量优先
+/// - `Tool`：管理 Agent、意图分类、JSON → 速度优先
+/// - `Background`：编辑审计、资产回流、后台入库 → 不抢占创作模型
 ///
 /// 未指定时网关自动分配：快模型→工具，闲置→后台，创作回退 active。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

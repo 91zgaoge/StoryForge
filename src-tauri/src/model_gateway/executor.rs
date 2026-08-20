@@ -36,8 +36,9 @@ const CONTEXT_COMPLETION_RESERVE_TOKENS: usize = 256;
 /// 视为未知窗口，不跳过（避免误杀未填窗口的配置）。
 ///
 /// 路由器 `select_candidates` 也会按 `estimated_input_tokens` 过滤，但
-/// `GatewayExecutor::generate` 常把该字段留 0，且会把活跃模型重新插回首位，
-/// 导致 19k token 的续写提示被打到 n_ctx=8192 的本地模型（Gemma 返回
+/// `GatewayExecutor::generate` 常把该字段留 0；创作档仍会把活跃模型插回首位，
+/// 工具/后台档不再插回（v0.51.6）。超窗时 19k token 续写提示曾被打到 n_ctx=8192
+/// 的本地模型（Gemma 返回
 /// `exceed_context_size_error`）。此函数是候选循环内的第二道闸门。
 pub(crate) fn candidate_fits_prompt(max_context_tokens: u32, prompt_chars: usize) -> bool {
     if max_context_tokens == 0 {
@@ -94,6 +95,11 @@ impl<R: Runtime> GatewayExecutor<R> {
             llm_service,
             pool,
         }
+    }
+
+    #[cfg(test)]
+    fn reload_llm_config_for_test(&self) {
+        self.llm_service.reload_config();
     }
 
     pub fn health_registry(&self) -> Arc<Mutex<HealthRegistry>> {
@@ -733,6 +739,91 @@ impl<R: Runtime> GatewayExecutor<R> {
         Ok(decision)
     }
 
+    /// 创作档 / 未指定档：把当前活跃模型抬到候选链首位。
+    ///
+    /// 工具档、后台档已经由 `select_candidates` 按角色置顶。禁止再把创作/
+    /// 当前模型盖回去——否则管理 Agent 与资产回流会挤占主创同一台机
+    /// （v0.51.6，诊断 2026-08-20 Qwren127 600s）。
+    pub(crate) fn apply_active_model_front(
+        &self,
+        request: &GatewayRequest,
+        decision: &mut GatewayRoutingDecision,
+    ) {
+        if matches!(
+            request.model_role,
+            Some(crate::config::settings::ModelRole::Tool)
+                | Some(crate::config::settings::ModelRole::Background)
+        ) {
+            return;
+        }
+
+        // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
+        // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
+        // v0.23.59: 连续失败达阈值时跳过再提升，select_candidates 已不强制置顶。
+        // v0.26.54: 再提升与 select_candidates 对齐——允许 Unknown；若活跃模型同时是
+        // 用户指定的创作角色，忽略粘性降级（与角色置顶契约一致）。
+        let Some(active) = self.llm_service.get_active_profile() else {
+            return;
+        };
+        let is_explicit_creative = {
+            let app_dir = self
+                .app_handle
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            crate::config::AppConfig::load(&app_dir)
+                .ok()
+                .and_then(|c| c.creative_model_id)
+                .as_deref()
+                == Some(active.id.as_str())
+        };
+        if !is_explicit_creative && self.model_demoted(&active.id) {
+            let failures = self
+                .health_registry()
+                .lock()
+                .ok()
+                .map(|g| g.consecutive_failures(&active.id))
+                .unwrap_or(0);
+            log::warn!(
+                "[Gateway] generate: 活跃模型 {} 连续失败 {} 次，跳过候选链首位提升",
+                active.id,
+                failures
+            );
+            return;
+        }
+        if decision.candidates.first().map(|c| c.model_id.as_str()) == Some(active.id.as_str()) {
+            return;
+        }
+        if let Some(pos) = decision
+            .candidates
+            .iter()
+            .position(|c| c.model_id == active.id)
+        {
+            let item = decision.candidates.remove(pos);
+            decision.candidates.insert(0, item);
+            log::debug!("[Gateway] 将活跃模型 {} 提升至候选链首位", active.id);
+        } else if self.registry_guard().get(&active.id).is_some()
+            && self.is_promotable_user_model(&active.id)
+        {
+            // Unhealthy 已被 is_promotable 拒绝；Unknown/Healthy/Degraded
+            // 允许插回首位，由后续 5s 预探测验证连通性。
+            decision.candidates.insert(
+                0,
+                crate::router::RankedCandidate {
+                    model_id: active.id.clone(),
+                    model_name: active.name.clone(),
+                    score: decision.candidates.first().map(|c| c.score).unwrap_or(50.0) + 1000.0,
+                    reason: if is_explicit_creative {
+                        "创作角色模型优先".to_string()
+                    } else {
+                        "当前活跃模型优先".to_string()
+                    },
+                },
+            );
+            log::debug!("[Gateway] 将活跃模型 {} 插入候选链首位", active.id);
+        }
+    }
+
     /// v0.23 TriShot：选取「最快可用模型」profile，用于 Call 1 路由合成器。
     ///
     /// 策略：从所有 enabled 模型中，按算力档案 `short_ttfb_ms_p50` 升序 +
@@ -958,70 +1049,7 @@ impl<R: Runtime> GatewayExecutor<R> {
             });
         }
 
-        // v0.23.12: 用户当前设置的活跃模型应该作为第一候选，避免路由器选一个
-        // 用户没预期的模型（尤其是旧模型或算力档案看起来“快”但实际挂起的模型）。
-        // v0.23.59: 连续失败达阈值时跳过再提升，select_candidates 已不强制置顶。
-        // v0.26.54: 再提升与 select_candidates 对齐——允许 Unknown；若活跃模型同时是
-        // 用户指定的创作角色，忽略粘性降级（与角色置顶契约一致）。
-        if let Some(active) = self.llm_service.get_active_profile() {
-            let is_explicit_creative = {
-                let app_dir = self
-                    .app_handle
-                    .path()
-                    .app_data_dir()
-                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-                crate::config::AppConfig::load(&app_dir)
-                    .ok()
-                    .and_then(|c| c.creative_model_id)
-                    .as_deref()
-                    == Some(active.id.as_str())
-            };
-            if !is_explicit_creative && self.model_demoted(&active.id) {
-                let failures = self
-                    .health_registry()
-                    .lock()
-                    .ok()
-                    .map(|g| g.consecutive_failures(&active.id))
-                    .unwrap_or(0);
-                log::warn!(
-                    "[Gateway] generate: 活跃模型 {} 连续失败 {} 次，跳过候选链首位提升",
-                    active.id,
-                    failures
-                );
-            } else if decision.candidates.first().map(|c| c.model_id.as_str())
-                != Some(active.id.as_str())
-            {
-                if let Some(pos) = decision
-                    .candidates
-                    .iter()
-                    .position(|c| c.model_id == active.id)
-                {
-                    let item = decision.candidates.remove(pos);
-                    decision.candidates.insert(0, item);
-                    log::debug!("[Gateway] 将活跃模型 {} 提升至候选链首位", active.id);
-                } else if self.registry_guard().get(&active.id).is_some()
-                    && self.is_promotable_user_model(&active.id)
-                {
-                    // Unhealthy 已被 is_promotable 拒绝；Unknown/Healthy/Degraded
-                    // 允许插回首位，由后续 5s 预探测验证连通性。
-                    decision.candidates.insert(
-                        0,
-                        crate::router::RankedCandidate {
-                            model_id: active.id.clone(),
-                            model_name: active.name.clone(),
-                            score: decision.candidates.first().map(|c| c.score).unwrap_or(50.0)
-                                + 1000.0,
-                            reason: if is_explicit_creative {
-                                "创作角色模型优先".to_string()
-                            } else {
-                                "当前活跃模型优先".to_string()
-                            },
-                        },
-                    );
-                    log::debug!("[Gateway] 将活跃模型 {} 插入候选链首位", active.id);
-                }
-            }
-        }
+        self.apply_active_model_front(&request, &mut decision);
 
         log::debug!(
             "[Gateway] 候选链已确定，共 {} 个模型",
@@ -1728,6 +1756,45 @@ mod tests {
         config.save(&app_dir).unwrap();
     }
 
+    fn save_three_role_config(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        creative_id: &str,
+        tool_id: &str,
+        background_id: &str,
+    ) {
+        let app_dir = app
+            .handle()
+            .path()
+            .app_data_dir()
+            .expect("mock app_data_dir");
+        std::fs::create_dir_all(&app_dir).ok();
+        let mut config = crate::config::AppConfig::default();
+        config.llm_profiles.clear();
+        config
+            .add_llm_profile(test_profile(creative_id, creative_id))
+            .unwrap();
+        config
+            .add_llm_profile(test_profile(tool_id, tool_id))
+            .unwrap();
+        config
+            .add_llm_profile(test_profile(background_id, background_id))
+            .unwrap();
+        config
+            .set_model_for_role(crate::config::settings::ModelRole::Creative, creative_id)
+            .unwrap();
+        config
+            .set_model_for_role(crate::config::settings::ModelRole::Tool, tool_id)
+            .unwrap();
+        config
+            .set_model_for_role(
+                crate::config::settings::ModelRole::Background,
+                background_id,
+            )
+            .unwrap();
+        config.set_active_llm_profile(creative_id).unwrap();
+        config.save(&app_dir).unwrap();
+    }
+
     /// v0.26.54: 连续失败达阈值后 clear_model_demotion 必须恢复可置顶。
     #[test]
     fn test_clear_model_demotion_restores_promotable() {
@@ -2036,6 +2103,120 @@ mod tests {
             resolved.as_ref().map(|p| p.id.as_str()),
             Some("solo-model"),
             "单模型时 Tool 档必须回退到唯一可用的 active 模型"
+        );
+    }
+
+    /// v0.51.6 契约：用户为工具档指定了独立模型时，generate 不得把
+    /// 当前/创作模型再抬到候选链首位（管理 Agent 不得挤占主创）。
+    #[test]
+    fn apply_active_front_does_not_steal_explicit_tool_role() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("qwren", "Qwren127")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("gemma", "Gemma 4")));
+        registry_inner.register(UnifiedModel::Generative(test_profile(
+            "qwen-bg", "Qwen 3.8",
+        )));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        save_three_role_config(&app, "qwren", "gemma", "qwen-bg");
+        executor.reload_llm_config_for_test();
+        executor.record_success_public("qwren", "Qwren127");
+        executor.record_success_public("gemma", "Gemma 4");
+        executor.record_success_public("qwen-bg", "Qwen 3.8");
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "归纳资产 JSON".to_string(),
+            "agency_producer",
+        );
+        req.model_role = Some(crate::config::settings::ModelRole::Tool);
+
+        let mut decision = executor.select_candidates(&req, None).unwrap();
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("gemma"),
+            "select_candidates 须先置顶工具档 Gemma"
+        );
+        executor.apply_active_model_front(&req, &mut decision);
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("gemma"),
+            "generate 不得把创作模型 Qwren 盖回工具档链头"
+        );
+    }
+
+    /// v0.51.6 契约：后台档（编辑审计 / 资产回流）指定独立模型后，
+    /// 不得被当前创作模型挤到同一台机。
+    #[test]
+    fn apply_active_front_does_not_steal_explicit_background_role() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("qwren", "Qwren127")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("gemma", "Gemma 4")));
+        registry_inner.register(UnifiedModel::Generative(test_profile(
+            "qwen-bg", "Qwen 3.8",
+        )));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        save_three_role_config(&app, "qwren", "gemma", "qwen-bg");
+        executor.reload_llm_config_for_test();
+        executor.record_success_public("qwren", "Qwren127");
+        executor.record_success_public("gemma", "Gemma 4");
+        executor.record_success_public("qwen-bg", "Qwen 3.8");
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "从正文提取角色".to_string(),
+            "记忆-内容分析",
+        );
+        req.model_role = Some(crate::config::settings::ModelRole::Background);
+
+        let mut decision = executor.select_candidates(&req, None).unwrap();
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("qwen-bg"),
+            "select_candidates 须先置顶后台档 Qwen"
+        );
+        executor.apply_active_model_front(&req, &mut decision);
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("qwen-bg"),
+            "generate 不得把创作模型 Qwren 盖回后台档链头"
+        );
+    }
+
+    /// v0.51.6 回归：创作档仍把当前/创作模型抬到首位。
+    #[test]
+    fn apply_active_front_still_promotes_creative_role() {
+        let _guard = mock_app_config_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut registry_inner = UnifiedModelRegistry::default();
+        registry_inner.register(UnifiedModel::Generative(test_profile("qwren", "Qwren127")));
+        registry_inner.register(UnifiedModel::Generative(test_profile("gemma", "Gemma 4")));
+        registry_inner.register(UnifiedModel::Generative(test_profile(
+            "qwen-bg", "Qwen 3.8",
+        )));
+        let (executor, app) = test_executor(GatewayRegistry::new(registry_inner));
+        save_three_role_config(&app, "qwren", "gemma", "qwen-bg");
+        executor.reload_llm_config_for_test();
+        executor.record_success_public("qwren", "Qwren127");
+        executor.record_success_public("gemma", "Gemma 4");
+        executor.record_success_public("qwen-bg", "Qwen 3.8");
+
+        let mut req = crate::model_gateway::types::GatewayRequest::for_fast_routing(
+            "续写".to_string(),
+            "agency_writer",
+        );
+        req.model_role = Some(crate::config::settings::ModelRole::Creative);
+
+        let mut decision = executor.select_candidates(&req, None).unwrap();
+        executor.apply_active_model_front(&req, &mut decision);
+        assert_eq!(
+            decision.candidates.first().map(|c| c.model_id.as_str()),
+            Some("qwren"),
+            "创作档仍须把 Qwren 放在链头"
         );
     }
 

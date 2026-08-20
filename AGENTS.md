@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.5
+- **版本**: v0.51.6
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,16 +97,24 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 本版无 Rust 逻辑变更（基线 1470 passed / 2 ignored）
+- `cargo test -p storymoss` ✅ 1473 passed / 2 ignored（+3 工具/后台档不被创作模型盖链头）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 596 passed / 3 skipped（弹窗空渲染替换「正在续写中」文案；+1 FrontstageApp 撞 run）
+- `npx vitest run` ✅ 本版无前端逻辑测试变更（基线 596 passed / 3 skipped）
 - `npx playwright test` ✅ 本版未重跑 E2E
-- `cargo +nightly fmt` ✅ 本版未重跑
+- `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.6 - 工具档/后台档不再被创作模型挤到同一台机
+
+幕后已把主创/管理/回流分到 Qwren127、Gemma 4、Qwen 3.8，续写仍全打到 Qwren127。根因：`generate()` 在角色置顶之后又把当前活跃模型抬回链头。
+
+- **验证**：`cargo test --lib apply_active_front` 3 passed。
+- **契约**：工具档/后台档 `apply_active_model_front` 不得盖掉已指定模型；创作档仍置顶。
+- **未关闭**：真机须用同一三档再点续写，看管理/回流是否打到 Gemma / Qwen 3.8；不得宣称续写质量已修复。
 
 ### v0.51.5 - 进行中的续写不再弹前台中断卡
 
@@ -1040,7 +1048,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-20 - v0.51.5_
+_最后更新: 2026-08-20 - v0.51.6_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
