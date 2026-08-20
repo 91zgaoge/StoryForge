@@ -129,6 +129,7 @@ vi.mock('@/stores/modelConnectionStore', () => ({
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/utils/errorHandler', () => ({
   parseStructuredError: vi.fn((e: unknown) => e),
+  isActiveCreativeRunConflict: () => false,
 }));
 
 describe('Bug: 应用重启后应正确加载上次生成的正文', () => {

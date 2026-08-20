@@ -52,7 +52,7 @@ pub async fn agency_continue_chapter(
     if has_running {
         return Err(AppError::validation_failed(
             "该故事已有进行中的创作任务",
-            None::<String>,
+            Some("active_run"),
         ));
     }
     // 下一章号
@@ -114,7 +114,7 @@ pub async fn agency_continue_batch(
     if has_running {
         return Err(AppError::validation_failed(
             "该故事已有进行中的创作任务",
-            None::<String>,
+            Some("active_run"),
         ));
     }
     // 起始章号

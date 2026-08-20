@@ -2416,6 +2416,8 @@ fn test_map_active_run_conflict_only_matches_agency_runs() {
     ));
     assert_eq!(err.code(), "VALIDATION_FAILED");
     assert!(err.to_string().contains("进行中"));
+    let json = serde_json::to_value(&err).expect("serialize");
+    assert_eq!(json["data"]["field"], "active_run");
     // 形态二：列约束
     let err = map_active_run_conflict(AppError::from(
         "UNIQUE constraint failed: agency_runs.story_id",

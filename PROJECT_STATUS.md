@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.51.3 项目完成状态
+# StoryMoss (草苔) v0.51.4 项目完成状态
 
-> 最后更新: 2026-08-20（v0.51.3 续写规划污染不再把 600 秒耗尽）
+> 最后更新: 2026-08-20（v0.51.4 「已有创作任务」不再打发去设置）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.51.4 - 「已有创作任务」不再打发去设置（2026-08-20）
+
+- **根因（inspected）**：`VALIDATION_FAILED` + UserAction 一律走「前往设置」。底栏已在 Agency 续写时，再点一次被当成设置缺项。
+- **修复**：进行中冲突专用文案；取消当前续写；二次点击不清理真正那次生成态。
+- **验证**：vitest 弹窗契约；Rust `field=active_run`。
 
 ### v0.51.3 - 续写规划污染不再把 600 秒耗尽（2026-08-20）
 

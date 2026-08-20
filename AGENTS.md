@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.3
+- **版本**: v0.51.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,16 +97,24 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1470 passed / 2 ignored（+4）
-- `npx tsc --noEmit` ✅ 本版未重跑（无前端逻辑变更）
-- `npx vitest run` ✅ 本版未重跑（593 passed / 3 skipped）
+- `cargo test -p storymoss` ✅ 1470 passed / 2 ignored（本版 Rust 计数不变）
+- `npx tsc --noEmit` ✅
+- `npx vitest run` ✅ 596 passed / 3 skipped（+3）
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
-- `cargo clippy --lib` ✅ 本版未重跑（上次 545，零新增）
-- `npm run format:check` ✅ 本版未重跑
+- `cargo clippy --lib` ✅ 本版未重跑
+- `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.4 - 「已有创作任务」不再打发去设置
+
+二次续写撞上正在进行的 Agency run 时，弹窗曾写「需要您先处理 / 前往设置」。现改为「正在续写中」：等底栏结束，或取消当前续写。二次点击不再清掉真正那次生成状态。
+
+- **验证**：`npx vitest run` 596 passed / 3 skipped（+3）；`cargo test --lib` 1470 passed / 2 ignored。
+- **契约**：`AgentInterruptionModal` 不渲染「前往设置」；`isActiveCreativeRunConflict` 认 `active_run` 字段。
+- **未关闭**：真机须再点续写确认弹窗文案；不得宣称续写质量已修复。
 
 ### v0.51.3 - 续写规划污染不再把 600 秒耗尽
 
@@ -1024,7 +1032,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-20 - v0.51.3_
+_最后更新: 2026-08-20 - v0.51.4_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

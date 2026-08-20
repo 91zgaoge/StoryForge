@@ -158,6 +158,7 @@ vi.mock('@/stores/modelConnectionStore', () => ({
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/utils/errorHandler', () => ({
   parseStructuredError: vi.fn((e: unknown) => e),
+  isActiveCreativeRunConflict: () => false,
 }));
 
 // 后端 FrontstageEvent 通过 #[serde(tag = "type", content = "payload")] 序列化，

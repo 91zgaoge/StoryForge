@@ -150,7 +150,10 @@ vi.mock('@/stores/modelConnectionStore', () => ({
 vi.mock('react-hot-toast', () => ({
   default: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), loading: vi.fn() },
 }));
-vi.mock('@/utils/errorHandler', () => ({ parseStructuredError: vi.fn(() => null) }));
+vi.mock('@/utils/errorHandler', () => ({
+  parseStructuredError: vi.fn(() => null),
+  isActiveCreativeRunConflict: () => false,
+}));
 
 import { useGenerationStore } from '@/stores/generationStore';
 

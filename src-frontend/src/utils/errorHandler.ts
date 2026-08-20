@@ -16,6 +16,20 @@ export interface StructuredError {
   data?: Record<string, unknown>;
 }
 
+/** 与后端 `map_active_run_conflict` / agency 并发护栏同一条文案。 */
+export const ACTIVE_CREATIVE_RUN_CONFLICT_MESSAGE = '该故事已有进行中的创作任务';
+
+/**
+ * 同一故事已有 Agency 续写/创世在跑。不是设置缺项，也不该打开幕后。
+ */
+export function isActiveCreativeRunConflict(
+  error: Pick<StructuredError, 'message' | 'data'> | null | undefined
+): boolean {
+  if (!error) return false;
+  if (error.data?.field === 'active_run') return true;
+  return (error.message || '').includes('已有进行中的创作任务');
+}
+
 export interface ErrorHandlerOptions {
   /** 错误上下文标识，如 "create_chapter", "auto_save", "load_story" */
   context: string;

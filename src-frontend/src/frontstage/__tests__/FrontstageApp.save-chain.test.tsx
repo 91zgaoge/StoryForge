@@ -133,6 +133,7 @@ vi.mock('@/stores/modelConnectionStore', () => ({
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/utils/errorHandler', () => ({
   parseStructuredError: vi.fn((e: unknown) => e),
+  isActiveCreativeRunConflict: () => false,
 }));
 
 const updateSceneCalls = () =>

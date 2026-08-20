@@ -17,7 +17,11 @@ import {
   getPipelineActiveDraft,
 } from '@/services/tauri';
 import type { WritingIntentClassification } from '@/services/tauri';
-import { extractMessage, parseStructuredError } from '@/utils/errorHandler';
+import {
+  extractMessage,
+  isActiveCreativeRunConflict,
+  parseStructuredError,
+} from '@/utils/errorHandler';
 import type { StructuredError } from '@/utils/errorHandler';
 import { modelService } from '@/services/modelService';
 import { autoFormatText, textToParagraphsHtml } from '@/utils/format';
@@ -1533,6 +1537,8 @@ const FrontstageApp: React.FC = () => {
   const [diagnosticData, setDiagnosticData] = useState<Record<string, string>>({});
   const [showInterruptionModal, setShowInterruptionModal] = useState(false);
   const [interruptionError, setInterruptionError] = useState<StructuredError | null>(null);
+  /** 二次续写撞上已有 run 时，finally 不得清掉真正那次生成的取消/进行中状态。 */
+  const keepGeneratingForActiveRunRef = useRef(false);
   // v0.31.x: 智能输入审计意图的报告内容（result_kind='audit_report'），弹窗展示而非追加手稿
   const [auditReport, setAuditReport] = useState<string | null>(null);
 
@@ -3809,6 +3815,15 @@ const FrontstageApp: React.FC = () => {
         typewriterFrameRef.current = requestAnimationFrame(typeFrame);
       } catch (error) {
         if (timeoutId) clearTimeout(timeoutId);
+        const structured = parseStructuredError(error);
+        if (isActiveCreativeRunConflict(structured)) {
+          keepGeneratingForActiveRunRef.current = true;
+          setInterruptionError(structured);
+          setShowInterruptionModal(true);
+          setIsGenerating(true);
+          smartExecuteNeedDiagnosticRef.current = false;
+          return;
+        }
         stopElapsedTimer();
         // v0.11.5: 任何失败/超时都要清理 backendActivityStore，避免状态栏残留
         useBackendActivityStore
@@ -3820,7 +3835,6 @@ const FrontstageApp: React.FC = () => {
               : '生成失败'
           );
         frontstageLogger.error('Generation request failed', { error });
-        const structured = parseStructuredError(error);
         // v0.30.37: 用 extractMessage 提取结构化 AppError 的 message，
         // 避免 String(error) 对普通对象产出 "[object Object]"（issue #12）。
         const msg = structured?.message ?? extractMessage(error);
@@ -4865,6 +4879,15 @@ const FrontstageApp: React.FC = () => {
       } catch (e: any) {
         if (timeoutId) clearTimeout(timeoutId);
         currentToastPhaseRef.current = null;
+        const structured = parseStructuredError(e);
+        if (isActiveCreativeRunConflict(structured)) {
+          keepGeneratingForActiveRunRef.current = true;
+          setInterruptionError(structured);
+          setShowInterruptionModal(true);
+          setIsGenerating(true);
+          smartExecuteNeedDiagnosticRef.current = false;
+          return;
+        }
         // v0.11.5: 异常时清理 backendActivityStore，避免状态栏卡死
         useBackendActivityStore
           .getState()
@@ -4876,7 +4899,6 @@ const FrontstageApp: React.FC = () => {
               : '执行失败'
           );
         frontstageLogger.error('Smart execution failed', { error: e });
-        const structured = parseStructuredError(e);
         // v0.30.37: 提取结构化 AppError message，避免 "[object Object]"（issue #12）。
         const msg = structured?.message ?? extractMessage(e);
 
@@ -4906,22 +4928,26 @@ const FrontstageApp: React.FC = () => {
         smartExecuteNeedDiagnosticRef.current = false; // v0.13.3
         captureDiagnosticInfo(msg);
       } finally {
-        stopElapsedTimer();
-        cancelGenerationRef.current = null;
-        currentToastPhaseRef.current = null;
-        setIsGenerating(false);
-        // v0.30.44: 在 setIsGenerating(false) 之后清除 flight 标志，
-        // 确保 setIsGenerating 触发 safety-net 检查时 flight 仍为 true（防 backend
-        // activity sync 干扰），检查完成后才释放。smartExecuteNeedDiagnosticRef
-        // 已在各内容交付路径清除；此处兜底清除 flight 防止泄漏到下一次生成。
-        smartExecuteInFlightRef.current = false;
-        setOrchestratorStatus(null);
-        // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
-        // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
-        if (isBootstrap) {
-          setGenerationStatus('后台正在完善小说世界...');
+        if (keepGeneratingForActiveRunRef.current) {
+          keepGeneratingForActiveRunRef.current = false;
         } else {
-          setGenerationStatus('');
+          stopElapsedTimer();
+          cancelGenerationRef.current = null;
+          currentToastPhaseRef.current = null;
+          setIsGenerating(false);
+          // v0.30.44: 在 setIsGenerating(false) 之后清除 flight 标志，
+          // 确保 setIsGenerating 触发 safety-net 检查时 flight 仍为 true（防 backend
+          // activity sync 干扰），检查完成后才释放。smartExecuteNeedDiagnosticRef
+          // 已在各内容交付路径清除；此处兜底清除 flight 防止泄漏到下一次生成。
+          smartExecuteInFlightRef.current = false;
+          setOrchestratorStatus(null);
+          // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
+          // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
+          if (isBootstrap) {
+            setGenerationStatus('后台正在完善小说世界...');
+          } else {
+            setGenerationStatus('');
+          }
         }
       }
     },
@@ -5613,6 +5639,7 @@ const FrontstageApp: React.FC = () => {
         onClose={() => setShowInterruptionModal(false)}
         error={interruptionError}
         onOpenBackstage={openBackstage}
+        onCancelGeneration={handleCancelGeneration}
       />
 
       {/* v0.31.x: 智能输入审计意图的报告弹窗（不追加手稿） */}

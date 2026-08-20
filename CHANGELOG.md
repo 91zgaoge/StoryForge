@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.51.4（2026-08-20）
+
+底栏已显示「Agency 续写中」，再点续写会弹出「需要您先处理 / 前往设置」。根因：同一故事不允许并行 Agency run 的校验被标成 UserAction，中断弹窗把所有 UserAction 都当成「去设置」。
+
+### 修复
+
+- **进行中冲突**：标题改为「正在续写中」，说明等待底栏结束或取消，主按钮是「知道了」，不再去设置。
+- **取消当前续写**：弹窗可停掉正在跑的那一次；二次点击不再把真正那次生成的进行中状态清掉。
+
+### 测试
+
+- `npx vitest run`：**596 passed / 3 skipped**（+3：进行中冲突弹窗契约 + `isActiveCreativeRunConflict`）。
+- `cargo test --lib test_map_active_run_conflict_only_matches_agency_runs`：序列化 `field=active_run`。
+
 ## v0.51.3（2026-08-20）
 
 v0.51.2 切断节拍卡泄露后，Qwren127 仍用 390s 写出约 9821 字「故事大纲归纳与后续规划」。净化清空后立刻用同一份被污染的大纲再开一轮；前端 600s 先取消，网关还去点下一个候选。根因：规划被粘在 `story_outlines` 的转折点块里喂回主创；过短重试不看剩余 deadline。

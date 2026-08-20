@@ -137,6 +137,7 @@ vi.mock('@/utils/errorHandler', () => ({
   handleAsyncError: vi.fn(),
   showErrorToast: vi.fn(),
   logError: vi.fn(),
+  isActiveCreativeRunConflict: () => false,
 }));
 
 describe('启动定位最新章节（v0.33.7）', () => {

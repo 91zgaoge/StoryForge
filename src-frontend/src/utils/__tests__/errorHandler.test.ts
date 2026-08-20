@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   extractMessage,
+  isActiveCreativeRunConflict,
   isSubscriptionRequired,
   parseStructuredError,
   subscriptionFeatureId,
@@ -101,5 +102,19 @@ describe('isSubscriptionRequired / subscriptionFeatureId - Pro 门控统一判�
   it('无 feature_id 时返回 null', () => {
     expect(subscriptionFeatureId({ code: 'SUBSCRIPTION_REQUIRED', message: '需订阅' })).toBeNull();
     expect(subscriptionFeatureId(new Error('x'))).toBeNull();
+  });
+});
+
+describe('isActiveCreativeRunConflict', () => {
+  it('认 data.field=active_run 与进行中文案', () => {
+    expect(
+      isActiveCreativeRunConflict({
+        message: '该故事已有进行中的创作任务',
+        data: { field: 'active_run' },
+      })
+    ).toBe(true);
+    expect(isActiveCreativeRunConflict({ message: '该故事已有进行中的创作任务' })).toBe(true);
+    expect(isActiveCreativeRunConflict({ message: '请先打开一个章节' })).toBe(false);
+    expect(isActiveCreativeRunConflict(null)).toBe(false);
   });
 });

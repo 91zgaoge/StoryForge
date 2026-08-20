@@ -841,7 +841,7 @@ pub(crate) fn circuit_break_message(role: &str, what: &str, reason: &str) -> Str
 /// "UNIQUE constraint failed"，避免误吞其他表的约束冲突。
 pub(crate) fn map_active_run_conflict(e: AppError) -> AppError {
     if e.to_string().contains("agency_runs") {
-        AppError::validation_failed("该故事已有进行中的创作任务", None::<String>)
+        AppError::validation_failed("该故事已有进行中的创作任务", Some("active_run"))
     } else {
         e
     }
@@ -5026,7 +5026,7 @@ impl AgencyCoordinator {
             if has_running {
                 return Err(AppError::validation_failed(
                     "该故事已有进行中的创作任务",
-                    None::<String>,
+                    Some("active_run"),
                 ));
             }
         }
