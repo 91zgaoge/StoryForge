@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.51.4 架构文档
+# StoryMoss (草苔) v0.51.5 架构文档
 
-> **v0.51.4**：`AgentInterruptionModal` 对 `active_run` /「已有进行中的创作任务」走等待/取消文案，不打开设置。二次续写失败不清理真正那次 `isGenerating`。无路由/落库变更。v0.51.3 规划切断不变量不变。
+> **v0.51.5**：进行中的 Agency 续写（`active_run`）不是 UserAction 中断。`AgentInterruptionModal` 对此错误不渲染；二次点击不盖纸面。无路由/落库变更。
 >
 > **v0.51.3**：`condense_story_outline` 切断规划提纲后再注入续写；`write_beat_once` 过短重试受剩余 deadline（90s）约束；网关 `CANCELLATION` 终止候选链。v0.51.2 节拍卡切断不变量不变。
 >
@@ -269,7 +269,7 @@ v0.25.0 在原有智能创作链路之上增加了两道防御性基础设施：
 | **Fatal**      | 无法自动恢复 | 未知内部 panic        | 记录并终止，前端弹 `AgentInterruptionModal` |
 | **Retry**      | 瞬态错误     | 模型连接超时、DB 锁定 | 指数退避重试，或切换候选模型                |
 | **Degraded**   | 可降级继续   | 上下文缺失            | 执行简化路径并提示用户                      |
-| **UserAction** | 需要用户处理 | 订阅、校验、模型禁用  | 前端弹 `AgentInterruptionModal` 引导设置    |
+| **UserAction** | 需要用户处理 | 订阅、校验、模型禁用  | 前端弹 `AgentInterruptionModal` 引导设置。例外：`active_run`（该故事已有进行中的创作任务）不中断纸面，只留底栏。 |
 
 `error_recovery.rs` 提供 `retry_with_backoff` 与 `with_degraded_fallback`；`GatewayExecutor` 与 `smart_execute` 的 DB 加载已接入重试。前端 `errorHandler.ts` 按 `severity` 兜底推荐动作，`AgentInterruptionModal` 对 Fatal/UserAction 直接中断当前流程。
 

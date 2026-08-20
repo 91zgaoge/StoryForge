@@ -2,6 +2,19 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.51.5（2026-08-20）
+
+续写已在底栏跑（「Agency 续写中」），再点一次或自动续写撞上同一 run 时，不该再盖一张中断卡。进行中的续写不是设置缺项，也不是用户必须先处理的动作。
+
+### 修复
+
+- **不弹中断卡**：`active_run` 冲突只保住正在跑的那次生成态，纸面不盖「需要您先处理 / 正在续写中」。
+- **二次点击静默**：已在生成时再点续写直接 return，不喊顶栏。
+
+### 测试
+
+- `npx vitest run`：弹窗对 `active_run` 渲染空；FrontstageApp 撞 run 不出现「前往设置」。
+
 ## v0.51.4（2026-08-20）
 
 底栏已显示「Agency 续写中」，再点续写会弹出「需要您先处理 / 前往设置」。根因：同一故事不允许并行 Agency run 的校验被标成 UserAction，中断弹窗把所有 UserAction 都当成「去设置」。

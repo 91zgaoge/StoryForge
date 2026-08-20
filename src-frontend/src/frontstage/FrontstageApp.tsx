@@ -3463,13 +3463,7 @@ const FrontstageApp: React.FC = () => {
       // v0.23.95: 新请求开始时解除 post-accept 锁，允许新的 generatedText 设置
       postAcceptLockRef.current = 0;
       if (isGenerating) {
-        // 使用顶部状态栏替代黑色 toast
-        setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
-        setTimeout(() => {
-          setOrchestratorStatus(current =>
-            current?.message === 'AI 正在生成中，请稍候...' ? null : current
-          );
-        }, 2000);
+        // 续写已在底栏进行。不要弹窗、不要顶栏再喊一声——那是前台干预。
         return;
       }
 
@@ -3817,9 +3811,8 @@ const FrontstageApp: React.FC = () => {
         if (timeoutId) clearTimeout(timeoutId);
         const structured = parseStructuredError(error);
         if (isActiveCreativeRunConflict(structured)) {
+          // 同一故事已有续写在跑。底栏会显示「Agency 续写中」；不弹中断卡。
           keepGeneratingForActiveRunRef.current = true;
-          setInterruptionError(structured);
-          setShowInterruptionModal(true);
           setIsGenerating(true);
           smartExecuteNeedDiagnosticRef.current = false;
           return;
@@ -4283,13 +4276,7 @@ const FrontstageApp: React.FC = () => {
       // v0.26.13 fix: 新请求开始时重置 Genesis 自动接受标记，避免上一本小说的状态阻塞续写生成。
       genesisDeliveryRef.current = 'idle';
       if (isGenerating) {
-        // 使用顶部状态栏替代黑色 toast
-        setOrchestratorStatus({ stepType: 'busy', message: 'AI 正在生成中，请稍候...' });
-        setTimeout(() => {
-          setOrchestratorStatus(current =>
-            current?.message === 'AI 正在生成中，请稍候...' ? null : current
-          );
-        }, 2000);
+        // 续写已在底栏进行。不要弹窗、不要顶栏再喊一声——那是前台干预。
         return;
       }
 
@@ -4881,9 +4868,8 @@ const FrontstageApp: React.FC = () => {
         currentToastPhaseRef.current = null;
         const structured = parseStructuredError(e);
         if (isActiveCreativeRunConflict(structured)) {
+          // 同一故事已有续写在跑。底栏会显示「Agency 续写中」；不弹中断卡。
           keepGeneratingForActiveRunRef.current = true;
-          setInterruptionError(structured);
-          setShowInterruptionModal(true);
           setIsGenerating(true);
           smartExecuteNeedDiagnosticRef.current = false;
           return;
@@ -5639,7 +5625,6 @@ const FrontstageApp: React.FC = () => {
         onClose={() => setShowInterruptionModal(false)}
         error={interruptionError}
         onOpenBackstage={openBackstage}
-        onCancelGeneration={handleCancelGeneration}
       />
 
       {/* v0.31.x: 智能输入审计意图的报告弹窗（不追加手稿） */}

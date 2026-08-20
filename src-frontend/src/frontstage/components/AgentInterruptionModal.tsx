@@ -16,7 +16,6 @@ export interface AgentInterruptionModalProps {
   onOpenBackstage?: () => void;
   onOpenUpgrade?: () => void;
   onRetry?: () => void;
-  onCancelGeneration?: () => void;
 }
 
 export const AgentInterruptionModal: React.FC<AgentInterruptionModalProps> = ({
@@ -26,32 +25,11 @@ export const AgentInterruptionModal: React.FC<AgentInterruptionModalProps> = ({
   onOpenBackstage,
   onOpenUpgrade,
   onRetry,
-  onCancelGeneration,
 }) => {
   const isFatal = error?.severity === 'Fatal';
   const isUserAction = error?.severity === 'UserAction';
-  const isActiveRun = isActiveCreativeRunConflict(error);
 
   const config = useMemo(() => {
-    if (isActiveRun) {
-      return {
-        icon: AlertTriangle,
-        iconColor: '#a16207',
-        title: '正在续写中',
-        subtitle:
-          '这部作品已经有一次续写在进行，不能同时再开一次。请等待底栏「Agency 续写中」结束；若要停掉，点「取消当前续写」或底栏取消。不用去设置。',
-        primary: { label: '知道了', action: onClose, showArrow: false },
-        secondary: onCancelGeneration
-          ? {
-              label: '取消当前续写',
-              action: () => {
-                onCancelGeneration();
-                onClose();
-              },
-            }
-          : undefined,
-      };
-    }
     if (isFatal) {
       return {
         icon: AlertTriangle,
@@ -87,19 +65,11 @@ export const AgentInterruptionModal: React.FC<AgentInterruptionModalProps> = ({
       primary: { label: '关闭', action: onClose },
       secondary: undefined,
     };
-  }, [
-    isFatal,
-    isUserAction,
-    isActiveRun,
-    error?.code,
-    onClose,
-    onOpenBackstage,
-    onOpenUpgrade,
-    onRetry,
-    onCancelGeneration,
-  ]);
+  }, [isFatal, isUserAction, error?.code, onClose, onOpenBackstage, onOpenUpgrade, onRetry]);
 
   if (!isOpen || !error) return null;
+  // 进行中的续写不是用户动作：不盖住纸面。底栏「Agency 续写中」即状态。
+  if (isActiveCreativeRunConflict(error)) return null;
 
   const Icon = config.icon;
 
@@ -175,7 +145,7 @@ export const AgentInterruptionModal: React.FC<AgentInterruptionModalProps> = ({
             onClick={config.primary.action}
           >
             {config.primary.label}
-            {config.primary.showArrow !== false && <ArrowRight size={14} />}
+            <ArrowRight size={14} />
           </button>
         </div>
       </div>

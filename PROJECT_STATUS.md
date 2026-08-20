@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.51.4 项目完成状态
+# StoryMoss (草苔) v0.51.5 项目完成状态
 
-> 最后更新: 2026-08-20（v0.51.4 「已有创作任务」不再打发去设置）
+> 最后更新: 2026-08-20（v0.51.5 进行中续写不再弹前台中断卡）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.51.5 - 进行中的续写不再弹前台中断卡（2026-08-20）
+
+- **根因（inspected）**：同一故事已有 Agency run 被标成 UserAction，中断卡盖住正在写的纸面。续写状态已在底栏。
+- **修复**：冲突不 `setShowInterruptionModal`；弹窗对 `active_run` 渲染空；二次点击静默。
+- **验证**：vitest 弹窗空渲染 + FrontstageApp 不出现「前往设置」。
 
 ### v0.51.4 - 「已有创作任务」不再打发去设置（2026-08-20）
 

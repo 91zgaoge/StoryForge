@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.4
+- **版本**: v0.51.5
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,16 +97,24 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1470 passed / 2 ignored（本版 Rust 计数不变）
+- `cargo test -p storymoss` ✅ 本版无 Rust 逻辑变更（基线 1470 passed / 2 ignored）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 596 passed / 3 skipped（+3）
+- `npx vitest run` ✅ 596 passed / 3 skipped（弹窗空渲染替换「正在续写中」文案；+1 FrontstageApp 撞 run）
 - `npx playwright test` ✅ 本版未重跑 E2E
-- `cargo +nightly fmt` ✅
+- `cargo +nightly fmt` ✅ 本版未重跑
 - `cargo clippy --lib` ✅ 本版未重跑
 - `npm run format:check` ✅
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.5 - 进行中的续写不再弹前台中断卡
+
+底栏已在「Agency 续写中」时，二次点击/自动续写撞上同一 run，不再盖住纸面。等底栏结束或点底栏取消即可。
+
+- **验证**：vitest 弹窗对 `active_run` 渲染空；FrontstageApp 不出现「需要您先处理」。
+- **契约**：`isActiveCreativeRunConflict` 的弹窗路径 return null；二次点击不 `setShowInterruptionModal`。
+- **未关闭**：真机须再点续写确认不再弹卡；不得宣称续写质量已修复。
 
 ### v0.51.4 - 「已有创作任务」不再打发去设置
 
@@ -1032,7 +1040,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-20 - v0.51.4_
+_最后更新: 2026-08-20 - v0.51.5_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
