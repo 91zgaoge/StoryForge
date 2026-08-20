@@ -4436,6 +4436,10 @@ const BEAT_CARD_LEAK_SIGNALS: &[&str] = &[
     "待兑现审查",
     "扩张任务：",
     "不得只靠对话过渡",
+    "故事大纲归纳",
+    "根据提供的正文片段",
+    "建议的下一场景",
+    "目标 → 冲突 → 灾难",
 ];
 
 /// 若 ≥3 行命中，判定为 CoT 泄露，尝试找到正文起点（第一个不含信号词且 >20
@@ -4972,6 +4976,16 @@ mod tests {
             "sanitize 应对节拍卡泄露返回空，实际: {}",
             result
         );
+    }
+
+    #[test]
+    fn test_detect_and_strip_bare_cot_outline_planning_dump_returns_empty() {
+        let dump = "根据提供的正文片段，我将按照要求的结构进行归纳，并规划后续情节。\n\
+                    ## 故事大纲归纳与后续规划\n\
+                    建议的下一场景类型：目标场景\n\
+                    **目标 → 冲突 → 灾难**";
+        let result = detect_and_strip_bare_cot(dump);
+        assert!(result.is_empty(), "大纲归纳规划应清空，实际: {}", result);
     }
 
     #[test]

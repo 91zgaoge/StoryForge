@@ -224,8 +224,35 @@ pub fn slice_prior_prose(text: &str) -> String {
     format!("{head}\n…（本章中间已省略）…\n{tail}")
 }
 
+/// 观察/主创把「场景规划 / 归纳提纲」写进 story_outlines 后，续写会把规划
+/// 当大纲再喂回去，本地模型跟着写规划、390s 烧光前端 600s。切掉提纲，只留情节。
+const OUTLINE_PLANNING_MARKERS: &[&str] = &[
+    "故事大纲归纳",
+    "根据提供的正文片段",
+    "建议的下一场景",
+    "目标 → 冲突 → 灾难",
+    "目标->冲突->灾难",
+    "我将按照要求的结构",
+    "### 场景一",
+    "### 场景二",
+    "下一场景规划",
+];
+
+pub fn strip_outline_planning(raw: &str) -> String {
+    let mut cut = raw.len();
+    for marker in OUTLINE_PLANNING_MARKERS {
+        if let Some(i) = raw.find(marker) {
+            cut = cut.min(i);
+        }
+    }
+    if cut >= raw.len() {
+        return raw.to_string();
+    }
+    raw[..cut].trim().to_string()
+}
+
 pub fn condense_story_outline(raw: &str, next_node: &str) -> String {
-    let raw = raw.trim();
+    let raw = strip_outline_planning(raw.trim());
     let mut blocks: Vec<String> = Vec::new();
     if !raw.is_empty() {
         let mut current = String::new();
@@ -857,6 +884,23 @@ mod tests {
         let out = condense_story_outline("   ", "下一节点：入宫");
         assert!(out.contains("入宫"), "got: {out}");
         assert!(!out.contains("【核心冲突】【核心冲突】"));
+    }
+
+    #[test]
+    fn condense_outline_strips_planning_dump_glued_to_turning_point() {
+        let raw = "【核心冲突】政治势力以联姻为掩护刺杀镇北王苏会山\n\
+                   【转折点】明成公主拜堂时发难，用毒烟与短刃重创苏会山\n\
+                   ## 故事大纲归纳与后续规划\n\
+                   根据提供的正文片段，我将按照要求的结构进行归纳。\n\
+                   ### 场景一：目标场景\n\
+                   **目标 → 冲突 → 灾难**\n\
+                   建议的下一场景类型：目标场景";
+        let out = condense_story_outline(raw, "推进当前冲突");
+        assert!(out.contains("【核心冲突】"), "got: {out}");
+        assert!(out.contains("拜堂时发难"), "got: {out}");
+        assert!(!out.contains("故事大纲归纳"), "规划不得进续写大纲: {out}");
+        assert!(!out.contains("根据提供的正文片段"), "got: {out}");
+        assert!(!out.contains("建议的下一场景"), "got: {out}");
     }
 
     #[test]

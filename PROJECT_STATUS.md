@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.51.2 项目完成状态
+# StoryMoss (草苔) v0.51.3 项目完成状态
 
-> 最后更新: 2026-08-19（v0.51.2 续写切断节拍卡/约束规划泄露）
+> 最后更新: 2026-08-20（v0.51.3 续写规划污染不再把 600 秒耗尽）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.51.3 - 续写规划污染不再把 600 秒耗尽（2026-08-20）
+
+- **根因（executed）**：`creative_workflow.log` 23:55:46 Qwren127 390s 写出 9821 字规划；sanitize 清空后 00:02:16 立刻第二轮；00:02:55 前端 600s 取消后网关仍试 Qwen 3.8。规划粘在 story_outlines 转折点块。
+- **修复**：`condense_story_outline` 切断规划；剩余 <90s 不重试；`CANCELLATION` 停候选链。
+- **验证**：`cargo test --lib` 1470 passed / 2 ignored（+4）。
 
 ### v0.51.2 - 续写切断节拍卡/约束规划泄露（2026-08-19）
 

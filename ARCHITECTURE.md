@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.51.2 架构文档
+# StoryMoss (草苔) v0.51.3 架构文档
 
+> **v0.51.3**：`condense_story_outline` 切断规划提纲后再注入续写；`write_beat_once` 过短重试受剩余 deadline（90s）约束；网关 `CANCELLATION` 终止候选链。v0.51.2 节拍卡切断不变量不变。
+>
 > **v0.51.2**：`detect_and_strip_bare_cot` 增加节拍卡/约束清单强切断（全文扫描，从首个命中行切到文末）。续写 `CONTINUE_BEAT_SYSTEM` 禁止输出任务分析。sanitize 清空后既有 write_beat 过短重试仍生效。无路由/落库契约变更。v0.51.1 墨纸按钮不变量不变。
 >
 > **v0.51.1**：幕前取消键 / 发射键卸掉 macOS WKWebView Aqua 原生按钮外观（`appearance-none` + flush CSS 双杀）。无架构/生成链路变更。v0.51.0 观察不变量不变。

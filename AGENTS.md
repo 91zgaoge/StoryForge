@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.2
+- **版本**: v0.51.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1466 passed / 2 ignored（+3）
+- `cargo test -p storymoss` ✅ 1470 passed / 2 ignored（+4）
 - `npx tsc --noEmit` ✅ 本版未重跑（无前端逻辑变更）
 - `npx vitest run` ✅ 本版未重跑（593 passed / 3 skipped）
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.51.3 - 续写规划污染不再把 600 秒耗尽
+
+v0.51.2 清空节拍卡泄露后立刻重试。Qwren127 用 390s 写出大纲归纳规划，净化后再开一轮，前端 600s 取消，网关还点下一候选。本版：大纲注入前切断规划；剩余 <90s 不重试；取消即停候选链。
+
+- **验证**：`cargo test --lib` 1470 passed / 2 ignored（+4）。
+- **契约**：`condense_outline_strips_planning_dump_glued_to_turning_point`；`writer_retry_has_time_requires_ninety_seconds`；`candidate_chain_stops_on_cancellation_not_timeout`；`test_detect_and_strip_bare_cot_outline_planning_dump_returns_empty`。
+- **未关闭**：真机须用同一开头再点续写；不得宣称续写质量/唱反调已修复。库内旧规划大纲靠读取时切断，不自动改表。
 
 ### v0.51.2 - 续写切断节拍卡/约束规划泄露
 
@@ -1016,7 +1024,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-19 - v0.51.2_
+_最后更新: 2026-08-20 - v0.51.3_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

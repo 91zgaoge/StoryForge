@@ -48,6 +48,11 @@ pub(crate) fn candidate_fits_prompt(max_context_tokens: u32, prompt_chars: usize
         >= prompt_tokens_est.saturating_add(CONTEXT_COMPLETION_RESERVE_TOKENS)
 }
 
+/// 用户/看门狗取消后不得再试下一个候选。否则 600s 前端超时会再点燃本地模型。
+pub(crate) fn candidate_chain_stops_on(err: &AppError) -> bool {
+    matches!(err, AppError::Cancellation { .. })
+}
+
 /// 网关执行器
 pub struct GatewayExecutor<R: Runtime = Wry> {
     app_handle: AppHandle<R>,
@@ -1273,6 +1278,9 @@ impl<R: Runtime> GatewayExecutor<R> {
                         super::types::HealthStatus::Degraded,
                         Some(e.to_string()),
                     );
+                    if candidate_chain_stops_on(&e) {
+                        return Err(e);
+                    }
                     last_error = Some(e);
                     continue;
                 }
@@ -1552,6 +1560,15 @@ mod tests {
     #[test]
     fn candidate_fits_prompt_unknown_window_does_not_skip() {
         assert!(candidate_fits_prompt(0, 24559));
+    }
+
+    #[test]
+    fn candidate_chain_stops_on_cancellation_not_timeout() {
+        assert!(candidate_chain_stops_on(&AppError::cancelled("生成已取消")));
+        assert!(!candidate_chain_stops_on(&AppError::LlmTimeout {
+            message: "LLM call timed out after 300000ms".into(),
+            elapsed_ms: 300000,
+        }));
     }
 
     /// mock_app 共享同一 app_data_dir；写 config 的契约测试必须串行。

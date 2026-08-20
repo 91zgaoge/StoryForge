@@ -3896,6 +3896,16 @@ fn continue_short_retry_user_keeps_beat_card_not_genesis_premise() {
 }
 
 #[test]
+fn writer_retry_has_time_requires_ninety_seconds() {
+    assert!(writer_retry_has_time(None));
+    assert!(writer_retry_has_time(Some(90)));
+    assert!(writer_retry_has_time(Some(600)));
+    assert!(!writer_retry_has_time(Some(89)));
+    assert!(!writer_retry_has_time(Some(40)));
+    assert!(!writer_retry_has_time(Some(0)));
+}
+
+#[test]
 fn eight_beat_append_quality_contract() {
     use crate::{
         agency::{beat_card::compile_beat_card, persist::persist_append_with_card},

@@ -1344,6 +1344,13 @@ impl AgencyCoordinator {
         *self.run_deadline.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    fn remaining_run_secs(&self) -> Option<u64> {
+        self.current_deadline().map(|d| {
+            d.saturating_duration_since(std::time::Instant::now())
+                .as_secs()
+        })
+    }
+
     /// 代理活动事件（agency-agent-activity）：角色开始/完成某动作。
     fn emit_activity(&self, run_id: &str, role: AgentRole, action: &str, detail: &str) {
         #[cfg(test)]
@@ -4149,7 +4156,9 @@ impl AgencyCoordinator {
         let raw_chars = text.chars().count();
         let trim_ratio =
             crate::agents::trim_utils::compute_trim_ratio(raw_chars, trimmed.chars().count());
-        if crate::agents::trim_utils::should_retry_self_repetition(trim_ratio, raw_chars) {
+        if crate::agents::trim_utils::should_retry_self_repetition(trim_ratio, raw_chars)
+            && writer_retry_has_time(self.remaining_run_secs())
+        {
             log::warn!(
                 "agency: write_beat_once 自重复 ratio={:.2} run={}，anti-repeat 重试一次",
                 trim_ratio,
@@ -4173,6 +4182,13 @@ impl AgencyCoordinator {
         }
         let mut did_short_retry = false;
         if text.chars().count() < 200 {
+            if !writer_retry_has_time(self.remaining_run_secs()) {
+                return Err(AppError::from(format!(
+                    "agency: write_beat_once 过短（{} 字符），剩余时间不足未重试 run={}",
+                    text.chars().count(),
+                    run_id
+                )));
+            }
             did_short_retry = true;
             log::warn!(
                 "agency: write_beat_once 过短（{} 字符），尝试续写回退 run={}",
@@ -4201,7 +4217,10 @@ impl AgencyCoordinator {
             compile_continue_beat_state(&card, parts.as_ref(), current_content.unwrap_or(""));
         let probe0 =
             crate::agency::beat_state::probe_increment(&text, &card, &state, &card.expansion_quota);
-        if !probe0.gaps.is_empty() && !did_short_retry {
+        if !probe0.gaps.is_empty()
+            && !did_short_retry
+            && writer_retry_has_time(self.remaining_run_secs())
+        {
             let gap_block = format!(
                 "\n\n【缺口（必须在正文里补上，不要解释）】\n{}",
                 probe0
@@ -6137,6 +6156,16 @@ fn format_chars_for_outline(parts: &ContinueContextParts, admitted: &[String]) -
 
 pub(crate) fn continue_short_retry_user(user: &str) -> String {
     format!("只输出小说正文，承接末句，落实节拍任务，禁止分析/提纲/创世开篇。\n\n{user}")
+}
+
+/// 过短/规划清空后的主创重试至少要留出一轮本地生成窗口。
+/// None = 测试环境无 deadline，允许重试。
+pub(crate) const WRITER_RETRY_MIN_REMAINING_SECS: u64 = 90;
+
+pub(crate) fn writer_retry_has_time(remaining_secs: Option<u64>) -> bool {
+    remaining_secs
+        .map(|s| s >= WRITER_RETRY_MIN_REMAINING_SECS)
+        .unwrap_or(true)
 }
 
 fn compile_continue_beat_state(
