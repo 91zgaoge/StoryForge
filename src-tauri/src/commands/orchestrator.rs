@@ -252,7 +252,7 @@ async fn smart_execute_inner(
     // classify_writing_intent（8s 超时 + 保守兜底 is_new_novel=false）。
     let has_existing_story = !stories.is_empty();
     let has_current_content = current_content_preview.is_some();
-    let classification = match intent_classification.clone() {
+    let mut classification = match intent_classification.clone() {
         Some(c) => c,
         None => {
             log::info!("[smart_execute] 前端未传意图分类，后端兜底 LLM 分类");
@@ -262,6 +262,7 @@ async fn smart_execute_inner(
                 .await
         }
     };
+    crate::intent::apply_asset_refresh_override(&mut classification, &user_input);
     let is_bootstrap_intent = classification.is_new_novel;
 
     wf(
@@ -417,6 +418,23 @@ async fn smart_execute_inner(
                 return Err(AppError::llm_timeout(total_timeout * 1000));
             }
         }
+    }
+
+    if classification.task_type
+        == crate::creative_engine::asset_capability_manifest::AssetTaskType::AssetRefresh
+    {
+        let story_id = current_story_id.clone().ok_or_else(|| {
+            AppError::validation_failed("请先在左侧选择或创建一个作品", Some("no_story_selected"))
+        })?;
+        log::warn!("[smart_execute] 按正文重写设定，story_id={story_id}");
+        emit_progress("executing", "正在按正文重写设定...", 2, 4);
+        let coordinator =
+            crate::agency::coordinator::AgencyCoordinator::new(app_handle.clone(), pool.clone());
+        let result = coordinator
+            .run_asset_refresh(&story_id, scene_id.as_deref(), &user_input)
+            .await?;
+        emit_progress("completed", "设定已按正文更新", 4, 4);
+        return Ok(result);
     }
 
     // 续写走 Agency Append：硬门——有划词/内联选区则留给 PlanExecutor Full，禁止

@@ -197,7 +197,7 @@ impl WritingIntentClassification {
     /// 的问题：当输入明显是创作新小说时，即使 DB 里已有故事，也应走创世
     /// 路径（用户完全可以在已有故事的情况下再开新书）。
     pub fn conservative_fallback_with_input(user_input: &str, has_existing_story: bool) -> Self {
-        if looks_like_creation_intent(user_input) {
+        let mut c = if looks_like_creation_intent(user_input) {
             Self {
                 is_new_novel: true,
                 is_continuation: false,
@@ -209,8 +209,21 @@ impl WritingIntentClassification {
             }
         } else {
             Self::conservative_fallback_with_context(has_existing_story)
-        }
+        };
+        apply_asset_refresh_override(&mut c, user_input);
+        c
     }
+}
+
+/// 幕前「按正文重写设定」：覆盖续写/prose 兜底。形状不够则不动。
+pub fn apply_asset_refresh_override(c: &mut WritingIntentClassification, user_input: &str) {
+    if !crate::agency::asset_refresh::looks_like_asset_refresh_shape(user_input) {
+        return;
+    }
+    c.is_new_novel = false;
+    c.is_continuation = false;
+    c.is_prose_request = false;
+    c.task_type = AssetTaskType::AssetRefresh;
 }
 
 /// 判断用户输入是否表达"创作一部新小说"的意图。
@@ -444,7 +457,7 @@ JSON Schema:
             Some("intent_classify"),
         );
         // v0.30.23: is_fallback 标记--仅成功 LLM 结果写入缓存。
-        let (classification, is_fallback) =
+        let (mut classification, is_fallback) =
             match tokio::time::timeout(Duration::from_secs(8), labelled).await {
                 Ok(Ok(GenerateResponse { content, .. })) => {
                     match Self::parse_classification_json(&content) {
@@ -488,6 +501,7 @@ JSON Schema:
                     )
                 }
             };
+        apply_asset_refresh_override(&mut classification, user_input);
         // v0.30.23: 仅缓存成功的 LLM 分类，不缓存兜底结果。
         if !is_fallback {
             classification_cache_put(cache_key, classification.clone());
@@ -513,8 +527,8 @@ JSON Schema:
 - is_new_novel: 用户想从头创作一部新小说。"写一部/写一本/创作一部/新开一部"等创世表达均为 true。续写/改写/分析/闲聊均为 false。
   注意：判断依据是用户输入本身的表达，与是否已有故事无关。即使已有故事，用户仍可创建新小说。
 - is_continuation: 用户想接着已有内容往下写（续写/继续/接着写）。
-- task_type: continuation（续写正文）/ rewrite（改写润色已有文本）/ genesis（创世/新小说/新场景）/ audit（检查/质检/分析）
-- is_prose: 用户想生成小说正文（续写/创作首章），而非大纲/风格/分析。prose 请求必须用 writer。
+- task_type: continuation（续写正文）/ rewrite（改写润色已有文本）/ genesis（创世/新小说/新场景）/ audit（检查/质检/分析）/ asset_refresh（按已有正文重写大纲/角色/世界观/场景大纲，不写正文）
+- is_prose: 用户想生成小说正文（续写/创作首章），而非大纲/风格/分析。prose 请求必须用 writer。按正文重写设定 is_prose=false。
 - input_clarity: vague（仅题材或笼统）/ with_seed（含部分角色或冲突）/ with_full_concept（角色+冲突+目标齐全）
 - detected_genre: 识别的题材（武侠/玄幻/都市/科幻/重生/穿越/历史/军事/言情/间谍等），无法识别为 null。
 - confidence: 0.0-1.0。
@@ -524,9 +538,10 @@ JSON Schema:
 - "当一个退役间谍在布拉格被昔日组织追杀，必须在 48 小时内找出潜伏在情报局高层的内鬼，否则他的家人将遭遇灭顶之灾。" -> is_new_novel=true, task_type=genesis, is_prose=true, detected_genre="间谍"
 - "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation, is_prose=true
 - "把这段改得更生动" -> is_new_novel=false, task_type=rewrite, is_prose=false
+- "将故事大纲按照现有正文重新写过" -> is_new_novel=false, is_continuation=false, task_type=asset_refresh, is_prose=false
 
 仅输出 JSON：
-{{"is_new_novel":bool,"is_continuation":bool,"task_type":"continuation|rewrite|genesis|audit","is_prose":bool,"input_clarity":"vague|with_seed|with_full_concept","detected_genre":string|null,"confidence":0.0}}"#,
+{{"is_new_novel":bool,"is_continuation":bool,"task_type":"continuation|rewrite|genesis|audit|asset_refresh","is_prose":bool,"input_clarity":"vague|with_seed|with_full_concept","detected_genre":string|null,"confidence":0.0}}"#,
             input = user_input,
         )
     }
@@ -567,7 +582,12 @@ JSON Schema:
                 // 多步计划 [writer, inspector, style_enhancer] 未拦截 ->
                 // editor 元评论污染正文（第 6 次复发根因）。
                 // 续写/创世 -> is_prose_request=true 是逻辑必然，强制纠正。
-                if (c.is_continuation || c.is_new_novel) && !c.is_prose_request {
+                // 按正文重写资产不是 prose，不得被这条纠正抬回续写。
+                if c.task_type == AssetTaskType::AssetRefresh {
+                    c.is_continuation = false;
+                    c.is_new_novel = false;
+                    c.is_prose_request = false;
+                } else if (c.is_continuation || c.is_new_novel) && !c.is_prose_request {
                     log::warn!(
                         "[IntentParser] 分类后置纠正：is_continuation={} is_new_novel={} 但 is_prose_request=false，强制设为 true（续写/创世本质是 prose）",
                         c.is_continuation,
@@ -1160,6 +1180,41 @@ mod tests {
         assert!(!c.is_new_novel, "非创世表达仍应偏续写");
         assert!(c.is_continuation);
         assert_eq!(c.task_type, AssetTaskType::Continuation);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn asset_refresh_instruction_is_not_continuation_or_prose() {
+        let mut c = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            task_type: AssetTaskType::Continuation,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        apply_asset_refresh_override(&mut c, "将故事大纲按照现有正文重新写过");
+        assert!(!c.is_continuation);
+        assert!(!c.is_prose_request);
+        assert_eq!(c.task_type, AssetTaskType::AssetRefresh);
+    }
+
+    #[test]
+    fn continuation_override_does_not_force_prose_when_asset_refresh() {
+        let json = r#"{"is_new_novel":false,"is_continuation":true,"task_type":"asset_refresh","is_prose":false,"input_clarity":"vague","detected_genre":null,"confidence":0.9}"#;
+        let c = IntentParser::parse_classification_json(json).unwrap();
+        assert!(!c.is_continuation);
+        assert!(!c.is_prose_request);
+        assert_eq!(c.task_type, AssetTaskType::AssetRefresh);
+    }
+
+    #[test]
+    fn test_conservative_fallback_asset_refresh_overrides_existing_story() {
+        let c = WritingIntentClassification::conservative_fallback_with_input(
+            "将故事大纲按照现有正文重新写过",
+            true,
+        );
+        assert!(!c.is_continuation);
+        assert!(!c.is_prose_request);
+        assert_eq!(c.task_type, AssetTaskType::AssetRefresh);
     }
 
     #[test]

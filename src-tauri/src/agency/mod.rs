@@ -2,6 +2,7 @@
 //! 黑板模型 + ReAct 工具循环 + 三角色（主创/管理/编辑审计）。
 //! 设计：docs/plans/2026-07-17-agency-multi-agent-framework-design.md
 
+pub mod asset_refresh;
 pub mod beat_card;
 pub mod beat_state;
 pub mod board;

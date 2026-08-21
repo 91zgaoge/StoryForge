@@ -2,6 +2,24 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.53.0（2026-08-21）
+
+幕前「将故事大纲按照现有正文重新写过」此前会被当成续写或改写，往纸面加字、不改 `story_outlines`。本版在 Append 之前走 `run_asset_refresh`：Producer 一次 JSON，接地后按点名靶落库。
+
+### 变更
+
+- **点名才动**：故事大纲 / 角色 / 世界观 / 场景大纲；「全部设定」四靶；未点名则请用户说明。
+- **纸面只读**：不 Append、不改 `scenes.content`。无正文、正在续写时返回中文错误。
+- **源感知**：`user_created`/`manual` 已填字段只填空；`ingest`/`agency`/`auto_placeholder` 可精炼。故事大纲整份替换并 `cap_story_outline_content`。场景大纲保留手写前缀。
+- **分类**：含「正文」+「重写」时强制 `asset_refresh`，不再被续写兜底吃掉。
+- **前端**：`result_kind=asset_refresh` 顶栏提示，不进编辑器。
+
+### 测试
+
+- `cargo test --lib` 1499 passed / 2 ignored（+19）。
+- `npx vitest run` 597 passed / 3 skipped（+1）。
+- 设计 §8 探针 1–10 executed。真机同一开头未跑。
+
 ## v0.52.0（2026-08-21）
 
 对照 OpenViking 的分层加载与检索轨迹，只改草苔自己的拍级编译器，不嵌入 OpenViking 进程。痛点是这一拍漏债、大纲膨胀、说不清选了谁。

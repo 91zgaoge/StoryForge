@@ -1,0 +1,1048 @@
+//! 按已有正文重写生产资产。纸面只读。
+//! 设计：docs/plans/2026-08-21-asset-refresh-from-prose-design.md
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    agency::{
+        beat_card::CURRENT_SCENE_OUTLINE_MARK,
+        continue_assets::{strip_editor_markup, strip_outline_planning},
+        materialize::concat_story_prose,
+        observe::merge_current_scene_outline,
+        prose_ground::{has_substantial_prose, name_in_prose},
+        repository::AgencyRepository,
+        tool_loop::LoopLlm,
+    },
+    db::{
+        dto::CreateCharacterRequest,
+        repositories::{
+            CharacterRepository, SceneRepository, SceneUpdate, StoryOutlineRepository,
+            WorldBuildingRepository,
+        },
+        DbPool,
+    },
+    error::AppError,
+    memory::asset_bridge::{cap_story_outline_content, is_refinable},
+    planner::PlanExecutionResult,
+    router::TaskType,
+};
+
+const PROSE_BUDGET: usize = 12_000;
+const DUAL_HEAD: usize = 600;
+const DUAL_TAIL: usize = 1800;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AssetRefreshTarget {
+    StoryOutline,
+    Characters,
+    World,
+    SceneOutline,
+}
+
+const ALL_TARGETS: [AssetRefreshTarget; 4] = [
+    AssetRefreshTarget::StoryOutline,
+    AssetRefreshTarget::Characters,
+    AssetRefreshTarget::World,
+    AssetRefreshTarget::SceneOutline,
+];
+
+/// 「按正文重写设定」形状：必须同时点名正文与重写，才覆盖续写兜底。
+pub fn looks_like_asset_refresh_shape(input: &str) -> bool {
+    let from_prose = input.contains("正文") || input.contains("已写章节");
+    let rewrite = input.contains("重新写") || input.contains("重写") || input.contains("刷新");
+    from_prose && rewrite
+}
+
+pub fn allow_overwrite_manual(input: &str) -> bool {
+    input.contains("覆盖手改") || input.contains("包括手改")
+}
+
+pub fn parse_asset_refresh_targets(input: &str) -> Vec<AssetRefreshTarget> {
+    if input.contains("全部设定")
+        || input.contains("所有资产")
+        || input.contains("全部资产")
+        || input.contains("按正文重写设定")
+    {
+        return ALL_TARGETS.to_vec();
+    }
+    let mut out = Vec::new();
+    let scene = input.contains("场景大纲")
+        || input.contains("本章大纲")
+        || input.contains("当场大纲")
+        || input.contains("当前场大纲");
+    if scene {
+        out.push(AssetRefreshTarget::SceneOutline);
+    }
+    if input.contains("故事大纲") || input.contains("整书大纲") || input.contains("书纲")
+    {
+        out.push(AssetRefreshTarget::StoryOutline);
+    } else if input.contains("大纲") && !scene {
+        out.push(AssetRefreshTarget::StoryOutline);
+    }
+    if input.contains("角色") || input.contains("人物卡") || input.contains("人设") {
+        out.push(AssetRefreshTarget::Characters);
+    }
+    if input.contains("世界观") || input.contains("世界设定") {
+        out.push(AssetRefreshTarget::World);
+    }
+    out
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct AssetRefreshPayload {
+    #[serde(default)]
+    pub story_outline: Option<String>,
+    #[serde(default)]
+    pub characters: Option<Vec<RefreshCharacter>>,
+    #[serde(default)]
+    pub world: Option<RefreshWorld>,
+    #[serde(default)]
+    pub scene_outline: Option<String>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct RefreshCharacter {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub background: Option<String>,
+    #[serde(default)]
+    pub personality: Option<String>,
+    #[serde(default)]
+    pub goals: Option<String>,
+    #[serde(default)]
+    pub appearance: Option<String>,
+    #[serde(default)]
+    pub emotional_core: Option<String>,
+    #[serde(default)]
+    pub emotional_trigger: Option<String>,
+    #[serde(default)]
+    pub emotional_wound: Option<String>,
+    #[serde(default)]
+    pub emotional_need: Option<String>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct RefreshWorld {
+    #[serde(default)]
+    pub concept: Option<String>,
+    #[serde(default)]
+    pub history: Option<String>,
+}
+
+pub fn parse_refresh_payload(raw: &str) -> Option<AssetRefreshPayload> {
+    let json = crate::narrative::extract_and_sanitize_json(raw).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+fn target_label(t: AssetRefreshTarget) -> &'static str {
+    match t {
+        AssetRefreshTarget::StoryOutline => "故事大纲",
+        AssetRefreshTarget::Characters => "角色",
+        AssetRefreshTarget::World => "世界观",
+        AssetRefreshTarget::SceneOutline => "场景大纲",
+    }
+}
+
+fn summarize(targets: &[AssetRefreshTarget]) -> String {
+    let names: Vec<&str> = targets.iter().copied().map(target_label).collect();
+    format!("已按正文重写{}", names.join("、"))
+}
+
+fn dual_window(text: &str) -> String {
+    let plain = strip_editor_markup(text);
+    let chars: Vec<char> = plain.chars().collect();
+    if chars.len() <= DUAL_HEAD + DUAL_TAIL {
+        return plain;
+    }
+    let head: String = chars.iter().take(DUAL_HEAD).collect();
+    let tail_start = chars.len().saturating_sub(DUAL_TAIL);
+    let tail: String = chars.iter().skip(tail_start).collect();
+    format!("{head}\n…\n{tail}")
+}
+
+fn one_liner(text: &str, cap: usize) -> String {
+    let plain = strip_editor_markup(text);
+    let line = plain.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    let s: String = line.chars().take(cap).collect();
+    s.trim().to_string()
+}
+
+pub(crate) fn assemble_refresh_prose(
+    pool: &DbPool,
+    story_id: &str,
+    scene_id: Option<&str>,
+) -> Result<String, AppError> {
+    let scenes = SceneRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .map_err(AppError::from)?;
+    let current_id = scene_id.filter(|s| !s.is_empty());
+    let mut current_block = String::new();
+    let mut others = String::new();
+    for scene in &scenes {
+        let body = scene.content.clone().unwrap_or_default();
+        let outline = scene.outline_content.clone().unwrap_or_default();
+        let is_current = current_id.map(|id| id == scene.id).unwrap_or(false);
+        if is_current {
+            current_block = format!(
+                "【当前打开章节】\n{}\n",
+                dual_window(if body.trim().is_empty() {
+                    &outline
+                } else {
+                    &body
+                })
+            );
+            continue;
+        }
+        let hint = if !outline.trim().is_empty() {
+            one_liner(&outline, 80)
+        } else {
+            one_liner(&body, 80)
+        };
+        if hint.is_empty() {
+            continue;
+        }
+        others.push_str(&format!("第{}场：{}\n", scene.sequence_number, hint));
+    }
+    if current_block.is_empty() {
+        current_block = dual_window(&concat_story_prose(pool, story_id));
+    }
+    let mut out = format!("{current_block}\n{others}");
+    if out.chars().count() > PROSE_BUDGET {
+        out = current_block;
+        if out.chars().count() > PROSE_BUDGET {
+            out = out.chars().take(PROSE_BUDGET).collect();
+        }
+    }
+    Ok(out)
+}
+
+fn drop_ungrounded_names(text: &str, prose: &str, names: &[String]) -> String {
+    let mut out = text.to_string();
+    for name in names {
+        let n = name.trim();
+        if n.is_empty() {
+            continue;
+        }
+        if !name_in_prose(n, prose) && out.contains(n) {
+            out = out.replace(n, "");
+        }
+    }
+    out
+}
+
+fn candidate_names(pool: &DbPool, story_id: &str, payload: &AssetRefreshPayload) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Ok(chars) = CharacterRepository::new(pool.clone()).get_by_story(story_id) {
+        for c in chars {
+            if !c.name.trim().is_empty() {
+                names.push(c.name);
+            }
+        }
+    }
+    if let Some(ref incoming) = payload.characters {
+        for c in incoming {
+            let n = c.name.trim();
+            if !n.is_empty() && !names.iter().any(|e| e == n) {
+                names.push(n.to_string());
+            }
+        }
+    }
+    names
+}
+
+fn maybe_fill(
+    existing: &Option<String>,
+    incoming: Option<&str>,
+    refinable: bool,
+) -> Option<String> {
+    let new = incoming
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let filled = existing
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    match new {
+        Some(n) if refinable || !filled => Some(n),
+        _ => None,
+    }
+}
+
+pub fn persist_asset_refresh(
+    pool: &DbPool,
+    story_id: &str,
+    scene_id: Option<&str>,
+    targets: &[AssetRefreshTarget],
+    parsed: &AssetRefreshPayload,
+    allow_overwrite_manual: bool,
+) -> Result<String, AppError> {
+    let prose = concat_story_prose(pool, story_id);
+    let names = candidate_names(pool, story_id, parsed);
+    let mut wrote = false;
+
+    if targets.contains(&AssetRefreshTarget::StoryOutline) {
+        if let Some(raw) = parsed
+            .story_outline
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let grounded = drop_ungrounded_names(raw, &prose, &names);
+            let capped = cap_story_outline_content(&strip_outline_planning(&grounded));
+            if !capped.trim().is_empty() {
+                let repo = StoryOutlineRepository::new(pool.clone());
+                if repo
+                    .get_by_story(story_id)
+                    .map_err(AppError::from)?
+                    .is_some()
+                {
+                    repo.update(story_id, Some(&capped), None)
+                        .map_err(AppError::from)?;
+                } else {
+                    repo.create(story_id, &capped, None, 3, None)
+                        .map_err(AppError::from)?;
+                }
+                wrote = true;
+            }
+        }
+    }
+
+    if targets.contains(&AssetRefreshTarget::Characters) {
+        if persist_characters(pool, story_id, &prose, parsed, allow_overwrite_manual)? {
+            wrote = true;
+        }
+    }
+
+    if targets.contains(&AssetRefreshTarget::World) {
+        if persist_world(pool, story_id, parsed, allow_overwrite_manual)? {
+            wrote = true;
+        }
+    }
+
+    if targets.contains(&AssetRefreshTarget::SceneOutline) {
+        if persist_scene_outline(pool, story_id, scene_id, &prose, &names, parsed)? {
+            wrote = true;
+        }
+    }
+
+    if !wrote {
+        return Err(AppError::validation_failed(
+            "模型未返回可落地的设定，未改动资产",
+            Some("empty_refresh"),
+        ));
+    }
+    Ok(summarize(targets))
+}
+
+fn persist_characters(
+    pool: &DbPool,
+    story_id: &str,
+    prose: &str,
+    parsed: &AssetRefreshPayload,
+    allow_overwrite_manual: bool,
+) -> Result<bool, AppError> {
+    let Some(incoming) = parsed.characters.as_ref() else {
+        return Ok(false);
+    };
+    let repo = CharacterRepository::new(pool.clone());
+    let existing = repo.get_by_story(story_id).map_err(AppError::from)?;
+    let mut wrote = false;
+    for ch in incoming {
+        let name = ch.name.trim();
+        if name.is_empty() || !name_in_prose(name, prose) {
+            continue;
+        }
+        if let Some(row) = existing.iter().find(|e| e.name == name) {
+            let refinable = allow_overwrite_manual || is_refinable(row.source.as_deref());
+            let bg = maybe_fill(&row.background, ch.background.as_deref(), refinable);
+            let personality = maybe_fill(&row.personality, ch.personality.as_deref(), refinable);
+            let goals = maybe_fill(&row.goals, ch.goals.as_deref(), refinable);
+            let appearance = maybe_fill(&row.appearance, ch.appearance.as_deref(), refinable);
+            if bg.is_some() || personality.is_some() || goals.is_some() || appearance.is_some() {
+                repo.update(
+                    &row.id,
+                    None,
+                    bg,
+                    personality,
+                    goals,
+                    appearance,
+                    None,
+                    None,
+                )
+                .map_err(AppError::from)?;
+                wrote = true;
+            }
+            let core = maybe_fill(&row.emotional_core, ch.emotional_core.as_deref(), refinable);
+            let trigger = maybe_fill(
+                &row.emotional_trigger,
+                ch.emotional_trigger.as_deref(),
+                refinable,
+            );
+            let wound = maybe_fill(
+                &row.emotional_wound,
+                ch.emotional_wound.as_deref(),
+                refinable,
+            );
+            let need = maybe_fill(&row.emotional_need, ch.emotional_need.as_deref(), refinable);
+            if core.is_some() || trigger.is_some() || wound.is_some() || need.is_some() {
+                repo.update_emotional(&row.id, core, trigger, wound, need)
+                    .map_err(AppError::from)?;
+                wrote = true;
+            }
+        } else {
+            repo.create(CreateCharacterRequest {
+                story_id: story_id.to_string(),
+                name: name.to_string(),
+                background: ch.background.clone(),
+                personality: ch.personality.clone(),
+                goals: ch.goals.clone(),
+                appearance: ch.appearance.clone(),
+                gender: None,
+                age: None,
+                source: Some("agency".into()),
+                is_auto_generated: Some(true),
+                emotional_core: ch.emotional_core.clone(),
+                emotional_trigger: ch.emotional_trigger.clone(),
+                emotional_wound: ch.emotional_wound.clone(),
+                emotional_need: ch.emotional_need.clone(),
+            })
+            .map_err(AppError::from)?;
+            wrote = true;
+        }
+    }
+    Ok(wrote)
+}
+
+fn persist_world(
+    pool: &DbPool,
+    story_id: &str,
+    parsed: &AssetRefreshPayload,
+    allow_overwrite_manual: bool,
+) -> Result<bool, AppError> {
+    let Some(world) = parsed.world.as_ref() else {
+        return Ok(false);
+    };
+    let concept = world
+        .concept
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let history = world
+        .history
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if concept.is_none() && history.is_none() {
+        return Ok(false);
+    }
+    let repo = WorldBuildingRepository::new(pool.clone());
+    match repo.get_by_story(story_id).map_err(AppError::from)? {
+        None => {
+            let c = concept.unwrap_or("");
+            let wb = repo
+                .create_with_source(story_id, c, Some("agency"), Some(true))
+                .map_err(AppError::from)?;
+            if let Some(h) = history {
+                repo.update(&wb.id, None, None, Some(h), None)
+                    .map_err(AppError::from)?;
+            }
+            Ok(true)
+        }
+        Some(wb) => {
+            let refinable = allow_overwrite_manual || is_refinable(wb.source.as_deref());
+            let concept_filled = !wb.concept.trim().is_empty();
+            let write_concept = concept.filter(|_| refinable || !concept_filled);
+            let hist_opt = wb.history.clone();
+            let write_history = maybe_fill(&hist_opt, history, refinable);
+            if write_concept.is_none() && write_history.is_none() {
+                return Ok(false);
+            }
+            repo.update(&wb.id, write_concept, None, write_history.as_deref(), None)
+                .map_err(AppError::from)?;
+            Ok(true)
+        }
+    }
+}
+
+fn persist_scene_outline(
+    pool: &DbPool,
+    _story_id: &str,
+    scene_id: Option<&str>,
+    prose: &str,
+    names: &[String],
+    parsed: &AssetRefreshPayload,
+) -> Result<bool, AppError> {
+    let Some(raw) = parsed
+        .scene_outline
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(false);
+    };
+    let sid = scene_id
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::validation_failed("请先打开一个章节", Some("no_scene")))?;
+    let repo = SceneRepository::new(pool.clone());
+    let scene = repo
+        .get_by_id(sid)
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::validation_failed("请先打开一个章节", Some("no_scene")))?;
+    let grounded = drop_ungrounded_names(raw, prose, names);
+    if grounded.trim().is_empty() {
+        return Ok(false);
+    }
+    let block = if grounded.contains(CURRENT_SCENE_OUTLINE_MARK) {
+        grounded
+    } else {
+        format!("{CURRENT_SCENE_OUTLINE_MARK}\n{grounded}")
+    };
+    let merged = merge_current_scene_outline(scene.outline_content.as_deref(), &block);
+    repo.update(
+        sid,
+        &SceneUpdate {
+            outline_content: Some(merged),
+            ..Default::default()
+        },
+    )
+    .map_err(AppError::from)?;
+    Ok(true)
+}
+
+fn build_refresh_prompts(
+    targets: &[AssetRefreshTarget],
+    prose: &str,
+    user_input: &str,
+) -> (String, String) {
+    let mut keys = Vec::new();
+    if targets.contains(&AssetRefreshTarget::StoryOutline) {
+        keys.push("story_outline（字符串：核心冲突 + 转折点，姓名必须出自正文）");
+    }
+    if targets.contains(&AssetRefreshTarget::Characters) {
+        keys.push(
+            "characters（数组，每项 name 必填，可选 background/personality/goals/appearance/emotional_core/emotional_trigger/emotional_wound/emotional_need）",
+        );
+    }
+    if targets.contains(&AssetRefreshTarget::World) {
+        keys.push("world（对象：concept、history）");
+    }
+    if targets.contains(&AssetRefreshTarget::SceneOutline) {
+        keys.push("scene_outline（字符串：当前打开这一场接下来怎么演）");
+    }
+    let system = format!(
+        "你是小说资产编辑。只根据已有正文归纳设定，禁止发明正文未出现的人名/地名。\
+只输出 JSON，不要 markdown 围栏，不要正文。只包含这些键：{}。",
+        keys.join("；")
+    );
+    let user = format!(
+        "用户指令：{user_input}\n\n【已有正文（只读）】\n{prose}\n\n按指令重写上述设定，姓名必须能在正文中找到。"
+    );
+    (system, user)
+}
+
+/// Producer 一次 JSON：失败不写库。不创建会挡住续写的 Agency run。
+pub async fn execute(
+    pool: DbPool,
+    llm: Arc<dyn LoopLlm>,
+    story_id: &str,
+    scene_id: Option<&str>,
+    user_input: &str,
+) -> Result<PlanExecutionResult, AppError> {
+    let targets = parse_asset_refresh_targets(user_input);
+    if targets.is_empty() {
+        return Err(AppError::validation_failed(
+            "请说明要按正文重写哪一类设定：故事大纲、角色、世界观，还是场景大纲。也可以说「全部设定」。",
+            Some("asset_refresh_targets"),
+        ));
+    }
+
+    let pool_gate = pool.clone();
+    let sid = story_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let repo = AgencyRepository::new(pool_gate.clone());
+        if repo
+            .has_blocking_creative_run(&sid)
+            .map_err(AppError::from)?
+        {
+            return Err(AppError::validation_failed(
+                "正在续写中，请等当前续写结束或取消后再重写设定",
+                Some("blocking_run"),
+            ));
+        }
+        let prose = concat_story_prose(&pool_gate, &sid);
+        if !has_substantial_prose(&prose) {
+            return Err(AppError::validation_failed(
+                "请先写一些章节正文，再按正文重写设定",
+                Some("no_prose"),
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| AppError::from(format!("asset_refresh gate: {e}")))??;
+
+    let pool_budget = pool.clone();
+    let sid_b = story_id.to_string();
+    let scene_b = scene_id.map(|s| s.to_string());
+    let budgeted = tokio::task::spawn_blocking(move || {
+        assemble_refresh_prose(&pool_budget, &sid_b, scene_b.as_deref())
+    })
+    .await
+    .map_err(|e| AppError::from(format!("asset_refresh prose: {e}")))??;
+
+    let (system, user) = build_refresh_prompts(&targets, &budgeted, user_input);
+    let raw = llm
+        .complete_json(&system, &user, TaskType::WorldBuilding, 4096)
+        .await?;
+    let parsed = parse_refresh_payload(&raw).ok_or_else(|| {
+        AppError::validation_failed("未能解析设定 JSON，未改动任何资产", Some("parse_fail"))
+    })?;
+
+    let pool_w = pool.clone();
+    let sid_w = story_id.to_string();
+    let scene_w = scene_id.map(|s| s.to_string());
+    let targets_w = targets.clone();
+    let overwrite = allow_overwrite_manual(user_input);
+    let summary = tokio::task::spawn_blocking(move || {
+        persist_asset_refresh(
+            &pool_w,
+            &sid_w,
+            scene_w.as_deref(),
+            &targets_w,
+            &parsed,
+            overwrite,
+        )
+    })
+    .await
+    .map_err(|e| AppError::from(format!("asset_refresh persist: {e}")))??;
+
+    Ok(PlanExecutionResult {
+        success: true,
+        steps_completed: 1,
+        final_content: Some(summary),
+        messages: vec!["设定已按正文更新".into()],
+        error: None,
+        result_kind: Some("asset_refresh".into()),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::VecDeque, sync::Mutex};
+
+    use super::*;
+    use crate::{
+        agency::models::AgencyRun,
+        db::{connection::create_test_pool, dto::CreateStoryRequest, StoryRepository},
+    };
+
+    fn hanxue_prose() -> String {
+        "韩雪在首尔雨夜把枪口对准李明。".repeat(20)
+    }
+
+    fn seed_story(pool: &DbPool, prose: &str) -> (String, String) {
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "资产刷新".into(),
+                description: None,
+                genre: Some("谍战".into()),
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let mut conn = pool.get().unwrap();
+        let tx = conn.transaction().unwrap();
+        let scene = scene_repo
+            .create_in_tx(&tx, &story.id, 1, Some("第一章"))
+            .unwrap();
+        scene_repo
+            .update_in_tx(
+                &tx,
+                &scene.id,
+                &SceneUpdate {
+                    content: Some(prose.into()),
+                    outline_content: Some("用户手写大纲前缀".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        tx.commit().unwrap();
+        (story.id, scene.id)
+    }
+
+    fn scene_content(pool: &DbPool, scene_id: &str) -> String {
+        SceneRepository::new(pool.clone())
+            .get_by_id(scene_id)
+            .unwrap()
+            .unwrap()
+            .content
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn parse_targets_story_outline_only() {
+        let t = parse_asset_refresh_targets("将故事大纲按照现有正文重新写过");
+        assert_eq!(t, vec![AssetRefreshTarget::StoryOutline]);
+    }
+
+    #[test]
+    fn parse_targets_characters_and_world() {
+        let t = parse_asset_refresh_targets("把角色和世界观按正文重写");
+        assert!(t.contains(&AssetRefreshTarget::Characters));
+        assert!(t.contains(&AssetRefreshTarget::World));
+        assert!(!t.contains(&AssetRefreshTarget::StoryOutline));
+    }
+
+    #[test]
+    fn parse_targets_all_assets() {
+        let t = parse_asset_refresh_targets("按正文重写全部设定");
+        assert_eq!(t.len(), 4);
+    }
+
+    #[test]
+    fn parse_targets_empty_when_unspecified() {
+        assert!(parse_asset_refresh_targets("帮我看看").is_empty());
+    }
+
+    #[test]
+    fn persist_story_outline_does_not_touch_scene_content() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let before = scene_content(&pool, &scene_id);
+        persist_asset_refresh(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            &[AssetRefreshTarget::StoryOutline],
+            &AssetRefreshPayload {
+                story_outline: Some("【核心冲突】韩雪与李明在首尔对峙".into()),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        assert_eq!(scene_content(&pool, &scene_id), before);
+        let outline = StoryOutlineRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(outline.content.contains("韩雪"));
+    }
+
+    #[test]
+    fn persist_drops_names_absent_from_prose() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        persist_asset_refresh(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            &[
+                AssetRefreshTarget::StoryOutline,
+                AssetRefreshTarget::Characters,
+            ],
+            &AssetRefreshPayload {
+                story_outline: Some("【核心冲突】金敏秀与韩雪争夺核电站".into()),
+                characters: Some(vec![
+                    RefreshCharacter {
+                        name: "金敏秀".into(),
+                        background: Some("发明出来的人".into()),
+                        ..Default::default()
+                    },
+                    RefreshCharacter {
+                        name: "韩雪".into(),
+                        background: Some("雨夜里的特工".into()),
+                        ..Default::default()
+                    },
+                ]),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let outline = StoryOutlineRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(!outline.content.contains("金敏秀"), "未出场人名不得进大纲");
+        let chars = CharacterRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap();
+        assert!(chars.iter().any(|c| c.name == "韩雪"));
+        assert!(!chars.iter().any(|c| c.name == "金敏秀"));
+        assert_eq!(scene_content(&pool, &scene_id), prose);
+    }
+
+    #[test]
+    fn persist_preserves_user_created_emotional_core() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        CharacterRepository::new(pool.clone())
+            .create(CreateCharacterRequest {
+                story_id: story_id.clone(),
+                name: "韩雪".into(),
+                background: None,
+                personality: None,
+                goals: None,
+                appearance: None,
+                gender: None,
+                age: None,
+                source: Some("user_created".into()),
+                is_auto_generated: Some(false),
+                emotional_core: Some("旧核".into()),
+                emotional_trigger: None,
+                emotional_wound: None,
+                emotional_need: None,
+            })
+            .unwrap();
+        persist_asset_refresh(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            &[AssetRefreshTarget::Characters],
+            &AssetRefreshPayload {
+                characters: Some(vec![RefreshCharacter {
+                    name: "韩雪".into(),
+                    background: Some("雨夜特工".into()),
+                    emotional_core: Some("新核不得覆盖".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let row = CharacterRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "韩雪")
+            .unwrap();
+        assert_eq!(row.emotional_core.as_deref(), Some("旧核"));
+        assert_eq!(row.background.as_deref(), Some("雨夜特工"));
+    }
+
+    #[test]
+    fn persist_refines_ingest_character() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        CharacterRepository::new(pool.clone())
+            .create(CreateCharacterRequest {
+                story_id: story_id.clone(),
+                name: "韩雪".into(),
+                background: Some("旧背景".into()),
+                personality: None,
+                goals: None,
+                appearance: None,
+                gender: None,
+                age: None,
+                source: Some("ingest".into()),
+                is_auto_generated: Some(true),
+                emotional_core: Some("旧核".into()),
+                emotional_trigger: None,
+                emotional_wound: None,
+                emotional_need: None,
+            })
+            .unwrap();
+        persist_asset_refresh(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            &[AssetRefreshTarget::Characters],
+            &AssetRefreshPayload {
+                characters: Some(vec![RefreshCharacter {
+                    name: "韩雪".into(),
+                    background: Some("新背景".into()),
+                    emotional_core: Some("新核".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let row = CharacterRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "韩雪")
+            .unwrap();
+        assert_eq!(row.background.as_deref(), Some("新背景"));
+        assert_eq!(row.emotional_core.as_deref(), Some("新核"));
+    }
+
+    #[test]
+    fn persist_scene_outline_keeps_handwritten_prefix() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        persist_asset_refresh(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            &[AssetRefreshTarget::SceneOutline],
+            &AssetRefreshPayload {
+                scene_outline: Some("韩雪继续对峙，不让李明离开雨巷。".into()),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&scene_id)
+            .unwrap()
+            .unwrap();
+        let outline = scene.outline_content.unwrap();
+        assert!(outline.contains("用户手写大纲前缀"));
+        assert!(outline.contains(CURRENT_SCENE_OUTLINE_MARK));
+        assert!(outline.contains("韩雪"));
+        assert_eq!(scene.content.as_deref(), Some(prose.as_str()));
+    }
+
+    #[test]
+    fn asset_refresh_is_not_append_continue() {
+        assert!(!crate::agency::persist::should_agency_append_continue(
+            false, None
+        ));
+    }
+
+    #[test]
+    fn asset_refresh_result_kind_is_not_prose() {
+        let r = PlanExecutionResult {
+            success: true,
+            steps_completed: 1,
+            final_content: Some("已按正文重写故事大纲".into()),
+            messages: vec![],
+            error: None,
+            result_kind: Some("asset_refresh".into()),
+        };
+        assert_eq!(r.result_kind.as_deref(), Some("asset_refresh"));
+    }
+
+    struct ScriptedLlm {
+        responses: Mutex<VecDeque<String>>,
+    }
+
+    impl ScriptedLlm {
+        fn json(body: &str) -> Arc<Self> {
+            Arc::new(Self {
+                responses: Mutex::new(VecDeque::from([body.to_string()])),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LoopLlm for ScriptedLlm {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: TaskType,
+            _m: i32,
+        ) -> Result<String, AppError> {
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .ok_or_else(|| AppError::validation_failed("mock exhausted", None::<String>))
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_writes_outline_not_prose() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let llm = ScriptedLlm::json(r#"{"story_outline":"【核心冲突】韩雪在首尔雨夜对峙李明"}"#);
+        let result = execute(
+            pool.clone(),
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "将故事大纲按照现有正文重新写过",
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
+        assert_eq!(scene_content(&pool, &scene_id), prose);
+        let outline = StoryOutlineRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(outline.content.contains("韩雪"));
+    }
+
+    #[tokio::test]
+    async fn execute_parse_fail_writes_nothing() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let llm = ScriptedLlm::json("这不是 JSON");
+        let err = execute(
+            pool.clone(),
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "将故事大纲按照现有正文重新写过",
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("未改动"));
+        assert!(StoryOutlineRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn execute_refuses_blocking_creative_run() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let repo = AgencyRepository::new(pool.clone());
+        let mut cont = AgencyRun::new("cont-refresh", "续写");
+        cont.story_id = Some(story_id.clone());
+        cont.status = "running".into();
+        repo.create_run(&cont).unwrap();
+        let llm = ScriptedLlm::json(r#"{"story_outline":"不该写入"}"#);
+        let err = execute(
+            pool,
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "将故事大纲按照现有正文重新写过",
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("正在续写"));
+    }
+
+    #[tokio::test]
+    async fn execute_empty_targets_asks_which() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let llm = ScriptedLlm::json("{}");
+        let err = execute(
+            pool,
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "按照现有正文重新写过",
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("哪一类设定"));
+    }
+}

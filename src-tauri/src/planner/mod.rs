@@ -209,6 +209,7 @@ impl PlanGenerator {
                     // 改写润色保留 inspector（Rule 9 inspector->writer 流，最终输出是 writer
                     // 正文）。
                     AssetTaskType::Rewrite => false,
+                    AssetTaskType::AssetRefresh => false,
                     // Continuation/Genesis/Other 强制 writer。
                     _ => true,
                 },
@@ -1031,6 +1032,20 @@ mod tests {
         };
         assert!(!PlanGenerator::should_force_correct_to_writer(
             "inspector",
+            Some(&cls)
+        ));
+    }
+
+    #[test]
+    fn test_force_correct_asset_refresh_keeps_outline_planner() {
+        let cls = WritingIntentClassification {
+            is_continuation: false,
+            is_prose_request: false,
+            task_type: AssetTaskType::AssetRefresh,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        assert!(!PlanGenerator::should_force_correct_to_writer(
+            "outline_planner",
             Some(&cls)
         ));
     }

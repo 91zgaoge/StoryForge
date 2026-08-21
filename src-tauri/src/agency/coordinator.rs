@@ -897,6 +897,24 @@ impl AgencyCoordinator {
         }
     }
 
+    /// 按正文重写生产资产。不创建会挡住续写的 Agency run。
+    pub async fn run_asset_refresh(
+        &self,
+        story_id: &str,
+        scene_id: Option<&str>,
+        user_input: &str,
+    ) -> Result<crate::planner::PlanExecutionResult, AppError> {
+        let llm = self.llm_for_run("asset-refresh", AgentRole::Producer, story_id);
+        crate::agency::asset_refresh::execute(
+            self.pool.clone(),
+            llm,
+            story_id,
+            scene_id,
+            user_input,
+        )
+        .await
+    }
+
     /// 注入生成模型数（创世快速路径双模式编排判据测试用）。
     pub fn with_model_count(mut self, n: usize) -> Self {
         self.model_count_override = Some(n);

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.52.0 项目完成状态
+# StoryMoss (草苔) v0.53.0 项目完成状态
 
-> 最后更新: 2026-08-21（v0.52.0 续写拍级分层与准入轨迹）
+> 最后更新: 2026-08-21（v0.53.0 按正文重写生产资产）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.53.0 - 按正文重写生产资产（2026-08-21）
+
+- **路由**：`smart_execute` 在 Append 之前识别 `asset_refresh`，Producer JSON 按靶落库。
+- **纸面**：`scenes.content` 只读；无正文 / 续写中拒绝。
+- **靶**：点名故事大纲、角色、世界观、场景大纲；未点名请用户说明。
+- **验证**：`cargo test --lib` 1499 passed / 2 ignored（+19）；vitest +1。
+- **未关闭**：真机同一开头；不得宣称唱反调已修复。
 
 ### v0.52.0 - 续写拍级分层与准入轨迹（2026-08-21）
 

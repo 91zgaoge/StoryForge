@@ -47,7 +47,7 @@ fn now() -> String {
 /// 等）只填空。
 const REFINABLE_SOURCES: [&str; 3] = ["ingest", "agency", "auto_placeholder"];
 
-fn is_refinable(source: Option<&str>) -> bool {
+pub(crate) fn is_refinable(source: Option<&str>) -> bool {
     source
         .map(|s| REFINABLE_SOURCES.contains(&s))
         .unwrap_or(false)

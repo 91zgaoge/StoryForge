@@ -879,6 +879,8 @@ const FrontstageApp: React.FC = () => {
 
   // v5.3.0: 大阶段实时提示 — 保存当前大阶段，避免底部状态栏闪烁
   const currentToastPhaseRef = useRef<string | null>(null);
+  // asset_refresh 用 toast.success 写顶栏；smart_execute finally 不得立刻清掉
+  const preserveStatusAfterExecuteRef = useRef(false);
 
   // v0.11.1: 统一状态提示 — 用顶部状态栏替代黑色 toast
   const showTransientStatus = useCallback((message: string, durationMs = 3000) => {
@@ -3571,6 +3573,23 @@ const FrontstageApp: React.FC = () => {
           return;
         }
 
+        if (result.result_kind === 'asset_refresh') {
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          stopElapsedTimer();
+          setIsGenerating(false);
+          setGenerationStatus('');
+          const sid = currentStoryRef.current?.id;
+          if (sid) {
+            queryClient.invalidateQueries({ queryKey: ['story-outline', sid] });
+            queryClient.invalidateQueries({ queryKey: ['characters', sid] });
+            queryClient.invalidateQueries({ queryKey: ['world_building', sid] });
+            queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
+          }
+          toast.success(result.final_content ?? '已按正文重写设定');
+          return;
+        }
+
         // v0.30.44: 不在此处清除 smartExecuteInFlightRef -- 续写路径的打字机动画
         // 通过 requestAnimationFrame 异步运行，此处清除会让 backend activity sync
         // (100ms 防抖) 在打字机仍在运行时把 isGenerating 置 false，触发安全网误报
@@ -4583,6 +4602,21 @@ const FrontstageApp: React.FC = () => {
           return;
         }
 
+        if (result.result_kind === 'asset_refresh') {
+          smartExecuteInFlightRef.current = false;
+          smartExecuteNeedDiagnosticRef.current = false;
+          const sid = currentStoryRef.current?.id;
+          if (sid) {
+            queryClient.invalidateQueries({ queryKey: ['story-outline', sid] });
+            queryClient.invalidateQueries({ queryKey: ['characters', sid] });
+            queryClient.invalidateQueries({ queryKey: ['world_building', sid] });
+            queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
+          }
+          preserveStatusAfterExecuteRef.current = true;
+          toast.success(result.final_content ?? '已按正文重写设定');
+          return;
+        }
+
         currentToastPhaseRef.current = null;
 
         // v0.23.15: 区分三种 Bootstrap 状态
@@ -4926,7 +4960,11 @@ const FrontstageApp: React.FC = () => {
           // activity sync 干扰），检查完成后才释放。smartExecuteNeedDiagnosticRef
           // 已在各内容交付路径清除；此处兜底清除 flight 防止泄漏到下一次生成。
           smartExecuteInFlightRef.current = false;
-          setOrchestratorStatus(null);
+          if (preserveStatusAfterExecuteRef.current) {
+            preserveStatusAfterExecuteRef.current = false;
+          } else {
+            setOrchestratorStatus(null);
+          }
           // v5.4.1 修复：Bootstrap 场景下保留后台状态提示，不要直接清空
           // 后台阶段完成/失败时会通过 novel-bootstrap-progress / novel-bootstrap-error 事件自动清空
           if (isBootstrap) {

@@ -54,6 +54,7 @@ pub fn resolve_append_scene_id(pool: &DbPool, id: &str) -> Result<String, AppErr
 }
 
 /// 幕前续写进 Agency Append：必须是续写意图，且没有划词选区（选区走改写）。
+/// `asset_refresh` 分类不得为 continuation，本函数对其恒为 false。
 pub fn should_agency_append_continue(is_continuation: bool, selected_text: Option<&str>) -> bool {
     is_continuation && selected_text.map(str::trim).unwrap_or("").is_empty()
 }

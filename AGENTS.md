@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.52.0
+- **版本**: v0.53.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1480 passed / 2 ignored（+7 拍级分层/轨迹/近文 1500）
+- `cargo test -p storymoss` ✅ 1499 passed / 2 ignored（+19 按正文重写资产）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 本版无前端逻辑测试变更（基线 596 passed / 3 skipped）
+- `npx vitest run` ✅ 597 passed / 3 skipped（+1）
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.53.0 - 按正文重写生产资产（不改正文）
+
+幕前「将故事大纲按照现有正文重新写过」只更新 `story_outlines`，纸面不变。同一路由可按指令改角色 / 世界观 / 当前场大纲。`smart_execute` 在 Agency Append 之前走 `run_asset_refresh`（Producer 一次 JSON，Tool 档，无 writer）。
+
+- **验证**：`cargo test --lib` 1499 passed / 2 ignored（+19）；`npx vitest run` 597 passed / 3 skipped（+1）。
+- **契约**：`parse_asset_refresh_targets`；`apply_asset_refresh_override` 非续写/非 prose；persist 不碰 `scenes.content`；金敏秀不进表；`user_created` 情感核保留；ingest 可精炼；场景前缀 + `【当前场大纲】`；`result_kind=asset_refresh` 不进编辑器。
+- **未关闭**：真机须用同一开头输入原句，看幕后大纲变、幕前字数不变；不得宣称续写质量/唱反调已修复。
 
 ### v0.52.0 - 续写拍级分层与准入轨迹（章末近文 1500）
 
@@ -1056,7 +1064,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-21 - v0.52.0_
+_最后更新: 2026-08-21 - v0.53.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

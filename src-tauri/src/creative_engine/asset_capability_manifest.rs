@@ -27,6 +27,8 @@ pub enum AssetTaskType {
     Genesis,
     /// 审计/分析：全量资产
     Audit,
+    /// 按已有正文重写生产资产（大纲/角色/世界观/场景大纲），不写正文
+    AssetRefresh,
     /// 其他/默认：全量资产
     Other,
 }
@@ -60,6 +62,20 @@ impl AssetTaskType {
             return h;
         }
         let s = instruction.to_lowercase();
+        // 「按正文重写」优先于「重写→改写」：否则「将故事大纲按照现有正文重新写过」
+        // 会被当成润色正文。不引用 agency 以免 creative_engine→agency 环。
+        let from_prose = s.contains("正文") || s.contains("已写章节");
+        let rewrite_asset = s.contains("重写") || s.contains("重新写") || s.contains("刷新");
+        let names_asset = s.contains("大纲")
+            || s.contains("角色")
+            || s.contains("人物")
+            || s.contains("人设")
+            || s.contains("世界观")
+            || s.contains("设定")
+            || s.contains("资产");
+        if from_prose && rewrite_asset && names_asset {
+            return Self::AssetRefresh;
+        }
         if s.contains("改写") || s.contains("重写") || s.contains("润色") {
             return Self::Rewrite;
         }
@@ -108,6 +124,7 @@ impl AssetTaskType {
                 AssetKind::StyleDna,
             ],
             Self::Audit => vec![],
+            Self::AssetRefresh => vec![],
             Self::Other => vec![],
         }
     }
