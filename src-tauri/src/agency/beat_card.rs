@@ -929,7 +929,7 @@ mod tests {
             .unwrap();
         let text = format!(
             "曹元佩站在廊下记那一步之差。{}苏会山饮尽杯中酒。",
-            "雪落。".repeat(200)
+            "雪落。".repeat(600)
         );
         let card = compile_beat_card(&pool, &story.id, &text).unwrap();
         let present: Vec<_> = card

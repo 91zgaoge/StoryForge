@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.51.6
+- **版本**: v0.52.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1473 passed / 2 ignored（+3 工具/后台档不被创作模型盖链头）
+- `cargo test -p storymoss` ✅ 1480 passed / 2 ignored（+7 拍级分层/轨迹/近文 1500）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 本版无前端逻辑测试变更（基线 596 passed / 3 skipped）
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.52.0 - 续写拍级分层与准入轨迹（章末近文 1500）
+
+对照 OpenViking 只引进分层加载与轨迹，不嵌其进程。章末近文窗口 500→1500，避免刚写完的债被漏掉；大纲/配额点名的角色仍准入；在场与冲突双方用全卡，其余准入半卡；故事大纲回流只留核心冲突+最近 5 个转折。日志写出「为什么是这几人」。
+
+- **验证**：`cargo test --lib` 1480 passed / 2 ignored（+7）。
+- **契约**：`prior_tail_for_cast` 1500；`mentioned_from_continue_tasks`；`format_admission_trace`；L1 无情感内核；`cap_story_outline_content` 最多 5 个转折点。
+- **未关闭**：真机须用同一开头再点续写，看日志 `continue_assets: shot=1500`；不得宣称续写质量/唱反调已修复。
 
 ### v0.51.6 - 工具档/后台档不再被创作模型挤到同一台机
 
@@ -1048,7 +1056,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-20 - v0.51.6_
+_最后更新: 2026-08-21 - v0.52.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

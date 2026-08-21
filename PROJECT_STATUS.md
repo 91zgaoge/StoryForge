@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.51.6 项目完成状态
+# StoryMoss (草苔) v0.52.0 项目完成状态
 
-> 最后更新: 2026-08-20（v0.51.6 工具/后台档不再被创作模型盖链头）
+> 最后更新: 2026-08-21（v0.52.0 续写拍级分层与准入轨迹）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,15 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.52.0 - 续写拍级分层与准入轨迹（2026-08-21）
+
+- **近文 1500**：`PRIOR_CAST_CHAR_CAP` 500→1500；散文双窗不变。
+- **漏债**：`mentioned_from_continue_tasks` 把大纲/配额/伏笔点名并入准入。
+- **膨胀**：回流大纲最多 5 个转折；准入者分层 L2/L1。
+- **轨迹**：`format_admission_trace` 写 `continue_assets: shot=…`。
+- **验证**：`cargo test --lib` 1480 passed / 2 ignored（+7）。
+- **未关闭**：真机续写；不得宣称唱反调已修复。P3 freshness 节流 ingest、P4 ContextPrioritizer 未做。
 
 ### v0.51.6 - 工具档/后台档不再被创作模型挤到同一台机（2026-08-20）
 

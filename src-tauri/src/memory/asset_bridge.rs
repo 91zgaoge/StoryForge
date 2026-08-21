@@ -711,6 +711,63 @@ fn sync_scene_outline(
 
 // ==================== 故事大纲 ====================
 
+/// 回流只保留一条核心冲突 + 最近若干转折点，避免 story_outlines 无界追加。
+const STORY_OUTLINE_TURNING_KEEP: usize = 5;
+const STORY_OUTLINE_CHAR_CAP: usize = 4000;
+
+pub(crate) fn cap_story_outline_content(content: &str) -> String {
+    let mut core: Option<String> = None;
+    let mut turning: Vec<String> = Vec::new();
+    let mut other: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with('【') && t.contains('】') && !current.is_empty() {
+            classify_outline_block(&mut core, &mut turning, &mut other, current.trim());
+            current.clear();
+        }
+        if !current.is_empty() {
+            current.push('\n');
+        }
+        current.push_str(line);
+    }
+    if !current.trim().is_empty() {
+        classify_outline_block(&mut core, &mut turning, &mut other, current.trim());
+    }
+    if turning.len() > STORY_OUTLINE_TURNING_KEEP {
+        turning = turning.split_off(turning.len() - STORY_OUTLINE_TURNING_KEEP);
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(c) = core {
+        parts.push(c);
+    }
+    parts.extend(turning);
+    parts.extend(other.into_iter().take(2));
+    let joined = parts.join("\n");
+    if joined.chars().count() <= STORY_OUTLINE_CHAR_CAP {
+        joined
+    } else {
+        joined.chars().take(STORY_OUTLINE_CHAR_CAP).collect()
+    }
+}
+
+fn classify_outline_block(
+    core: &mut Option<String>,
+    turning: &mut Vec<String>,
+    other: &mut Vec<String>,
+    block: &str,
+) {
+    if block.contains("【核心冲突】") {
+        if core.is_none() {
+            *core = Some(block.to_string());
+        }
+    } else if block.contains("【转折点】") || block.contains("【关键转折点】") {
+        turning.push(block.to_string());
+    } else if other.len() < 2 {
+        other.push(block.to_string());
+    }
+}
+
 fn sync_story_delta(
     conn: &rusqlite::Connection,
     story_id: &str,
@@ -742,11 +799,13 @@ fn sync_story_delta(
     match existing {
         None => {
             let id = uuid::Uuid::new_v4().to_string();
-            let content = sections
-                .iter()
-                .map(|(_, s)| s.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let content = cap_story_outline_content(
+                &sections
+                    .iter()
+                    .map(|(_, s)| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
             match conn.execute(
                 "INSERT INTO story_outlines (id, story_id, content, act_count, created_at, \
                  updated_at) VALUES (?1, ?2, ?3, 3, ?4, ?5)",
@@ -776,6 +835,7 @@ fn sync_story_delta(
             if !changed {
                 return 0;
             }
+            new_content = cap_story_outline_content(&new_content);
             match conn.execute(
                 "UPDATE story_outlines SET content = ?2, updated_at = ?3 WHERE id = ?1",
                 params![id, new_content, ts],
@@ -1431,6 +1491,50 @@ mod tests {
 
         // 完全重复：无变更
         assert_eq!(sync_assets_from_analysis(&pool, "s1", None, &analysis2), 0);
+    }
+
+    #[test]
+    fn test_sync_story_delta_caps_old_turning_points() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let tps: Vec<String> = (0..8).map(|i| format!("转折点{i}独有标记")).collect();
+        let analysis = analysis_from_json(serde_json::json!({
+            "entities": [],
+            "sentiment": {"overall": "neutral", "intensity": 0.5, "arc": []},
+            "story_delta": {
+                "core_conflict": "核心不丢",
+                "turning_points": tps,
+            },
+        }));
+        assert_eq!(sync_assets_from_analysis(&pool, "s1", None, &analysis), 1);
+        let conn = pool.get().unwrap();
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM story_outlines WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(content.contains("【核心冲突】核心不丢"));
+        assert_eq!(content.matches("【转折点】").count(), 5);
+        assert!(
+            !content.contains("转折点0独有标记"),
+            "旧转折应丢掉 content={content}"
+        );
+        assert!(content.contains("转折点7独有标记"), "content={content}");
+    }
+
+    #[test]
+    fn cap_story_outline_keeps_last_five() {
+        let mut raw = String::from("【核心冲突】C\n");
+        for i in 0..8 {
+            raw.push_str(&format!("【转折点】T{i}\n"));
+        }
+        let capped = cap_story_outline_content(&raw);
+        assert!(capped.contains("【核心冲突】C"));
+        assert_eq!(capped.matches("【转折点】").count(), 5);
+        assert!(!capped.contains("T0"));
+        assert!(capped.contains("T7"));
     }
 
     // ---------- 反序列化兼容 ----------

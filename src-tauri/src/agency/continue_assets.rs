@@ -18,9 +18,9 @@ pub const ASSET_CHAR_BUDGET: usize = 6000;
 pub const PRIOR_HEAD_CHAR_CAP: usize = 600;
 /// 长章双窗：近文窗口（衔接用）。预算收缩时也优先保住这段。
 pub const PRIOR_TAIL_CHAR_CAP: usize = 1800;
-/// 节拍卡「谁必须还在场」只看这一拍镜头，不看整段近文。
-/// 1800 字会把章前半的人算进本拍，探针再要求增量点齐全员 → 人丢了仍落库。
-pub const PRIOR_CAST_CHAR_CAP: usize = 500;
+/// 节拍卡「谁必须还在场」只看章末近文，不看开篇窗口。
+/// 500 字会漏掉刚写完、但仍在近段落里的债务人物；散文近文仍是 1800。
+pub const PRIOR_CAST_CHAR_CAP: usize = 1500;
 /// 短章整段可进时的上限（开篇+近文）。
 pub const PRIOR_PROSE_CHAR_CAP: usize = PRIOR_HEAD_CHAR_CAP + PRIOR_TAIL_CHAR_CAP;
 pub const CHAPTER_OUTLINE_CHAR_CAP: usize = 800;
@@ -115,6 +115,82 @@ pub fn detect_location_shift(
         Some(p) if p == n => None,
         _ => Some(n),
     }
+}
+
+/// 冲突双方升 L2 全卡；其余准入者只用 L1 半卡。
+pub fn l2_names_from_cast(present: &[String], parties: &[String]) -> Vec<String> {
+    merge_admitted(present, parties, &[], &[])
+}
+
+/// 节拍任务文案里点到的角色名（大纲/指令/下一节点/扩张配额/逾期伏笔）。
+pub fn mentioned_from_continue_tasks(
+    table_names: &[impl AsRef<str>],
+    chapter_outline: &str,
+    instruction: &str,
+    next_node: &str,
+    quota_text: Option<&str>,
+    overdue: &[String],
+) -> Vec<String> {
+    let mut blob = String::with_capacity(
+        chapter_outline.len()
+            + instruction.len()
+            + next_node.len()
+            + quota_text.map(|s| s.len()).unwrap_or(0)
+            + overdue.iter().map(|s| s.len()).sum::<usize>(),
+    );
+    blob.push_str(chapter_outline);
+    blob.push_str(instruction);
+    blob.push_str(next_node);
+    if let Some(q) = quota_text {
+        blob.push_str(q);
+    }
+    for item in overdue {
+        blob.push_str(item);
+        blob.push('\n');
+    }
+    match_character_names(table_names, &blob)
+}
+
+/// 本拍录取轨迹：写进 creative_workflow.log，回答「为什么是这几人」。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdmissionTrace {
+    pub shot_window_chars: usize,
+    pub present: Vec<String>,
+    pub parties: Vec<String>,
+    pub mentioned: Vec<String>,
+    pub rest: Vec<String>,
+    pub admitted: Vec<String>,
+    pub l2: Vec<String>,
+    pub roster: Vec<String>,
+    pub outline_in_chars: usize,
+    pub outline_out_chars: usize,
+}
+
+pub fn format_admission_trace(t: &AdmissionTrace) -> String {
+    fn join(names: &[String]) -> String {
+        if names.is_empty() {
+            "-".to_string()
+        } else {
+            names.join("、")
+        }
+    }
+    format!(
+        "continue_assets: shot={} present={} parties={} mentioned={} rest={} admitted={} l2={} roster={} outline={}->{}",
+        t.shot_window_chars,
+        join(&t.present),
+        join(&t.parties),
+        join(&t.mentioned),
+        join(&t.rest),
+        join(&t.admitted),
+        join(&t.l2),
+        join(&t.roster),
+        t.outline_in_chars,
+        t.outline_out_chars,
+    )
+}
+
+pub fn emit_admission_trace(t: &AdmissionTrace) {
+    log::info!("{}", format_admission_trace(t));
 }
 
 pub fn merge_admitted(
@@ -389,17 +465,54 @@ fn parse_relationship_ends(line: &str) -> Option<(String, String)> {
 }
 
 pub fn render_admitted_cards(chars: &[CoreCharacter], admitted: &[impl AsRef<str>]) -> String {
+    render_layered_admitted_cards(chars, admitted, &[] as &[&str])
+}
+
+/// `full_card_names` 空 = 准入者全用 L2。否则仅名单内 L2，其余准入
+/// L1（无情感内核）。
+pub fn render_layered_admitted_cards(
+    chars: &[CoreCharacter],
+    admitted: &[impl AsRef<str>],
+    full_card_names: &[impl AsRef<str>],
+) -> String {
+    let l2_all = full_card_names.is_empty();
     let mut lines = Vec::new();
     for name in admitted {
         let Some(c) = chars.iter().find(|c| c.name == name.as_ref()) else {
             continue;
         };
-        lines.push(render_one_card(c));
+        let full = l2_all || full_card_names.iter().any(|n| n.as_ref() == name.as_ref());
+        lines.push(if full {
+            render_one_card(c)
+        } else {
+            render_one_card_l1(c)
+        });
     }
     if lines.is_empty() {
         return String::new();
     }
     format!("【本拍角色（须遵循当前状态）】\n{}", lines.join("\n"))
+}
+
+fn render_one_card_l1(c: &CoreCharacter) -> String {
+    let mut parts = vec![format!("姓名：{}", c.name)];
+    if let Some(ref id) = c.identity {
+        parts.push(format!("身份：{}", id));
+    }
+    let mut state_parts = vec![];
+    if let Some(ref s) = c.physical_state {
+        state_parts.push(format!("身体：{}", s));
+    }
+    if let Some(ref s) = c.mental_state {
+        state_parts.push(format!("精神：{}", s));
+    }
+    if let Some(ref s) = c.location {
+        state_parts.push(format!("位置：{}", s));
+    }
+    if !state_parts.is_empty() {
+        parts.push(format!("当前状态：{}", state_parts.join("，")));
+    }
+    format!("- {}", parts.join(" | "))
 }
 
 fn render_one_card(c: &CoreCharacter) -> String {
@@ -607,6 +720,8 @@ pub struct ContinueAssetsInput<'a> {
     pub tension_lines: &'a [String],
     pub arc_lines: &'a [String],
     pub logline: Option<&'a str>,
+    /// 空 = 准入者全 L2；非空 = 仅这些名字 L2，其余准入 L1。
+    pub full_card_names: &'a [String],
 }
 
 pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
@@ -647,7 +762,11 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
         })
         .unwrap_or_default();
 
-    let cards = render_admitted_cards(&input.bundle.core_characters, input.admitted);
+    let cards = render_layered_admitted_cards(
+        &input.bundle.core_characters,
+        input.admitted,
+        input.full_card_names,
+    );
     let roster = render_roster_line(input.roster);
     let rels = filter_relationship_lines(&input.bundle.relationship_lines, input.admitted);
     let relationships = if rels.is_empty() {
@@ -800,9 +919,14 @@ pub fn render_continue_assets(input: &ContinueAssetsInput<'_>) -> String {
     let out = apply_asset_budget(&parts);
     let truncated = out.chars().count() < before.chars().count();
     log::info!(
-        "continue_assets: admitted={} roster={} chars={} truncated={}",
-        input.admitted.len(),
-        input.roster.len(),
+        "continue_assets: admitted={} l2={} roster={} chars={} truncated={}",
+        input.admitted.join("、"),
+        if input.full_card_names.is_empty() {
+            input.admitted.join("、")
+        } else {
+            input.full_card_names.join("、")
+        },
+        input.roster.join("、"),
         out.chars().count(),
         truncated
     );
@@ -1026,6 +1150,7 @@ mod tests {
             tension_lines: &[],
             arc_lines: &[],
             logline: Some("一句话"),
+            full_card_names: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("情感内核：角色00的情感内核"));
@@ -1153,11 +1278,82 @@ mod tests {
             tension_lines: &[],
             arc_lines: &[],
             logline: None,
+            full_card_names: &[],
         };
         let out = render_continue_assets(&input);
         assert!(out.contains("皇权裂痕"), "{out}");
         assert!(out.contains("讨回公道"), "{out}");
         assert!(!out.contains("无关目标"), "{out}");
         assert!(out.chars().count() <= ASSET_CHAR_BUDGET);
+    }
+
+    #[test]
+    fn prior_tail_for_cast_keeps_name_within_1500_not_opening() {
+        let opening = "青梧甲在雨里立誓。";
+        let gap = "闲笔。".repeat(800);
+        let debt = "债主甲还站在门口。";
+        let near = "闲笔。".repeat(100);
+        let ending = "客栈乙扣上匣子。";
+        let text = format!("{opening}{gap}{debt}{near}{ending}");
+        let tail = prior_tail_for_cast(&text);
+        assert!(tail.chars().count() <= PRIOR_CAST_CHAR_CAP);
+        assert!(
+            tail.contains("债主甲"),
+            "1500 近文应收进刚出场的债主 tail={tail}"
+        );
+        assert!(tail.contains("客栈乙"), "tail={tail}");
+        assert!(!tail.contains("青梧甲"), "开篇不得进近文窗口 tail={tail}");
+    }
+
+    #[test]
+    fn mentioned_from_continue_tasks_picks_quota_and_foreshadow_names() {
+        let names = vec![
+            "客栈乙".to_string(),
+            "债主甲".to_string(),
+            "路人丙".to_string(),
+        ];
+        let hit = mentioned_from_continue_tasks(
+            &names,
+            "",
+            "续写",
+            "下一拍对质",
+            Some("本拍必须让债主甲把人情摊开"),
+            &["逾期：路人丙的玉佩仍未现身".into()],
+        );
+        assert!(hit.contains(&"债主甲".to_string()), "hit={hit:?}");
+        assert!(hit.contains(&"路人丙".to_string()), "hit={hit:?}");
+        assert!(!hit.contains(&"客栈乙".to_string()), "hit={hit:?}");
+    }
+
+    #[test]
+    fn format_admission_trace_names_who_and_why() {
+        let line = format_admission_trace(&AdmissionTrace {
+            shot_window_chars: PRIOR_CAST_CHAR_CAP,
+            present: vec!["客栈乙".into()],
+            parties: vec!["债主甲".into()],
+            mentioned: vec!["债主甲".into()],
+            rest: vec![],
+            admitted: vec!["客栈乙".into(), "债主甲".into()],
+            l2: vec!["客栈乙".into(), "债主甲".into()],
+            roster: vec!["路人丙".into()],
+            outline_in_chars: 8000,
+            outline_out_chars: 400,
+        });
+        assert!(line.contains("shot=1500"), "{line}");
+        assert!(line.contains("present=客栈乙"), "{line}");
+        assert!(line.contains("mentioned=债主甲"), "{line}");
+        assert!(line.contains("admitted=客栈乙、债主甲"), "{line}");
+        assert!(line.contains("outline=8000->400"), "{line}");
+    }
+
+    #[test]
+    fn layered_cards_l1_omits_emotional_core() {
+        let chars = vec![core("客栈乙"), core("债主甲")];
+        let admitted = vec!["客栈乙".to_string(), "债主甲".to_string()];
+        let l2 = vec!["客栈乙".to_string()];
+        let text = render_layered_admitted_cards(&chars, &admitted, &l2);
+        assert!(text.contains("情感内核：客栈乙的情感内核"), "{text}");
+        assert!(!text.contains("情感内核：债主甲的情感内核"), "{text}");
+        assert!(text.contains("姓名：债主甲"), "{text}");
     }
 }

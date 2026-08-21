@@ -4094,14 +4094,7 @@ impl AgencyCoordinator {
             instruction
         };
         let user = if let Some(ref p) = parts {
-            let (present, parties, rest) = split_card_cast(&card);
-            let mentioned = crate::agency::continue_assets::match_character_names(
-                &p.table_names,
-                &format!("{}{}{}", chapter_outline, instr, card.next_outline_node),
-            );
-            let admitted = crate::agency::continue_assets::merge_admitted(
-                &present, &parties, &mentioned, &rest,
-            );
+            let (admitted, l2) = admit_for_continue(p, &card, &chapter_outline, instr);
             let assets = render_parts(
                 p,
                 &admitted,
@@ -4109,6 +4102,7 @@ impl AgencyCoordinator {
                 &card.next_outline_node,
                 card.setting_location.as_deref(),
                 current_content,
+                &l2,
             );
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
             crate::agency::beat_card::render_writer_user_prompt(
@@ -4353,14 +4347,7 @@ impl AgencyCoordinator {
             )
             .await;
         let assets_ctx = if let Some(ref p) = parts {
-            let (present, parties, rest) = split_card_cast(&card);
-            let mentioned = crate::agency::continue_assets::match_character_names(
-                &p.table_names,
-                &chapter_outline,
-            );
-            let admitted = crate::agency::continue_assets::merge_admitted(
-                &present, &parties, &mentioned, &rest,
-            );
+            let (admitted, l2) = admit_for_continue(p, &card, &chapter_outline, "续写");
             render_parts(
                 p,
                 &admitted,
@@ -4368,6 +4355,7 @@ impl AgencyCoordinator {
                 &card.next_outline_node,
                 card.setting_location.as_deref(),
                 Some(&latest_content),
+                &l2,
             )
         } else {
             String::new()
@@ -6052,6 +6040,49 @@ fn split_card_cast(
     (present, parties, rest)
 }
 
+fn admit_for_continue(
+    parts: &ContinueContextParts,
+    card: &crate::agency::beat_card::SceneBeatCard,
+    chapter_outline: &str,
+    instruction: &str,
+) -> (Vec<String>, Vec<String>) {
+    use crate::agency::continue_assets::{
+        build_roster, condense_story_outline, emit_admission_trace, l2_names_from_cast,
+        mentioned_from_continue_tasks, merge_admitted, AdmissionTrace, PRIOR_CAST_CHAR_CAP,
+    };
+    let (present, parties, rest) = split_card_cast(card);
+    let mentioned = mentioned_from_continue_tasks(
+        &parts.table_names,
+        chapter_outline,
+        instruction,
+        &card.next_outline_node,
+        card.expansion_quota_text.as_deref(),
+        parts.bundle.overdue_foreshadowings.as_slice(),
+    );
+    let admitted = merge_admitted(&present, &parties, &mentioned, &rest);
+    let l2 = l2_names_from_cast(&present, &parties);
+    let roster = build_roster(
+        &grounded_table_names(parts),
+        &admitted,
+        &evidence_blob(parts),
+    );
+    let outline_raw = parts.bundle.story_outline.as_deref().unwrap_or("");
+    let condensed = condense_story_outline(outline_raw, &card.next_outline_node);
+    emit_admission_trace(&AdmissionTrace {
+        shot_window_chars: PRIOR_CAST_CHAR_CAP,
+        present,
+        parties,
+        mentioned,
+        rest,
+        admitted: admitted.clone(),
+        l2: l2.clone(),
+        roster,
+        outline_in_chars: outline_raw.chars().count(),
+        outline_out_chars: condensed.chars().count(),
+    });
+    (admitted, l2)
+}
+
 pub(crate) fn render_parts(
     parts: &ContinueContextParts,
     admitted: &[String],
@@ -6059,6 +6090,7 @@ pub(crate) fn render_parts(
     next_node: &str,
     location: Option<&str>,
     current_content: Option<&str>,
+    full_card_names: &[String],
 ) -> String {
     use crate::agency::continue_assets::{
         build_roster, render_continue_assets, slice_prior_prose, ContinueAssetsInput,
@@ -6120,6 +6152,7 @@ pub(crate) fn render_parts(
         tension_lines: &tension_lines,
         arc_lines: &arc_lines,
         logline: parts.logline.as_deref(),
+        full_card_names,
     })
 }
 
@@ -6211,7 +6244,6 @@ pub(crate) fn assemble_continue_user_prompt(
     current_content: &str,
     chapter_outline: &str,
 ) -> Result<(String, crate::agency::beat_card::SceneBeatCard), AppError> {
-    use crate::agency::continue_assets::merge_admitted;
     let card = crate::agency::beat_card::compile_beat_card(pool, story_id, current_content)?;
     let Some(parts) = load_continue_context_parts(pool, story_id) else {
         let state = compile_continue_beat_state(&card, None, current_content);
@@ -6224,15 +6256,7 @@ pub(crate) fn assemble_continue_user_prompt(
         );
         return Ok((user, card));
     };
-    let (present, parties, rest) = split_card_cast(&card);
-    let mentioned = crate::agency::continue_assets::match_character_names(
-        &parts.table_names,
-        &format!(
-            "{}{}{}",
-            chapter_outline, instruction, card.next_outline_node
-        ),
-    );
-    let admitted = merge_admitted(&present, &parties, &mentioned, &rest);
+    let (admitted, l2) = admit_for_continue(&parts, &card, chapter_outline, instruction);
     let assets = render_parts(
         &parts,
         &admitted,
@@ -6240,6 +6264,7 @@ pub(crate) fn assemble_continue_user_prompt(
         &card.next_outline_node,
         card.setting_location.as_deref(),
         Some(current_content),
+        &l2,
     );
     let state = compile_continue_beat_state(&card, Some(&parts), current_content);
     let user = crate::agency::beat_card::render_writer_user_prompt(
@@ -6265,7 +6290,7 @@ pub(crate) fn build_writer_context_from_db(pool: &DbPool, story_id: &str) -> Str
         .take(ADMITTED_CAP)
         .cloned()
         .collect();
-    render_parts(&parts, &admitted, "", "", None, None)
+    render_parts(&parts, &admitted, "", "", None, None, &[])
 }
 
 #[cfg(test)]
@@ -6619,5 +6644,50 @@ mod writer_context_tests {
         );
         assert!(user.contains("【本拍角色"));
         assert!(!user.contains("【登场角色（必须严格遵循"));
+    }
+
+    #[test]
+    fn assembled_user_prompt_admits_debt_name_from_chapter_outline() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("近文漏债"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "客栈乙"))
+            .unwrap();
+        let mut debt = char_req(&story.id, "债主甲");
+        debt.emotional_core = Some("讨债".into());
+        CharacterRepository::new(pool.clone()).create(debt).unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let sc = scene_repo.create(&story.id, 1, Some("一")).unwrap();
+        let content = "客栈乙扣上匣子。".to_string();
+        scene_repo
+            .update(
+                &sc.id,
+                &SceneUpdate {
+                    content: Some(content.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (user, card) = assemble_continue_user_prompt(
+            &pool,
+            &story.id,
+            "续写",
+            &content,
+            "必须让债主甲把人情摊开",
+        )
+        .unwrap();
+        assert!(
+            user.contains("姓名：债主甲"),
+            "大纲点名的债应进本拍角色卡 user={}",
+            user.chars().take(800).collect::<String>()
+        );
+        assert!(
+            card.cast.iter().any(|c| c.name == "客栈乙") || user.contains("客栈乙"),
+            "近文在场者仍在 user={}",
+            user.chars().take(400).collect::<String>()
+        );
     }
 }
