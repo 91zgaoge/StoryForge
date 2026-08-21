@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.53.0 项目完成状态
+# StoryMoss (草苔) v0.53.1 项目完成状态
 
-> 最后更新: 2026-08-21（v0.53.0 按正文重写生产资产）
+> 最后更新: 2026-08-21（v0.53.1 对象大纲/散文 salvage）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.53.1 - 按正文重写 JSON 形状（2026-08-21）
+
+- Gemma 4 把大纲做成对象或散文时不再整段丢弃。
+- **验证**：`cargo test --lib` 1505 passed / 2 ignored（+6）。
+- **未关闭**：同一句真机；不得宣称唱反调已修复。
 
 ### v0.53.0 - 按正文重写生产资产（2026-08-21）
 

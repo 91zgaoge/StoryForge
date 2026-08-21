@@ -132,9 +132,119 @@ pub struct RefreshWorld {
     pub history: Option<String>,
 }
 
+/// 强模型常把 story_outline
+/// 做成对象（v0.30.29）；本地思考模型常丢中文键或直接写散文。
 pub fn parse_refresh_payload(raw: &str) -> Option<AssetRefreshPayload> {
     let json = crate::narrative::extract_and_sanitize_json(raw).ok()?;
-    serde_json::from_str(&json).ok()
+    let mut value: serde_json::Value = serde_json::from_str(&json).ok()?;
+    remap_refresh_keys(&mut value);
+    payload_from_value(&value)
+}
+
+fn remap_refresh_keys(value: &mut serde_json::Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    const ALIASES: &[(&str, &str)] = &[
+        ("outline", "story_outline"),
+        ("故事大纲", "story_outline"),
+        ("整书大纲", "story_outline"),
+        ("书纲", "story_outline"),
+        ("场景大纲", "scene_outline"),
+        ("本章大纲", "scene_outline"),
+        ("世界观", "world"),
+        ("世界设定", "world"),
+        ("角色", "characters"),
+        ("人物", "characters"),
+        ("人物卡", "characters"),
+    ];
+    for (from, to) in ALIASES {
+        if obj.contains_key(*to) {
+            continue;
+        }
+        if let Some(val) = obj.remove(*from) {
+            obj.insert((*to).into(), val);
+        }
+    }
+}
+
+fn payload_from_value(value: &serde_json::Value) -> Option<AssetRefreshPayload> {
+    let story_outline = value
+        .get("story_outline")
+        .map(crate::agency::coordinator::normalize_outline)
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            let looks_like_outline = value.get("core_conflict").is_some()
+                || value.get("turning_points").is_some()
+                || value.get("three_act_structure").is_some();
+            if looks_like_outline {
+                let text = crate::agency::coordinator::normalize_outline(value);
+                if text.trim().is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
+            } else {
+                None
+            }
+        });
+    let scene_outline = value
+        .get("scene_outline")
+        .map(crate::agency::coordinator::normalize_outline)
+        .filter(|s| !s.trim().is_empty());
+    let characters = value
+        .get("characters")
+        .and_then(|v| serde_json::from_value::<Vec<RefreshCharacter>>(v.clone()).ok());
+    let world = value.get("world").and_then(|v| match v {
+        serde_json::Value::String(s) if !s.trim().is_empty() => Some(RefreshWorld {
+            concept: Some(s.clone()),
+            history: None,
+        }),
+        other => serde_json::from_value::<RefreshWorld>(other.clone()).ok(),
+    });
+    let payload = AssetRefreshPayload {
+        story_outline,
+        characters,
+        world,
+        scene_outline,
+    };
+    if payload.story_outline.is_none()
+        && payload.characters.is_none()
+        && payload.world.is_none()
+        && payload.scene_outline.is_none()
+    {
+        return None;
+    }
+    Some(payload)
+}
+
+/// Gemma 等思考模型常把 JSON 留在思维链，content 只剩一段归纳散文。
+pub fn salvage_refresh_payload(
+    raw: &str,
+    targets: &[AssetRefreshTarget],
+) -> Option<AssetRefreshPayload> {
+    if targets.len() != 1 || targets[0] != AssetRefreshTarget::StoryOutline {
+        return None;
+    }
+    let stripped = crate::narrative::strip_reasoning_blocks(raw);
+    let text = stripped.trim();
+    if text.chars().count() < 30 {
+        return None;
+    }
+    if text.starts_with('{') || text.starts_with('[') {
+        return None;
+    }
+    let lower = text.to_ascii_lowercase();
+    if text.contains("只输出 JSON")
+        || text.contains("不要 markdown")
+        || (lower.contains("json") && text.contains("输出"))
+    {
+        return None;
+    }
+    Some(AssetRefreshPayload {
+        story_outline: Some(text.to_string()),
+        ..Default::default()
+    })
 }
 
 fn target_label(t: AssetRefreshTarget) -> &'static str {
@@ -598,9 +708,17 @@ pub async fn execute(
     let raw = llm
         .complete_json(&system, &user, TaskType::WorldBuilding, 4096)
         .await?;
-    let parsed = parse_refresh_payload(&raw).ok_or_else(|| {
-        AppError::validation_failed("未能解析设定 JSON，未改动任何资产", Some("parse_fail"))
-    })?;
+    let parsed = parse_refresh_payload(&raw)
+        .or_else(|| salvage_refresh_payload(&raw, &targets))
+        .ok_or_else(|| {
+            let preview: String = raw.chars().take(200).collect();
+            log::warn!(
+                "asset_refresh: JSON 解析失败 raw_chars={} preview={}",
+                raw.chars().count(),
+                preview.replace('\n', " ")
+            );
+            AppError::validation_failed("未能解析设定 JSON，未改动任何资产", Some("parse_fail"))
+        })?;
 
     let pool_w = pool.clone();
     let sid_w = story_id.to_string();
@@ -709,6 +827,46 @@ mod tests {
     #[test]
     fn parse_targets_empty_when_unspecified() {
         assert!(parse_asset_refresh_targets("帮我看看").is_empty());
+    }
+
+    #[test]
+    fn parse_refresh_payload_accepts_object_story_outline() {
+        // 真机 Gemma 4：82 字量级，story_outline 常是对象不是字符串（v0.30.29 同类）。
+        let raw = r#"{"story_outline":{"core_conflict":"韩雪在首尔雨夜把枪口对准李明"}}"#;
+        let p = parse_refresh_payload(raw).expect("对象大纲应解析");
+        let outline = p.story_outline.expect("应有故事大纲");
+        assert!(outline.contains("韩雪"));
+        assert!(outline.contains("核心冲突"));
+    }
+
+    #[test]
+    fn parse_refresh_payload_accepts_chinese_key() {
+        let raw = r#"{"故事大纲":"【核心冲突】韩雪与李明在首尔对峙"}"#;
+        let p = parse_refresh_payload(raw).expect("中文键应解析");
+        assert!(p.story_outline.unwrap().contains("韩雪"));
+    }
+
+    #[test]
+    fn parse_refresh_payload_accepts_top_level_core_conflict() {
+        let raw = r#"{"core_conflict":"韩雪在首尔雨夜对峙李明","turning_points":["李明拒捕"]}"#;
+        let p = parse_refresh_payload(raw).expect("DepthAssets 形大纲应解析");
+        assert!(p.story_outline.unwrap().contains("韩雪"));
+    }
+
+    #[test]
+    fn salvage_story_outline_prose_when_model_skips_json() {
+        let raw = "韩雪在首尔雨夜把枪口对准李明。两人在巷口对峙，谁先开枪谁就会失去谈判筹码，雨把枪油冲得发亮。";
+        let t = vec![AssetRefreshTarget::StoryOutline];
+        let p = salvage_refresh_payload(raw, &t).expect("仅故事大纲时应 salvage 散文");
+        assert!(p.story_outline.unwrap().contains("韩雪"));
+    }
+
+    #[test]
+    fn salvage_rejects_short_or_instruction_echo() {
+        let t = vec![AssetRefreshTarget::StoryOutline];
+        assert!(salvage_refresh_payload("这不是 JSON", &t).is_none());
+        assert!(salvage_refresh_payload("只输出 JSON，不要 markdown 围栏。", &t).is_none());
+        assert!(salvage_refresh_payload("{\"story_outline\":\"未闭合", &t).is_none());
     }
 
     #[test]
@@ -976,6 +1134,31 @@ mod tests {
         .unwrap();
         assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
         assert_eq!(scene_content(&pool, &scene_id), prose);
+        let outline = StoryOutlineRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(outline.content.contains("韩雪"));
+    }
+
+    #[tokio::test]
+    async fn execute_salvages_prose_outline_when_json_missing() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let llm = ScriptedLlm::json(
+            "韩雪在首尔雨夜把枪口对准李明。两人在巷口对峙，谁先开枪谁就会失去谈判筹码，雨把枪油冲得发亮。",
+        );
+        let result = execute(
+            pool.clone(),
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "将故事大纲按照现有正文重新写过",
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
         let outline = StoryOutlineRepository::new(pool)
             .get_by_story(&story_id)
             .unwrap()

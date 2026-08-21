@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.53.1（2026-08-21）
+
+真机「将故事大纲按照现有正文重新写过」走对了路由，Gemma 4 用 1194 token 只吐出 82 字。`story_outline` 做成对象或直接写散文时，旧解析整段丢掉、资产一格不改。
+
+### 变更
+
+- 对象大纲走 `normalize_outline`（v0.30.29 同类）；认中文键 / 顶层 `core_conflict`。
+- 仅故事大纲且模型吐散文时 salvage 落库；短垃圾与指令回显仍不写。
+- 解析失败写 warn 预览，不再静默。
+
+### 测试
+
+- `cargo test --lib` 1505 passed / 2 ignored（+6）。
+
 ## v0.53.0（2026-08-21）
 
 幕前「将故事大纲按照现有正文重新写过」此前会被当成续写或改写，往纸面加字、不改 `story_outlines`。本版在 Append 之前走 `run_asset_refresh`：Producer 一次 JSON，接地后按点名靶落库。
