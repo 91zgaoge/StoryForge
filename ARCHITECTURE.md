@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.53.1 架构文档
+# StoryMoss (草苔) v0.53.2 架构文档
 
+> **v0.53.2**：`parse_refresh_payload` 在 JSON 失败后解析无花括号键值散文（`story_outline:` / `scene_outline：`）。salvage 覆盖仅场景大纲。`looks_like_asset_refresh_shape` 认「重新生成」且须点名资产。v0.53.1 对象大纲不变量不变。
+>
 > **v0.53.1**：`parse_refresh_payload` 不再要求 `story_outline` 为字符串。对象走 `normalize_outline`；中文键别名；仅故事大纲时散文 salvage。解析失败打 warn 预览。v0.53.0 路由与纸面只读不变量不变。
 >
 > **v0.53.0**：幕前「按正文重写设定」在 `smart_execute` 判断 Agency Append **之前**走 `agency/asset_refresh.rs`。`AssetTaskType::AssetRefresh`；Producer `complete_json`（WorldBuilding/Tool 档），无 writer、无 tool_loop、不创建挡住续写的 run。落库只写点名靶：`story_outlines` 整份替换 + cap；角色/世界观源感知合并；场景大纲 `merge_current_scene_outline`。禁止 `update_scene.content`。前端 `result_kind=asset_refresh` 不 `appendAiContent`。v0.52.0 拍级分层不变量不变。

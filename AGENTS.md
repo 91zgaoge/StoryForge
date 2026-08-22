@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.53.1
+- **版本**: v0.53.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1505 passed / 2 ignored（+6 对象大纲/散文 salvage）
+- `cargo test -p storymoss` ✅ 1512 passed / 2 ignored（+7 键值散文/场景大纲 salvage）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 597 passed / 3 skipped（+1）
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.53.2 - 键值散文与场景大纲也能按正文重写
+
+真机 Gemma 返回 `story_outline:… scene_outline：…` 无 JSON。现解析中英冒号键值；仅场景大纲也可 salvage。
+
+- **验证**：`cargo test --lib` 1512 passed / 2 ignored（+7）。
+- **契约**：真机两段原文可解析；「根据正文重新生成下一章」不是本作业。
+- **未关闭**：须用换说法 / 场景大纲原句再跑真机；不得宣称续写质量已修复。
 
 ### v0.53.1 - 按正文重写不再因对象 JSON / 散文丢掉
 
@@ -1072,7 +1080,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-21 - v0.53.1_
+_最后更新: 2026-08-23 - v0.53.2_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

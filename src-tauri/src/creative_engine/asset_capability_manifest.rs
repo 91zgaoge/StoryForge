@@ -65,7 +65,11 @@ impl AssetTaskType {
         // 「按正文重写」优先于「重写→改写」：否则「将故事大纲按照现有正文重新写过」
         // 会被当成润色正文。不引用 agency 以免 creative_engine→agency 环。
         let from_prose = s.contains("正文") || s.contains("已写章节");
-        let rewrite_asset = s.contains("重写") || s.contains("重新写") || s.contains("刷新");
+        let rewrite_asset = s.contains("重写")
+            || s.contains("重新写")
+            || s.contains("刷新")
+            || s.contains("重新生成")
+            || s.contains("再生成");
         let names_asset = s.contains("大纲")
             || s.contains("角色")
             || s.contains("人物")

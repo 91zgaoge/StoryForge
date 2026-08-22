@@ -49,10 +49,28 @@ const ALL_TARGETS: [AssetRefreshTarget; 4] = [
 ];
 
 /// 「按正文重写设定」形状：必须同时点名正文与重写，才覆盖续写兜底。
+/// 「重新生成」须再点名大纲/角色/世界观，
+/// 避免「根据正文重新生成下一章」误进本作业。
 pub fn looks_like_asset_refresh_shape(input: &str) -> bool {
     let from_prose = input.contains("正文") || input.contains("已写章节");
-    let rewrite = input.contains("重新写") || input.contains("重写") || input.contains("刷新");
-    from_prose && rewrite
+    if !from_prose {
+        return false;
+    }
+    let classic = input.contains("重新写") || input.contains("重写") || input.contains("刷新");
+    let regen = input.contains("重新生成") || input.contains("再生成");
+    if classic {
+        return true;
+    }
+    if regen {
+        return input.contains("大纲")
+            || input.contains("角色")
+            || input.contains("人物")
+            || input.contains("人设")
+            || input.contains("世界观")
+            || input.contains("设定")
+            || input.contains("资产");
+    }
+    false
 }
 
 pub fn allow_overwrite_manual(input: &str) -> bool {
@@ -132,13 +150,89 @@ pub struct RefreshWorld {
     pub history: Option<String>,
 }
 
-/// 强模型常把 story_outline
-/// 做成对象（v0.30.29）；本地思考模型常丢中文键或直接写散文。
+/// 强模型常把 story_outline 做成对象（v0.30.29）；本地思考模型常丢中文键、
+/// 或输出 `story_outline: …` 键值散文（v0.53.1 真机）。
 pub fn parse_refresh_payload(raw: &str) -> Option<AssetRefreshPayload> {
+    if let Some(p) = parse_json_refresh(raw) {
+        return Some(p);
+    }
+    parse_labeled_refresh(raw)
+}
+
+fn parse_json_refresh(raw: &str) -> Option<AssetRefreshPayload> {
     let json = crate::narrative::extract_and_sanitize_json(raw).ok()?;
     let mut value: serde_json::Value = serde_json::from_str(&json).ok()?;
     remap_refresh_keys(&mut value);
     payload_from_value(&value)
+}
+
+fn labeled_field(key: &str) -> Option<&'static str> {
+    match key.to_ascii_lowercase().as_str() {
+        "story_outline" | "故事大纲" | "整书大纲" | "书纲" => Some("story_outline"),
+        "scene_outline" | "场景大纲" | "本章大纲" | "当场大纲" | "当前场大纲" => {
+            Some("scene_outline")
+        }
+        "world" | "world_building" | "世界观" | "世界设定" => Some("world"),
+        _ => None,
+    }
+}
+
+/// Gemma 常返回无花括号的 `story_outline:… scene_outline：…`（中英冒号都有）。
+fn parse_labeled_refresh(raw: &str) -> Option<AssetRefreshPayload> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)(story_outline|scene_outline|world_building|world|故事大纲|整书大纲|书纲|场景大纲|本章大纲|当场大纲|当前场大纲|世界观|世界设定)\s*[:：]",
+        )
+        .expect("labeled refresh regex")
+    });
+    let mut story_outline = None;
+    let mut scene_outline = None;
+    let mut world = None;
+    let caps: Vec<regex::Captures> = re.captures_iter(raw).collect();
+    if caps.is_empty() {
+        return None;
+    }
+    for (i, cap) in caps.iter().enumerate() {
+        let Some(key_m) = cap.get(1) else {
+            continue;
+        };
+        let Some(field) = labeled_field(key_m.as_str()) else {
+            continue;
+        };
+        let full = cap.get(0).expect("regex match 0");
+        let value_start = full.end();
+        let value_end = caps
+            .get(i + 1)
+            .and_then(|n| n.get(0).map(|m| m.start()))
+            .unwrap_or(raw.len());
+        let text = raw[value_start..value_end].trim();
+        if text.is_empty() {
+            continue;
+        }
+        match field {
+            "story_outline" => story_outline = Some(text.to_string()),
+            "scene_outline" => scene_outline = Some(text.to_string()),
+            "world" => {
+                world = Some(RefreshWorld {
+                    concept: Some(text.to_string()),
+                    history: None,
+                })
+            }
+            _ => {}
+        }
+    }
+    let payload = AssetRefreshPayload {
+        story_outline,
+        characters: None,
+        world,
+        scene_outline,
+    };
+    if payload.story_outline.is_none() && payload.world.is_none() && payload.scene_outline.is_none()
+    {
+        return None;
+    }
+    Some(payload)
 }
 
 fn remap_refresh_keys(value: &mut serde_json::Value) {
@@ -223,7 +317,10 @@ pub fn salvage_refresh_payload(
     raw: &str,
     targets: &[AssetRefreshTarget],
 ) -> Option<AssetRefreshPayload> {
-    if targets.len() != 1 || targets[0] != AssetRefreshTarget::StoryOutline {
+    if let Some(p) = parse_labeled_refresh(raw) {
+        return Some(p);
+    }
+    if targets.len() != 1 {
         return None;
     }
     let stripped = crate::narrative::strip_reasoning_blocks(raw);
@@ -241,10 +338,24 @@ pub fn salvage_refresh_payload(
     {
         return None;
     }
-    Some(AssetRefreshPayload {
-        story_outline: Some(text.to_string()),
-        ..Default::default()
-    })
+    match targets[0] {
+        AssetRefreshTarget::StoryOutline => Some(AssetRefreshPayload {
+            story_outline: Some(text.to_string()),
+            ..Default::default()
+        }),
+        AssetRefreshTarget::SceneOutline => Some(AssetRefreshPayload {
+            scene_outline: Some(text.to_string()),
+            ..Default::default()
+        }),
+        AssetRefreshTarget::World => Some(AssetRefreshPayload {
+            world: Some(RefreshWorld {
+                concept: Some(text.to_string()),
+                history: None,
+            }),
+            ..Default::default()
+        }),
+        AssetRefreshTarget::Characters => None,
+    }
 }
 
 fn target_label(t: AssetRefreshTarget) -> &'static str {
@@ -830,6 +941,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_targets_regen_story_and_scene() {
+        let t = parse_asset_refresh_targets("根据正文内容重新生成故事大纲和场景大纲");
+        assert!(t.contains(&AssetRefreshTarget::StoryOutline));
+        assert!(t.contains(&AssetRefreshTarget::SceneOutline));
+    }
+
+    #[test]
+    fn looks_like_regen_outline_from_prose() {
+        assert!(looks_like_asset_refresh_shape(
+            "根据正文内容重新生成故事大纲和场景大纲"
+        ));
+        assert!(!looks_like_asset_refresh_shape("根据正文重新生成下一章"));
+    }
+
+    #[test]
+    fn parse_labeled_story_and_scene_from_gemma_prose() {
+        // 真机 2026-08-22：无花括号，英文冒号。
+        let raw = "story_outline:苏亦铁与明成公主的婚礼上，苏会山被明成公主偷袭致死，随后苏会山面容发生恐怖变化，引发了混乱。转折点在于苏亦铁对苏会山惨状的悲愤反应。 scene_outline:第一场：知启纪元八百四十七年，大奉帝国西北边陲重镇黑崎州城，大雪初晴。镇北王府正院笙乐齐鸣，红绸如霞。";
+        let p = parse_refresh_payload(raw).expect("键值散文应解析");
+        assert!(p.story_outline.unwrap().contains("苏亦铁"));
+        assert!(p.scene_outline.unwrap().contains("第一场"));
+    }
+
+    #[test]
+    fn parse_labeled_scene_outline_fullwidth_colon() {
+        // 真机 2026-08-22：仅场景大纲，中文冒号。
+        let raw = "scene_outline：进入王府大堂，苏会山与曹元佩等候新人。明成公主乘坐小暧轿抵达，苏亦铁轻掀轿帘，抱下公主。";
+        let p = parse_refresh_payload(raw).expect("中文冒号应解析");
+        assert!(p.scene_outline.unwrap().contains("王府大堂"));
+        assert!(p.story_outline.is_none());
+    }
+
+    #[test]
     fn parse_refresh_payload_accepts_object_story_outline() {
         // 真机 Gemma 4：82 字量级，story_outline 常是对象不是字符串（v0.30.29 同类）。
         let raw = r#"{"story_outline":{"core_conflict":"韩雪在首尔雨夜把枪口对准李明"}}"#;
@@ -867,6 +1011,15 @@ mod tests {
         assert!(salvage_refresh_payload("这不是 JSON", &t).is_none());
         assert!(salvage_refresh_payload("只输出 JSON，不要 markdown 围栏。", &t).is_none());
         assert!(salvage_refresh_payload("{\"story_outline\":\"未闭合", &t).is_none());
+    }
+
+    #[test]
+    fn salvage_scene_outline_unlabeled_prose() {
+        let raw = "韩雪在首尔雨夜把枪口对准李明。两人在巷口对峙，谁先开枪谁就会失去谈判筹码，雨把枪油冲得发亮。";
+        let t = vec![AssetRefreshTarget::SceneOutline];
+        let p = salvage_refresh_payload(raw, &t).expect("仅场景大纲时应 salvage 散文");
+        assert!(p.scene_outline.unwrap().contains("韩雪"));
+        assert!(p.story_outline.is_none());
     }
 
     #[test]
@@ -1164,6 +1317,63 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(outline.content.contains("韩雪"));
+    }
+
+    #[tokio::test]
+    async fn execute_scene_outline_from_labeled_prose() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let llm = ScriptedLlm::json(
+            "scene_outline：韩雪在首尔雨夜把枪口对准李明。两人在巷口对峙，谁先开枪谁就会失去谈判筹码。",
+        );
+        let result = execute(
+            pool.clone(),
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "将场景大纲按照现有正文重新写过",
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
+        assert_eq!(scene_content(&pool, &scene_id), prose);
+        let scene = SceneRepository::new(pool)
+            .get_by_id(&scene_id)
+            .unwrap()
+            .unwrap();
+        assert!(scene.outline_content.unwrap_or_default().contains("韩雪"));
+    }
+
+    #[tokio::test]
+    async fn execute_story_and_scene_from_labeled_prose() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let llm = ScriptedLlm::json(
+            "story_outline:韩雪在首尔雨夜把枪口对准李明，对峙升级。 scene_outline:韩雪举枪，李明停在雨里不敢先动。",
+        );
+        let result = execute(
+            pool.clone(),
+            llm,
+            &story_id,
+            Some(&scene_id),
+            "根据正文内容重新生成故事大纲和场景大纲",
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
+        assert_eq!(scene_content(&pool, &scene_id), prose);
+        let outline = StoryOutlineRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(outline.content.contains("韩雪"));
+        let scene = SceneRepository::new(pool)
+            .get_by_id(&scene_id)
+            .unwrap()
+            .unwrap();
+        assert!(scene.outline_content.unwrap_or_default().contains("举枪"));
     }
 
     #[tokio::test]

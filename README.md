@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.53.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.53.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -105,13 +105,17 @@ npm run build
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
+### v0.53.2 · 「重新生成大纲」和场景大纲不再因没花括号丢掉
+
+管理模型用 `story_outline:` / `scene_outline：` 这种写法时也会写入幕后。请升级到 0.53.2 并重启后再试原句。这不是续写质量修复。
+
 ### v0.53.1 · 按正文重写大纲不再因 JSON 形状丢掉
 
-管理模型把大纲做成对象或直接写成一段话时，现在会落进幕后故事大纲，而不是报「未能解析设定 JSON」。请升级到 0.53.1 并重启后再输入原句。这不是续写质量修复。
+管理模型把大纲做成对象或直接写成一段话时，现在会落进幕后故事大纲，而不是报「未能解析设定 JSON」。请升级到 0.53.2 并重启后再输入原句。这不是续写质量修复。
 
 ### v0.53.0 · 按正文重写大纲，不再往纸面里加字
 
-幕前输入「将故事大纲按照现有正文重新写过」，会按已写章节重写幕后故事大纲，正文一个字都不会多。角色、世界观、场景大纲把名字写进指令即可。手改过的角色卡默认不覆盖。请升级到 0.53.1 并重启。这不是续写质量修复。
+幕前输入「将故事大纲按照现有正文重新写过」，会按已写章节重写幕后故事大纲，正文一个字都不会多。角色、世界观、场景大纲把名字写进指令即可。手改过的角色卡默认不覆盖。请升级到 0.53.2 并重启。这不是续写质量修复。
 
 ### v0.52.0 · 续写看近 1500 字，并记下为什么选中这些人
 

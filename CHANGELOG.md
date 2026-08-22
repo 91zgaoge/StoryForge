@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.53.2（2026-08-23）
+
+换说法「根据正文重新生成故事大纲和场景大纲」、或「将场景大纲按照现有正文重新写过」仍报解析失败。Gemma 吐的是 `story_outline:… scene_outline：…` 键值散文，不是 JSON；旧 salvage 只收「仅故事大纲」。
+
+### 变更
+
+- 无花括号键值散文（中英冒号）解析为对应靶。
+- 仅场景大纲时也可 salvage 散文。
+- 「重新生成」+ 点名大纲/角色/世界观 视为按正文重写；「根据正文重新生成下一章」不误进。
+
+### 测试
+
+- `cargo test --lib` 1512 passed / 2 ignored（+7）。
+
 ## v0.53.1（2026-08-21）
 
 真机「将故事大纲按照现有正文重新写过」走对了路由，Gemma 4 用 1194 token 只吐出 82 字。`story_outline` 做成对象或直接写散文时，旧解析整段丢掉、资产一格不改。

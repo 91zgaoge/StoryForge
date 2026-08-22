@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.53.1 项目完成状态
+# StoryMoss (草苔) v0.53.2 项目完成状态
 
-> 最后更新: 2026-08-21（v0.53.1 对象大纲/散文 salvage）
+> 最后更新: 2026-08-23（v0.53.2 键值散文/场景大纲）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.53.2 - 键值散文与场景大纲（2026-08-23）
+
+- Gemma `story_outline:` / `scene_outline：` 无花括号也会落库。
+- **验证**：`cargo test --lib` 1512 passed / 2 ignored（+7）。
+- **未关闭**：原句真机；不得宣称唱反调已修复。
 
 ### v0.53.1 - 按正文重写 JSON 形状（2026-08-21）
 
