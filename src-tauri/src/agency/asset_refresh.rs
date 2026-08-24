@@ -367,9 +367,18 @@ fn target_label(t: AssetRefreshTarget) -> &'static str {
     }
 }
 
-fn summarize(targets: &[AssetRefreshTarget]) -> String {
+fn summarize(targets: &[AssetRefreshTarget], story: Option<&str>, scene: Option<&str>) -> String {
     let names: Vec<&str> = targets.iter().copied().map(target_label).collect();
-    format!("已按正文重写{}", names.join("、"))
+    let mut body = format!("已按正文重写{}。纸面未改。", names.join("、"));
+    if let Some(s) = story.map(str::trim).filter(|s| !s.is_empty()) {
+        body.push_str("\n\n【故事大纲】\n");
+        body.push_str(s);
+    }
+    if let Some(s) = scene.map(str::trim).filter(|s| !s.is_empty()) {
+        body.push_str("\n\n【场景大纲】\n");
+        body.push_str(s);
+    }
+    body
 }
 
 fn dual_window(text: &str) -> String {
@@ -504,6 +513,8 @@ pub fn persist_asset_refresh(
     let prose = concat_story_prose(pool, story_id);
     let names = candidate_names(pool, story_id, parsed);
     let mut wrote = false;
+    let mut wrote_story: Option<String> = None;
+    let mut wrote_scene: Option<String> = None;
 
     if targets.contains(&AssetRefreshTarget::StoryOutline) {
         if let Some(raw) = parsed
@@ -528,6 +539,7 @@ pub fn persist_asset_refresh(
                         .map_err(AppError::from)?;
                 }
                 wrote = true;
+                wrote_story = Some(capped);
             }
         }
     }
@@ -547,6 +559,14 @@ pub fn persist_asset_refresh(
     if targets.contains(&AssetRefreshTarget::SceneOutline) {
         if persist_scene_outline(pool, story_id, scene_id, &prose, &names, parsed)? {
             wrote = true;
+            if let Some(raw) = parsed
+                .scene_outline
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                wrote_scene = Some(raw.to_string());
+            }
         }
     }
 
@@ -556,7 +576,13 @@ pub fn persist_asset_refresh(
             Some("empty_refresh"),
         ));
     }
-    Ok(summarize(targets))
+    let summary = summarize(targets, wrote_story.as_deref(), wrote_scene.as_deref());
+    log::info!(
+        "asset_refresh: persisted story_chars={} scene_chars={}",
+        wrote_story.as_ref().map(|s| s.chars().count()).unwrap_or(0),
+        wrote_scene.as_ref().map(|s| s.chars().count()).unwrap_or(0)
+    );
+    Ok(summary)
 }
 
 fn persist_characters(
@@ -741,7 +767,9 @@ fn build_refresh_prompts(
 ) -> (String, String) {
     let mut keys = Vec::new();
     if targets.contains(&AssetRefreshTarget::StoryOutline) {
-        keys.push("story_outline（字符串：核心冲突 + 转折点，姓名必须出自正文）");
+        keys.push(
+            "story_outline（字符串：正文已发生的核心冲突与转折，以及正文已经指向、尚未写到的下一步。姓名必须出自正文。不要只复述当前场已写完的动作。）",
+        );
     }
     if targets.contains(&AssetRefreshTarget::Characters) {
         keys.push(
@@ -752,15 +780,25 @@ fn build_refresh_prompts(
         keys.push("world（对象：concept、history）");
     }
     if targets.contains(&AssetRefreshTarget::SceneOutline) {
-        keys.push("scene_outline（字符串：当前打开这一场接下来怎么演）");
+        keys.push(
+            "scene_outline（字符串：当前打开这一场从正文末句往后接下来怎么演。禁止复述已发生的开场或已完成动作。）",
+        );
     }
     let system = format!(
         "你是小说资产编辑。只根据已有正文归纳设定，禁止发明正文未出现的人名/地名。\
 只输出 JSON，不要 markdown 围栏，不要正文。只包含这些键：{}。",
         keys.join("；")
     );
+    let next_hint = if user_input.contains("后续")
+        || user_input.contains("接下来")
+        || user_input.contains("下一")
+    {
+        "用户要的是后续方向，不是把已写章节再抄一遍。禁止复述开场。"
+    } else {
+        ""
+    };
     let user = format!(
-        "用户指令：{user_input}\n\n【已有正文（只读）】\n{prose}\n\n按指令重写上述设定，姓名必须能在正文中找到。"
+        "用户指令：{user_input}\n\n【已有正文（只读）】\n{prose}\n\n按指令重写上述设定，姓名必须能在正文中找到。\n{next_hint}"
     );
     (system, user)
 }
@@ -948,6 +986,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_targets_subsequent_story_and_generate_scene() {
+        let input = "根据正文内容重新写后续的故事大纲，同时生成场景大纲";
+        assert!(looks_like_asset_refresh_shape(input));
+        let t = parse_asset_refresh_targets(input);
+        assert!(t.contains(&AssetRefreshTarget::StoryOutline));
+        assert!(t.contains(&AssetRefreshTarget::SceneOutline));
+    }
+
+    #[test]
     fn looks_like_regen_outline_from_prose() {
         assert!(looks_like_asset_refresh_shape(
             "根据正文内容重新生成故事大纲和场景大纲"
@@ -1046,6 +1093,50 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(outline.content.contains("韩雪"));
+    }
+
+    #[test]
+    fn persist_summary_includes_written_outline_text() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let summary = persist_asset_refresh(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            &[
+                AssetRefreshTarget::StoryOutline,
+                AssetRefreshTarget::SceneOutline,
+            ],
+            &AssetRefreshPayload {
+                story_outline: Some("【核心冲突】韩雪在首尔雨夜对峙李明".into()),
+                scene_outline: Some("韩雪举枪，李明停在雨里不敢先动。".into()),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        assert!(summary.contains("已按正文重写"));
+        assert!(summary.contains("纸面未改"));
+        assert!(summary.contains("【故事大纲】"));
+        assert!(summary.contains("韩雪在首尔雨夜对峙李明"));
+        assert!(summary.contains("【场景大纲】"));
+        assert!(summary.contains("举枪"));
+    }
+
+    #[test]
+    fn refresh_prompt_asks_for_next_beat_not_opening_recap() {
+        let (system, user) = build_refresh_prompts(
+            &[
+                AssetRefreshTarget::StoryOutline,
+                AssetRefreshTarget::SceneOutline,
+            ],
+            "韩雪在首尔雨夜把枪口对准李明。",
+            "根据正文内容重新写后续的故事大纲，同时生成场景大纲",
+        );
+        assert!(system.contains("下一步") || system.contains("接下来"));
+        assert!(system.contains("禁止复述") || user.contains("禁止复述"));
+        assert!(user.contains("后续"));
     }
 
     #[test]
@@ -1374,6 +1465,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(scene.outline_content.unwrap_or_default().contains("举枪"));
+        let report = result.final_content.unwrap_or_default();
+        assert!(report.contains("【故事大纲】"));
+        assert!(report.contains("【场景大纲】"));
+        assert!(report.contains("纸面未改"));
     }
 
     #[tokio::test]

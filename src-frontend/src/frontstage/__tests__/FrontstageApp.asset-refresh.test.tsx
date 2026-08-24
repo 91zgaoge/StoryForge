@@ -192,7 +192,7 @@ describe('v0.53.0: 按正文重写设定（result_kind=asset_refresh）', () => 
     mockSmartExecute.mockResolvedValue({
       success: true,
       steps_completed: 1,
-      final_content: '已按正文重写故事大纲',
+      final_content: '已按正文重写故事大纲。纸面未改。\n\n【故事大纲】\n韩雪在首尔雨夜对峙李明',
       messages: ['设定已按正文更新'],
       error: null,
       result_kind: 'asset_refresh',
@@ -209,10 +209,13 @@ describe('v0.53.0: 按正文重写设定（result_kind=asset_refresh）', () => 
     await userEvent.keyboard('{Enter}');
 
     await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled());
-    await screen.findByText(/已按正文重写故事大纲/);
+    await screen.findByText('已按正文重写设定');
+    await screen.findByText(/【故事大纲】/);
+    await screen.findByText(/韩雪在首尔雨夜对峙李明/);
 
     expect(captured.content).toContain('空气是粘稠的');
     expect(captured.content).not.toContain('已按正文重写故事大纲');
+    expect(captured.content).not.toContain('韩雪在首尔雨夜对峙李明');
     expect(captured.generatedText).toBe('');
   });
 });

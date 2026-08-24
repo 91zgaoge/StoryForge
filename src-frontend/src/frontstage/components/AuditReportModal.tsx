@@ -13,9 +13,15 @@ export interface AuditReportModalProps {
   isOpen: boolean;
   report: string;
   onClose: () => void;
+  title?: string;
 }
 
-export const AuditReportModal: React.FC<AuditReportModalProps> = ({ isOpen, report, onClose }) => {
+export const AuditReportModal: React.FC<AuditReportModalProps> = ({
+  isOpen,
+  report,
+  onClose,
+  title = '审计报告',
+}) => {
   if (!isOpen) return null;
 
   return (
@@ -50,7 +56,7 @@ export const AuditReportModal: React.FC<AuditReportModalProps> = ({ isOpen, repo
             <ClipboardCheck size={20} color="var(--accent, #5b8c5a)" />
           </div>
           <h3 className="text-lg font-bold" style={{ color: 'var(--charcoal, #2c2c2c)' }}>
-            审计报告
+            {title}
           </h3>
         </div>
 

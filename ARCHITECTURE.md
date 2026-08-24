@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.53.2 架构文档
+# StoryMoss (草苔) v0.53.3 架构文档
 
+> **v0.53.3**：`summarize` 把落库大纲正文带回 `final_content`；幕前 `result_kind=asset_refresh` 弹「已按正文重写设定」，仍不 `appendAiContent`。`build_refresh_prompts` 对「后续」要求从章末下一拍写，禁止复述开场。v0.53.2 键值散文解析不变量不变。
+>
 > **v0.53.2**：`parse_refresh_payload` 在 JSON 失败后解析无花括号键值散文（`story_outline:` / `scene_outline：`）。salvage 覆盖仅场景大纲。`looks_like_asset_refresh_shape` 认「重新生成」且须点名资产。v0.53.1 对象大纲不变量不变。
 >
 > **v0.53.1**：`parse_refresh_payload` 不再要求 `story_outline` 为字符串。对象走 `normalize_outline`；中文键别名；仅故事大纲时散文 salvage。解析失败打 warn 预览。v0.53.0 路由与纸面只读不变量不变。

@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.53.2
+- **版本**: v0.53.3
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1512 passed / 2 ignored（+7 键值散文/场景大纲 salvage）
+- `cargo test -p storymoss` ✅ 1515 passed / 2 ignored（+3 幕前大纲预览 / 后续指令）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 597 passed / 3 skipped（+1）
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.53.3 - 按正文重写大纲在幕前弹出落库预览
+
+真机「根据正文内容重新写后续的故事大纲，同时生成场景大纲」已写库，幕前只闪 toast。现把大纲正文弹「已按正文重写设定」；后续指令从章末往下写。
+
+- **验证**：`cargo test --lib` 1515 passed / 2 ignored（+3）；`npx vitest run` 597 passed / 3 skipped。
+- **契约**：`persist_summary_includes_written_outline_text`；`parse_targets_subsequent_story_and_generate_scene`；`refresh_prompt_asks_for_next_beat_not_opening_recap`；幕前弹窗含【故事大纲】/【场景大纲】，纸面不变。
+- **未关闭**：须用原句再跑真机看弹窗；不得宣称续写质量已修复。
 
 ### v0.53.2 - 键值散文与场景大纲也能按正文重写
 
@@ -1080,7 +1088,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-23 - v0.53.2_
+_最后更新: 2026-08-24 - v0.53.3_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

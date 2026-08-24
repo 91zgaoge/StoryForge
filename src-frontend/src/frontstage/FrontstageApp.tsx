@@ -1543,6 +1543,8 @@ const FrontstageApp: React.FC = () => {
   const keepGeneratingForActiveRunRef = useRef(false);
   // v0.31.x: 智能输入审计意图的报告内容（result_kind='audit_report'），弹窗展示而非追加手稿
   const [auditReport, setAuditReport] = useState<string | null>(null);
+  // v0.53.3: 按正文重写设定的落库预览（result_kind='asset_refresh'），弹窗展示而非追加手稿
+  const [assetRefreshReport, setAssetRefreshReport] = useState<string | null>(null);
 
   // A4-1.7: 根据生成开始时间计算已用秒数
   const getElapsedSeconds = useCallback(() => {
@@ -3586,7 +3588,7 @@ const FrontstageApp: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['world_building', sid] });
             queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
           }
-          toast.success(result.final_content ?? '已按正文重写设定');
+          setAssetRefreshReport(result.final_content ?? '已按正文重写设定。纸面未改。');
           return;
         }
 
@@ -4613,7 +4615,7 @@ const FrontstageApp: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
           }
           preserveStatusAfterExecuteRef.current = true;
-          toast.success(result.final_content ?? '已按正文重写设定');
+          setAssetRefreshReport(result.final_content ?? '已按正文重写设定。纸面未改。');
           return;
         }
 
@@ -5670,6 +5672,12 @@ const FrontstageApp: React.FC = () => {
         isOpen={auditReport !== null}
         report={auditReport ?? ''}
         onClose={() => setAuditReport(null)}
+      />
+      <AuditReportModal
+        isOpen={assetRefreshReport !== null}
+        title="已按正文重写设定"
+        report={assetRefreshReport ?? ''}
+        onClose={() => setAssetRefreshReport(null)}
       />
     </>
   );
