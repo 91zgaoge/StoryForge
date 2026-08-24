@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.53.3
+- **版本**: v0.53.4
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1515 passed / 2 ignored（+3 幕前大纲预览 / 后续指令）
+- `cargo test -p storymoss` ✅ 1517 passed / 2 ignored（+2 「写后续的大纲」不进续写）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 597 passed / 3 skipped（+1）
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.53.4 - 「写后续的故事大纲」不再进续写正文
+
+真机该句走 Agency Append。形状检测曾要求「正文」；现写/生成的宾语是大纲即覆盖续写兜底。
+
+- **验证**：`cargo test --lib` 1517 passed / 2 ignored（+2）。
+- **契约**：`looks_like_write_subsequent_outlines_without_prose_keyword`；`write_subsequent_outlines_is_not_append_continue`。
+- **未关闭**：须用原句再跑真机；不得宣称续写质量已修复。
 
 ### v0.53.3 - 按正文重写大纲在幕前弹出落库预览
 
@@ -1088,7 +1096,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-24 - v0.53.3_
+_最后更新: 2026-08-24 - v0.53.4_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

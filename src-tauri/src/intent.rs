@@ -526,7 +526,7 @@ JSON Schema:
 判定规则：
 - is_new_novel: 用户想从头创作一部新小说。"写一部/写一本/创作一部/新开一部"等创世表达均为 true。续写/改写/分析/闲聊均为 false。
   注意：判断依据是用户输入本身的表达，与是否已有故事无关。即使已有故事，用户仍可创建新小说。
-- is_continuation: 用户想接着已有内容往下写（续写/继续/接着写）。
+- is_continuation: 用户想接着已有内容往下写正文（续写/继续/接着写）。写后续的故事大纲/场景大纲不是续写。
 - task_type: continuation（续写正文）/ rewrite（改写润色已有文本）/ genesis（创世/新小说/新场景）/ audit（检查/质检/分析）/ asset_refresh（按已有正文重写大纲/角色/世界观/场景大纲，不写正文）
 - is_prose: 用户想生成小说正文（续写/创作首章），而非大纲/风格/分析。prose 请求必须用 writer。按正文重写设定 is_prose=false。
 - input_clarity: vague（仅题材或笼统）/ with_seed（含部分角色或冲突）/ with_full_concept（角色+冲突+目标齐全）
@@ -539,6 +539,7 @@ JSON Schema:
 - "继续写" -> is_new_novel=false, is_continuation=true, task_type=continuation, is_prose=true
 - "把这段改得更生动" -> is_new_novel=false, task_type=rewrite, is_prose=false
 - "将故事大纲按照现有正文重新写过" -> is_new_novel=false, is_continuation=false, task_type=asset_refresh, is_prose=false
+- "写后续的故事大纲，同时生成后续的场景大纲" -> is_new_novel=false, is_continuation=false, task_type=asset_refresh, is_prose=false
 
 仅输出 JSON：
 {{"is_new_novel":bool,"is_continuation":bool,"task_type":"continuation|rewrite|genesis|audit|asset_refresh","is_prose":bool,"input_clarity":"vague|with_seed|with_full_concept","detected_genre":string|null,"confidence":0.0}}"#,
@@ -1215,6 +1216,33 @@ mod tests {
         assert!(!c.is_continuation);
         assert!(!c.is_prose_request);
         assert_eq!(c.task_type, AssetTaskType::AssetRefresh);
+    }
+
+    #[test]
+    fn write_subsequent_outlines_is_not_append_continue() {
+        let input = "写后续的故事大纲，同时生成后续的场景大纲";
+        let mut c = WritingIntentClassification {
+            is_continuation: true,
+            is_prose_request: true,
+            task_type: AssetTaskType::Continuation,
+            ..WritingIntentClassification::conservative_fallback()
+        };
+        apply_asset_refresh_override(&mut c, input);
+        assert!(!c.is_continuation);
+        assert!(!c.is_prose_request);
+        assert_eq!(c.task_type, AssetTaskType::AssetRefresh);
+        assert!(!crate::agency::persist::should_agency_append_continue(
+            c.is_continuation,
+            None
+        ));
+        let fallback = WritingIntentClassification::conservative_fallback_with_input(input, true);
+        assert_eq!(fallback.task_type, AssetTaskType::AssetRefresh);
+        assert!(!fallback.is_continuation);
+        let prompt = IntentParser::build_classification_prompt(input, true, true);
+        assert!(
+            prompt.contains("写后续的故事大纲，同时生成后续的场景大纲"),
+            "分类提示须含本句正例，避免 LLM 把写大纲当成续写正文"
+        );
     }
 
     #[test]

@@ -48,29 +48,72 @@ const ALL_TARGETS: [AssetRefreshTarget; 4] = [
     AssetRefreshTarget::SceneOutline,
 ];
 
-/// 「按正文重写设定」形状：必须同时点名正文与重写，才覆盖续写兜底。
-/// 「重新生成」须再点名大纲/角色/世界观，
-/// 避免「根据正文重新生成下一章」误进本作业。
+/// 「按正文重写设定」形状：必须能盖掉续写兜底。
+/// 点名正文 +（重写/刷新），或「重新生成」且点名大纲/角色/世界观。
+/// 写/生成的宾语是大纲时同样成立（「写后续的故事大纲」），不要求出现「正文」。
+/// 「根据正文重新生成下一章」「按照故事大纲写后续」「写后续」不进本作业。
 pub fn looks_like_asset_refresh_shape(input: &str) -> bool {
     let from_prose = input.contains("正文") || input.contains("已写章节");
-    if !from_prose {
-        return false;
-    }
     let classic = input.contains("重新写") || input.contains("重写") || input.contains("刷新");
     let regen = input.contains("重新生成") || input.contains("再生成");
-    if classic {
+    if from_prose && classic {
         return true;
     }
-    if regen {
-        return input.contains("大纲")
-            || input.contains("角色")
-            || input.contains("人物")
-            || input.contains("人设")
-            || input.contains("世界观")
-            || input.contains("设定")
-            || input.contains("资产");
+    if from_prose && regen {
+        return names_refreshable_asset(input);
+    }
+    writes_named_outline_object(input)
+}
+
+fn names_refreshable_asset(input: &str) -> bool {
+    input.contains("大纲")
+        || input.contains("角色")
+        || input.contains("人物")
+        || input.contains("人设")
+        || input.contains("世界观")
+        || input.contains("设定")
+        || input.contains("资产")
+}
+
+/// 动词宾语是大纲：`写后续的故事大纲` / `生成后续的场景大纲`。
+/// `按照故事大纲写后续` 的宾语是「后续」，不是大纲。
+fn writes_named_outline_object(input: &str) -> bool {
+    if input.contains("写一部")
+        || input.contains("写一本")
+        || input.contains("写一篇")
+        || input.contains("创作一部")
+        || input.contains("新开一部")
+    {
+        return false;
+    }
+    const VERBS: &[&str] = &["重新生成", "再生成", "重新写", "重写", "生成", "刷新", "写"];
+    for verb in VERBS {
+        let mut rest = input;
+        while let Some(i) = rest.find(verb) {
+            let after = &rest[i + verb.len()..];
+            if outline_is_verb_object(after) {
+                return true;
+            }
+            rest = &rest[i + verb.len()..];
+        }
     }
     false
+}
+
+fn outline_is_verb_object(after: &str) -> bool {
+    let chunk = after
+        .split(|c: char| matches!(c, '，' | '。' | '；' | '、' | ',' | ';' | '\n'))
+        .next()
+        .unwrap_or(after);
+    let Some(o) = chunk.find("大纲") else {
+        return false;
+    };
+    if let Some(c) = chunk.find("章") {
+        if c < o {
+            return false;
+        }
+    }
+    true
 }
 
 pub fn allow_overwrite_manual(input: &str) -> bool {
@@ -1000,6 +1043,20 @@ mod tests {
             "根据正文内容重新生成故事大纲和场景大纲"
         ));
         assert!(!looks_like_asset_refresh_shape("根据正文重新生成下一章"));
+    }
+
+    #[test]
+    fn looks_like_write_subsequent_outlines_without_prose_keyword() {
+        // 真机 2026-08-24：缺「正文/重新写」被当成续写进 Agency Append。
+        let input = "写后续的故事大纲，同时生成后续的场景大纲";
+        assert!(looks_like_asset_refresh_shape(input));
+        let t = parse_asset_refresh_targets(input);
+        assert!(t.contains(&AssetRefreshTarget::StoryOutline));
+        assert!(t.contains(&AssetRefreshTarget::SceneOutline));
+        assert!(!looks_like_asset_refresh_shape("写后续"));
+        assert!(!looks_like_asset_refresh_shape("按照故事大纲写后续"));
+        assert!(!looks_like_asset_refresh_shape("按照故事大纲继续写"));
+        assert!(!looks_like_asset_refresh_shape("写一部科幻小说"));
     }
 
     #[test]
