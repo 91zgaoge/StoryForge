@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.53.6 项目完成状态
+# StoryMoss (草苔) v0.54.0 项目完成状态
 
-> 最后更新: 2026-08-25（v0.53.6 大婚礼成不重演行刺）
+> 最后更新: 2026-08-25（v0.54.0 Agency ToolLoop 原生 function calling）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.54.0 - Agency ToolLoop 原生 function calling（2026-08-25）
+
+- 角色白名单以 JSON Schema 发给模型；原生 `tool_calls` 优先，文本 JSON 回退。
+- 续写 `write_beat_once` 不带 tools。
+- **验证**：`cargo test --lib` 1542 passed / 2 ignored（+16）。
+- **未关闭**：真机创世/资产路径；不得宣称 JSON 熔断或续写质量已修复。第二至四期未做。
 
 ### v0.53.6 - 已写完的行刺不再被续写重演（2026-08-25）
 

@@ -2,6 +2,21 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.54.0（2026-08-25）
+
+Agency ToolLoop 改为原生 function calling：把当前角色白名单工具以 JSON Schema 发给模型，优先执行 `tool_calls`；本地模型仍可走文本 JSON action。续写主创保持单次 `complete()`，请求体不带 `tools`。
+
+### 变更
+
+- `GenerateRequest.tools` / `GenerateResponse.tool_calls`；OpenAI chat、Ollama `/api/chat`、Anthropic messages 发原生 tools。
+- `ToolLoop::run` → `complete_turn` → `resolve_loop_action`（原生优先）。
+- 续写 `assemble_continue_beat` / `write_beat_once` 不带 Tools 层。
+
+### 测试
+
+- `cargo test --lib` 1542 passed / 2 ignored（+16）。
+- `npx vitest run` 602 passed / 3 skipped。
+
 ## v0.53.6（2026-08-25）
 
 大婚礼成已写完刺杀与死亡后，续写不再倒回去重演同一场面。死人不再当本拍行动阵容；已完成的行刺不再当下一拍；探针拦截把已死者再刺一次。

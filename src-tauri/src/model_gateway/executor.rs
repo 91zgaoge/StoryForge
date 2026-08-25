@@ -1217,6 +1217,7 @@ impl<R: Runtime> GatewayExecutor<R> {
                     let response_format = request.response_format;
                     let system_prompt = request.system_prompt.clone();
                     let trace_id = trace_id_for_retry.clone();
+                    let tools = request.tools.clone();
                     async move {
                         let (_, result) = service
                             .generate_with_profile_and_request_id_with_format(
@@ -1231,6 +1232,7 @@ impl<R: Runtime> GatewayExecutor<R> {
                                 response_format,
                                 system_prompt,
                                 trace_id,
+                                tools,
                             )
                             .await;
                         result
@@ -1530,6 +1532,7 @@ impl<R: Runtime> LlmPort for GatewayExecutor<R> {
             system_prompt: request.system_prompt,
             model_role: request.model_role,
             trace_id: request.trace_id,
+            tools: request.tools,
         };
         self.generate(gateway_request).await
     }

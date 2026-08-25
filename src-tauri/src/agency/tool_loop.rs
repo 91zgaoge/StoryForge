@@ -8,9 +8,17 @@ use crate::{
         tools::{ToolContext, ToolRegistry},
     },
     error::AppError,
+    llm::adapter::{ToolCall, ToolSpec},
     prompts::assembly::assemble_tool_loop_head,
     router::TaskType,
 };
+
+/// 一轮 LLM 产出：正文 + 可选原生 tool_calls。
+#[derive(Debug, Clone)]
+pub struct LlmTurn {
+    pub content: String,
+    pub tool_calls: Vec<ToolCall>,
+}
 
 /// 工具循环所需的极简 LLM 抽象（可 mock）。
 /// 生产实现见 coordinator.rs 的 AgencyLlm。
@@ -65,6 +73,44 @@ pub trait LoopLlm: Send + Sync {
             .await
             .map(|s| (s, 0, 0.0))
     }
+
+    /// 带原生 tools 的一轮。默认走 complete_turn_metered。
+    async fn complete_turn(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+        tools: Option<&[ToolSpec]>,
+    ) -> Result<LlmTurn, AppError> {
+        let (turn, _tokens, _cost) = self
+            .complete_turn_metered(system_prompt, user_prompt, task, max_tokens, tools)
+            .await?;
+        Ok(turn)
+    }
+
+    /// 带计量的原生 tools 一轮。默认忽略 tools、走 complete()，既有 mock
+    /// 零改动。
+    async fn complete_turn_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+        _tools: Option<&[ToolSpec]>,
+    ) -> Result<(LlmTurn, i32, f64), AppError> {
+        let content = self
+            .complete(system_prompt, user_prompt, task, max_tokens)
+            .await?;
+        Ok((
+            LlmTurn {
+                content,
+                tool_calls: Vec::new(),
+            },
+            0,
+            0.0,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,6 +124,28 @@ pub enum LoopAction {
     Final {
         content: String,
     },
+}
+
+/// 原生 tool_calls 优先；否则走文本 JSON action（本地模型回退）。
+pub fn resolve_loop_action(
+    content: &str,
+    tool_calls: &[ToolCall],
+) -> Result<(LoopAction, Option<&'static str>), AppError> {
+    if let Some(first) = tool_calls.first() {
+        let hint = if tool_calls.len() > 1 {
+            Some(MULTI_ACTION_HINT)
+        } else {
+            None
+        };
+        return Ok((
+            LoopAction::Tool {
+                name: first.name.clone(),
+                args: first.arguments.clone(),
+            },
+            hint,
+        ));
+    }
+    parse_action_full(content)
 }
 
 /// 多 action 数组截断提示：模型一次输出多个 action 时只执行第一个，
@@ -318,16 +386,19 @@ impl ToolLoop {
                 }
             }
             let conversation = truncate_conversation(&head, &tail, ctx.max_context_chars());
-            let raw = self
+            let specs = self.registry.tool_specs_for_role(role);
+            let turn = self
                 .llm
-                .complete(
+                .complete_turn(
                     system_prompt,
                     &conversation,
                     ctx.task_type(),
                     ctx.max_output_tokens(),
+                    Some(&specs),
                 )
                 .await?;
-            match parse_action_full(&raw) {
+            let raw = turn.content;
+            match resolve_loop_action(&raw, &turn.tool_calls) {
                 Ok((LoopAction::Final { content }, _)) => {
                     turns.push(LoopTurn {
                         raw_response: truncate_raw(&raw),
@@ -807,6 +878,117 @@ mod tests {
             .unwrap();
         assert!(result.aborted);
         assert_eq!(result.abort_reason, Some(LoopAbortReason::ParseFailures));
+    }
+
+    #[test]
+    fn native_tool_calls_preferred_over_text_json() {
+        let calls = vec![crate::llm::adapter::ToolCall {
+            id: "call_1".into(),
+            name: "board_read".into(),
+            arguments: serde_json::json!({"zone": "asset"}),
+        }];
+        let (action, hint) =
+            resolve_loop_action(r#"{"type":"final","content":"不该走这段"}"#, &calls).unwrap();
+        assert_eq!(
+            action,
+            LoopAction::Tool {
+                name: "board_read".into(),
+                args: serde_json::json!({"zone": "asset"}),
+            }
+        );
+        assert!(hint.is_none());
+    }
+
+    #[test]
+    fn text_json_action_still_parses_when_tool_calls_empty() {
+        let (action, _) = resolve_loop_action(r#"{"type":"final","content":"完成"}"#, &[]).unwrap();
+        assert_eq!(
+            action,
+            LoopAction::Final {
+                content: "完成".into()
+            }
+        );
+    }
+
+    #[test]
+    fn multiple_native_tool_calls_take_first_with_hint() {
+        let calls = vec![
+            crate::llm::adapter::ToolCall {
+                id: "a".into(),
+                name: "board_read".into(),
+                arguments: serde_json::json!({}),
+            },
+            crate::llm::adapter::ToolCall {
+                id: "b".into(),
+                name: "story_info".into(),
+                arguments: serde_json::json!({}),
+            },
+        ];
+        let (action, hint) = resolve_loop_action("", &calls).unwrap();
+        assert_eq!(
+            action,
+            LoopAction::Tool {
+                name: "board_read".into(),
+                args: serde_json::json!({}),
+            }
+        );
+        assert_eq!(hint, Some(MULTI_ACTION_HINT));
+    }
+
+    struct NativeToolMock;
+
+    #[async_trait::async_trait]
+    impl LoopLlm for NativeToolMock {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: TaskType,
+            _m: i32,
+        ) -> Result<String, AppError> {
+            Ok(String::new())
+        }
+
+        async fn complete_turn(
+            &self,
+            _s: &str,
+            _u: &str,
+            _t: TaskType,
+            _m: i32,
+            tools: Option<&[crate::llm::adapter::ToolSpec]>,
+        ) -> Result<LlmTurn, AppError> {
+            assert!(
+                tools.map(|t| !t.is_empty()).unwrap_or(false),
+                "ToolLoop 必须把角色工具集传给 complete_turn"
+            );
+            Ok(LlmTurn {
+                content: String::new(),
+                tool_calls: vec![crate::llm::adapter::ToolCall {
+                    id: "n1".into(),
+                    name: "story_info".into(),
+                    arguments: serde_json::json!({}),
+                }],
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_tool_call_executes_without_text_json() {
+        let (ctx, registry) = setup();
+        let lp = ToolLoop::new(Arc::new(NativeToolMock), registry).with_max_turns(1);
+        let result = lp
+            .run(AgentRole::Producer, &ctx, "系统", "任务")
+            .await
+            .unwrap();
+        assert_eq!(result.turns.len(), 1);
+        match &result.turns[0].action {
+            Some(LoopAction::Tool { name, .. }) => assert_eq!(name, "story_info"),
+            other => panic!("expected native tool, got {other:?}"),
+        }
+        assert!(result.turns[0]
+            .observation
+            .as_ref()
+            .is_some_and(|o| !o.contains("格式错误")));
     }
 
     /// v0.30.4: 正常 final 完成 -> aborted=false + abort_reason=None。

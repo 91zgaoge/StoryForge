@@ -86,6 +86,7 @@ impl LlmPort for FakeLlmPort {
             model: "fake".to_string(),
             tokens_used: 0,
             cost: 0.0,
+            tool_calls: vec![],
         })
     }
 

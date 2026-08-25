@@ -122,6 +122,31 @@ impl ToolRegistry {
         self.tools.get(name).cloned()
     }
 
+    /// 当前角色白名单的原生 ToolSpec（JSON Schema parameters）。
+    pub fn tool_specs_for_role(&self, role: AgentRole) -> Vec<crate::llm::adapter::ToolSpec> {
+        use crate::llm::adapter::{informal_args_to_json_schema, ToolSpec};
+        let mut out = Vec::new();
+        if let Some(allowed) = self.whitelists.get(&role) {
+            let mut names: Vec<&String> = allowed.iter().collect();
+            names.sort();
+            for name in names {
+                if let Some(tool) = self.tools.get(name) {
+                    let mut description = tool.description().to_string();
+                    if let Some(usage) = tool.usage_guidance() {
+                        description.push(' ');
+                        description.push_str(usage);
+                    }
+                    out.push(ToolSpec {
+                        name: tool.name().to_string(),
+                        description,
+                        parameters: informal_args_to_json_schema(&tool.args_schema()),
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// 注入系统提示词的工具目录（名称 + 描述 + 参数 schema）。
     pub fn catalog_for_role(&self, role: AgentRole) -> String {
         let mut out = String::from("可用工具（JSON action 调用）：\n");
@@ -1102,6 +1127,19 @@ mod tests {
         assert!(registry
             .get_for_role(AgentRole::EditorAuditor, "board_revise")
             .is_none());
+    }
+
+    #[test]
+    fn tool_specs_for_role_producer_is_json_schema() {
+        let registry = ToolRegistry::agency_default();
+        let specs = registry.tool_specs_for_role(AgentRole::Producer);
+        assert!(!specs.is_empty());
+        for spec in &specs {
+            assert_eq!(spec.parameters["type"], "object");
+            assert!(spec.parameters.get("properties").is_some());
+        }
+        assert!(specs.iter().any(|s| s.name == "board_read"));
+        assert!(specs.iter().any(|s| s.name == "story_info"));
     }
 
     #[test]

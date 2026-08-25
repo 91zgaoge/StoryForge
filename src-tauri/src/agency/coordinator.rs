@@ -18,7 +18,7 @@ use crate::{
         persist::PersistMode,
         repository::AgencyRepository,
         roles::spec_for,
-        tool_loop::{LoopLlm, ToolLoop},
+        tool_loop::{LlmTurn, LoopLlm, ToolLoop},
         tools::{ToolContext, ToolRegistry},
     },
     db::{
@@ -270,8 +270,10 @@ impl LoopLlm for AgencyLlm {
             task,
             max_tokens,
             Some(crate::llm::adapter::ResponseFormat::JsonObject),
+            None,
         )
         .await
+        .map(|(content, tokens, cost, _)| (content, tokens, cost))
     }
 
     async fn complete_metered(
@@ -281,8 +283,31 @@ impl LoopLlm for AgencyLlm {
         task: TaskType,
         max_tokens: i32,
     ) -> Result<(String, i32, f64), AppError> {
-        self.complete_metered_with_format(system_prompt, user_prompt, task, max_tokens, None)
+        self.complete_metered_with_format(system_prompt, user_prompt, task, max_tokens, None, None)
             .await
+            .map(|(content, tokens, cost, _)| (content, tokens, cost))
+    }
+
+    async fn complete_turn_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+        tools: Option<&[crate::llm::adapter::ToolSpec]>,
+    ) -> Result<(LlmTurn, i32, f64), AppError> {
+        let tools = tools.filter(|s| !s.is_empty()).map(|s| s.to_vec());
+        let (content, tokens, cost, tool_calls) = self
+            .complete_metered_with_format(system_prompt, user_prompt, task, max_tokens, None, tools)
+            .await?;
+        Ok((
+            LlmTurn {
+                content,
+                tool_calls,
+            },
+            tokens,
+            cost,
+        ))
     }
 }
 
@@ -294,7 +319,8 @@ impl AgencyLlm {
         task: TaskType,
         max_tokens: i32,
         response_format: Option<crate::llm::adapter::ResponseFormat>,
-    ) -> Result<(String, i32, f64), AppError> {
+        tools: Option<Vec<crate::llm::adapter::ToolSpec>>,
+    ) -> Result<(String, i32, f64, Vec<crate::llm::adapter::ToolCall>), AppError> {
         let request_id = uuid::Uuid::new_v4().to_string();
         // RAII 注册：abort/drop 路径也会摘除（取代手动 register/unregister）
         let _guard = RequestGuard::new(&self.run_id, &request_id);
@@ -327,6 +353,7 @@ impl AgencyLlm {
                 response_format,
                 Some(system_prompt.to_string()),
                 None,
+                tools,
             )
             .await;
         // llm_call 观察埋点（best-effort，仅成功路径；story_id 未知时跳过——
@@ -334,7 +361,7 @@ impl AgencyLlm {
         if let Ok(r) = &result {
             self.log_llm_call(&context_label, r, task);
         }
-        result.map(|r| (r.content, r.tokens_used, r.cost))
+        result.map(|r| (r.content, r.tokens_used, r.cost, r.tool_calls))
     }
 }
 

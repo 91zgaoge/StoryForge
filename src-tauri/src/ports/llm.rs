@@ -119,6 +119,8 @@ pub struct LlmPortRequest {
     pub model_role: Option<ModelRole>,
     /// 生成链路 trace_id
     pub trace_id: Option<String>,
+    /// v0.54.0: 原生 function calling。None 时适配器请求体不带 tools。
+    pub tools: Option<Vec<crate::llm::adapter::ToolSpec>>,
 }
 
 /// v0.30.2: 模型网关端口 —— `GatewayExecutor` 实现此 trait，

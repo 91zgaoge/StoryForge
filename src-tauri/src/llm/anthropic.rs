@@ -3,7 +3,10 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{GenerateRequest, GenerateResponse, LlmAdapter};
+use super::{
+    anthropic_tools_payload, extract_anthropic_tool_use, GenerateRequest, GenerateResponse,
+    LlmAdapter,
+};
 
 #[derive(Clone)]
 pub struct AnthropicAdapter {
@@ -29,6 +32,8 @@ struct AnthropicRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,16 +44,9 @@ struct AnthropicMessage {
 
 #[derive(Debug, Deserialize)]
 struct AnthropicResponse {
-    content: Vec<AnthropicContent>,
+    content: serde_json::Value,
     model: String,
     usage: AnthropicUsage,
-}
-
-#[derive(Debug, Deserialize)]
-struct AnthropicContent {
-    #[serde(rename = "type")]
-    content_type: String,
-    text: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,6 +135,11 @@ impl LlmAdapter for AnthropicAdapter {
                     .to_string(),
             ),
             stream: false,
+            tools: request
+                .tools
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .map(|s| anthropic_tools_payload(s)),
         };
 
         let response = send_with_connection_timeout(
@@ -169,13 +172,19 @@ impl LlmAdapter for AnthropicAdapter {
                 .await
                 .map_err(|e| format!("deserialization task panicked: {}", e))?
                 .map_err(|e| format!("Anthropic response parse error: {}", e))?;
+        let tool_calls = extract_anthropic_tool_use(&anthropic_resp.content);
         let content = anthropic_resp
             .content
-            .into_iter()
-            .filter(|c| c.content_type == "text")
-            .map(|c| c.text)
-            .collect::<Vec<String>>()
-            .join("");
+            .as_array()
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
+                    .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
 
         let total_tokens = anthropic_resp.usage.input_tokens + anthropic_resp.usage.output_tokens;
         let cost = self.calculate_cost(
@@ -188,6 +197,7 @@ impl LlmAdapter for AnthropicAdapter {
             model: anthropic_resp.model,
             tokens_used: total_tokens,
             cost,
+            tool_calls,
         })
     }
 
@@ -216,6 +226,7 @@ impl LlmAdapter for AnthropicAdapter {
                     .to_string(),
             ),
             stream: true,
+            tools: None,
         };
 
         let response = self

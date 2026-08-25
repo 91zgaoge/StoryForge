@@ -3,7 +3,16 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{GenerateRequest, GenerateResponse, LlmAdapter};
+use super::{
+    extract_openai_tool_calls, openai_tools_payload, GenerateRequest, GenerateResponse, LlmAdapter,
+};
+
+fn deserialize_null_content<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
 
 #[derive(Clone)]
 pub struct OpenAiAdapter {
@@ -32,16 +41,22 @@ struct OpenAiRequest {
     presence_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Message {
     role: String,
+    #[serde(default, deserialize_with = "deserialize_null_content")]
     content: String,
     /// v0.30.25: DeepSeek 等推理模型把思维链放在 reasoning_content 字段，
     /// content 可能为空。serde default 确保非推理模型不受影响。
     #[serde(skip_serializing, default)]
     reasoning_content: Option<String>,
+    /// 原生 function calling；出站消息不序列化此字段。
+    #[serde(default, skip_serializing)]
+    tool_calls: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,11 +203,13 @@ impl OpenAiAdapter {
                 role: "system".to_string(),
                 content: system_content.to_string(),
                 reasoning_content: None,
+                tool_calls: None,
             },
             Message {
                 role: "user".to_string(),
                 content: prompt,
                 reasoning_content: None,
+                tool_calls: None,
             },
         ]
     }
@@ -215,6 +232,11 @@ impl LlmAdapter for OpenAiAdapter {
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
             response_format: request.response_format.as_ref().map(|f| f.openai_value()),
+            tools: request
+                .tools
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .map(|s| openai_tools_payload(s)),
         };
 
         let primary_url = format!("{}/chat/completions", self.api_base);
@@ -262,10 +284,16 @@ impl LlmAdapter for OpenAiAdapter {
                 .await
                 .map_err(|e| format!("deserialization task panicked: {}", e))?
                 .map_err(|e| format!("OpenAI response parse error: {}", e))?;
-        let content = openai_resp
-            .choices
-            .first()
+        let first = openai_resp.choices.first();
+        let content = first
             .map(|c| resolve_content(&c.message.content, &c.message.reasoning_content))
+            .unwrap_or_default();
+        let tool_calls = first
+            .map(|c| {
+                extract_openai_tool_calls(&serde_json::json!({
+                    "tool_calls": c.message.tool_calls,
+                }))
+            })
             .unwrap_or_default();
 
         let cost = self.calculate_cost(&openai_resp.model, openai_resp.usage.total_tokens);
@@ -275,6 +303,7 @@ impl LlmAdapter for OpenAiAdapter {
             model: openai_resp.model,
             tokens_used: openai_resp.usage.total_tokens,
             cost,
+            tool_calls,
         })
     }
 
@@ -433,5 +462,37 @@ mod tests {
         let msg: Message = serde_json::from_str(json).unwrap();
         assert_eq!(msg.content, "正常回答");
         assert!(msg.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn message_deserializes_null_content_with_tool_calls() {
+        use super::Message;
+        let json = r#"{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"board_read","arguments":"{\"zone\":\"asset\"}"}}]}"#;
+        let msg: Message = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.content, "");
+        assert!(msg.tool_calls.as_ref().is_some_and(|c| !c.is_empty()));
+    }
+
+    #[test]
+    fn openai_request_omits_tools_when_none() {
+        use super::{Message, OpenAiRequest};
+        let req = OpenAiRequest {
+            model: "gpt".into(),
+            messages: vec![Message {
+                role: "user".into(),
+                content: "hi".into(),
+                reasoning_content: None,
+                tool_calls: None,
+            }],
+            max_tokens: 16,
+            temperature: 0.2,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            response_format: None,
+            tools: None,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("tools").is_none());
     }
 }

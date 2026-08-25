@@ -3,7 +3,9 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{GenerateRequest, GenerateResponse, LlmAdapter};
+use super::{
+    extract_openai_tool_calls, openai_tools_payload, GenerateRequest, GenerateResponse, LlmAdapter,
+};
 
 #[derive(Clone)]
 pub struct OllamaAdapter {
@@ -44,6 +46,42 @@ struct OllamaResponse {
     done: bool,
     #[serde(default)]
     eval_count: i32,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaChatRequest {
+    model: String,
+    messages: Vec<OllamaChatMessage>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaChatResponse {
+    model: String,
+    #[serde(default)]
+    message: OllamaChatOutMessage,
+    #[serde(default)]
+    eval_count: i32,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OllamaChatOutMessage {
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    tool_calls: Option<serde_json::Value>,
 }
 
 impl OllamaAdapter {
@@ -87,6 +125,85 @@ impl OllamaAdapter {
             first_chunk_timeout,
         }
     }
+
+    async fn generate_chat(
+        &self,
+        request: GenerateRequest,
+        specs: &[crate::llm::adapter::ToolSpec],
+    ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
+        use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
+
+        let mut messages = Vec::new();
+        if let Some(sys) = request
+            .system_prompt
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            messages.push(OllamaChatMessage {
+                role: "system".to_string(),
+                content: sys.to_string(),
+            });
+        }
+        messages.push(OllamaChatMessage {
+            role: "user".to_string(),
+            content: request.prompt,
+        });
+
+        let chat_req = OllamaChatRequest {
+            model: self.model.clone(),
+            messages,
+            stream: false,
+            options: Some(OllamaOptions {
+                temperature: request.temperature.unwrap_or(self.default_temperature),
+                num_predict: request.max_tokens.unwrap_or(self.default_max_tokens),
+                top_p: request.top_p,
+            }),
+            format: request
+                .response_format
+                .as_ref()
+                .map(|f| f.ollama_value().to_string()),
+            tools: Some(openai_tools_payload(specs)),
+        };
+
+        let response = send_with_connection_timeout(
+            self.client
+                .post(format!("{}/api/chat", self.api_base))
+                .header("Content-Type", "application/json")
+                .json(&chat_req),
+            self.connect_timeout,
+        )
+        .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("Ollama API error: {}", error_text).into());
+        }
+
+        let bytes = read_body_with_generation_timeout_ex(
+            response,
+            self.generation_timeout,
+            self.first_chunk_timeout,
+        )
+        .await?;
+
+        let chat_resp: OllamaChatResponse =
+            tokio::task::spawn_blocking(move || serde_json::from_slice(&bytes))
+                .await
+                .map_err(|e| format!("deserialization task panicked: {}", e))?
+                .map_err(|e| format!("Ollama chat response parse error: {}", e))?;
+
+        let tool_calls = extract_openai_tool_calls(&serde_json::json!({
+            "tool_calls": chat_resp.message.tool_calls,
+        }));
+
+        Ok(GenerateResponse {
+            content: chat_resp.message.content,
+            model: chat_resp.model,
+            tokens_used: chat_resp.eval_count.max(0),
+            cost: 0.0,
+            tool_calls,
+        })
+    }
 }
 
 #[async_trait::async_trait]
@@ -96,6 +213,10 @@ impl LlmAdapter for OllamaAdapter {
         request: GenerateRequest,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
         use super::adapter::{read_body_with_generation_timeout_ex, send_with_connection_timeout};
+
+        if let Some(specs) = request.tools.as_ref().filter(|s| !s.is_empty()).cloned() {
+            return self.generate_chat(request, &specs).await;
+        }
 
         // v0.23.65: Ollama /api/generate 端点无 system 字段，把非空
         // system_prompt 前置拼入 prompt，使 writer_system 写作准则对
@@ -158,6 +279,7 @@ impl LlmAdapter for OllamaAdapter {
             model: ollama_resp.model,
             tokens_used: ollama_resp.eval_count.max(0),
             cost: 0.0,
+            tool_calls: vec![],
         })
     }
 

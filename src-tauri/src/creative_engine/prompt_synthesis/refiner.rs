@@ -87,6 +87,7 @@ impl PromptRefiner {
             system_prompt: None,
             model_role: None,
             trace_id: None,
+            tools: None,
         };
 
         match llm_port.generate(request).await {

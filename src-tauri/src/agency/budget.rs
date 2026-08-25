@@ -153,6 +153,23 @@ impl LoopLlm for BudgetedLlm {
         self.budget.record_usage(tokens);
         Ok(content)
     }
+
+    async fn complete_turn_metered(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        task: TaskType,
+        max_tokens: i32,
+        tools: Option<&[crate::llm::adapter::ToolSpec]>,
+    ) -> Result<(crate::agency::tool_loop::LlmTurn, i32, f64), AppError> {
+        let _permit = self.budget.acquire(self.role).await?;
+        let (turn, tokens, cost) = self
+            .inner
+            .complete_turn_metered(system_prompt, user_prompt, task, max_tokens, tools)
+            .await?;
+        self.budget.record_usage(tokens);
+        Ok((turn, tokens, cost))
+    }
 }
 
 #[cfg(test)]

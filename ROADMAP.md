@@ -1,8 +1,14 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-25（v0.53.6 大婚礼成不重演行刺）
+> 最后更新: 2026-08-25（v0.54.0 Agency ToolLoop 原生 function calling）
 
-## ✅ v0.27.x–v0.53.x 已实施完成
+## ✅ v0.27.x–v0.54.x 已实施完成
+
+### ✨ v0.54.0 - Agency ToolLoop 原生 function calling ✅ (2026-08-25)
+
+- [x] ToolLoop 发角色白名单 JSON Schema；原生 `tool_calls` 优先，文本 JSON 回退。
+- [x] 续写 `write_beat_once` / `assemble_continue_beat` 不带 tools。
+- **未关闭**：真机创世/资产路径；不得宣称 JSON 熔断或续写质量已修复。第二至四期（半卡 / 冻结节拍卡 / 续写对错范例）未做。
 
 ### ✨ v0.53.6 - 已写完的行刺/死亡不再被续写重演 ✅ (2026-08-25)
 

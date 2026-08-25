@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.53.6-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.54.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.54.0 · 创世与管理 Agent 改走原生工具调用
+
+幕后创世、补资产时，管理/编辑 Agent 可以把工具直接交给模型调用，不再只靠正文里写 JSON。点续写仍只写正文，不带这套工具。请升级到 0.54.0 并重启后再试创世或补资产。这不是续写质量修复，也不能当成「JSON 熔断已经修好」。
 
 ### v0.53.6 · 大婚行刺写完后，续写不再把刺杀重演一遍
 

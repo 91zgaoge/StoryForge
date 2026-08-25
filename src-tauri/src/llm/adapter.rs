@@ -121,6 +121,131 @@ impl ResponseFormat {
     }
 }
 
+/// 发给模型的原生工具定义（OpenAI/Ollama function calling / Anthropic tools）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema object（`{"type":"object","properties":...}`）。
+    pub parameters: serde_json::Value,
+}
+
+/// 模型返回的一次原生工具调用。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// Agency `args_schema` 是「字段→中文说明」对象，不是 JSON Schema。
+/// 已是 `{"type":"object",...}` 则原样返回。
+pub fn informal_args_to_json_schema(args: &serde_json::Value) -> serde_json::Value {
+    if args.get("type").and_then(|v| v.as_str()) == Some("object") {
+        return args.clone();
+    }
+    let mut properties = serde_json::Map::new();
+    if let Some(obj) = args.as_object() {
+        for (key, value) in obj {
+            let description = value.as_str().unwrap_or("").to_string();
+            properties.insert(
+                key.clone(),
+                serde_json::json!({
+                    "type": "string",
+                    "description": description,
+                }),
+            );
+        }
+    }
+    serde_json::json!({
+        "type": "object",
+        "properties": properties,
+    })
+}
+
+/// OpenAI / Ollama chat `tools` 数组。
+pub fn openai_tools_payload(specs: &[ToolSpec]) -> Vec<serde_json::Value> {
+    specs
+        .iter()
+        .map(|spec| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.parameters,
+                }
+            })
+        })
+        .collect()
+}
+
+/// Anthropic messages `tools` 数组（`input_schema` 而非 `parameters`）。
+pub fn anthropic_tools_payload(specs: &[ToolSpec]) -> Vec<serde_json::Value> {
+    specs
+        .iter()
+        .map(|spec| {
+            serde_json::json!({
+                "name": spec.name,
+                "description": spec.description,
+                "input_schema": spec.parameters,
+            })
+        })
+        .collect()
+}
+
+/// 从 OpenAI-compatible assistant message JSON 抽出 tool_calls。
+pub fn extract_openai_tool_calls(message: &serde_json::Value) -> Vec<ToolCall> {
+    let Some(calls) = message.get("tool_calls").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    calls
+        .iter()
+        .filter_map(|call| {
+            let id = call
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let function = call.get("function")?;
+            let name = function.get("name")?.as_str()?.to_string();
+            let arguments = match function.get("arguments") {
+                Some(serde_json::Value::String(s)) => {
+                    serde_json::from_str(s).unwrap_or(serde_json::json!({}))
+                }
+                Some(other) => other.clone(),
+                None => serde_json::json!({}),
+            };
+            Some(ToolCall {
+                id,
+                name,
+                arguments,
+            })
+        })
+        .collect()
+}
+
+/// 从 Anthropic `content` 数组抽出 `tool_use` 块。
+pub fn extract_anthropic_tool_use(blocks: &serde_json::Value) -> Vec<ToolCall> {
+    let Some(items) = blocks.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
+        .filter_map(|block| {
+            Some(ToolCall {
+                id: block.get("id")?.as_str()?.to_string(),
+                name: block.get("name")?.as_str()?.to_string(),
+                arguments: block
+                    .get("input")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GenerateRequest {
     pub prompt: String,
@@ -144,6 +269,9 @@ pub struct GenerateRequest {
     /// v0.26.0: 生成链路 trace_id，透传到进度事件与 trace 存储
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub trace_id: Option<String>,
+    /// v0.54.0: 原生 function calling。None 时请求体不带 tools 字段。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tools: Option<Vec<ToolSpec>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +280,9 @@ pub struct GenerateResponse {
     pub model: String,
     pub tokens_used: i32,
     pub cost: f64,
+    /// v0.54.0: 原生工具调用。文本 JSON action 路径保持为空。
+    #[serde(default)]
+    pub tool_calls: Vec<ToolCall>,
 }
 
 #[async_trait::async_trait]
@@ -173,4 +304,118 @@ pub trait LlmAdapter: Send + Sync {
 
     /// 克隆自身为新的 Box<dyn LlmAdapter>，用于缓存复用
     fn box_clone(&self) -> Box<dyn LlmAdapter>;
+}
+
+#[cfg(test)]
+mod native_tools_contract {
+    use super::*;
+
+    #[test]
+    fn generate_request_omits_tools_field_when_none() {
+        let req = GenerateRequest {
+            prompt: "hi".into(),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("tools").is_none());
+        assert!(req.tools.is_none());
+    }
+
+    #[test]
+    fn informal_args_become_json_schema_object() {
+        let informal = serde_json::json!({
+            "zone": "asset|draft",
+            "key": "可选"
+        });
+        let schema = informal_args_to_json_schema(&informal);
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["zone"]["type"], "string");
+        assert_eq!(schema["properties"]["zone"]["description"], "asset|draft");
+        assert_eq!(schema["properties"]["key"]["description"], "可选");
+    }
+
+    #[test]
+    fn already_json_schema_is_left_intact() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "zone": { "type": "string" }
+            }
+        });
+        assert_eq!(informal_args_to_json_schema(&schema), schema);
+    }
+
+    #[test]
+    fn openai_tools_payload_wraps_function() {
+        let specs = [ToolSpec {
+            name: "board_read".into(),
+            description: "读黑板".into(),
+            parameters: informal_args_to_json_schema(&serde_json::json!({"zone": "分区"})),
+        }];
+        let payload = openai_tools_payload(&specs);
+        assert_eq!(payload[0]["type"], "function");
+        assert_eq!(payload[0]["function"]["name"], "board_read");
+        assert_eq!(payload[0]["function"]["parameters"]["type"], "object");
+    }
+
+    #[test]
+    fn anthropic_tools_payload_uses_input_schema() {
+        let specs = [ToolSpec {
+            name: "story_info".into(),
+            description: "故事信息".into(),
+            parameters: informal_args_to_json_schema(&serde_json::json!({})),
+        }];
+        let payload = anthropic_tools_payload(&specs);
+        assert_eq!(payload[0]["name"], "story_info");
+        assert_eq!(payload[0]["input_schema"]["type"], "object");
+        assert!(payload[0].get("parameters").is_none());
+    }
+
+    #[test]
+    fn extract_openai_tool_calls_from_assistant_message() {
+        let message = serde_json::json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "board_read",
+                    "arguments": "{\"zone\":\"asset\"}"
+                }
+            }]
+        });
+        let calls = extract_openai_tool_calls(&message);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "board_read");
+        assert_eq!(calls[0].arguments["zone"], "asset");
+        assert_eq!(calls[0].id, "call_1");
+    }
+
+    #[test]
+    fn extract_openai_tool_calls_empty_when_text_only() {
+        let message = serde_json::json!({
+            "role": "assistant",
+            "content": "hello"
+        });
+        assert!(extract_openai_tool_calls(&message).is_empty());
+    }
+
+    #[test]
+    fn extract_anthropic_tool_use_from_content_blocks() {
+        let blocks = serde_json::json!([
+            { "type": "text", "text": "ok" },
+            {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "story_info",
+                "input": {}
+            }
+        ]);
+        let calls = extract_anthropic_tool_use(&blocks);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "story_info");
+        assert_eq!(calls[0].id, "toolu_1");
+        assert_eq!(calls[0].arguments, serde_json::json!({}));
+    }
 }

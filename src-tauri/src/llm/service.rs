@@ -28,7 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tokio::time::timeout;
 
 use super::{
-    adapter::{GenerateRequest, GenerateResponse, ResponseFormat},
+    adapter::{GenerateRequest, GenerateResponse, ResponseFormat, ToolSpec},
     anthropic::AnthropicAdapter,
     ollama::OllamaAdapter,
     openai::OpenAiAdapter,
@@ -508,6 +508,7 @@ impl<R: Runtime> LlmService<R> {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -545,6 +546,8 @@ impl<R: Runtime> LlmService<R> {
         system_prompt: Option<String>,
         // v0.26.0: 生成链路 trace_id，用于全链路可观测性
         trace_id: Option<String>,
+        // v0.54.0: 原生 function calling
+        tools: Option<Vec<ToolSpec>>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         let req_id = request_id
             .clone()
@@ -591,6 +594,7 @@ impl<R: Runtime> LlmService<R> {
             model_role: derive_model_role_from_label(context_label),
             // v0.26.0: 生成链路 trace_id 透传
             trace_id: trace_id.clone(),
+            tools: tools.clone(),
         };
         match port.generate(port_request).await {
             Ok(resp) => {
@@ -623,6 +627,7 @@ impl<R: Runtime> LlmService<R> {
             response_format,
             system_prompt,
             trace_id,
+            tools,
         )
         .await
     }
@@ -742,6 +747,7 @@ impl<R: Runtime> LlmService<R> {
             response_format,
             system_prompt,
             trace_id,
+            None,
         )
         .await
     }
@@ -869,6 +875,7 @@ impl<R: Runtime> LlmService<R> {
             None,
             system_prompt,
             trace_id,
+            None,
         )
         .await
     }
@@ -967,6 +974,7 @@ impl<R: Runtime> LlmService<R> {
                 None,
                 None,
                 None,
+                None,
             )
             .await;
         result
@@ -1036,6 +1044,7 @@ impl<R: Runtime> LlmService<R> {
                 None,
                 intent_verb,
                 intent_object,
+                None,
                 None,
                 None,
                 None,
@@ -1405,6 +1414,8 @@ impl<R: Runtime> LlmService<R> {
         request_system_prompt: Option<String>,
         // v0.26.0: 生成链路 trace_id 透传
         trace_id: Option<String>,
+        // v0.54.0: 原生 function calling
+        tools: Option<Vec<ToolSpec>>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         if !profile.enabled {
             let msg = format!("模型 {} 已被禁用，请在设置中启用或切换可用模型", profile.id);
@@ -1498,6 +1509,7 @@ impl<R: Runtime> LlmService<R> {
             response_format,
             system_prompt,
             trace_id: trace_id.clone(),
+            tools,
         };
 
         let label = context_label.unwrap_or("");
@@ -2001,6 +2013,7 @@ impl<R: Runtime> LlmService<R> {
             None,
             None,
             None,
+            None,
         )
         .await
     }
@@ -2094,6 +2107,7 @@ impl<R: Runtime> LlmService<R> {
             None,
             None,
             None,
+            None,
         )
         .await
     }
@@ -2116,6 +2130,8 @@ impl<R: Runtime> LlmService<R> {
         system_prompt: Option<String>,
         // v0.26.0: 生成链路 trace_id 透传
         trace_id: Option<String>,
+        // v0.54.0: 原生 function calling
+        tools: Option<Vec<ToolSpec>>,
     ) -> (String, Result<GenerateResponse, AppError>) {
         log::info!(
             "[LLM] Starting sync generation with profile={} prompt_len={} format={:?}",
@@ -2148,6 +2164,7 @@ impl<R: Runtime> LlmService<R> {
             response_format,
             system_prompt,
             trace_id,
+            tools,
         )
         .await
     }
@@ -2227,6 +2244,7 @@ impl<R: Runtime> LlmService<R> {
             response_format,
             None,
             trace_id,
+            None,
         )
         .await
     }
@@ -2283,6 +2301,7 @@ impl<R: Runtime> LlmService<R> {
             response_format: None,
             system_prompt: None,
             trace_id: None,
+            tools: None,
         };
 
         // 流式首 chunk 超时：本地模型冷启动可能需要更久，按 profile 超时动态计算，
@@ -2871,6 +2890,7 @@ mod tests {
             response_format: None,
             system_prompt: None,
             trace_id: None,
+            tools: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: GenerateRequest = serde_json::from_str(&json).unwrap();
@@ -2886,6 +2906,7 @@ mod tests {
             model: "gpt-4".to_string(),
             tokens_used: 10,
             cost: 0.001,
+            tool_calls: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();
         let deserialized: GenerateResponse = serde_json::from_str(&json).unwrap();
@@ -2935,6 +2956,7 @@ mod tests {
             model: "gpt-4".to_string(),
             tokens_used: 1,
             cost: 0.0,
+            tool_calls: vec![],
         };
 
         assert!(cache
@@ -3003,6 +3025,7 @@ mod tests {
             model: "gpt-4".to_string(),
             tokens_used: 1,
             cost: 0.0,
+            tool_calls: vec![],
         };
 
         cache.put(&profile, "hello", None, None, None, response);
@@ -3352,6 +3375,7 @@ mod tests {
                 model: "fake-model".to_string(),
                 tokens_used: 1,
                 cost: 0.0,
+                tool_calls: vec![],
             },
         });
         service.set_llm_port(fake_port);
@@ -3372,6 +3396,7 @@ mod tests {
                 Some(0.0),
                 Some("test-label"),
                 Some(expected_request_id.clone()),
+                None,
                 None,
                 None,
                 None,

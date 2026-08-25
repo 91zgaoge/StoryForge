@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.53.6 架构文档
+# StoryMoss (草苔) v0.54.0 架构文档
 
+> **v0.54.0**：Agency ToolLoop 原生 function calling。`GenerateRequest.tools` 经网关透传到 OpenAI / Ollama `/api/chat` / Anthropic；`resolve_loop_action` 原生优先、文本 JSON 回退。续写 `write_beat_once` 的 `tools=None`，适配器请求体不含 `tools` 字段。不改 PersistMode / 三档路由 / `scenes.content` 真相源。v0.53.6 高潮不重演不变量不变。
+>
 > **v0.53.6**：近文死亡检测把已死之人移出节拍卡行动阵容；`compile_next_node` 跳过已在正文完成的行刺高潮；`probe_increment` 拦把已死者再刺一次。不改 PersistMode / Agency 唯一续写路径。v0.53.5 大纲确认框不变量不变。
 >
 > **v0.53.5**：含大纲的 `asset_refresh` 返回 `asset_refresh_draft`，确认前不写 `story_outlines` / `scenes.outline_content`。`confirm_asset_refresh` 按手改落库。重写再走 `smart_execute`。纸面只读不变量不变。v0.53.4 写/生成宾语是大纲的形状检测不变。
@@ -945,7 +947,7 @@ function assertUnreachable(x: never): never {
 **模块**：`src-tauri/src/agency/`
 
 - `board.rs`：BlackboardService（资产区/草稿区/审查区分区读写）
-- `tool_loop.rs`：ReAct 工具循环（JSON action 协议 + 熔断）
+- `tool_loop.rs`：ReAct 工具循环（原生 `tool_calls` 优先，文本 JSON action 回退）
 - `tools.rs`：工具注册表（按角色白名单，内置黑板/故事工具）
 - `roles.rs`：三角色 spec 与系统提示词
 - `coordinator.rs`：创世/续写协调器——质量门判定（`evaluate_gate`）、并行稳态循环（编辑审第 N 章与主创写第 N+1 章并发）、request_id 定点取消

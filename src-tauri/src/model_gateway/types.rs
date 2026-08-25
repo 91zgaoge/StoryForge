@@ -146,6 +146,9 @@ pub struct GatewayRequest {
     /// v0.26.0: 生成链路 trace_id，用于全链路可观测性
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub trace_id: Option<String>,
+    /// v0.54.0: 原生 function calling。None 时适配器请求体不带 tools。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tools: Option<Vec<crate::llm::adapter::ToolSpec>>,
 }
 
 impl GatewayRequest {
@@ -179,6 +182,7 @@ impl GatewayRequest {
             system_prompt: None,
             model_role: None,
             trace_id: None,
+            tools: None,
         }
     }
 }

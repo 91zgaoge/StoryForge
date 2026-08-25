@@ -262,6 +262,7 @@ async fn generate_with_fastest(
             system_prompt: None,
             model_role: None,
             trace_id: None,
+            tools: None,
         };
         matches!(
             tokio::time::timeout(
@@ -297,6 +298,7 @@ async fn generate_with_fastest(
             system_prompt: None,
             model_role: None,
             trace_id: None,
+            tools: None,
         };
         return llm_port.generate(request).await;
     }
@@ -333,6 +335,7 @@ async fn generate_with_fastest(
         system_prompt: None,
         model_role: None,
         trace_id: None,
+        tools: None,
     };
     llm_port.generate(fallback_request).await
 }

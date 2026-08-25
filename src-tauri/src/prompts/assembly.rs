@@ -329,6 +329,17 @@ mod tests {
     }
 
     #[test]
+    fn continue_beat_complete_does_not_require_tools() {
+        let out = assemble_continue_beat("从飞身扑上之后写").unwrap();
+        assert!(!out.user.contains("可用工具"));
+        assert!(!out.system.contains("JSON action"));
+        assert!(!out.user.contains("board_read"));
+        assert!(crate::llm::adapter::GenerateRequest::default()
+            .tools
+            .is_none());
+    }
+
+    #[test]
     fn continue_beat_anti_repeat_suffix_is_concat() {
         let out = assemble_continue_beat("u").unwrap();
         let retry = format!("{} 禁止重复同一段落或意象循环，不得首尾回环。", out.system);
