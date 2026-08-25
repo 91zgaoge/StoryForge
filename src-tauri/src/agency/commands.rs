@@ -708,6 +708,31 @@ pub async fn agency_list_activities(
     .map_err(|e| AppError::from(format!("agency_list_activities join error: {}", e)))?
 }
 
+/// 幕前确认大纲草稿后才写库。取消路径不调用本命令。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn confirm_asset_refresh(
+    story_id: String,
+    scene_id: Option<String>,
+    story_outline: Option<String>,
+    scene_outline: Option<String>,
+    overwrite_manual: Option<bool>,
+    pool: State<'_, DbPool>,
+) -> Result<String, AppError> {
+    let pool = pool.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        crate::agency::asset_refresh::persist_confirmed_outlines(
+            &pool,
+            &story_id,
+            scene_id.as_deref(),
+            story_outline.as_deref(),
+            scene_outline.as_deref(),
+            overwrite_manual.unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|e| AppError::from(format!("confirm_asset_refresh join error: {e}")))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

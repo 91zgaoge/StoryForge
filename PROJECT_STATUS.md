@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.53.4 项目完成状态
+# StoryMoss (草苔) v0.53.5 项目完成状态
 
-> 最后更新: 2026-08-24（v0.53.4 写后续大纲不进续写）
+> 最后更新: 2026-08-25（v0.53.5 大纲确认框：确认 / 取消 / 重写）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,12 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.53.5 - 大纲重写确认框（2026-08-25）
+
+- 生成后弹出可编辑对话框；确认才写库；取消废弃；重写再生成。
+- **验证**：`cargo test --lib` 1519 passed / 2 ignored（+2）；vitest 602 passed / 3 skipped（+5）。
+- **未关闭**：原句真机；不得宣称唱反调已修复。
 
 ### v0.53.4 - 写后续大纲不进续写（2026-08-24）
 

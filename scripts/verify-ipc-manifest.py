@@ -43,28 +43,40 @@ def extract_backend_commands(content: str) -> Set[str]:
 
     # 定位 generate_handler![ 的起始行
     start_idx = None
+    open_ch = "["
+    close_ch = "]"
     for i, line in enumerate(lines):
         if "generate_handler![" in line:
             start_idx = i
             break
+        if "generate_handler! {" in line or "generate_handler!{" in line:
+            start_idx = i
+            open_ch = "{"
+            close_ch = "}"
+            break
 
     if start_idx is None:
         # v0.26.38: handlers live in handlers.rs via include!("handlers.rs")
-        if BACKEND_HANDLERS_RS.exists():
-            return extract_backend_commands(BACKEND_HANDLERS_RS.read_text(encoding="utf-8"))
+        if not getattr(extract_backend_commands, "_from_handlers", False) and BACKEND_HANDLERS_RS.exists():
+            extract_backend_commands._from_handlers = True  # type: ignore[attr-defined]
+            try:
+                return extract_backend_commands(
+                    BACKEND_HANDLERS_RS.read_text(encoding="utf-8")
+                )
+            finally:
+                extract_backend_commands._from_handlers = False  # type: ignore[attr-defined]
         print("WARN: generate_handler![] macro not found in lib.rs or handlers.rs")
         return commands
 
-    # Collect from start until matching ] is found
-    # Use bracket depth counting
+    # Collect from start until matching closer is found
     bracket_depth = 0
     block_lines = []
     for i in range(start_idx, len(lines)):
         line = lines[i]
         for ch in line:
-            if ch == "[":
+            if ch == open_ch:
                 bracket_depth += 1
-            elif ch == "]":
+            elif ch == close_ch:
                 bracket_depth -= 1
                 if bracket_depth == 0:
                     block_lines.append(line)
@@ -74,15 +86,17 @@ def extract_backend_commands(content: str) -> Set[str]:
             continue
         break
 
-    # Strip text before generate_handler![ on first line
     first = block_lines[0]
     if "generate_handler![" in first:
         first = first.split("generate_handler![", 1)[1]
+    elif "generate_handler! {" in first:
+        first = first.split("generate_handler! {", 1)[1]
+    elif "generate_handler!{" in first:
+        first = first.split("generate_handler!{", 1)[1]
     block_lines[0] = first
 
-    # Strip text after closing ] on last line
     last = block_lines[-1]
-    last_closing = last.rfind("]")
+    last_closing = last.rfind(close_ch)
     if last_closing != -1:
         block_lines[-1] = last[:last_closing]
 

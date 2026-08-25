@@ -2,6 +2,21 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.53.5（2026-08-25）
+
+输入「写后续的故事大纲，同时生成后续的场景大纲」后，弹出可编辑对话框：可改故事大纲 / 场景大纲。确认才写入幕后；取消废弃；重写按原指令再生成一轮，仍须确认。纸面不改。
+
+### 变更
+
+- 含大纲的按正文重写不再立即落库，返回 `asset_refresh_draft`。
+- 新 IPC `confirm_asset_refresh`：确认稿按手改保存。
+- 幕前「确认大纲」对话框：确认 / 取消 / 重写。
+
+### 测试
+
+- `cargo test --lib` 1519 passed / 2 ignored（+2）。
+- `npx vitest run` 602 passed / 3 skipped（+5）。
+
 ## v0.53.4（2026-08-24）
 
 输入「写后续的故事大纲，同时生成后续的场景大纲」没有「根据正文 / 重新写」，形状检测失败，分类把「写后续」当成续写正文，走了 Agency Append。

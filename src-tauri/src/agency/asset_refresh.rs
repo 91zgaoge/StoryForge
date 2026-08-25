@@ -25,7 +25,7 @@ use crate::{
     },
     error::AppError,
     memory::asset_bridge::{cap_story_outline_content, is_refinable},
-    planner::PlanExecutionResult,
+    planner::{AssetRefreshDraft, PlanExecutionResult},
     router::TaskType,
 };
 
@@ -149,6 +149,15 @@ pub fn parse_asset_refresh_targets(input: &str) -> Vec<AssetRefreshTarget> {
         out.push(AssetRefreshTarget::World);
     }
     out
+}
+
+pub fn needs_outline_confirm(targets: &[AssetRefreshTarget]) -> bool {
+    targets.iter().any(|t| {
+        matches!(
+            t,
+            AssetRefreshTarget::StoryOutline | AssetRefreshTarget::SceneOutline
+        )
+    })
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -553,6 +562,99 @@ pub fn persist_asset_refresh(
     parsed: &AssetRefreshPayload,
     allow_overwrite_manual: bool,
 ) -> Result<String, AppError> {
+    persist_asset_refresh_inner(
+        pool,
+        story_id,
+        scene_id,
+        targets,
+        parsed,
+        allow_overwrite_manual,
+        false,
+    )
+}
+
+/// 用户确认稿按手改落库：不再按正文删人名。
+pub fn persist_confirmed_outlines(
+    pool: &DbPool,
+    story_id: &str,
+    scene_id: Option<&str>,
+    story_outline: Option<&str>,
+    scene_outline: Option<&str>,
+    allow_overwrite_manual: bool,
+) -> Result<String, AppError> {
+    let mut targets = Vec::new();
+    let mut parsed = AssetRefreshPayload::default();
+    if let Some(s) = story_outline.map(str::trim).filter(|s| !s.is_empty()) {
+        targets.push(AssetRefreshTarget::StoryOutline);
+        parsed.story_outline = Some(s.to_string());
+    }
+    if let Some(s) = scene_outline.map(str::trim).filter(|s| !s.is_empty()) {
+        targets.push(AssetRefreshTarget::SceneOutline);
+        parsed.scene_outline = Some(s.to_string());
+    }
+    if targets.is_empty() {
+        return Err(AppError::validation_failed(
+            "请至少保留一段大纲再确认",
+            Some("empty_confirm"),
+        ));
+    }
+    persist_asset_refresh_inner(
+        pool,
+        story_id,
+        scene_id,
+        &targets,
+        &parsed,
+        allow_overwrite_manual,
+        true,
+    )
+}
+
+pub fn preview_refresh_outlines(
+    pool: &DbPool,
+    story_id: &str,
+    targets: &[AssetRefreshTarget],
+    parsed: &AssetRefreshPayload,
+) -> (Option<String>, Option<String>) {
+    let prose = concat_story_prose(pool, story_id);
+    let names = candidate_names(pool, story_id, parsed);
+    let story = if targets.contains(&AssetRefreshTarget::StoryOutline) {
+        parsed
+            .story_outline
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|raw| {
+                cap_story_outline_content(&strip_outline_planning(&drop_ungrounded_names(
+                    raw, &prose, &names,
+                )))
+            })
+            .filter(|s| !s.trim().is_empty())
+    } else {
+        None
+    };
+    let scene = if targets.contains(&AssetRefreshTarget::SceneOutline) {
+        parsed
+            .scene_outline
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|raw| drop_ungrounded_names(raw, &prose, &names))
+            .filter(|s| !s.trim().is_empty())
+    } else {
+        None
+    };
+    (story, scene)
+}
+
+fn persist_asset_refresh_inner(
+    pool: &DbPool,
+    story_id: &str,
+    scene_id: Option<&str>,
+    targets: &[AssetRefreshTarget],
+    parsed: &AssetRefreshPayload,
+    allow_overwrite_manual: bool,
+    trust_user_text: bool,
+) -> Result<String, AppError> {
     let prose = concat_story_prose(pool, story_id);
     let names = candidate_names(pool, story_id, parsed);
     let mut wrote = false;
@@ -566,8 +668,16 @@ pub fn persist_asset_refresh(
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            let grounded = drop_ungrounded_names(raw, &prose, &names);
-            let capped = cap_story_outline_content(&strip_outline_planning(&grounded));
+            let grounded = if trust_user_text {
+                raw.to_string()
+            } else {
+                drop_ungrounded_names(raw, &prose, &names)
+            };
+            let capped = if trust_user_text {
+                cap_story_outline_content(&grounded)
+            } else {
+                cap_story_outline_content(&strip_outline_planning(&grounded))
+            };
             if !capped.trim().is_empty() {
                 let repo = StoryOutlineRepository::new(pool.clone());
                 if repo
@@ -600,7 +710,15 @@ pub fn persist_asset_refresh(
     }
 
     if targets.contains(&AssetRefreshTarget::SceneOutline) {
-        if persist_scene_outline(pool, story_id, scene_id, &prose, &names, parsed)? {
+        if persist_scene_outline(
+            pool,
+            story_id,
+            scene_id,
+            &prose,
+            &names,
+            parsed,
+            trust_user_text,
+        )? {
             wrote = true;
             if let Some(raw) = parsed
                 .scene_outline
@@ -765,6 +883,7 @@ fn persist_scene_outline(
     prose: &str,
     names: &[String],
     parsed: &AssetRefreshPayload,
+    trust_user_text: bool,
 ) -> Result<bool, AppError> {
     let Some(raw) = parsed
         .scene_outline
@@ -782,7 +901,11 @@ fn persist_scene_outline(
         .get_by_id(sid)
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::validation_failed("请先打开一个章节", Some("no_scene")))?;
-    let grounded = drop_ungrounded_names(raw, prose, names);
+    let grounded = if trust_user_text {
+        raw.to_string()
+    } else {
+        drop_ungrounded_names(raw, prose, names)
+    };
     if grounded.trim().is_empty() {
         return Ok(false);
     }
@@ -917,15 +1040,62 @@ pub async fn execute(
     let scene_w = scene_id.map(|s| s.to_string());
     let targets_w = targets.clone();
     let overwrite = allow_overwrite_manual(user_input);
-    let summary = tokio::task::spawn_blocking(move || {
-        persist_asset_refresh(
-            &pool_w,
-            &sid_w,
-            scene_w.as_deref(),
-            &targets_w,
-            &parsed,
-            overwrite,
-        )
+    let instruction = user_input.to_string();
+    let (summary, draft) = tokio::task::spawn_blocking(move || {
+        if needs_outline_confirm(&targets_w) {
+            let (story_preview, scene_preview) =
+                preview_refresh_outlines(&pool_w, &sid_w, &targets_w, &parsed);
+            if story_preview.is_none() && scene_preview.is_none() {
+                return Err(AppError::validation_failed(
+                    "模型未返回可落地的设定，未改动资产",
+                    Some("empty_refresh"),
+                ));
+            }
+            let others: Vec<AssetRefreshTarget> = targets_w
+                .iter()
+                .copied()
+                .filter(|t| {
+                    !matches!(
+                        t,
+                        AssetRefreshTarget::StoryOutline | AssetRefreshTarget::SceneOutline
+                    )
+                })
+                .collect();
+            if !others.is_empty() {
+                let _ = persist_asset_refresh(
+                    &pool_w,
+                    &sid_w,
+                    scene_w.as_deref(),
+                    &others,
+                    &parsed,
+                    overwrite,
+                );
+            }
+            let summary = summarize(
+                &targets_w,
+                story_preview.as_deref(),
+                scene_preview.as_deref(),
+            );
+            let draft = AssetRefreshDraft {
+                story_id: sid_w,
+                scene_id: scene_w,
+                overwrite_manual: overwrite,
+                instruction,
+                story_outline: story_preview,
+                scene_outline: scene_preview,
+            };
+            Ok((summary, Some(draft)))
+        } else {
+            let summary = persist_asset_refresh(
+                &pool_w,
+                &sid_w,
+                scene_w.as_deref(),
+                &targets_w,
+                &parsed,
+                overwrite,
+            )?;
+            Ok((summary, None))
+        }
     })
     .await
     .map_err(|e| AppError::from(format!("asset_refresh persist: {e}")))??;
@@ -934,9 +1104,14 @@ pub async fn execute(
         success: true,
         steps_completed: 1,
         final_content: Some(summary),
-        messages: vec!["设定已按正文更新".into()],
+        messages: vec![if draft.is_some() {
+            "请确认大纲后再保存".into()
+        } else {
+            "设定已按正文更新".into()
+        }],
         error: None,
         result_kind: Some("asset_refresh".into()),
+        asset_refresh_draft: draft,
     })
 }
 
@@ -1385,6 +1560,7 @@ mod tests {
             messages: vec![],
             error: None,
             result_kind: Some("asset_refresh".into()),
+            asset_refresh_draft: None,
         };
         assert_eq!(r.result_kind.as_deref(), Some("asset_refresh"));
     }
@@ -1435,11 +1611,15 @@ mod tests {
         .unwrap();
         assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
         assert_eq!(scene_content(&pool, &scene_id), prose);
-        let outline = StoryOutlineRepository::new(pool)
-            .get_by_story(&story_id)
-            .unwrap()
-            .unwrap();
-        assert!(outline.content.contains("韩雪"));
+        assert!(
+            StoryOutlineRepository::new(pool.clone())
+                .get_by_story(&story_id)
+                .unwrap()
+                .is_none(),
+            "确认前不得写库"
+        );
+        let draft = result.asset_refresh_draft.expect("应返回大纲草稿");
+        assert!(draft.story_outline.unwrap_or_default().contains("韩雪"));
     }
 
     #[tokio::test]
@@ -1460,11 +1640,15 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
-        let outline = StoryOutlineRepository::new(pool)
+        assert!(StoryOutlineRepository::new(pool.clone())
             .get_by_story(&story_id)
             .unwrap()
-            .unwrap();
-        assert!(outline.content.contains("韩雪"));
+            .is_none());
+        assert!(result
+            .asset_refresh_draft
+            .and_then(|d| d.story_outline)
+            .unwrap_or_default()
+            .contains("韩雪"));
     }
 
     #[tokio::test]
@@ -1490,7 +1674,18 @@ mod tests {
             .get_by_id(&scene_id)
             .unwrap()
             .unwrap();
-        assert!(scene.outline_content.unwrap_or_default().contains("韩雪"));
+        assert!(
+            scene
+                .outline_content
+                .unwrap_or_default()
+                .contains("用户手写大纲前缀"),
+            "确认前不得改场景大纲"
+        );
+        assert!(result
+            .asset_refresh_draft
+            .and_then(|d| d.scene_outline)
+            .unwrap_or_default()
+            .contains("韩雪"));
     }
 
     #[tokio::test]
@@ -1512,20 +1707,77 @@ mod tests {
         .unwrap();
         assert_eq!(result.result_kind.as_deref(), Some("asset_refresh"));
         assert_eq!(scene_content(&pool, &scene_id), prose);
-        let outline = StoryOutlineRepository::new(pool.clone())
+        assert!(StoryOutlineRepository::new(pool.clone())
             .get_by_story(&story_id)
             .unwrap()
-            .unwrap();
-        assert!(outline.content.contains("韩雪"));
+            .is_none());
         let scene = SceneRepository::new(pool)
             .get_by_id(&scene_id)
             .unwrap()
             .unwrap();
-        assert!(scene.outline_content.unwrap_or_default().contains("举枪"));
+        assert!(
+            scene
+                .outline_content
+                .unwrap_or_default()
+                .contains("用户手写大纲前缀"),
+            "确认前不得改场景大纲"
+        );
+        let draft = result.asset_refresh_draft.expect("应返回大纲草稿");
+        assert!(draft.story_outline.unwrap_or_default().contains("韩雪"));
+        assert!(draft.scene_outline.unwrap_or_default().contains("举枪"));
         let report = result.final_content.unwrap_or_default();
         assert!(report.contains("【故事大纲】"));
         assert!(report.contains("【场景大纲】"));
         assert!(report.contains("纸面未改"));
+    }
+
+    #[test]
+    fn confirm_persists_user_edited_outlines_as_given() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        persist_confirmed_outlines(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            Some("【核心冲突】韩雪改成自己写的后续，金敏秀也可以留下。"),
+            Some("韩雪举枪，李明停在雨里。"),
+            false,
+        )
+        .unwrap();
+        let outline = StoryOutlineRepository::new(pool.clone())
+            .get_by_story(&story_id)
+            .unwrap()
+            .unwrap();
+        assert!(outline.content.contains("自己写的后续"));
+        assert!(outline.content.contains("金敏秀"), "确认稿按手改保留");
+        let scene = SceneRepository::new(pool.clone())
+            .get_by_id(&scene_id)
+            .unwrap()
+            .unwrap();
+        assert!(scene.outline_content.unwrap_or_default().contains("举枪"));
+        assert_eq!(scene_content(&pool, &scene_id), prose);
+    }
+
+    #[test]
+    fn confirm_empty_outlines_writes_nothing() {
+        let pool = create_test_pool().unwrap();
+        let prose = hanxue_prose();
+        let (story_id, scene_id) = seed_story(&pool, &prose);
+        let err = persist_confirmed_outlines(
+            &pool,
+            &story_id,
+            Some(&scene_id),
+            Some("  "),
+            Some(""),
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("至少保留"));
+        assert!(StoryOutlineRepository::new(pool)
+            .get_by_story(&story_id)
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

@@ -470,6 +470,7 @@ async fn smart_execute_inner(
             messages: vec!["续写完成".into()],
             error: None,
             result_kind: None,
+            asset_refresh_draft: None,
         });
     }
 

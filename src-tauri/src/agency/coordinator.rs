@@ -5401,6 +5401,7 @@ impl AgencyCoordinator {
             ],
             error: None,
             result_kind: None,
+            asset_refresh_draft: None,
         }
     }
 }

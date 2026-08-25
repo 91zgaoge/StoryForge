@@ -47,8 +47,19 @@ export interface SmartExecuteResult {
   final_content?: string;
   messages: string[];
   /** v0.31.x: 'audit_report' 时 final_content 为审计报告，渲染为报告消息而非追加手稿。
-   *  v0.53.0: 'asset_refresh' 时 final_content 为摘要 toast，不追加手稿。 */
+   *  v0.53.0: 'asset_refresh' 时不追加手稿。
+   *  v0.53.5: 有 asset_refresh_draft 时弹确认框，确认前不写库。 */
   result_kind?: string;
+  asset_refresh_draft?: AssetRefreshDraft;
+}
+
+export interface AssetRefreshDraft {
+  story_id: string;
+  scene_id?: string;
+  overwrite_manual?: boolean;
+  instruction: string;
+  story_outline?: string;
+  scene_outline?: string;
 }
 
 export interface PreflightResult {
@@ -89,6 +100,21 @@ export const smartExecute = (req: SmartExecuteRequest) =>
     selected_text: req.selected_text,
     scene_id: req.scene_id,
     intent_classification: req.intent_classification,
+  });
+
+export const confirmAssetRefresh = (req: {
+  storyId: string;
+  sceneId?: string;
+  storyOutline?: string;
+  sceneOutline?: string;
+  overwriteManual?: boolean;
+}) =>
+  loggedInvoke<string>('confirm_asset_refresh', {
+    story_id: req.storyId,
+    scene_id: req.sceneId,
+    story_outline: req.storyOutline,
+    scene_outline: req.sceneOutline,
+    overwrite_manual: req.overwriteManual,
   });
 // Feedback Recording
 export interface RecordFeedbackRequest {

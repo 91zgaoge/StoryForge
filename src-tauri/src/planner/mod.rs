@@ -20,7 +20,7 @@ pub mod bootstrap;
 pub mod executor;
 pub mod swarm;
 pub mod template_learning;
-pub use executor::{PlanExecutionResult, PlanExecutor};
+pub use executor::{AssetRefreshDraft, PlanExecutionResult, PlanExecutor};
 #[allow(unused_imports)]
 pub use template_learning::PlanTemplate;
 pub use template_learning::PlanTemplateLibrary;

@@ -20,6 +20,22 @@ use crate::{
     router::TaskType,
 };
 
+/// 按正文重写大纲的未落库草稿。确认后才写入；取消丢弃。
+#[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
+pub struct AssetRefreshDraft {
+    pub story_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<String>,
+    #[serde(default)]
+    pub overwrite_manual: bool,
+    #[serde(default)]
+    pub instruction: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub story_outline: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_outline: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PlanExecutionResult {
     pub success: bool,
@@ -33,6 +49,9 @@ pub struct PlanExecutionResult {
     /// Some("audit_report")=审计报告（前端渲染为报告消息，不追加手稿）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_kind: Option<String>,
+    /// v0.53.5: 大纲草稿。有值时前端弹确认框，确认前不写库。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_refresh_draft: Option<AssetRefreshDraft>,
 }
 
 pub struct PlanExecutor {
@@ -887,6 +906,7 @@ impl PlanExecutor {
             messages,
             error: first_error,
             result_kind: None,
+            asset_refresh_draft: None,
         }
     }
 
@@ -1871,6 +1891,7 @@ impl PlanExecutor {
             messages: vec!["审计完成".to_string()],
             error: None,
             result_kind: Some("audit_report".to_string()),
+            asset_refresh_draft: None,
         })
     }
 
@@ -2703,6 +2724,7 @@ mod tests {
             messages: vec![],
             error: None,
             result_kind: None,
+            asset_refresh_draft: None,
         };
         let json = serde_json::to_value(&prose).unwrap();
         assert!(json.get("result_kind").is_none());

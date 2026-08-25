@@ -17,12 +17,14 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 const CHAPTER_TEXT =
   '空气是粘稠的，带着一种金属锈蚀和腐败的甜腥味。\n\n凯尔的呼吸声在头盔内部被放大成粗重的喘息。';
 
-const { listenCallbacks, captured, editorHtml, mockSmartExecute } = vi.hoisted(() => ({
-  listenCallbacks: {} as Record<string, (e: { payload: unknown }) => void>,
-  captured: { content: '', generatedText: '' },
-  editorHtml: { current: '' },
-  mockSmartExecute: vi.fn(),
-}));
+const { listenCallbacks, captured, editorHtml, mockSmartExecute, mockConfirmAssetRefresh } =
+  vi.hoisted(() => ({
+    listenCallbacks: {} as Record<string, (e: { payload: unknown }) => void>,
+    captured: { content: '', generatedText: '' },
+    editorHtml: { current: '' },
+    mockSmartExecute: vi.fn(),
+    mockConfirmAssetRefresh: vi.fn(),
+  }));
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((event: string, cb: (e: { payload: unknown }) => void) => {
@@ -91,6 +93,7 @@ vi.mock('@/services/tauri', () => ({
   }),
   recordFeedback: vi.fn(),
   smartExecute: mockSmartExecute,
+  confirmAssetRefresh: mockConfirmAssetRefresh,
   getInputHint: vi.fn(),
   runRefine: vi.fn(),
   runReview: vi.fn(),
@@ -180,7 +183,25 @@ vi.mock('@/services/modelService', () => ({
   modelService: { checkModelStatus: vi.fn().mockResolvedValue(undefined) },
 }));
 
-describe('v0.53.0: 按正文重写设定（result_kind=asset_refresh）', () => {
+describe('v0.53.5: 按正文重写大纲确认框', () => {
+  const draftResult = {
+    success: true,
+    steps_completed: 1,
+    final_content:
+      '已按正文重写故事大纲、场景大纲。纸面未改。\n\n【故事大纲】\n韩雪在首尔雨夜对峙李明',
+    messages: ['请确认大纲后再保存'],
+    error: null,
+    result_kind: 'asset_refresh',
+    asset_refresh_draft: {
+      story_id: 'story-1',
+      scene_id: 'ch-1',
+      overwrite_manual: false,
+      instruction: '写后续的故事大纲，同时生成后续的场景大纲',
+      story_outline: '韩雪在首尔雨夜对峙李明',
+      scene_outline: '韩雪举枪，李明停在雨里。',
+    },
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     for (const k of Object.keys(listenCallbacks)) delete listenCallbacks[k];
@@ -189,33 +210,93 @@ describe('v0.53.0: 按正文重写设定（result_kind=asset_refresh）', () => 
     editorHtml.current = '';
     useFrontstageStore.getState().setContent('');
     useFrontstageStore.getState().setSceneInfo('', '', undefined);
-    mockSmartExecute.mockResolvedValue({
-      success: true,
-      steps_completed: 1,
-      final_content: '已按正文重写故事大纲。纸面未改。\n\n【故事大纲】\n韩雪在首尔雨夜对峙李明',
-      messages: ['设定已按正文更新'],
-      error: null,
-      result_kind: 'asset_refresh',
-    });
+    mockSmartExecute.mockResolvedValue(draftResult);
+    mockConfirmAssetRefresh.mockResolvedValue('已按正文重写故事大纲、场景大纲。纸面未改。');
   });
 
-  it('设定摘要以状态提示展示，不追加手稿、不生成幽灵文本', async () => {
+  it('弹出可编辑对话框，不追加手稿、不生成幽灵文本', async () => {
     render(<FrontstageApp />, { wrapper });
 
     await waitFor(() => expect(captured.content).toContain('空气是粘稠的'));
 
     const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
-    await userEvent.type(input, '将故事大纲按照现有正文重新写过');
+    await userEvent.type(input, '写后续的故事大纲，同时生成后续的场景大纲');
     await userEvent.keyboard('{Enter}');
 
     await waitFor(() => expect(mockSmartExecute).toHaveBeenCalled());
-    await screen.findByText('已按正文重写设定');
-    await screen.findByText(/【故事大纲】/);
-    await screen.findByText(/韩雪在首尔雨夜对峙李明/);
+    await screen.findByTestId('asset-refresh-confirm');
+    expect(screen.getByText('确认大纲')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '确认' })).toBeTruthy();
+    expect(screen.getByTestId('asset-refresh-cancel')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重写' })).toBeTruthy();
+    expect(
+      (screen.getByTestId('asset-refresh-story-outline') as HTMLTextAreaElement).value
+    ).toContain('韩雪');
+    expect(
+      (screen.getByTestId('asset-refresh-scene-outline') as HTMLTextAreaElement).value
+    ).toContain('举枪');
 
     expect(captured.content).toContain('空气是粘稠的');
     expect(captured.content).not.toContain('已按正文重写故事大纲');
     expect(captured.content).not.toContain('韩雪在首尔雨夜对峙李明');
     expect(captured.generatedText).toBe('');
+    expect(mockConfirmAssetRefresh).not.toHaveBeenCalled();
+  });
+
+  it('点确认后才保存用户改过的大纲', async () => {
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => expect(captured.content).toContain('空气是粘稠的'));
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '写后续的故事大纲');
+    await userEvent.keyboard('{Enter}');
+    await screen.findByTestId('asset-refresh-confirm');
+    const story = screen.getByTestId('asset-refresh-story-outline') as HTMLTextAreaElement;
+    await userEvent.clear(story);
+    await userEvent.type(story, '用户改过的后续大纲');
+    await userEvent.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => expect(mockConfirmAssetRefresh).toHaveBeenCalled());
+    expect(mockConfirmAssetRefresh.mock.calls[0][0]).toMatchObject({
+      storyId: 'story-1',
+      storyOutline: '用户改过的后续大纲',
+    });
+    await waitFor(() => expect(screen.queryByTestId('asset-refresh-confirm')).toBeNull());
+  });
+
+  it('点取消废弃草稿，不保存', async () => {
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => expect(captured.content).toContain('空气是粘稠的'));
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '写后续的故事大纲');
+    await userEvent.keyboard('{Enter}');
+    await screen.findByTestId('asset-refresh-confirm');
+    await userEvent.click(screen.getByTestId('asset-refresh-cancel'));
+    expect(mockConfirmAssetRefresh).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('asset-refresh-confirm')).toBeNull();
+  });
+
+  it('点重写再生成一轮，替换对话框内容且仍未保存', async () => {
+    mockSmartExecute.mockResolvedValueOnce(draftResult).mockResolvedValueOnce({
+      ...draftResult,
+      asset_refresh_draft: {
+        ...draftResult.asset_refresh_draft,
+        story_outline: '重写后的故事大纲：李明先开口',
+        scene_outline: '重写后的场景：雨巷里谁也不动。',
+      },
+    });
+    render(<FrontstageApp />, { wrapper });
+    await waitFor(() => expect(captured.content).toContain('空气是粘稠的'));
+    const input = screen.getByPlaceholderText('输入任意指令…') as HTMLTextAreaElement;
+    await userEvent.type(input, '写后续的故事大纲');
+    await userEvent.keyboard('{Enter}');
+    await screen.findByTestId('asset-refresh-confirm');
+    await userEvent.click(screen.getByRole('button', { name: '重写' }));
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId('asset-refresh-story-outline') as HTMLTextAreaElement).value
+      ).toContain('李明先开口')
+    );
+    expect(mockSmartExecute).toHaveBeenCalledTimes(2);
+    expect(mockConfirmAssetRefresh).not.toHaveBeenCalled();
+    expect(screen.getByTestId('asset-refresh-confirm')).toBeTruthy();
   });
 });

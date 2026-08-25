@@ -15,8 +15,9 @@ import {
   runReview,
   runFinalize,
   getPipelineActiveDraft,
+  confirmAssetRefresh,
 } from '@/services/tauri';
-import type { WritingIntentClassification } from '@/services/tauri';
+import type { WritingIntentClassification, SmartExecuteResult } from '@/services/tauri';
 import {
   extractMessage,
   isActiveCreativeRunConflict,
@@ -33,6 +34,9 @@ import { buildUpdateSceneIpcArgs } from './updateSceneIpc';
 import RichTextEditor, { RichTextEditorRef } from './components/RichTextEditor';
 import AgentInterruptionModal from './components/AgentInterruptionModal';
 import AuditReportModal from './components/AuditReportModal';
+import AssetRefreshConfirmDialog, {
+  type AssetRefreshConfirmDraft,
+} from './components/AssetRefreshConfirmDialog';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SmartHintSystem } from './ai-perception';
 import { useCharacters } from '@/hooks/useCharacters';
@@ -1260,6 +1264,16 @@ const FrontstageApp: React.FC = () => {
   const chatConnectionState = activeChatModelId ? connectionStates[activeChatModelId] : undefined;
   const queryClient = useQueryClient();
 
+  const invalidateAssetQueries = useCallback(
+    (sid: string) => {
+      queryClient.invalidateQueries({ queryKey: ['story-outline', sid] });
+      queryClient.invalidateQueries({ queryKey: ['characters', sid] });
+      queryClient.invalidateQueries({ queryKey: ['world_building', sid] });
+      queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
+    },
+    [queryClient]
+  );
+
   // v0.14.0: 通过模型网关获取所有启用模型的健康状态
   const {
     data: gatewayStatus,
@@ -1543,8 +1557,109 @@ const FrontstageApp: React.FC = () => {
   const keepGeneratingForActiveRunRef = useRef(false);
   // v0.31.x: 智能输入审计意图的报告内容（result_kind='audit_report'），弹窗展示而非追加手稿
   const [auditReport, setAuditReport] = useState<string | null>(null);
-  // v0.53.3: 按正文重写设定的落库预览（result_kind='asset_refresh'），弹窗展示而非追加手稿
+  // v0.53.5: 大纲草稿确认框；无 draft 的角色/世界观刷新仍用只读报告
+  const [assetRefreshDraft, setAssetRefreshDraft] = useState<AssetRefreshConfirmDraft | null>(null);
   const [assetRefreshReport, setAssetRefreshReport] = useState<string | null>(null);
+  const [assetRefreshRewriting, setAssetRefreshRewriting] = useState(false);
+  const [assetRefreshSaving, setAssetRefreshSaving] = useState(false);
+  const assetRefreshRewriteGenRef = useRef(0);
+
+  const applyAssetRefreshResult = useCallback(
+    (result: SmartExecuteResult, instruction: string) => {
+      const d = result.asset_refresh_draft;
+      if (d && (d.story_outline != null || d.scene_outline != null)) {
+        setAssetRefreshDraft({
+          instruction: d.instruction || instruction,
+          storyId: d.story_id,
+          sceneId: d.scene_id,
+          overwriteManual: Boolean(d.overwrite_manual),
+          storyOutline: d.story_outline ?? '',
+          sceneOutline: d.scene_outline ?? '',
+          showStory: d.story_outline != null,
+          showScene: d.scene_outline != null,
+        });
+        setAssetRefreshReport(null);
+        return;
+      }
+      const sid = currentStoryRef.current?.id;
+      if (sid) invalidateAssetQueries(sid);
+      setAssetRefreshReport(result.final_content ?? '已按正文重写设定。纸面未改。');
+    },
+    [invalidateAssetQueries]
+  );
+
+  const handleCancelAssetRefresh = useCallback(() => {
+    assetRefreshRewriteGenRef.current += 1;
+    setAssetRefreshRewriting(false);
+    setAssetRefreshSaving(false);
+    setAssetRefreshDraft(null);
+  }, []);
+
+  const handleConfirmAssetRefresh = useCallback(async () => {
+    if (!assetRefreshDraft || assetRefreshSaving || assetRefreshRewriting) return;
+    setAssetRefreshSaving(true);
+    try {
+      await confirmAssetRefresh({
+        storyId: assetRefreshDraft.storyId,
+        sceneId: assetRefreshDraft.sceneId,
+        storyOutline: assetRefreshDraft.showStory ? assetRefreshDraft.storyOutline : undefined,
+        sceneOutline: assetRefreshDraft.showScene ? assetRefreshDraft.sceneOutline : undefined,
+        overwriteManual: assetRefreshDraft.overwriteManual,
+      });
+      invalidateAssetQueries(assetRefreshDraft.storyId);
+      setAssetRefreshDraft(null);
+      toast.success('大纲已保存。纸面未改。');
+    } catch (e) {
+      toast.error(extractMessage(e));
+    } finally {
+      setAssetRefreshSaving(false);
+    }
+  }, [assetRefreshDraft, assetRefreshSaving, assetRefreshRewriting, invalidateAssetQueries, toast]);
+
+  const handleRewriteAssetRefresh = useCallback(async () => {
+    if (!assetRefreshDraft || assetRefreshSaving || assetRefreshRewriting) return;
+    const gen = ++assetRefreshRewriteGenRef.current;
+    setAssetRefreshRewriting(true);
+    try {
+      const result = await smartExecute({
+        user_input: assetRefreshDraft.instruction,
+        current_content: editorRef.current?.getHTML() ?? editorRef.current?.getText(),
+        scene_id: assetRefreshDraft.sceneId ?? useFrontstageStore.getState().sceneId ?? undefined,
+        intent_classification: {
+          is_new_novel: false,
+          is_continuation: false,
+          task_type: 'asset_refresh',
+          is_prose_request: false,
+          input_clarity: 'vague',
+          detected_genre: undefined,
+          confidence: 1,
+        } as WritingIntentClassification,
+      });
+      if (gen !== assetRefreshRewriteGenRef.current) return;
+      if (result.result_kind === 'asset_refresh' && result.asset_refresh_draft) {
+        const d = result.asset_refresh_draft;
+        setAssetRefreshDraft(prev =>
+          prev
+            ? {
+                ...prev,
+                instruction: d.instruction || prev.instruction,
+                storyOutline: d.story_outline ?? prev.storyOutline,
+                sceneOutline: d.scene_outline ?? prev.sceneOutline,
+                showStory: prev.showStory || d.story_outline != null,
+                showScene: prev.showScene || d.scene_outline != null,
+              }
+            : prev
+        );
+      } else {
+        toast.error('重写未得到大纲，仍保留上一稿');
+      }
+    } catch (e) {
+      if (gen !== assetRefreshRewriteGenRef.current) return;
+      toast.error(extractMessage(e));
+    } finally {
+      if (gen === assetRefreshRewriteGenRef.current) setAssetRefreshRewriting(false);
+    }
+  }, [assetRefreshDraft, assetRefreshSaving, assetRefreshRewriting, toast]);
 
   // A4-1.7: 根据生成开始时间计算已用秒数
   const getElapsedSeconds = useCallback(() => {
@@ -3581,14 +3696,7 @@ const FrontstageApp: React.FC = () => {
           stopElapsedTimer();
           setIsGenerating(false);
           setGenerationStatus('');
-          const sid = currentStoryRef.current?.id;
-          if (sid) {
-            queryClient.invalidateQueries({ queryKey: ['story-outline', sid] });
-            queryClient.invalidateQueries({ queryKey: ['characters', sid] });
-            queryClient.invalidateQueries({ queryKey: ['world_building', sid] });
-            queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
-          }
-          setAssetRefreshReport(result.final_content ?? '已按正文重写设定。纸面未改。');
+          applyAssetRefreshResult(result, context || '续写');
           return;
         }
 
@@ -4607,15 +4715,8 @@ const FrontstageApp: React.FC = () => {
         if (result.result_kind === 'asset_refresh') {
           smartExecuteInFlightRef.current = false;
           smartExecuteNeedDiagnosticRef.current = false;
-          const sid = currentStoryRef.current?.id;
-          if (sid) {
-            queryClient.invalidateQueries({ queryKey: ['story-outline', sid] });
-            queryClient.invalidateQueries({ queryKey: ['characters', sid] });
-            queryClient.invalidateQueries({ queryKey: ['world_building', sid] });
-            queryClient.invalidateQueries({ queryKey: ['scenes', sid] });
-          }
           preserveStatusAfterExecuteRef.current = true;
-          setAssetRefreshReport(result.final_content ?? '已按正文重写设定。纸面未改。');
+          applyAssetRefreshResult(result, userInput);
           return;
         }
 
@@ -5672,6 +5773,15 @@ const FrontstageApp: React.FC = () => {
         isOpen={auditReport !== null}
         report={auditReport ?? ''}
         onClose={() => setAuditReport(null)}
+      />
+      <AssetRefreshConfirmDialog
+        draft={assetRefreshDraft}
+        rewriting={assetRefreshRewriting}
+        saving={assetRefreshSaving}
+        onChange={setAssetRefreshDraft}
+        onConfirm={() => void handleConfirmAssetRefresh()}
+        onCancel={handleCancelAssetRefresh}
+        onRewrite={() => void handleRewriteAssetRefresh()}
       />
       <AuditReportModal
         isOpen={assetRefreshReport !== null}
