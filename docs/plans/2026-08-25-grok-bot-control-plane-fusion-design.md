@@ -1,7 +1,7 @@
 # grok-bot 控制面融合
 
 日期：2026-08-25
-状态：第一期已落地（v0.54.0）
+状态：第一至四期已落地（v0.55.0）
 决策来源：对照 [b-nnett/grok-bot-0.18-reconstructed](https://github.com/b-nnett/grok-bot-0.18-reconstructed) 的系统提示词装配、回合工具集、原生 function calling、技能目录预算；用户裁定 **Approach B（控制面融合）**，第一期做 **原生 tools（创世/管理/编辑 ToolLoop）**。
 
 承接：v0.45.0 提示词运行时组装、v0.51.6 三档模型路由、v0.53.6 高潮不重演。本文件不改 PersistMode、`scenes.content` 真相源、幕前纸面、落地页。
@@ -130,8 +130,18 @@ ToolLoop::run
 
 ---
 
-## 8. 后续各期（本版不实施）
+## 8. 第二至四期（v0.55.0）
 
-- **第二期**：准入角色半卡 + `asset_read`；Producer catalog 只注入名+一行。
-- **第三期**：一次续写 run 冻结节拍卡/阵容（对照 grok-bot memory freeze）。
-- **第四期**：`CONTINUE_BEAT_SYSTEM` 改为短操作合同 + 三条对错范例（重演行刺 / 泄露节拍卡 / 发明未出场角色）。
+### 8.1 第二期：资产渐进展开
+
+续写 user 只注入：节拍任务全文；在场名单（名 + 一句身份，不是把全表当名单）；冲突双方 / 下一拍 / 末句锚点。主创续写仍零工具，因此**全卡只给准入且在场/冲突的人**；其余准入者 L1 半卡/一行。禁止在续写 prompt 里写「调用 asset_read」（会诱使本地模型开始规划）。
+
+Producer / Editor ToolLoop：`catalog_for_role` 只注入工具**名 + 一行**（描述或用法）；JSON Schema 走第一期已落地的 `tools[]`（对齐 GetMcpTools「目录短、schema 在工具通道」）。新增 `asset_read(kind, name)`：按名取一张全卡 / 世界观 / 大纲；表外姓名拒绝。
+
+### 8.2 第三期：run 内冻结
+
+对照 `resolveFrozenMemoryPrompt`。一次 `write_beat_once` 开始时冻结节拍卡、阵容、已截断大纲（即组装好的 user）。自重复 / 过短 / 探针重试复用冻结件，不因并发 Ingest 改提示词。函数返回后解冻，避免批量续写下章仍用上一拍阵容。`finish_run` 再清一次。
+
+### 8.3 第四期：续写短操作合同
+
+`CONTINUE_BEAT_SYSTEM` 改为 8～12 行合同 + 三条对错范例：重演行刺 / 泄露节拍卡 / 按书名发明未出场角色。`prompts` 仍不得依赖 `agency`。不得宣称续写质量或唱反调已修复。

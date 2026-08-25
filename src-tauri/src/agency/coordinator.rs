@@ -890,6 +890,8 @@ pub struct AgencyCoordinator {
     /// tool_loop 每轮检查，剩余 <30s 时熔断保产出，避免硬超时砍掉无结果。
     /// None 表示不限制（测试/无超时场景）。run_genesis_with_sink 入口设置。
     run_deadline: Mutex<Option<std::time::Instant>>,
+    /// 一次 write_beat_once 内冻结节拍卡/阵容（对照 grok-bot memory freeze）。
+    continue_freeze: Arc<crate::agency::continue_freeze::ContinueFreezeMap>,
     /// 测试用活动信号记录（app_handle=None 时 emit 静默，单测借此验证
     /// 角色/action/detail 配对）。格式 "role|action|detail"。
     #[cfg(test)]
@@ -905,6 +907,7 @@ impl AgencyCoordinator {
             progress_sink: Mutex::new(None),
             model_count_override: None,
             run_deadline: Mutex::new(None),
+            continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             #[cfg(test)]
             activity_log: Mutex::new(Vec::new()),
         }
@@ -919,6 +922,7 @@ impl AgencyCoordinator {
             progress_sink: Mutex::new(None),
             model_count_override: None,
             run_deadline: Mutex::new(None),
+            continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
             #[cfg(test)]
             activity_log: Mutex::new(Vec::new()),
         }
@@ -1159,6 +1163,7 @@ impl AgencyCoordinator {
             progress_sink: Mutex::new(None),
             model_count_override: self.model_count_override,
             run_deadline: Mutex::new(None),
+            continue_freeze: self.continue_freeze.clone(),
             #[cfg(test)]
             activity_log: Mutex::new(Vec::new()),
         }
@@ -2761,6 +2766,7 @@ impl AgencyCoordinator {
                 progress_sink: Mutex::new(None),
                 model_count_override: None,
                 run_deadline: Mutex::new(None),
+                continue_freeze: Arc::new(crate::agency::continue_freeze::ContinueFreezeMap::new()),
                 #[cfg(test)]
                 activity_log: Mutex::new(Vec::new()),
             };
@@ -4138,7 +4144,7 @@ impl AgencyCoordinator {
         } else {
             instruction
         };
-        let user = if let Some(ref p) = parts {
+        let (user, admitted, l2) = if let Some(ref p) = parts {
             let (admitted, l2) = admit_for_continue(p, &card, &chapter_outline, instr);
             let assets = render_parts(
                 p,
@@ -4150,23 +4156,38 @@ impl AgencyCoordinator {
                 &l2,
             );
             let state = compile_continue_beat_state(&card, Some(p), current_content.unwrap_or(""));
-            crate::agency::beat_card::render_writer_user_prompt(
+            let user = crate::agency::beat_card::render_writer_user_prompt(
                 &assets,
                 &card,
                 instr,
                 current_content.unwrap_or(""),
                 Some(&state),
-            )
+            );
+            (user, admitted, l2)
         } else {
             let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
-            crate::agency::beat_card::render_writer_user_prompt(
+            let user = crate::agency::beat_card::render_writer_user_prompt(
                 "",
                 &card,
                 instr,
                 current_content.unwrap_or(""),
                 Some(&state),
-            )
+            );
+            (user, Vec::new(), Vec::new())
         };
+        let frozen = self.continue_freeze.pin(
+            run_id,
+            crate::agency::continue_freeze::FrozenContinueShot {
+                card: card.clone(),
+                admitted,
+                l2,
+                user,
+            },
+        );
+        let _thaw =
+            crate::agency::continue_freeze::ThawGuard::new(self.continue_freeze.clone(), run_id);
+        let card = frozen.card;
+        let user = frozen.user;
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
             budget.clone(),
@@ -6735,5 +6756,101 @@ mod writer_context_tests {
             "近文在场者仍在 user={}",
             user.chars().take(400).collect::<String>()
         );
+    }
+
+    #[test]
+    fn continue_user_omits_asset_read_and_keeps_present_full_cards() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("零工具半卡"))
+            .unwrap();
+        let mut present = char_req(&story.id, "苏会山");
+        present.background = Some("藩王".into());
+        present.emotional_core = Some("权欲".into());
+        CharacterRepository::new(pool.clone())
+            .create(present)
+            .unwrap();
+        let mut rest = char_req(&story.id, "债主甲");
+        rest.emotional_core = Some("讨债内核".into());
+        CharacterRepository::new(pool.clone()).create(rest).unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let sc = scene_repo.create(&story.id, 1, Some("一")).unwrap();
+        let content = "苏会山坐在大堂上。".to_string();
+        scene_repo
+            .update(
+                &sc.id,
+                &SceneUpdate {
+                    content: Some(content.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let (user, card) =
+            assemble_continue_user_prompt(&pool, &story.id, "续写", &content, "").unwrap();
+        assert!(!user.contains("asset_read"), "续写不得诱使拉卡 user={user}");
+        assert!(
+            card.cast.iter().any(|c| c.name == "苏会山") || user.contains("苏会山"),
+            "在场应在名单 user={}",
+            user.chars().take(400).collect::<String>()
+        );
+        assert!(
+            user.contains("情感内核：权欲"),
+            "在场/冲突给全卡 user={}",
+            user.chars().take(800).collect::<String>()
+        );
+    }
+
+    #[test]
+    fn continue_freeze_pin_ignores_later_db_mutation() {
+        use crate::agency::continue_freeze::{ContinueFreezeMap, FrozenContinueShot};
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("冻结阵容"))
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "苏会山"))
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let sc = scene_repo.create(&story.id, 1, Some("一")).unwrap();
+        let content = "苏会山倒在血泊里，气绝。".to_string();
+        scene_repo
+            .update(
+                &sc.id,
+                &SceneUpdate {
+                    content: Some(content.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let (user, card) =
+            assemble_continue_user_prompt(&pool, &story.id, "续写", &content, "").unwrap();
+        let map = ContinueFreezeMap::new();
+        let frozen = map.pin(
+            "run-freeze",
+            FrozenContinueShot {
+                card: card.clone(),
+                admitted: vec!["苏会山".into()],
+                l2: vec!["苏会山".into()],
+                user: user.clone(),
+            },
+        );
+        CharacterRepository::new(pool.clone())
+            .create(char_req(&story.id, "金敏秀"))
+            .unwrap();
+        let (live, live_card) =
+            assemble_continue_user_prompt(&pool, &story.id, "续写", &content, "").unwrap();
+        let pinned = map.pin(
+            "run-freeze",
+            FrozenContinueShot {
+                card: live_card,
+                admitted: vec!["金敏秀".into()],
+                l2: vec!["金敏秀".into()],
+                user: live,
+            },
+        );
+        assert_eq!(pinned.user, frozen.user);
+        assert_eq!(pinned.card.dead, frozen.card.dead);
+        assert!(pinned.user.contains("苏会山") || pinned.card.dead.iter().any(|n| n == "苏会山"));
+        assert!(!pinned.admitted.iter().any(|n| n == "金敏秀"));
     }
 }

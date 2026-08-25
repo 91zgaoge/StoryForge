@@ -657,7 +657,7 @@ fn render_one_card_l1(c: &CoreCharacter) -> String {
     format!("- {}", parts.join(" | "))
 }
 
-fn render_one_card(c: &CoreCharacter) -> String {
+pub(crate) fn render_one_card(c: &CoreCharacter) -> String {
     let mut parts = vec![format!("姓名：{}", c.name)];
     if let Some(ref id) = c.identity {
         parts.push(format!("身份：{}", id));

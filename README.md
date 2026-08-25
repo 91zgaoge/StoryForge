@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.54.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.55.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.55.0 · 续写短合同、工具目录变短、同一拍阵容不再跟着资产回流晃
+
+创世时管理 Agent 只看见工具名和一行说明，要全卡再按名读。点续写仍只写正文：在场/冲突给全卡，其余半卡，并带三条对错范例（不要重演行刺、不要泄节拍卡、不要按书名发明人）。请升级到 0.55.0 并重启后再试。这不是续写质量修复。
 
 ### v0.54.0 · 创世与管理 Agent 改走原生工具调用
 

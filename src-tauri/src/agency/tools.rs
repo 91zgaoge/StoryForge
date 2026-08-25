@@ -147,23 +147,21 @@ impl ToolRegistry {
         out
     }
 
-    /// 注入系统提示词的工具目录（名称 + 描述 + 参数 schema）。
+    /// 注入系统提示词的工具目录：名 + 一行。JSON Schema 走原生 `tools[]`。
     pub fn catalog_for_role(&self, role: AgentRole) -> String {
-        let mut out = String::from("可用工具（JSON action 调用）：\n");
+        let mut out = String::from("可用工具：\n");
         if let Some(allowed) = self.whitelists.get(&role) {
             let mut names: Vec<&String> = allowed.iter().collect();
             names.sort();
             for name in names {
                 if let Some(tool) = self.tools.get(name) {
-                    out.push_str(&format!(
-                        "- {}: {}\n  参数: {}\n",
-                        tool.name(),
-                        tool.description(),
-                        tool.args_schema()
-                    ));
+                    let mut line = format!("- {}: {}", tool.name(), tool.description());
                     if let Some(usage) = tool.usage_guidance() {
-                        out.push_str(&format!("  用法: {}\n", usage));
+                        line.push(' ');
+                        line.push_str(usage);
                     }
+                    out.push_str(&line);
+                    out.push('\n');
                 }
             }
         }
@@ -178,11 +176,13 @@ impl ToolRegistry {
         registry.register(Arc::new(BoardReviseTool));
         registry.register(Arc::new(StoryInfoTool));
         registry.register(Arc::new(AssetQueryTool));
+        registry.register(Arc::new(AssetReadTool));
         registry.register(Arc::new(CreativeContextTool));
         for role in AgentRole::all() {
             registry.allow(role, "board_read");
             registry.allow(role, "story_info");
             registry.allow(role, "asset_query");
+            registry.allow(role, "asset_read");
             registry.allow(role, "creative_context");
         }
         // 编辑审计只读（审查结论经 ToolLoop final 由协调器落审查区）
@@ -654,6 +654,94 @@ impl AgentTool for AssetQueryTool {
             )),
         }
     }
+}
+
+pub struct AssetReadTool;
+
+#[async_trait::async_trait]
+impl AgentTool for AssetReadTool {
+    fn name(&self) -> &'static str {
+        "asset_read"
+    }
+    fn description(&self) -> &'static str {
+        "按名读取一张生产资产全卡：character / world / outline"
+    }
+    fn args_schema(&self) -> serde_json::Value {
+        serde_json::json!({"kind": "character|world|outline", "name": "角色名（kind=character 必填）"})
+    }
+    fn usage_guidance(&self) -> Option<&'static str> {
+        Some("一次只读一张；不要倾倒全表")
+    }
+
+    async fn execute(
+        &self,
+        ctx: &ToolContext,
+        args: serde_json::Value,
+    ) -> Result<String, AppError> {
+        let kind = args
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("character")
+            .trim()
+            .to_ascii_lowercase();
+        let name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        match kind.as_str() {
+            "character" | "characters" => {
+                if name.is_empty() {
+                    return Ok("（asset_read 需要 name）".to_string());
+                }
+                let pool = ctx.pool.clone();
+                let story_id = ctx.story_id.clone();
+                tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+                    let chars = crate::db::repositories::CharacterRepository::new(pool)
+                        .get_by_story(&story_id)
+                        .map_err(|e| AppError::from(format!("asset_read: {e}")))?;
+                    match chars.into_iter().find(|c| c.name == name) {
+                        Some(c) => Ok(render_db_character_full_card(&c)),
+                        None => Ok("（无此角色或不属于本故事）".to_string()),
+                    }
+                })
+                .await
+                .map_err(|e| AppError::from(format!("asset_read join error: {}", e)))?
+            }
+            "world" => {
+                AssetQueryTool
+                    .execute(ctx, serde_json::json!({"kind": "world"}))
+                    .await
+            }
+            "outline" => {
+                AssetQueryTool
+                    .execute(ctx, serde_json::json!({"kind": "outline"}))
+                    .await
+            }
+            other => Ok(format!(
+                "非法 kind: {}，可选 character|world|outline",
+                other
+            )),
+        }
+    }
+}
+
+fn render_db_character_full_card(c: &crate::db::Character) -> String {
+    crate::agency::continue_assets::render_one_card(
+        &crate::domain::write_time_bundle::CoreCharacter {
+            name: c.name.clone(),
+            identity: c.background.clone(),
+            physical_state: None,
+            mental_state: None,
+            location: None,
+            personality: c.personality.clone(),
+            emotional_core: c.emotional_core.clone(),
+            emotional_trigger: c.emotional_trigger.clone(),
+            emotional_wound: c.emotional_wound.clone(),
+            emotional_need: c.emotional_need.clone(),
+        },
+    )
 }
 
 /// 从 `CreativeContextTool` 提取的结构化创作上下文。
@@ -1377,22 +1465,91 @@ mod tests {
     }
 
     #[test]
-    fn catalog_without_guidance_keeps_name_description_schema_lines() {
+    fn catalog_for_role_is_name_and_one_line() {
         let reg = ToolRegistry::agency_default();
         let cat = reg.catalog_for_role(crate::agency::models::AgentRole::EditorAuditor);
         assert!(cat.contains("board_read"));
-        assert!(cat.contains("参数:"));
+        assert!(cat.contains("asset_read"));
+        assert!(!cat.contains("参数:"), "schema 不得进目录: {cat}");
+        assert!(!cat.contains("用法:"), "用法并进同一行，不另起标签: {cat}");
+        assert!(
+            !cat.contains("\"type\":\"object\""),
+            "目录不得倾倒 JSON schema: {cat}"
+        );
     }
 
     #[test]
     fn catalog_includes_usage_for_read_write_query() {
         let reg = ToolRegistry::agency_default();
         let writer = reg.catalog_for_role(crate::agency::models::AgentRole::LeadWriter);
-        assert!(writer.contains("用法: 资产已注入时不要轮询 board_read 拉全文"));
-        assert!(writer.contains("用法: 正文写入 draft 区，勿覆盖 user_created 资产"));
-        assert!(writer.contains("用法: 按 kind 查询，不要倾倒全表"));
+        assert!(writer.contains("资产已注入时不要轮询 board_read 拉全文"));
+        assert!(writer.contains("正文写入 draft 区，勿覆盖 user_created 资产"));
+        assert!(writer.contains("按 kind 查询，不要倾倒全表"));
+        assert!(writer.contains("一次只读一张"));
         let editor = reg.catalog_for_role(crate::agency::models::AgentRole::EditorAuditor);
-        assert!(editor.contains("用法: 资产已注入时不要轮询 board_read 拉全文"));
-        assert!(!editor.contains("用法: 正文写入 draft 区，勿覆盖 user_created 资产"));
+        assert!(editor.contains("资产已注入时不要轮询 board_read 拉全文"));
+        assert!(!editor.contains("正文写入 draft 区，勿覆盖 user_created 资产"));
+    }
+
+    #[tokio::test]
+    async fn asset_read_returns_full_card_and_refuses_unknown_name() {
+        use crate::db::{dto::CreateCharacterRequest, repositories::CharacterRepository};
+        let pool = create_test_pool().unwrap();
+        seed_run(&pool);
+        let story = StoryRepository::new(pool.clone())
+            .create(CreateStoryRequest {
+                title: "读卡".into(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        CharacterRepository::new(pool.clone())
+            .create(CreateCharacterRequest {
+                story_id: story.id.clone(),
+                name: "苏会山".into(),
+                background: Some("藩王".into()),
+                personality: None,
+                goals: None,
+                appearance: None,
+                gender: None,
+                age: None,
+                source: None,
+                is_auto_generated: None,
+                emotional_core: Some("权欲".into()),
+                emotional_trigger: None,
+                emotional_wound: None,
+                emotional_need: None,
+            })
+            .unwrap();
+        let registry = ToolRegistry::agency_default();
+        let mut context = ctx(pool, AgentRole::Producer);
+        context.story_id = story.id;
+        let tool = registry
+            .get_for_role(AgentRole::Producer, "asset_read")
+            .unwrap();
+        let ok = tool
+            .execute(
+                &context,
+                serde_json::json!({"kind": "character", "name": "苏会山"}),
+            )
+            .await
+            .unwrap();
+        assert!(ok.contains("姓名：苏会山"), "{ok}");
+        assert!(ok.contains("情感内核：权欲"), "{ok}");
+        let miss = tool
+            .execute(
+                &context,
+                serde_json::json!({"kind": "character", "name": "金敏秀"}),
+            )
+            .await
+            .unwrap();
+        assert!(miss.contains("无此角色"), "{miss}");
+        assert!(registry
+            .get_for_role(AgentRole::EditorAuditor, "asset_read")
+            .is_some());
     }
 }

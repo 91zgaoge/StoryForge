@@ -1,14 +1,21 @@
 # StoryMoss (草苔) 开发路线图
 
-> 最后更新: 2026-08-25（v0.54.0 Agency ToolLoop 原生 function calling）
+> 最后更新: 2026-08-25（v0.55.0 资产渐进展开 / 续写冻结 / 短操作合同）
 
-## ✅ v0.27.x–v0.54.x 已实施完成
+## ✅ v0.27.x–v0.55.x 已实施完成
+
+### ✨ v0.55.0 - 资产渐进展开 / 续写冻结 / 短操作合同 ✅ (2026-08-25)
+
+- [x] Producer/Editor catalog 名+一行；`asset_read` 按名取全卡。续写零工具。
+- [x] `write_beat_once` 冻结节拍卡/阵容，返回后解冻。
+- [x] `CONTINUE_BEAT_SYSTEM` 短合同 + 三条对错范例。
+- **未关闭**：真机创世/续写；不得宣称 JSON 熔断或续写质量已修复。
 
 ### ✨ v0.54.0 - Agency ToolLoop 原生 function calling ✅ (2026-08-25)
 
 - [x] ToolLoop 发角色白名单 JSON Schema；原生 `tool_calls` 优先，文本 JSON 回退。
 - [x] 续写 `write_beat_once` / `assemble_continue_beat` 不带 tools。
-- **未关闭**：真机创世/资产路径；不得宣称 JSON 熔断或续写质量已修复。第二至四期（半卡 / 冻结节拍卡 / 续写对错范例）未做。
+- **未关闭**：真机创世/资产路径；不得宣称 JSON 熔断或续写质量已修复。第二至四期已在 v0.55.0 落地。
 
 ### ✨ v0.53.6 - 已写完的行刺/死亡不再被续写重演 ✅ (2026-08-25)
 

@@ -2,6 +2,22 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.55.0（2026-08-25）
+
+grok-bot 控制面融合第二至四期：工具目录名+一行 + `asset_read`；续写 run 内冻结节拍卡；`CONTINUE_BEAT_SYSTEM` 短操作合同与三条对错范例。续写主创仍零工具。
+
+### 变更
+
+- `catalog_for_role` 不再倾倒 JSON Schema；schema 只走第一期 `tools[]`。
+- `asset_read(kind, name)`：本故事角色全卡，表外姓名拒绝。
+- `ContinueFreezeMap`：一次 `write_beat_once` 冻结 user/节拍卡，返回后解冻。
+- 续写 system：11 行合同 + 重演行刺 / 泄露节拍卡 / 发明未出场角色。
+
+### 测试
+
+- `cargo test --lib` 1549 passed / 2 ignored（+7）。
+- `npx vitest run` 602 passed / 3 skipped。
+
 ## v0.54.0（2026-08-25）
 
 Agency ToolLoop 改为原生 function calling：把当前角色白名单工具以 JSON Schema 发给模型，优先执行 `tool_calls`；本地模型仍可走文本 JSON action。续写主创保持单次 `complete()`，请求体不带 `tools`。

@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.54.0 项目完成状态
+# StoryMoss (草苔) v0.55.0 项目完成状态
 
-> 最后更新: 2026-08-25（v0.54.0 Agency ToolLoop 原生 function calling）
+> 最后更新: 2026-08-25（v0.55.0 资产渐进展开 / 续写冻结 / 短操作合同）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,14 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.55.0 - 资产渐进展开 / 续写冻结 / 短操作合同（2026-08-25）
+
+- Producer/Editor catalog 名+一行；`asset_read` 按名取全卡。续写零工具，在场/冲突全卡，其余半卡。
+- `write_beat_once` 冻结节拍卡/阵容，返回后解冻。
+- `CONTINUE_BEAT_SYSTEM` 11 行合同 + 三条对错范例。
+- **验证**：`cargo test --lib` 1549 passed / 2 ignored（+7）。
+- **未关闭**：真机创世/续写；不得宣称 JSON 熔断或续写质量已修复。
 
 ### v0.54.0 - Agency ToolLoop 原生 function calling（2026-08-25）
 

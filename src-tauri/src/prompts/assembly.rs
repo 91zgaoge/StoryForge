@@ -80,7 +80,17 @@ pub const GENESIS_FIRST_CHAPTER_SYSTEM: &str = "你是小说主创，只输出�
 
 pub const GENESIS_PROSE_FALLBACK_SYSTEM: &str = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。";
 
-pub const CONTINUE_BEAT_SYSTEM: &str = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。禁止重演前文已写完的行刺或死亡。须在节拍任务硬约束内落实指令。禁止输出任务分析、状态网、本拍规划或约束清单。";
+pub const CONTINUE_BEAT_SYSTEM: &str = "你是小说主创。只输出本章正文，不要标题、分析或清单。\n\
+1. 按节拍任务写下一拍；人设与世界以资产区为准。\n\
+2. 死人退场，写后果；禁止重演已写完的行刺或死亡。\n\
+3. 只用本拍名单；禁止按书名发明未出场角色。\n\
+4. 禁止复述已有正文，禁止同一段出现两次。\n\
+Wrong：大堂里再写一遍飞身扑上、刀刺苏会山。\n\
+Right：苏会山已死，写现场后果与在场活人的反应。\n\
+Wrong：先输出节拍任务、状态网或约束清单。\n\
+Right：直接写场面，只输出正文。\n\
+Wrong：凭书名拉出一个本拍名单没有的人。\n\
+Right：只用阵容里的名字。";
 
 pub const TOOL_LOOP_PROTOCOL: &str = "你只能输出一个 JSON action，不要输出其他内容：\n\
 - 调用工具: {\"type\":\"tool\",\"name\":\"<工具名>\",\"args\":{...}}\n\
@@ -321,11 +331,29 @@ mod tests {
     fn continue_beat_keeps_user_opaque_and_locks_system() {
         let user = "【节拍任务】\n去码头";
         let out = assemble_continue_beat(user).unwrap();
-        assert_eq!(
-            out.system,
-            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。禁止重演前文已写完的行刺或死亡。须在节拍任务硬约束内落实指令。禁止输出任务分析、状态网、本拍规划或约束清单。"
-        );
+        assert_eq!(out.system, CONTINUE_BEAT_SYSTEM);
         assert_eq!(out.user, user);
+    }
+
+    #[test]
+    fn continue_beat_operational_contract_has_three_examples() {
+        let lines: Vec<&str> = CONTINUE_BEAT_SYSTEM
+            .lines()
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert!(
+            (8..=12).contains(&lines.len()),
+            "合同应为 8–12 行，实际 {} 行: {CONTINUE_BEAT_SYSTEM}",
+            lines.len()
+        );
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：大堂里再写一遍飞身扑上"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Right：苏会山已死"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：先输出节拍任务、状态网或约束清单"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Right：直接写场面，只输出正文"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：凭书名拉出一个本拍名单没有的人"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Right：只用阵容里的名字"));
+        assert!(!CONTINUE_BEAT_SYSTEM.contains("asset_read"));
+        assert!(!CONTINUE_BEAT_SYSTEM.contains("JSON action"));
     }
 
     #[test]
@@ -334,6 +362,8 @@ mod tests {
         assert!(!out.user.contains("可用工具"));
         assert!(!out.system.contains("JSON action"));
         assert!(!out.user.contains("board_read"));
+        assert!(!out.user.contains("asset_read"));
+        assert!(!out.system.contains("asset_read"));
         assert!(crate::llm::adapter::GenerateRequest::default()
             .tools
             .is_none());

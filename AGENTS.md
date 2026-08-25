@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.54.0
+- **版本**: v0.55.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1542 passed / 2 ignored（+16 原生 tools）
+- `cargo test -p storymoss` ✅ 1549 passed / 2 ignored（+7 二至四期）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 602 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -108,13 +108,21 @@ type:
 
 ## 最近完成的功能
 
+### v0.55.0 - 资产渐进展开 / 续写冻结 / 短操作合同
+
+第二至四期对照 grok-bot 控制面：Producer/Editor 工具目录只注入名+一行，schema 走原生 `tools[]`；新增 `asset_read` 按名取全卡。续写仍零工具，全卡只给在场/冲突，其余半卡。一次 `write_beat_once` 冻结节拍卡与阵容，返回后解冻。`CONTINUE_BEAT_SYSTEM` 改为 11 行合同 + 三条对错范例。不改三档路由、不把主创拉回 ToolLoop。
+
+- **验证**：`cargo test --lib` 1549 passed / 2 ignored（+7）。
+- **契约**：`catalog_for_role_is_name_and_one_line`；`asset_read_returns_full_card_and_refuses_unknown_name`；`continue_user_omits_asset_read_and_keeps_present_full_cards`；`pin_keeps_first_shot_when_later_cast_changes`；`continue_freeze_pin_ignores_later_db_mutation`；`continue_beat_operational_contract_has_three_examples`。
+- **未关闭**：真机须再跑创世/续写；**不得宣称 ToolLoop JSON 熔断或续写质量已修复**。
+
 ### v0.54.0 - Agency ToolLoop 原生 function calling
 
 创世/管理/编辑的 ToolLoop 把角色白名单工具以 JSON Schema 发给模型；优先执行原生 `tool_calls`，没有则回退现网文本 JSON action。续写 `write_beat_once` 仍是单次 `complete()`，请求不带 tools。不改三档路由、不把主创拉回 ToolLoop。
 
 - **验证**：`cargo test --lib` 1542 passed / 2 ignored（+16）。
 - **契约**：`native_tool_calls_preferred_over_text_json`；`text_json_action_still_parses_when_tool_calls_empty`；`generate_request_omits_tools_field_when_none`；`tool_specs_for_role_producer_is_json_schema`；`continue_beat_complete_does_not_require_tools`；既有 tool_loop mock 只实现 `complete` 仍绿。
-- **未关闭**：真机须再跑创世/资产路径看管理 Agent 是否少一轮解析失败；**不得宣称 ToolLoop JSON 熔断或续写质量已修复**。第二至四期（半卡展开 / 节拍卡冻结 / 续写对错范例）未做。
+- **未关闭**：真机须再跑创世/资产路径看管理 Agent 是否少一轮解析失败；**不得宣称 ToolLoop JSON 熔断或续写质量已修复**。第二至四期已在 v0.55.0 落地。
 
 ### v0.53.6 - 已写完的行刺/死亡不再被续写重演
 
@@ -1120,7 +1128,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-25 - v0.54.0_
+_最后更新: 2026-08-25 - v0.55.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
