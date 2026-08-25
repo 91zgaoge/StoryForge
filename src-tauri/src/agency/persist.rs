@@ -761,6 +761,7 @@ mod tests {
             expansion_quota_text: None,
             setting_location: Some("夜宴厅".into()),
             open_review_issues: vec![],
+            dead: vec![],
         }
     }
 
@@ -846,6 +847,7 @@ mod tests {
             expansion_quota_text: None,
             setting_location: Some("夜宴厅".into()),
             open_review_issues: vec![],
+            dead: vec![],
         };
         let scene_repo = SceneRepository::new(pool.clone());
         let update = scene_update_from_card(&pool, &story_id, &card, long_increment(), None);

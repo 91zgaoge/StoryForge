@@ -196,6 +196,9 @@ pub fn probe_increment(
             gaps.push("增量以场外角色开篇".into());
         }
     }
+    if crate::agency::continue_assets::increment_replays_completed_deaths(increment, &card.dead) {
+        gaps.push("重演已完成的死亡或行刺".into());
+    }
     BeatProbe { named_cast, gaps }
 }
 
@@ -252,6 +255,7 @@ mod tests {
             expansion_quota_text: None,
             setting_location: Some("雨巷".into()),
             open_review_issues: vec![],
+            dead: vec![],
         };
         let state = BeatState {
             present: vec!["阿岩".into(), "林雪".into()],
@@ -294,6 +298,7 @@ mod tests {
             expansion_quota_text: None,
             setting_location: Some("镇北王府大堂".into()),
             open_review_issues: vec![],
+            dead: vec![],
         };
         let state = BeatState {
             present: vec!["苏亦铁".into(), "曹元佩".into()],
@@ -311,6 +316,55 @@ mod tests {
             probe.gaps.iter().any(|g| g.contains("场外")),
             "须拦截场外开篇 gaps={:?}",
             probe.gaps
+        );
+    }
+
+    #[test]
+    fn probe_rejects_replay_of_completed_stab() {
+        let card = SceneBeatCard {
+            cast: vec![
+                CastMember {
+                    name: "苏亦铁".into(),
+                    purpose: "末段已在场".into(),
+                },
+                CastMember {
+                    name: "景亲王".into(),
+                    purpose: "末段已在场".into(),
+                },
+            ],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["苏亦铁".into(), "景亲王".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "悲愤".into(),
+            },
+            next_outline_node: "当众驳斥谋反".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("镇北王府大堂".into()),
+            open_review_issues: vec![],
+            dead: vec!["苏会山".into(), "明成公主".into()],
+        };
+        let state = BeatState {
+            present: vec!["苏亦铁".into(), "景亲王".into()],
+            locations: vec![("苏亦铁".into(), "镇北王府大堂".into())],
+            threads: vec![],
+            offshot: vec![],
+        };
+        let rewind = "明成公主将短刃狠狠刺入了苏会山的胸口。苏会山头脸崩裂。";
+        let probe = probe_increment(rewind, &card, &state, &[]);
+        assert!(
+            probe.gaps.iter().any(|g| g.contains("重演")),
+            "须拦截重演刺杀 gaps={:?}",
+            probe.gaps
+        );
+        let forward = "苏亦铁扑向父亲的尸体。景亲王的护卫大喊谋反。曹元佩僵在座上。";
+        let ok = probe_increment(forward, &card, &state, &[]);
+        assert!(
+            !ok.gaps.iter().any(|g| g.contains("重演")),
+            "点名尸体不得算重演 gaps={:?}",
+            ok.gaps
         );
     }
 }

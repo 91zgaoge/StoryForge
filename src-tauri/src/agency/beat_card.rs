@@ -42,6 +42,8 @@ pub struct SceneBeatCard {
     pub expansion_quota_text: Option<String>,
     pub setting_location: Option<String>,
     pub open_review_issues: Vec<String>,
+    /// 近文已写成尸体/气绝的人。禁止再当行动主体，禁止重演其死亡。
+    pub dead: Vec<String>,
 }
 
 pub fn quota_text_for_beats(
@@ -78,6 +80,12 @@ impl SceneBeatCard {
         lines.push(format!("冲突：{}", self.conflict_move.action));
         lines.push(format!("情感：{}", self.emotion_beat.summary));
         lines.push(format!("推进：{}", self.next_outline_node));
+        if !self.dead.is_empty() {
+            lines.push(format!(
+                "已死（禁止再行动、禁止重演其死亡）：{}",
+                self.dead.join("、")
+            ));
+        }
         if let Some(ref loc) = self.setting_location {
             if !loc.is_empty() {
                 lines.push(format!("地点：{}", loc));
@@ -170,7 +178,12 @@ pub fn compile_beat_card_located(
     let protagonist = chars.first().map(|c| c.name.as_str()).unwrap_or("主角");
 
     let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
-    let mut cast = present_in_text(&chars, &tail);
+    let table_names: Vec<String> = chars.iter().map(|c| c.name.clone()).collect();
+    let dead = crate::agency::continue_assets::dead_names_in_text(&table_names, &tail);
+    let mut cast: Vec<CastMember> = present_in_text(&chars, &tail)
+        .into_iter()
+        .filter(|c| !dead.iter().any(|d| d == &c.name))
+        .collect();
     let ledger = RotationLedger::load_sync(pool, story_id).unwrap_or_default();
     let debt = ExpansionDebt::compute(pool, story_id, &ledger).unwrap_or_default();
     let expansion_quota = debt.triggered();
@@ -180,7 +193,7 @@ pub fn compile_beat_card_located(
         if let Some(silent) = ledger
             .character_silence
             .iter()
-            .find(|s| !cast.iter().any(|c| c.name == s.name))
+            .find(|s| !cast.iter().any(|c| c.name == s.name) && !dead.iter().any(|d| d == &s.name))
         {
             cast.push(CastMember {
                 name: silent.name.clone(),
@@ -202,7 +215,10 @@ pub fn compile_beat_card_located(
             } else {
                 &t.source_name
             };
-            if !name.is_empty() && !cast.iter().any(|c| c.name == *name) {
+            if !name.is_empty()
+                && !cast.iter().any(|c| c.name == *name)
+                && !dead.iter().any(|d| d == name)
+            {
                 cast.push(CastMember {
                     name: name.clone(),
                     purpose: format!("张力对手（{}）", t.tension_type),
@@ -211,8 +227,13 @@ pub fn compile_beat_card_located(
         }
     }
     if cast.is_empty() {
+        let living = table_names
+            .iter()
+            .find(|n| !dead.iter().any(|d| d == *n))
+            .map(|s| s.as_str())
+            .unwrap_or(protagonist);
         cast.push(CastMember {
-            name: protagonist.to_string(),
+            name: living.to_string(),
             purpose: "本拍行动主体".into(),
         });
     }
@@ -236,6 +257,7 @@ pub fn compile_beat_card_located(
         expansion_quota_text,
         setting_location,
         open_review_issues,
+        dead,
     })
 }
 
@@ -380,6 +402,18 @@ pub fn next_node_from_scene_outline(outline: &str) -> Option<String> {
 
 pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: &str) -> String {
     let shot = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    let names: Vec<String> = CharacterRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
+    let mentioned = crate::agency::continue_assets::match_character_names(&names, &shot);
+    let dead = crate::agency::continue_assets::dead_names_in_text(&names, &shot);
+    let living: Vec<String> = mentioned
+        .into_iter()
+        .filter(|n| !dead.iter().any(|d| d == n))
+        .collect();
     let scenes = SceneRepository::new(pool.clone())
         .get_by_story(story_id)
         .unwrap_or_default();
@@ -388,18 +422,13 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
             next_node_from_scene_outline(latest.outline_content.as_deref().unwrap_or(""))
         {
             let key: String = node.chars().take(20).collect();
-            if key.is_empty() || !shot.contains(&key) {
+            let replay =
+                crate::agency::continue_assets::node_replays_completed_climax(&node, &shot, &names);
+            if !replay && (key.is_empty() || !shot.contains(&key)) {
                 return node;
             }
         }
     }
-    let names: Vec<String> = CharacterRepository::new(pool.clone())
-        .get_by_story(story_id)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|c| c.name)
-        .collect();
-    let present = crate::agency::continue_assets::match_character_names(&names, &shot);
     let methodology_id = StoryRepository::new(pool.clone())
         .get_by_id(story_id)
         .ok()
@@ -408,7 +437,7 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
     let methodology_id =
         crate::agency::prose_ground::resolve_methodology_id(methodology_id.as_deref());
     let method_fallback =
-        crate::agency::prose_ground::methodology_next_node(methodology_id, &shot, &present);
+        crate::agency::prose_ground::methodology_next_node(methodology_id, &shot, &living);
     let raw_outline = StoryOutlineRepository::new(pool.clone())
         .get_by_story(story_id)
         .ok()
@@ -449,10 +478,13 @@ pub(crate) fn compile_next_node(pool: &DbPool, story_id: &str, current_content: 
         if key.is_empty() {
             continue;
         }
-        if covered.contains(&key) {
+        if covered.contains(&key) || shot.contains(&key) {
             continue;
         }
-        if !present.is_empty() && !present.iter().any(|n| cand.contains(n.as_str())) {
+        if crate::agency::continue_assets::node_replays_completed_climax(cand, &shot, &names) {
+            continue;
+        }
+        if !living.is_empty() && !living.iter().any(|n| cand.contains(n.as_str())) {
             continue;
         }
         return cand.chars().take(200).collect();
@@ -509,11 +541,17 @@ pub fn ending_anchor(current_content: &str) -> String {
     let Some(last) = last_n_sentences(&plain, 2, 280) else {
         return String::new();
     };
+    let extra = if crate::agency::continue_assets::prose_has_completed_death(&plain) {
+        "近文已有人气绝或成尸体。禁止重演行刺、刺入胸口、头脸崩裂。从末句动作之后写活人的反应与乱局。\n"
+    } else {
+        ""
+    };
     format!(
         "【续写硬锚点】\n\
          正文已写到此处。必须从末句之后继续，禁止另起开篇，禁止重写醒来/失忆/初入场景，\
          禁止用换一种说法重复末两句里已经完成的动作（饮酒、递盏、天气、跪拜等）。\n\
          人物、地点、未决问题以节拍任务与状态网为准，但不得与末句已发生的事实打架。\n\
+         {extra}\
          ——已有正文末句——\n\
          {last}\n\
          ——请紧接上句继续写——"
@@ -535,9 +573,17 @@ pub fn render_writer_user_prompt(
     let state_tail = state
         .map(|s| format!("\n\n{}", s.render_tail_summary()))
         .unwrap_or_default();
+    let facts = if card.dead.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n【已发生事实】{}已死。禁止再写一次被刺、气绝、头脸崩裂。从末句动作之后写活人的反应与乱局。",
+            card.dead.join("、")
+        )
+    };
     format!(
         "{card_full}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
-         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{ending}",
+         须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{ending}{facts}",
         card_full = card.render_full(),
         bundle = bundle_prompt,
         instruction = instruction,
@@ -738,6 +784,7 @@ mod tests {
             expansion_quota_text: None,
             setting_location: Some("夜宴".into()),
             open_review_issues: vec![],
+            dead: vec![],
         };
         let prompt =
             render_writer_user_prompt("【红线】不可飞天", &card, "往下写", "他推开门。", None);
@@ -1067,6 +1114,7 @@ mod tests {
             expansion_quota_text: None,
             setting_location: None,
             open_review_issues: vec!["苏会山与曹元佩的冲突未兑现".into()],
+            dead: vec![],
         };
         let full = card.render_full();
         assert!(full.contains("【待兑现审查】"));
@@ -1108,5 +1156,113 @@ mod tests {
             card.open_review_issues
         );
         assert!(card.render_full().contains("【待兑现审查】"));
+    }
+
+    fn seed_wedding_cast(pool: &DbPool) -> String {
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("大婚礼成"))
+            .unwrap();
+        for name in ["苏会山", "明成公主", "苏亦铁", "曹元佩", "景亲王"] {
+            CharacterRepository::new(pool.clone())
+                .create(char_req(&story.id, name))
+                .unwrap();
+        }
+        story.id
+    }
+
+    #[test]
+    fn wedding_climax_dead_are_not_acting_cast_or_conflict() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_wedding_cast(&pool);
+        let card = compile_beat_card(
+            &pool,
+            &sid,
+            crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL,
+        )
+        .unwrap();
+        let acting: Vec<_> = card.cast.iter().map(|c| c.name.as_str()).collect();
+        assert!(card.dead.contains(&"苏会山".into()), "dead={:?}", card.dead);
+        assert!(
+            card.dead.contains(&"明成公主".into()),
+            "dead={:?}",
+            card.dead
+        );
+        assert!(!acting.contains(&"苏会山"), "cast={:?}", card.cast);
+        assert!(!acting.contains(&"明成公主"), "cast={:?}", card.cast);
+        assert!(acting.contains(&"苏亦铁"), "cast={:?}", card.cast);
+        assert!(
+            !card.conflict_move.parties.iter().any(|p| p == "苏会山"),
+            "conflict={:?}",
+            card.conflict_move
+        );
+        assert!(
+            !card.conflict_move.parties.iter().any(|p| p == "明成公主"),
+            "conflict={:?}",
+            card.conflict_move
+        );
+        let prompt = render_writer_user_prompt(
+            "",
+            &card,
+            "续写",
+            crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL,
+            None,
+        );
+        assert!(prompt.contains("已死"), "{prompt}");
+        assert!(prompt.contains("禁止再写一次"), "{prompt}");
+        assert!(prompt.contains("飞身扑上"), "{prompt}");
+    }
+
+    #[test]
+    fn compile_next_node_skips_stab_already_written_in_prose() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_wedding_cast(&pool);
+        StoryOutlineRepository::new(pool.clone())
+            .create(
+                &sid,
+                "大婚之日明成公主于二拜高堂行刺苏会山。苏亦铁当众驳斥谋反。",
+                None,
+                3,
+                None,
+            )
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let mut conn = pool.get().unwrap();
+        let tx = conn.transaction().unwrap();
+        let scene = scene_repo.create_in_tx(&tx, &sid, 1, Some("章")).unwrap();
+        scene_repo
+            .update_in_tx(
+                &tx,
+                &scene.id,
+                &crate::db::repositories::SceneUpdate {
+                    outline_content: Some(
+                        "【当前场大纲】\n在场：苏亦铁\n冲突：加压\n情感：怒\n下一拍：明成公主于二拜高堂行刺苏会山"
+                            .into(),
+                    ),
+                    content: Some(crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        tx.commit().unwrap();
+        let node = compile_next_node(
+            &pool,
+            &sid,
+            crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL,
+        );
+        assert!(
+            !node.contains("行刺"),
+            "不得把已写完的行刺再当下一拍 got={node}"
+        );
+        assert!(
+            node.contains("苏亦铁") || node.contains("反应") || node.contains("谋反"),
+            "应从刺杀之后写活人反应 got={node}"
+        );
+    }
+
+    #[test]
+    fn ending_anchor_forbids_replaying_completed_deaths() {
+        let a = ending_anchor(crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL);
+        assert!(a.contains("禁止重演行刺"), "{a}");
+        assert!(a.contains("飞身扑上"), "{a}");
     }
 }

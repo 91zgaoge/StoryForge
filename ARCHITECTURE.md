@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.53.5 架构文档
+# StoryMoss (草苔) v0.53.6 架构文档
 
+> **v0.53.6**：近文死亡检测把已死之人移出节拍卡行动阵容；`compile_next_node` 跳过已在正文完成的行刺高潮；`probe_increment` 拦把已死者再刺一次。不改 PersistMode / Agency 唯一续写路径。v0.53.5 大纲确认框不变量不变。
+>
 > **v0.53.5**：含大纲的 `asset_refresh` 返回 `asset_refresh_draft`，确认前不写 `story_outlines` / `scenes.outline_content`。`confirm_asset_refresh` 按手改落库。重写再走 `smart_execute`。纸面只读不变量不变。v0.53.4 写/生成宾语是大纲的形状检测不变。
 
 > **v0.53.4**：`looks_like_asset_refresh_shape` 在写/生成的宾语是大纲时成立，不再要求出现「正文」。`apply_asset_refresh_override` 仍盖掉续写兜底。「写后续」「按照故事大纲写后续」「根据正文重新生成下一章」不进本作业。v0.53.3 幕前弹窗与纸面只读不变量不变。

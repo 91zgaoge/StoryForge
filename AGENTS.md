@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.53.5
+- **版本**: v0.53.6
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1519 passed / 2 ignored（+2 确认才落库）
+- `cargo test -p storymoss` ✅ 1526 passed / 2 ignored（+7 大婚礼成不重演）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 602 passed / 3 skipped（+5）
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.53.6 - 已写完的行刺/死亡不再被续写重演
+
+大堂行刺、苏会山与明成公主已死之后，节拍卡仍把死人当在场、下一拍仍是行刺，主创会把刺杀再写一遍。本版：死人退出行动阵容；已完成高潮不再当下一拍；末句锚点与探针拦重演。
+
+- **验证**：`cargo test --lib` 1526 passed / 2 ignored（+7）。
+- **契约**：`wedding_climax_marks_king_and_princess_dead_not_son`；`wedding_climax_dead_are_not_acting_cast_or_conflict`；`compile_next_node_skips_stab_already_written_in_prose`；`probe_rejects_replay_of_completed_stab`。
+- **未关闭**：须用「飞身扑上」同一开头再跑真机；**不得宣称唱反调/续写质量已修复**。
 
 ### v0.53.5 - 大纲重写弹出确认框（确认 / 取消 / 重写）
 
@@ -1104,7 +1112,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-25 - v0.53.5_
+_最后更新: 2026-08-25 - v0.53.6_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

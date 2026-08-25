@@ -92,6 +92,148 @@ pub fn match_character_names(names: &[impl AsRef<str>], text: &str) -> Vec<Strin
     hit
 }
 
+const CLIMAX_REPLAY_MARKERS: &[&str] = &[
+    "行刺",
+    "刺杀",
+    "刺死",
+    "暴起",
+    "暴身而起",
+    "扎进",
+    "刺入",
+    "短刃",
+    "气绝",
+];
+
+pub fn prose_has_completed_death(text: &str) -> bool {
+    [
+        "的尸体",
+        "气绝",
+        "身亡",
+        "崩裂开来",
+        "化为白骨",
+        "白森森的头骨",
+    ]
+    .iter()
+    .any(|m| text.contains(m))
+}
+
+fn titles_of(name: &str) -> Vec<&'static str> {
+    const TITLES: &[&str] = &["公主", "亲王", "王爷", "将军", "夫人", "郡主"];
+    TITLES
+        .iter()
+        .copied()
+        .filter(|t| name.ends_with(t))
+        .collect()
+}
+
+fn sentence_negates_death(sent: &str) -> bool {
+    sent.contains("未气绝")
+        || sent.contains("没有死")
+        || sent.contains("假死")
+        || sent.contains("诈死")
+}
+
+fn window_before(sent: &str, marker_byte: usize, max_chars: usize) -> &str {
+    let before = &sent[..marker_byte];
+    let start = before
+        .char_indices()
+        .rev()
+        .nth(max_chars.saturating_sub(1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    &before[start..]
+}
+
+/// 近文是否已把该角色写成不可逆死亡（尸体 / 气绝 / 头骨崩裂）。
+/// 同句里出现别人的尸体不算；称号（公主）只在全文已出现全名、
+/// 且该人是受击对象时算死。
+pub fn name_is_dead_in_text(name: &str, text: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() < 2 {
+        return false;
+    }
+    if text.contains(&format!("{name}的尸体")) {
+        return true;
+    }
+    const BODY_MARKERS: &[&str] = &["崩裂开来", "化为白骨", "白森森的头骨", "头骨上"];
+    for sent in text.split(['。', '！', '？', '\n']) {
+        if sentence_negates_death(sent) {
+            continue;
+        }
+        for m in BODY_MARKERS {
+            if let Some(idx) = sent.find(m) {
+                if window_before(sent, idx, 40).contains(name) {
+                    return true;
+                }
+            }
+        }
+        let last_breath = sent.find("气绝").or_else(|| sent.find("身亡"));
+        if let Some(idx) = last_breath {
+            if window_before(sent, idx, 12).contains(name) {
+                return true;
+            }
+            if sent.contains(&format!("击中{name}")) || sent.contains(&format!("{name}横飞")) {
+                return true;
+            }
+            for t in titles_of(name) {
+                if sent.contains(&format!("击中{t}"))
+                    || sent.contains(&format!("打得{t}"))
+                    || (sent.contains(t) && sent.contains("将其打得"))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn dead_names_in_text(names: &[impl AsRef<str>], text: &str) -> Vec<String> {
+    names
+        .iter()
+        .map(|n| n.as_ref().trim().to_string())
+        .filter(|n| !n.is_empty() && name_is_dead_in_text(n, text))
+        .collect()
+}
+
+/// 书纲 / 当前场「下一拍」是否还在要求重演近文已经写完的行刺或死亡。
+pub fn node_replays_completed_climax(node: &str, shot: &str, names: &[impl AsRef<str>]) -> bool {
+    if node.trim().is_empty() || !CLIMAX_REPLAY_MARKERS.iter().any(|m| node.contains(m)) {
+        return false;
+    }
+    let dead = dead_names_in_text(names, shot);
+    if dead.is_empty() {
+        return false;
+    }
+    dead.iter()
+        .any(|d| node.contains(d.as_str()) || titles_of(d).iter().any(|t| node.contains(t)))
+}
+
+/// 增量是否把已死之人再刺一次、再气绝一次。点名尸体本身不算。
+pub fn increment_replays_completed_deaths(increment: &str, dead: &[impl AsRef<str>]) -> bool {
+    if increment.trim().is_empty() {
+        return false;
+    }
+    dead.iter().any(|n| {
+        let name = n.as_ref();
+        if name.is_empty() || !increment.contains(name) {
+            return false;
+        }
+        increment.contains("刺入")
+            || increment.contains("扎进")
+            || increment.contains("气绝身亡")
+            || increment.contains("登时气绝")
+            || (increment.contains("头脸") && increment.contains("崩裂"))
+            || increment.contains("喷溅出一片绿色")
+    })
+}
+
+#[cfg(test)]
+pub(crate) const WEDDING_ASSASSINATION_TAIL: &str = "\
+吉时已到，礼仪主持高呼：一拜天地，苏亦铁与公主双双跪拜。礼仪主持再呼：二拜高堂，苏亦铁急忙跪下，正待低身磕头，眼角一瞥，却惊见身边的公主突然暴身而起，双臂直伸抢前，只听“滋滋滋”数声细响，公主左手射出数道红烟，瞬间将苏会山、曹元佩夫妇罩住，右手明晃晃持了一把短刃，锋芒暴闪，蛇形而上，像一条跃起攻击的毒蛇，快速准狠而又悄无声息，深深扎进了苏会山的胸口。事发突然，苏会山饶是久经沙场的老将，也只来得及用左手格挡了一下，那短刃极为锋利，连带切断了苏会山左手的四个指头。就在这电光石火之间，苏会山的右拳本能般汇聚全身功力，以雷霆万钧之势一拳击中公主，将其打得横飞而出，越过众人头上，摔在几丈之外，七窍喷血，抽搐几下，登时气绝。\
+但偷袭已然得手，众目睽睽之下，只见苏会山脸上的笑容还来不及收拢就霎时凝固，即刻扭曲成了一张墨绿而狰狞的面容，随着苏会山一声闷哼，出现了极其恐怖的一幕，苏会山整个头脸皮肉猛然鼓胀崩裂开来，眼球凸出，往四周喷溅出一片绿色血雾，血肉支离破碎，有的落在地上，有的将断未断，挂在白森森的头骨上。\
+大堂内外顿时乱成一团，混乱中，景亲王藏在一群贴身护卫后面惊慌失措，几个护卫大叫：“镇北王杀公主了”、“谋反啊”。苏亦铁从震惊中清醒过来，看到苏会山的尸体惨状，悲愤裂目，飞身扑上。";
+
 /// 增量中最后出现的已知地点；与 prev 相同则 None。
 pub fn detect_location_shift(
     known: &[String],
@@ -1355,5 +1497,46 @@ mod tests {
         assert!(text.contains("情感内核：客栈乙的情感内核"), "{text}");
         assert!(!text.contains("情感内核：债主甲的情感内核"), "{text}");
         assert!(text.contains("姓名：债主甲"), "{text}");
+    }
+
+    #[test]
+    fn wedding_climax_marks_king_and_princess_dead_not_son() {
+        let names = ["苏会山", "明成公主", "苏亦铁", "曹元佩", "景亲王"];
+        let dead = dead_names_in_text(&names, super::WEDDING_ASSASSINATION_TAIL);
+        assert!(dead.contains(&"苏会山".into()), "dead={dead:?}");
+        assert!(dead.contains(&"明成公主".into()), "dead={dead:?}");
+        assert!(!dead.contains(&"苏亦铁".into()), "dead={dead:?}");
+        assert!(!dead.contains(&"曹元佩".into()), "dead={dead:?}");
+        assert!(!dead.contains(&"景亲王".into()), "dead={dead:?}");
+    }
+
+    #[test]
+    fn rewind_increment_replays_completed_stab() {
+        let increment = "\
+苏亦铁的动作带着撕裂般的怒意。明成公主手中一柄短刃闪烁着寒光，将短刃狠狠刺入了苏会山的胸口。\
+苏会山头脸崩裂，喷溅出一片绿色血雾。明成公主发出一声惊愕的轻呼，随后气绝身亡。";
+        assert!(increment_replays_completed_deaths(
+            increment,
+            &["苏会山".to_string(), "明成公主".to_string()]
+        ));
+        assert!(!increment_replays_completed_deaths(
+            "苏亦铁扑向苏会山的尸体，悲愤裂目。景亲王的护卫大喊谋反。",
+            &["苏会山".to_string(), "明成公主".to_string()]
+        ));
+    }
+
+    #[test]
+    fn scene_outline_stab_node_is_already_done_after_climax() {
+        let names = ["苏会山", "明成公主", "苏亦铁"];
+        assert!(node_replays_completed_climax(
+            "明成公主于二拜高堂行刺苏会山",
+            super::WEDDING_ASSASSINATION_TAIL,
+            &names
+        ));
+        assert!(!node_replays_completed_climax(
+            "苏亦铁当众驳斥谋反指控",
+            super::WEDDING_ASSASSINATION_TAIL,
+            &names
+        ));
     }
 }
