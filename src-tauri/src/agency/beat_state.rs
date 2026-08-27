@@ -2,7 +2,10 @@
 //! §7
 
 use crate::{
-    agency::beat_card::{CastMember, SceneBeatCard},
+    agency::{
+        beat_card::{CastMember, SceneBeatCard},
+        continue_director::DirectorLock,
+    },
     creative_engine::expansion::debt::QuotaItem,
 };
 
@@ -51,9 +54,7 @@ impl BeatState {
                 .join(" ");
             lines.push(format!("未决：{t}"));
         }
-        lines.push(
-            "必须承接未决，禁止忘掉已在场者，禁止把未决线程当已解决除非本拍写明解决。".into(),
-        );
+        lines.push("在场者可以不出声。禁止写成他们不在场。禁止把同一人的别名写成另一个人。".into());
         lines.join("\n")
     }
 
@@ -136,23 +137,24 @@ pub fn probe_increment(
     card: &SceneBeatCard,
     state: &BeatState,
     quota: &[QuotaItem],
+    lock: Option<&DirectorLock>,
 ) -> BeatProbe {
     let cast_names: Vec<String> = card.cast.iter().map(|c| c.name.clone()).collect();
     let matched = crate::agency::continue_assets::match_character_names(&cast_names, increment);
     let named_cast = matched.len();
     let mut gaps = Vec::new();
-    if named_cast < 2 && card.cast.len() >= 2 {
-        gaps.push("增量点名在场者不足 2 人".into());
-    }
     if quota.contains(&QuotaItem::ConflictEscalation) {
-        let parties_hit = card.conflict_move.parties.len() >= 2
-            && card
-                .conflict_move
-                .parties
-                .iter()
-                .all(|p| matched.iter().any(|n| n == p));
+        let living_parties: Vec<&String> = card
+            .conflict_move
+            .parties
+            .iter()
+            .filter(|p| !card.dead.iter().any(|d| d == *p))
+            .collect();
+        let one_living = living_parties
+            .iter()
+            .any(|p| matched.iter().any(|n| n == *p));
         let verb = crate::agency::continue_assets::has_conflict_verb(increment);
-        if !parties_hit && !verb {
+        if !living_parties.is_empty() && !one_living && !verb {
             gaps.push("未落实冲突加压".into());
         }
     }
@@ -179,15 +181,6 @@ pub fn probe_increment(
             gaps.push("沉寂角色未入场".into());
         }
     }
-    if named_cast >= 1 && !quota.contains(&QuotaItem::NewScene) {
-        for name in &state.present {
-            let named = matched.iter().any(|n| n == name);
-            let left = increment.contains("离场") || increment.contains("离开");
-            if !named && !left {
-                gaps.push(format!("丢掉已在场者：{name}"));
-            }
-        }
-    }
     if !quota.contains(&QuotaItem::NewScene) && !state.offshot.is_empty() {
         let opening: String = increment.chars().take(80).collect();
         let off = crate::agency::continue_assets::match_character_names(&state.offshot, &opening);
@@ -198,6 +191,14 @@ pub fn probe_increment(
     }
     if crate::agency::continue_assets::increment_replays_completed_deaths(increment, &card.dead) {
         gaps.push("重演已完成的死亡或行刺".into());
+    }
+    if let Some(lock) = lock {
+        gaps.extend(crate::agency::continue_director::subject_split_gaps(
+            increment, lock,
+        ));
+        gaps.extend(crate::agency::continue_director::kin_inversion_gaps(
+            increment, lock,
+        ));
     }
     BeatProbe { named_cast, gaps }
 }
@@ -268,6 +269,7 @@ mod tests {
             &card,
             &state,
             &[QuotaItem::NewScene, QuotaItem::ConflictEscalation],
+            None,
         );
         assert!(!probe.gaps.is_empty());
         assert!(probe.gaps.join("").contains("在场") || probe.named_cast < 2);
@@ -311,6 +313,7 @@ mod tests {
             &card,
             &state,
             &[],
+            None,
         );
         assert!(
             probe.gaps.iter().any(|g| g.contains("场外")),
@@ -353,18 +356,65 @@ mod tests {
             offshot: vec![],
         };
         let rewind = "明成公主将短刃狠狠刺入了苏会山的胸口。苏会山头脸崩裂。";
-        let probe = probe_increment(rewind, &card, &state, &[]);
+        let probe = probe_increment(rewind, &card, &state, &[], None);
         assert!(
             probe.gaps.iter().any(|g| g.contains("重演")),
             "须拦截重演刺杀 gaps={:?}",
             probe.gaps
         );
         let forward = "苏亦铁扑向父亲的尸体。景亲王的护卫大喊谋反。曹元佩僵在座上。";
-        let ok = probe_increment(forward, &card, &state, &[]);
+        let ok = probe_increment(forward, &card, &state, &[], None);
         assert!(
             !ok.gaps.iter().any(|g| g.contains("重演")),
             "点名尸体不得算重演 gaps={:?}",
             ok.gaps
+        );
+    }
+
+    #[test]
+    fn probe_does_not_gap_silent_present() {
+        let card = SceneBeatCard {
+            cast: vec![
+                CastMember {
+                    name: "苏亦铁".into(),
+                    purpose: "可沉默".into(),
+                },
+                CastMember {
+                    name: "曹元佩".into(),
+                    purpose: "可沉默".into(),
+                },
+            ],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["苏亦铁".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "悲".into(),
+            },
+            next_outline_node: String::new(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("大堂".into()),
+            open_review_issues: vec![],
+            dead: vec!["苏会山".into()],
+        };
+        let state = BeatState {
+            present: vec!["苏亦铁".into(), "曹元佩".into()],
+            locations: vec![],
+            threads: vec![],
+            offshot: vec![],
+        };
+        let probe = probe_increment(
+            "苏亦铁扑向父亲的尸体，指尖触到冰冷的骨骼。",
+            &card,
+            &state,
+            &[],
+            None,
+        );
+        assert!(
+            !probe.gaps.iter().any(|g| g.contains("丢掉已在场者")),
+            "gaps={:?}",
+            probe.gaps
         );
     }
 }

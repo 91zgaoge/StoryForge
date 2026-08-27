@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.55.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.56.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.56.0 · 续写先锁住「谁是谁」，创世时必须写下人物关系
+
+点续写时，系统会先把近文里的人合成一人一号（例如琬公主曹元佩就是曹元佩），并把父子/夫妻等关系写进本拍任务；同一人不再拆成两个身体，亲缘不再按脏表写成「侄子」。创世或补资产时，管理 Agent 写完角色必须补或改人物关系。请升级到 0.56.0 并重启。真机还须从「飞身扑上」再跑一遍，这不是续写质量已修好的声明。
 
 ### v0.55.0 · 续写短合同、工具目录变短、同一拍阵容不再跟着资产回流晃
 

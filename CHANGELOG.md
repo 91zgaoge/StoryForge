@@ -2,6 +2,20 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.56.0（2026-08-27）
+
+续写拍前编译导演锁（一人一号 / 近文亲缘 / 本拍关系），主创仍 `complete()` 零工具。管理 Agent 写角色后必须 upsert 人物关系。不自动删角色表脏行。
+
+### 变更
+
+- `continue_director`：头衔+名合并、Rust 锁、可选 Producer enrich、冻结含锁。
+- 探针拦同一人双身体与亲缘写反；沉默在场不再当「丢掉」。
+- `materialize` 先角色后关系、同对 upsert；`ensure_assets` 空表补关系。
+
+### 测试
+
+- `cargo test --lib` 1569 passed / 2 ignored（+20）。
+
 ## v0.55.0（2026-08-25）
 
 grok-bot 控制面融合第二至四期：工具目录名+一行 + `asset_read`；续写 run 内冻结节拍卡；`CONTINUE_BEAT_SYSTEM` 短操作合同与三条对错范例。续写主创仍零工具。

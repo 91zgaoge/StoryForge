@@ -10,6 +10,7 @@ pub mod budget;
 pub mod bus;
 pub mod commands;
 pub mod continue_assets;
+pub mod continue_director;
 pub mod continue_freeze;
 pub mod continue_loop;
 pub mod coordinator;

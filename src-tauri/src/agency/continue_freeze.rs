@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::agency::beat_card::SceneBeatCard;
+use crate::agency::{beat_card::SceneBeatCard, continue_director::DirectorLock};
 
 #[derive(Debug, Clone)]
 pub struct FrozenContinueShot {
@@ -14,6 +14,7 @@ pub struct FrozenContinueShot {
     pub admitted: Vec<String>,
     pub l2: Vec<String>,
     pub user: String,
+    pub lock: DirectorLock,
 }
 
 #[derive(Debug, Default)]
@@ -62,7 +63,10 @@ impl Drop for ThawGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agency::beat_card::{ConflictMove, EmotionBeat, SceneBeatCard};
+    use crate::agency::{
+        beat_card::{ConflictMove, EmotionBeat, SceneBeatCard},
+        continue_director::{IdentityLock, LifeStatus},
+    };
 
     fn empty_card(dead: &[&str]) -> SceneBeatCard {
         SceneBeatCard {
@@ -89,7 +93,32 @@ mod tests {
             admitted: vec!["苏会山".into()],
             l2: vec!["苏会山".into()],
             user: user.to_string(),
+            lock: DirectorLock::default(),
         }
+    }
+
+    #[test]
+    fn pin_keeps_director_lock() {
+        let map = ContinueFreezeMap::new();
+        let mut first = shot("死人退场", &["苏会山"]);
+        first.lock = DirectorLock {
+            identities: vec![IdentityLock {
+                canonical: "曹元佩".into(),
+                aliases: vec!["琬公主曹元佩".into()],
+                status: LifeStatus::Living,
+                kin: Some("苏会山之子".into()),
+            }],
+            beat_move: "写后果".into(),
+            forbidden: vec!["禁止拆成两人".into()],
+            relations: vec!["苏会山 — 苏亦铁：父子。禁止写成叔侄。".into()],
+        };
+        map.pin("run-lock", first.clone());
+        let second = shot("金敏秀走进大堂", &[]);
+        let got = map.pin("run-lock", second);
+        assert_eq!(got.lock.identities.len(), 1);
+        assert_eq!(got.lock.identities[0].canonical, "曹元佩");
+        assert!(got.lock.relations.iter().any(|r| r.contains("父子")));
+        assert_eq!(got.lock.beat_move, "写后果");
     }
 
     #[test]

@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.55.0 架构文档
+# StoryMoss (草苔) v0.56.0 架构文档
 
+> **v0.56.0**：续写 `write_beat_once` 在 `complete()` 前编译 `DirectorLock`（Rust 必跑，Producer enrich 可选、失败回退 Rust）。主创 `tools=None`。冻结快照含锁。`probe_increment` 拦拆身/亲缘写反，不罚沉默在场。`materialize_assets` 先角色后关系、同对 upsert。`ensure_assets` 在 ≥2 角色且关系表空时 `ensure_relationships`。不 DELETE 角色行。v0.55.0 短合同 / 冻结不变量不变。
+>
 > **v0.55.0**：`catalog_for_role` 只注入工具名+一行，JSON Schema 仍走 `GenerateRequest.tools`。`asset_read` 按名取本故事全卡。`ContinueFreezeMap` 在一次 `write_beat_once` 内冻结节拍卡/user。`CONTINUE_BEAT_SYSTEM` 为 11 行操作合同 + 三条对错范例。续写 `tools=None` 不变量不变。v0.54.0 原生 tool_calls 不变量不变。
 >
 > **v0.54.0**：Agency ToolLoop 原生 function calling。`GenerateRequest.tools` 经网关透传到 OpenAI / Ollama `/api/chat` / Anthropic；`resolve_loop_action` 原生优先、文本 JSON 回退。续写 `write_beat_once` 的 `tools=None`，适配器请求体不含 `tools` 字段。不改 PersistMode / 三档路由 / `scenes.content` 真相源。v0.53.6 高潮不重演不变量不变。

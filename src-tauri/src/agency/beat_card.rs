@@ -267,7 +267,7 @@ fn present_in_text(chars: &[Character], text: &str) -> Vec<CastMember> {
         .into_iter()
         .map(|name| CastMember {
             name,
-            purpose: "末段已在场，承接行动".into(),
+            purpose: "可沉默".into(),
         })
         .collect()
 }
@@ -558,20 +558,31 @@ pub fn ending_anchor(current_content: &str) -> String {
     )
 }
 
-/// 主创 user prompt：卡全文 → 状态网 → Bundle → 指令 → 卡摘要 → 状态摘要 →
-/// 末句锚点。
+/// 主创 user prompt：卡全文 → 人物锁 → 状态网 → Bundle → 指令 → 卡摘要 →
+/// 状态摘要 → 末句锚点。
 pub fn render_writer_user_prompt(
     bundle_prompt: &str,
     card: &SceneBeatCard,
     instruction: &str,
     current_content: &str,
     state: Option<&crate::agency::beat_state::BeatState>,
+    lock: Option<&crate::agency::continue_director::DirectorLock>,
 ) -> String {
     let state_full = state
         .map(|s| format!("\n\n{}", s.render_full()))
         .unwrap_or_default();
     let state_tail = state
         .map(|s| format!("\n\n{}", s.render_tail_summary()))
+        .unwrap_or_default();
+    let lock_block = lock
+        .map(|l| {
+            let t = l.render();
+            if t.is_empty() {
+                String::new()
+            } else {
+                format!("\n\n{t}")
+            }
+        })
         .unwrap_or_default();
     let facts = if card.dead.is_empty() {
         String::new()
@@ -582,7 +593,7 @@ pub fn render_writer_user_prompt(
         )
     };
     format!(
-        "{card_full}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
+        "{card_full}{lock_block}{state_full}\n\n{bundle}\n\n【本次创作指令】\n{instruction}\n\n\
          须在节拍任务硬约束内落实指令核心意图。\n\n{card_tail}{state_tail}\n\n{ending}{facts}",
         card_full = card.render_full(),
         bundle = bundle_prompt,
@@ -786,8 +797,14 @@ mod tests {
             open_review_issues: vec![],
             dead: vec![],
         };
-        let prompt =
-            render_writer_user_prompt("【红线】不可飞天", &card, "往下写", "他推开门。", None);
+        let prompt = render_writer_user_prompt(
+            "【红线】不可飞天",
+            &card,
+            "往下写",
+            "他推开门。",
+            None,
+            None,
+        );
         let i_card = prompt.find("【本章节拍任务】").unwrap();
         let i_sum = prompt.find("【节拍摘要】").unwrap();
         let i_end = prompt
@@ -836,7 +853,7 @@ mod tests {
         let present: Vec<_> = card
             .cast
             .iter()
-            .filter(|c| c.purpose.contains("末段已在场"))
+            .filter(|c| c.purpose.contains("可沉默") || c.purpose.contains("末段已在场"))
             .map(|c| c.name.as_str())
             .collect();
         assert!(
@@ -982,7 +999,7 @@ mod tests {
         let present: Vec<_> = card
             .cast
             .iter()
-            .filter(|c| c.purpose.contains("末段已在场"))
+            .filter(|c| c.purpose.contains("可沉默") || c.purpose.contains("末段已在场"))
             .map(|c| c.name.as_str())
             .collect();
         assert!(present.contains(&"苏会山"), "cast={:?}", card.cast);
@@ -1014,7 +1031,7 @@ mod tests {
             .unwrap();
         let cast = vec![CastMember {
             name: "林雪".into(),
-            purpose: "末段已在场，承接行动".into(),
+            purpose: "可沉默".into(),
         }];
         let mv = compile_conflict(&chars, &cast, &pool, &sid, "林雪");
         assert!(!mv.parties.iter().any(|p| p == "顾长夜"));
@@ -1205,6 +1222,7 @@ mod tests {
             &card,
             "续写",
             crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL,
+            None,
             None,
         );
         assert!(prompt.contains("已死"), "{prompt}");

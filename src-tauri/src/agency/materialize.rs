@@ -85,6 +85,122 @@ fn find_character_id_by_name(
     .ok()
 }
 
+fn find_existing_relationship_id(
+    conn: &rusqlite::Connection,
+    story_id: &str,
+    source_id: &str,
+    target_id: &str,
+) -> Option<String> {
+    conn.query_row(
+        "SELECT id FROM character_relationships WHERE story_id = ?1 AND (\
+         (source_character_id = ?2 AND target_character_id = ?3) OR \
+         (source_character_id = ?3 AND target_character_id = ?2)) LIMIT 1",
+        params![story_id, source_id, target_id],
+        |r| r.get(0),
+    )
+    .ok()
+}
+
+/// 缺则建、有则改（含反向同一对）。管理 Agent 物化关系的唯一入口。
+pub(crate) fn upsert_seed_relationship(
+    conn: &rusqlite::Connection,
+    story_id: &str,
+    rel: &crate::agency::coordinator::SeedRelationship,
+) -> usize {
+    let source_id = find_character_id_by_name(conn, story_id, rel.source.trim());
+    let target_id = find_character_id_by_name(conn, story_id, rel.target.trim());
+    let (Some(sid), Some(tid)) = (source_id, target_id) else {
+        log::warn!(
+            "materialize: 关系 {} -> {} 找不到角色，跳过",
+            rel.source,
+            rel.target
+        );
+        return 0;
+    };
+    let ty = if rel.relationship_type.trim().is_empty() {
+        "关系"
+    } else {
+        rel.relationship_type.trim()
+    };
+    let desc = if rel.description.trim().is_empty() {
+        None
+    } else {
+        Some(rel.description.trim())
+    };
+    let bond = if rel.emotional_bond.trim().is_empty() {
+        None
+    } else {
+        Some(rel.emotional_bond.trim())
+    };
+    let rev = if rel.reverse_emotional_bond.trim().is_empty() {
+        None
+    } else {
+        Some(rel.reverse_emotional_bond.trim())
+    };
+    if let Some(id) = find_existing_relationship_id(conn, story_id, &sid, &tid) {
+        match conn.execute(
+            "UPDATE character_relationships SET relationship_type = ?2, description = ?3, \
+             emotional_bond = ?4, emotional_intensity = ?5, reverse_emotional_bond = ?6, \
+             reverse_emotional_intensity = ?7 WHERE id = ?1",
+            params![
+                id,
+                ty,
+                desc,
+                bond,
+                rel.emotional_intensity,
+                rev,
+                rel.reverse_emotional_intensity
+            ],
+        ) {
+            Ok(_) => 1,
+            Err(e) => {
+                log::warn!("materialize: 更新关系失败: {}", e);
+                0
+            }
+        }
+    } else {
+        let id = uuid::Uuid::new_v4().to_string();
+        let ts = now();
+        match conn.execute(
+            "INSERT INTO character_relationships (id, story_id, source_character_id, \
+             target_character_id, relationship_type, description, emotional_bond, \
+             emotional_intensity, reverse_emotional_bond, reverse_emotional_intensity, \
+             created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![
+                id,
+                story_id,
+                sid,
+                tid,
+                ty,
+                desc,
+                bond,
+                rel.emotional_intensity,
+                rev,
+                rel.reverse_emotional_intensity,
+                ts
+            ],
+        ) {
+            Ok(n) => n,
+            Err(e) => {
+                log::warn!("materialize: 写入关系失败: {}", e);
+                0
+            }
+        }
+    }
+}
+
+pub(crate) fn parse_seed_relationships(
+    content: &str,
+) -> Vec<crate::agency::coordinator::SeedRelationship> {
+    use crate::agency::coordinator::SeedRelationship;
+    match crate::agency::coordinator::parse_lenient::<Vec<SeedRelationship>>(content) {
+        Some(v) => v,
+        None => crate::agency::coordinator::parse_lenient::<SeedRelationship>(content)
+            .into_iter()
+            .collect(),
+    }
+}
+
 pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) -> usize {
     let mut count = 0usize;
     let conn = match pool.get() {
@@ -281,57 +397,25 @@ pub fn materialize_assets(pool: &DbPool, story_id: &str, items: &[BoardItem]) ->
                     }
                 }
             }
-            "relationship" => {
-                use crate::agency::coordinator::SeedRelationship;
-                // content 为关系数组（concept_pack 路径）；兼容单对象
-                // （producer 经 board_write 逐条写入的路径）。
-                let rels: Vec<SeedRelationship> =
-                    match crate::agency::coordinator::parse_lenient(&item.content) {
-                        Some(v) => v,
-                        None => {
-                            match crate::agency::coordinator::parse_lenient::<SeedRelationship>(
-                                &item.content,
-                            ) {
-                                Some(single) => vec![single],
-                                None => {
-                                    log::warn!("materialize: 关系条目 {} 非 JSON，跳过", item.key);
-                                    continue;
-                                }
-                            }
-                        }
-                    };
-                for rel in rels {
-                    let source_id = find_character_id_by_name(&conn, story_id, &rel.source);
-                    let target_id = find_character_id_by_name(&conn, story_id, &rel.target);
-                    match (source_id, target_id) {
-                        (Some(sid), Some(tid)) => {
-                            let id = uuid::Uuid::new_v4().to_string();
-                            let ts = now();
-                            match conn.execute(
-                                "INSERT INTO character_relationships (id, story_id, source_character_id, \
-                                 target_character_id, relationship_type, description, emotional_bond, \
-                                 emotional_intensity, reverse_emotional_bond, reverse_emotional_intensity, \
-                                 created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-                                params![id, story_id, sid, tid, rel.relationship_type,
-                                        if rel.description.is_empty() { None } else { Some(&rel.description) },
-                                        if rel.emotional_bond.is_empty() { None } else { Some(&rel.emotional_bond) },
-                                        rel.emotional_intensity,
-                                        if rel.reverse_emotional_bond.is_empty() { None } else { Some(&rel.reverse_emotional_bond) },
-                                        rel.reverse_emotional_intensity, ts],
-                            ) {
-                                Ok(n) => count += n,
-                                Err(e) => log::warn!("materialize: 写入关系失败: {}", e),
-                            }
-                        }
-                        _ => log::warn!(
-                            "materialize: 关系 {} -> {} 找不到角色，跳过",
-                            rel.source,
-                            rel.target
-                        ),
-                    }
-                }
-            }
+            "relationship" => continue,
             _ => {}
+        }
+    }
+    for item in items.iter().filter(|i| i.status == "active") {
+        let normalized_type = match item.item_type.as_str() {
+            "emotional_relationship" | "bond" => "relationship",
+            other => other,
+        };
+        if normalized_type != "relationship" {
+            continue;
+        }
+        let rels = parse_seed_relationships(&item.content);
+        if rels.is_empty() {
+            log::warn!("materialize: 关系条目 {} 非 JSON，跳过", item.key);
+            continue;
+        }
+        for rel in rels {
+            count += upsert_seed_relationship(&conn, story_id, &rel);
         }
     }
     count
@@ -704,5 +788,98 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rev_bond, "崇拜");
+    }
+
+    #[test]
+    fn test_materialize_relationship_after_characters_even_if_listed_first() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let items = vec![
+            item(
+                "relationship",
+                "关系",
+                r#"{"source":"甲","target":"乙","relationship_type":"夫妻",
+               "emotional_bond":"爱","emotional_intensity":0.8,
+               "reverse_emotional_bond":"爱","reverse_emotional_intensity":0.8,
+               "description":"并坐"}"#,
+            ),
+            item(
+                "character",
+                "甲",
+                r#"{"name":"甲","background":"","personality":"","goals":""}"#,
+            ),
+            item(
+                "character",
+                "乙",
+                r#"{"name":"乙","background":"","personality":"","goals":""}"#,
+            ),
+        ];
+        let n = materialize_assets(&pool, "s1", &items);
+        assert!(n >= 3, "角色+关系都应落库 n={n}");
+        let conn = pool.get().unwrap();
+        let ty: String = conn
+            .query_row(
+                "SELECT relationship_type FROM character_relationships WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ty, "夫妻");
+    }
+
+    #[test]
+    fn test_materialize_relationship_updates_existing_pair() {
+        let pool = create_test_pool().unwrap();
+        story(&pool, "s1");
+        let chars = vec![
+            item(
+                "character",
+                "甲",
+                r#"{"name":"甲","background":"","personality":"","goals":""}"#,
+            ),
+            item(
+                "character",
+                "乙",
+                r#"{"name":"乙","background":"","personality":"","goals":""}"#,
+            ),
+        ];
+        materialize_assets(&pool, "s1", &chars);
+        let first = vec![item(
+            "relationship",
+            "关系",
+            r#"{"source":"甲","target":"乙","relationship_type":"侄子",
+               "emotional_bond":"怜","emotional_intensity":0.4,
+               "reverse_emotional_bond":"","reverse_emotional_intensity":0.5,
+               "description":"脏"}"#,
+        )];
+        assert_eq!(materialize_assets(&pool, "s1", &first), 1);
+        let second = vec![item(
+            "relationship",
+            "关系",
+            r#"{"source":"乙","target":"甲","relationship_type":"父子",
+               "emotional_bond":"悲愤","emotional_intensity":0.9,
+               "reverse_emotional_bond":"庇护","reverse_emotional_intensity":0.8,
+               "description":"近文锁定"}"#,
+        )];
+        assert_eq!(materialize_assets(&pool, "s1", &second), 1);
+        let conn = pool.get().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM character_relationships WHERE story_id='s1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "同一对只保留一行");
+        let (ty, bond, desc): (String, String, String) = conn
+            .query_row(
+                "SELECT relationship_type, emotional_bond, description FROM character_relationships WHERE story_id='s1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(ty, "父子");
+        assert_eq!(bond, "悲愤");
+        assert!(desc.contains("近文锁定"), "desc={desc}");
     }
 }

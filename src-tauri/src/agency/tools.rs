@@ -310,7 +310,7 @@ impl AgentTool for BoardWriteTool {
         serde_json::json!({"zone": "asset|draft|review|schedule", "item_type": "条目类型", "key": "条目标识", "content": "全文", "summary": "一句话摘要（≤80字）"})
     }
     fn usage_guidance(&self) -> Option<&'static str> {
-        Some("正文写入 draft 区，勿覆盖 user_created 资产")
+        Some("正文写入 draft 区，勿覆盖 user_created 资产。写角色后必须再写 item_type=relationship（缺则建、有则改）")
     }
 
     async fn execute(
@@ -1484,6 +1484,12 @@ mod tests {
         let writer = reg.catalog_for_role(crate::agency::models::AgentRole::LeadWriter);
         assert!(writer.contains("资产已注入时不要轮询 board_read 拉全文"));
         assert!(writer.contains("正文写入 draft 区，勿覆盖 user_created 资产"));
+        assert!(
+            writer.contains("写角色后必须再写 item_type=relationship"),
+            "{writer}"
+        );
+        let producer = reg.catalog_for_role(crate::agency::models::AgentRole::Producer);
+        assert!(producer.contains("写角色后必须再写 item_type=relationship"));
         assert!(writer.contains("按 kind 查询，不要倾倒全表"));
         assert!(writer.contains("一次只读一张"));
         let editor = reg.catalog_for_role(crate::agency::models::AgentRole::EditorAuditor);

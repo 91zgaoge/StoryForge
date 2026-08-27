@@ -3908,6 +3908,74 @@ fn writer_retry_has_time_requires_ninety_seconds() {
 }
 
 #[test]
+fn need_character_relationships_when_two_chars_and_empty_table() {
+    assert!(AgencyCoordinator::need_character_relationships(2, 0));
+    assert!(AgencyCoordinator::need_character_relationships(5, 0));
+    assert!(!AgencyCoordinator::need_character_relationships(1, 0));
+    assert!(!AgencyCoordinator::need_character_relationships(2, 1));
+    assert!(!AgencyCoordinator::need_character_relationships(0, 0));
+}
+
+#[tokio::test]
+async fn ensure_assets_upserts_missing_relationships_for_two_characters() {
+    let pool = create_test_pool().unwrap();
+    let story = crate::db::repositories::StoryRepository::new(pool.clone())
+        .create(crate::db::dto::CreateStoryRequest {
+            title: "关系补齐".into(),
+            description: None,
+            genre: None,
+            style_dna_id: None,
+            genre_profile_id: None,
+            methodology_id: None,
+            reference_book_id: None,
+        })
+        .unwrap();
+    {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c-a', ?1, '甲', '', '', '', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO characters (id, story_id, name, background, personality, goals, source, is_auto_generated, created_at, updated_at)
+             VALUES ('c-b', ?1, '乙', '', '', '', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO world_buildings (id, story_id, concept, rules, history, cultures, source, is_auto_generated, created_at, updated_at)
+             VALUES ('w1', ?1, '世设', '[]', '', '[]', 'agency', 1, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO story_outlines (id, story_id, content, structure_json, act_count, total_scenes_estimate, created_at, updated_at)
+             VALUES ('o1', ?1, '核心冲突：甲乙对峙。', NULL, 3, NULL, '2026-01-01', '2026-01-01')",
+            rusqlite::params![story.id],
+        )
+        .unwrap();
+    }
+    let llm = MockLlm::scripted(vec![
+        r#"[{"source":"甲","target":"乙","relationship_type":"宿敌","emotional_bond":"恨","emotional_intensity":0.9,"reverse_emotional_bond":"惧","reverse_emotional_intensity":0.7,"description":"面和心不和"}]"#,
+    ]);
+    let coordinator = AgencyCoordinator::for_test(pool.clone(), llm);
+    let repo = AgencyRepository::new(pool.clone());
+    let budget = Arc::new(AgencyBudget::new(DEFAULT_RUN_TOKEN_BUDGET));
+    coordinator
+        .ensure_assets(&budget, &repo, "r-rel", &story.id, "续写")
+        .await
+        .unwrap();
+    let rels = crate::db::repositories::CharacterRelationshipRepository::new(pool.clone())
+        .get_by_story(&story.id)
+        .unwrap();
+    assert_eq!(rels.len(), 1, "须写入一条角色关系");
+    assert_eq!(rels[0].relationship_type, "宿敌");
+    assert_eq!(rels[0].emotional_bond.as_deref(), Some("恨"));
+}
+
+#[test]
 fn eight_beat_append_quality_contract() {
     use crate::{
         agency::{beat_card::compile_beat_card, persist::persist_append_with_card},
@@ -4085,6 +4153,7 @@ fn eight_beat_append_quality_contract() {
         &last,
         "续写",
         &content,
+        None,
         None,
     );
     assert!(!prompt.contains("最高优先级"));

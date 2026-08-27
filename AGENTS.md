@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.55.0
+- **版本**: v0.56.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1549 passed / 2 ignored（+7 二至四期）
+- `cargo test -p storymoss` ✅ 1569 passed / 2 ignored（+20 导演锁 / 关系 upsert）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 602 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.56.0 - 续写导演锁 / 管理 Agent 必写人物关系
+
+对照 `docs/plans/2026-08-27-continue-director-lock-design.md`：续写主创仍单次 `complete()`、零工具。拍前 Rust 编译人物锁（头衔+名合并、近文亲缘、本拍关系），可选 Producer `complete_json` 约 20s enrich；冻结含锁。探针去掉「丢掉已在场者 / 点名不足 2 人」，改拦同一人双身体与亲缘写反。管理 Agent 写角色后必须 upsert `character_relationships`（同对一行）；≥2 角色且关系表空则 `ensure_relationships` 补写。不自动删/合并角色表脏行。
+
+- **验证**：`cargo test --lib` 1569 passed / 2 ignored（+20）；`npx tsc --noEmit` / `cargo +nightly fmt` / `architecture_guard.py` 全绿。
+- **契约**：`same_person_title_plus_given_name`；`probe_rejects_cao_split_bodies`；`probe_rejects_nephew_when_lock_is_father`；`probe_does_not_gap_silent_present`；`pin_keeps_director_lock`；`test_materialize_relationship_after_characters_even_if_listed_first`；`test_materialize_relationship_updates_existing_pair`；`ensure_assets_upserts_missing_relationships_for_two_characters`。
+- **未关闭**：真机须从「飞身扑上」同一开头再跑；**不得宣称续写质量已修复**。角色表脏行仍不自动删除。
 
 ### v0.55.0 - 资产渐进展开 / 续写冻结 / 短操作合同
 
@@ -1128,7 +1136,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-25 - v0.55.0_
+_最后更新: 2026-08-27 - v0.56.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

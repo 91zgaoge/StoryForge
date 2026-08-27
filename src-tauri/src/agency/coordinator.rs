@@ -4,6 +4,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 
 use once_cell::sync::Lazy;
@@ -23,7 +24,10 @@ use crate::{
     },
     db::{
         dto::{CreateStoryRequest, UpdateStoryRequest},
-        repositories::{SceneRepository, SceneUpdate, StoryRepository},
+        repositories::{
+            CharacterRelationshipRepository, CharacterRepository, SceneRepository, SceneUpdate,
+            StoryRepository,
+        },
         DbPool,
     },
     error::AppError,
@@ -2325,7 +2329,7 @@ impl AgencyCoordinator {
         let registry = Arc::new(ToolRegistry::agency_default());
         let producer_out = self.run_role_with_llm_and_budget(
             budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
-            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
         ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
             return Err(AppError::from(circuit_break_message(
@@ -2797,6 +2801,9 @@ impl AgencyCoordinator {
                 }
                 let _ = worker
                     .ensure_story_outline(&run_id, &story_id, "后台补齐", &budget)
+                    .await;
+                let _ = worker
+                    .ensure_relationships(&run_id, &story_id, "后台补齐", &budget)
                     .await;
             })
             .await;
@@ -3339,7 +3346,7 @@ impl AgencyCoordinator {
                     let registry = Arc::new(ToolRegistry::agency_default());
                     let producer_out = self.run_role_with_llm_and_budget(
                         budget, AgentRole::Producer, &board, &registry, run_id, story_id, premise,
-                        "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式，含 emotional_core/emotional_trigger/emotional_wound/emotional_need）/大纲，写入资产区。如有多个角色，补齐角色间情感关系（item_type=relationship）。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
+                        "为这部已有故事补齐创作资产：先 story_info 与 asset_query 了解现状，再生产世界观/角色卡（JSON 格式，含 emotional_core/emotional_trigger/emotional_wound/emotional_need）/大纲，写入资产区。角色达到 2 人时必须写入或更新角色关系（item_type=relationship，含 source/target/relationship_type/emotional_bond；缺则建、有则改）。一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
                     ).await.map_err(|e| AppError::from(format!("管理 Agent 资产补齐失败: {}", e)))?;
                     let board_c = board.clone();
                     let rid = run_id.to_string();
@@ -3436,6 +3443,122 @@ impl AgencyCoordinator {
             self.ensure_story_outline(run_id, story_id, premise, budget)
                 .await?;
         }
+        self.ensure_relationships(run_id, story_id, premise, budget)
+            .await?;
+        Ok(())
+    }
+
+    /// ≥2 个角色且关系表为空时，管理 Agent 必须补关系。
+    pub(crate) fn need_character_relationships(
+        character_count: i64,
+        relationship_count: i64,
+    ) -> bool {
+        character_count >= 2 && relationship_count == 0
+    }
+
+    /// 角色已有但关系缺失时，单次 Producer JSON 补齐并 upsert。失败不阻断续写。
+    async fn ensure_relationships(
+        &self,
+        run_id: &str,
+        story_id: &str,
+        premise: &str,
+        budget: &Arc<AgencyBudget>,
+    ) -> Result<(), AppError> {
+        let (char_n, rel_n, names, tail) = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(
+                move || -> Result<(i64, i64, Vec<String>, String), AppError> {
+                    let conn = pool
+                        .get()
+                        .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                    let char_n: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM characters WHERE story_id = ?1",
+                            rusqlite::params![sid],
+                            |r| r.get(0),
+                        )
+                        .map_err(AppError::from)?;
+                    let rel_n: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM character_relationships WHERE story_id = ?1",
+                            rusqlite::params![sid],
+                            |r| r.get(0),
+                        )
+                        .map_err(AppError::from)?;
+                    let mut stmt = conn
+                        .prepare("SELECT name FROM characters WHERE story_id = ?1")
+                        .map_err(AppError::from)?;
+                    let names: Vec<String> = stmt
+                        .query_map(rusqlite::params![sid], |r| r.get(0))
+                        .map_err(AppError::from)?
+                        .flatten()
+                        .collect();
+                    let prose = crate::agency::materialize::concat_story_prose(&pool, &sid);
+                    let tail: String = crate::agency::continue_assets::prior_tail_for_cast(&prose)
+                        .chars()
+                        .take(800)
+                        .collect();
+                    Ok((char_n, rel_n, names, tail))
+                },
+            )
+            .await?
+        };
+        if !Self::need_character_relationships(char_n, rel_n) {
+            return Ok(());
+        }
+        self.emit_activity(run_id, AgentRole::Producer, "start", "角色关系");
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let roster = names.join("、");
+        let user = format!(
+            "故事前提：{premise}\n已有角色：{roster}\n近文：{tail}\n\
+             输出 JSON 数组，每项含 source/target/relationship_type/emotional_bond/\
+             emotional_intensity/reverse_emotional_bond/reverse_emotional_intensity/description。\
+             source 与 target 必须是已有角色名。至少 1 条。只输出 JSON。"
+        );
+        let raw = match llm
+            .complete_json(
+                "你是小说策划，只输出角色关系 JSON。",
+                &user,
+                TaskType::Analysis,
+                2048,
+            )
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("agency: 角色关系生成失败 run={run_id} err={e}");
+                self.emit_activity(run_id, AgentRole::Producer, "done", "角色关系");
+                return Ok(());
+            }
+        };
+        let rels = crate::agency::materialize::parse_seed_relationships(&raw);
+        if rels.is_empty() {
+            log::warn!("agency: 角色关系 JSON 为空 run={run_id}");
+            self.emit_activity(run_id, AgentRole::Producer, "done", "角色关系");
+            return Ok(());
+        }
+        let pool = self.pool.clone();
+        let sid = story_id.to_string();
+        let n = self
+            .db(move || -> Result<usize, AppError> {
+                let conn = pool
+                    .get()
+                    .map_err(|e| AppError::from(format!("pool: {}", e)))?;
+                let mut wrote = 0usize;
+                for rel in &rels {
+                    wrote += crate::agency::materialize::upsert_seed_relationship(&conn, &sid, rel);
+                }
+                Ok(wrote)
+            })
+            .await
+            .unwrap_or(0);
+        log::info!("agency: 角色关系已补齐 run={run_id} n={n}");
+        self.emit_activity(run_id, AgentRole::Producer, "done", "角色关系");
         Ok(())
     }
 
@@ -4060,6 +4183,46 @@ impl AgencyCoordinator {
         text
     }
 
+    async fn maybe_enrich_director_lock(
+        &self,
+        budget: &Arc<AgencyBudget>,
+        run_id: &str,
+        story_id: &str,
+        rust: crate::agency::continue_director::DirectorLock,
+        current_content: &str,
+    ) -> crate::agency::continue_director::DirectorLock {
+        if self.app_handle.is_none() || !writer_retry_has_time(self.remaining_run_secs()) {
+            return rust;
+        }
+        let llm = BudgetedLlm::new(
+            self.llm_for_run(run_id, AgentRole::Producer, story_id),
+            budget.clone(),
+            AgentRole::Producer,
+        );
+        let system = "你是续写导演。只输出 JSON。identities[].canonical 必须是已给规范名。只能往 aliases 和 kin 追加。禁止新增规范名。禁止把 status=dead 改成 living。";
+        let tail: String = crate::agency::continue_assets::prior_tail_for_cast(current_content)
+            .chars()
+            .take(800)
+            .collect();
+        let user = format!("{}\n近文：{tail}", rust.render());
+        match tokio::time::timeout(
+            Duration::from_secs(20),
+            llm.complete_json(system, &user, TaskType::Analysis, 1024),
+        )
+        .await
+        {
+            Ok(Ok(raw)) => crate::agency::continue_director::merge_director_json(rust, &raw),
+            Ok(Err(e)) => {
+                log::warn!("agency: 导演 JSON 失败，用 Rust 锁 run={run_id} err={e}");
+                rust
+            }
+            Err(_) => {
+                log::warn!("agency: 导演超时 20s，用 Rust 锁 run={run_id}");
+                rust
+            }
+        }
+    }
+
     /// 续写主创单次 `complete()`：资产上下文已注入，不再默认 tool_loop。
     /// 产出 ≥200 字即写入黑板；过短则同组装续写回退一次；仍失败则直接返回错误。
     ///
@@ -4084,7 +4247,7 @@ impl AgencyCoordinator {
         let sid = story_id.to_string();
         let content_for_card = current_content.unwrap_or("").to_string();
         let scene_id_owned = scene_id.map(|s| s.to_string());
-        let (parts, card) = self
+        let (mut parts, mut card) = self
             .db({
                 let pool = pool.clone();
                 let sid = sid.clone();
@@ -4144,8 +4307,30 @@ impl AgencyCoordinator {
         } else {
             instruction
         };
-        let (user, admitted, l2) = if let Some(ref p) = parts {
-            let (admitted, l2) = admit_for_continue(p, &card, &chapter_outline, instr);
+        let (user, admitted, l2, lock) = if let Some(ref mut p) = parts {
+            let (mut admitted, mut l2) = admit_for_continue(p, &card, &chapter_outline, instr);
+            let mut lock = compile_continue_director(
+                Some(p),
+                &mut card,
+                &mut admitted,
+                &mut l2,
+                current_content.unwrap_or(""),
+            );
+            lock = self
+                .maybe_enrich_director_lock(
+                    budget,
+                    run_id,
+                    story_id,
+                    lock,
+                    current_content.unwrap_or(""),
+                )
+                .await;
+            crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
+            p.bundle.relationship_lines =
+                crate::agency::continue_director::filter_table_rel_lines_for_lock(
+                    &p.bundle.relationship_lines,
+                    &lock,
+                );
             let assets = render_parts(
                 p,
                 &admitted,
@@ -4162,9 +4347,29 @@ impl AgencyCoordinator {
                 instr,
                 current_content.unwrap_or(""),
                 Some(&state),
+                Some(&lock),
             );
-            (user, admitted, l2)
+            (user, admitted, l2, lock)
         } else {
+            let mut admitted = Vec::new();
+            let mut l2 = Vec::new();
+            let mut lock = compile_continue_director(
+                None,
+                &mut card,
+                &mut admitted,
+                &mut l2,
+                current_content.unwrap_or(""),
+            );
+            lock = self
+                .maybe_enrich_director_lock(
+                    budget,
+                    run_id,
+                    story_id,
+                    lock,
+                    current_content.unwrap_or(""),
+                )
+                .await;
+            crate::agency::continue_director::rewrite_card_cast(&mut card, &lock);
             let state = compile_continue_beat_state(&card, None, current_content.unwrap_or(""));
             let user = crate::agency::beat_card::render_writer_user_prompt(
                 "",
@@ -4172,8 +4377,9 @@ impl AgencyCoordinator {
                 instr,
                 current_content.unwrap_or(""),
                 Some(&state),
+                Some(&lock),
             );
-            (user, Vec::new(), Vec::new())
+            (user, admitted, l2, lock)
         };
         let frozen = self.continue_freeze.pin(
             run_id,
@@ -4182,12 +4388,22 @@ impl AgencyCoordinator {
                 admitted,
                 l2,
                 user,
+                lock,
             },
         );
+        {
+            let lock_persist = frozen.lock.clone();
+            let pool_persist = self.pool.clone();
+            let sid_persist = story_id.to_string();
+            tokio::task::spawn_blocking(move || {
+                persist_inferred_relationships(&pool_persist, &sid_persist, &lock_persist);
+            });
+        }
         let _thaw =
             crate::agency::continue_freeze::ThawGuard::new(self.continue_freeze.clone(), run_id);
         let card = frozen.card;
         let user = frozen.user;
+        let lock = frozen.lock;
         let llm = BudgetedLlm::new(
             self.llm_for_run(run_id, AgentRole::LeadWriter, story_id),
             budget.clone(),
@@ -4275,8 +4491,13 @@ impl AgencyCoordinator {
         }
         let state =
             compile_continue_beat_state(&card, parts.as_ref(), current_content.unwrap_or(""));
-        let probe0 =
-            crate::agency::beat_state::probe_increment(&text, &card, &state, &card.expansion_quota);
+        let probe0 = crate::agency::beat_state::probe_increment(
+            &text,
+            &card,
+            &state,
+            &card.expansion_quota,
+            Some(&lock),
+        );
         if !probe0.gaps.is_empty()
             && !did_short_retry
             && writer_retry_has_time(self.remaining_run_secs())
@@ -4306,6 +4527,7 @@ impl AgencyCoordinator {
                         &card,
                         &state,
                         &card.expansion_quota,
+                        Some(&lock),
                     );
                     let better = probe1.gaps.len() < probe0.gaps.len()
                         || (probe1.gaps.len() == probe0.gaps.len()
@@ -5976,7 +6198,7 @@ fn chapter_from_gate_key(key: &str) -> Option<i32> {
 fn default_role_prompt(prompt_id: &str) -> &'static str {
     match prompt_id {
         "agency_lead_writer_system" => "你是「主创」：基于黑板资产创作小说正文，草稿写入 draft 区。",
-        "agency_producer_system" => "你是「管理」：生产世界观/角色/大纲/伏笔资产，写入 asset 区。",
+        "agency_producer_system" => "你是「管理」：生产世界观/角色/大纲/伏笔资产，写入 asset 区。角色达到 2 人时必须写入或更新 item_type=relationship（缺则建、有则改）。",
         "agency_editor_auditor_system" => "你是「编辑审计」：按 rubric 审查草稿，输出裁决 JSON：verdict（pass/revise）、score（1-5 总分）、dimension_scores（continuity/style/contract/ai_tone/hook 各 1-5）、blocking_issues（阻塞问题，字符串或 {\"issue\",\"evidence\"} 对象，evidence 须引用原文证据）、suggestions、comments。",
         _ => "你是创作团队的一员。",
     }
@@ -6094,7 +6316,7 @@ fn split_card_cast(
     let present: Vec<String> = card
         .cast
         .iter()
-        .filter(|c| c.purpose.contains("末段已在场"))
+        .filter(|c| c.purpose.contains("可沉默") || c.purpose.contains("末段已在场"))
         .map(|c| c.name.clone())
         .collect();
     let parties = card.conflict_move.parties.clone();
@@ -6268,6 +6490,153 @@ pub(crate) fn writer_retry_has_time(remaining_secs: Option<u64>) -> bool {
         .unwrap_or(true)
 }
 
+fn compile_continue_director(
+    parts: Option<&ContinueContextParts>,
+    card: &mut crate::agency::beat_card::SceneBeatCard,
+    admitted: &mut Vec<String>,
+    l2: &mut Vec<String>,
+    current_content: &str,
+) -> crate::agency::continue_director::DirectorLock {
+    use crate::agency::continue_director::{
+        collapse_names, lock_from_continue_inputs, parse_rel_triple, rewrite_card_cast,
+    };
+    let tail = crate::agency::continue_assets::prior_tail_for_cast(current_content);
+    let extra: Vec<String> = card
+        .cast
+        .iter()
+        .map(|c| c.name.clone())
+        .chain(admitted.iter().cloned())
+        .collect();
+    let table = parts.map(|p| p.table_names.clone()).unwrap_or_default();
+    let table_rels: Vec<(String, String, String)> = parts
+        .map(|p| {
+            p.bundle
+                .relationship_lines
+                .iter()
+                .filter_map(|l| parse_rel_triple(l))
+                .collect()
+        })
+        .unwrap_or_default();
+    let lock = lock_from_continue_inputs(&table, &extra, &card.dead, &tail, &table_rels);
+    *admitted = collapse_names(admitted, &lock);
+    *l2 = collapse_names(l2, &lock);
+    rewrite_card_cast(card, &lock);
+    lock
+}
+
+fn persist_inferred_relationships(
+    pool: &DbPool,
+    story_id: &str,
+    lock: &crate::agency::continue_director::DirectorLock,
+) {
+    use crate::agency::continue_director::inferred_kin_edges;
+    let edges = inferred_kin_edges(lock);
+    let has_father = lock.relations.iter().any(|r| r.contains("父子"));
+    if edges.is_empty() && !has_father {
+        return;
+    }
+    let chars = match CharacterRepository::new(pool.clone()).get_by_story(story_id) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("continue director: 读角色表失败，跳过关系补全: {e}");
+            return;
+        }
+    };
+    let id_of = |name: &str| -> Option<String> {
+        chars.iter().find(|c| c.name == name).map(|c| c.id.clone())
+    };
+    let name_of =
+        |id: &str| -> Option<&str> { chars.iter().find(|c| c.id == id).map(|c| c.name.as_str()) };
+    let existing = CharacterRelationshipRepository::new(pool.clone())
+        .get_by_story(story_id)
+        .unwrap_or_default();
+    let repo = CharacterRelationshipRepository::new(pool.clone());
+    for (src, tgt, ty) in &edges {
+        let Some(sid) = id_of(src) else {
+            continue;
+        };
+        let Some(tid) = id_of(tgt) else {
+            continue;
+        };
+        if let Some(old) = existing.iter().find(|r| {
+            (r.source_character_id == sid && r.target_character_id == tid)
+                || (r.source_character_id == tid && r.target_character_id == sid)
+        }) {
+            let dirty = old.relationship_type.contains("侄")
+                || old.relationship_type.contains("姑")
+                || old.relationship_type.contains("叔");
+            let should = dirty || old.relationship_type.trim() != ty;
+            if should {
+                if let Err(e) = repo.update(
+                    &old.id,
+                    Some(ty),
+                    Some("近文锁定，覆盖脏亲缘"),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ) {
+                    log::warn!("continue director: 更新关系失败 {src}-{tgt}: {e}");
+                }
+            }
+            continue;
+        }
+        if let Err(e) = repo.create(
+            story_id,
+            &sid,
+            &tid,
+            ty,
+            Some("近文锁定"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ) {
+            log::warn!("continue director: 写入关系失败 {src}-{tgt}: {e}");
+        }
+    }
+    if !has_father {
+        return;
+    }
+    for old in &existing {
+        let dirty = old.relationship_type.contains("侄")
+            || old.relationship_type.contains("姑")
+            || old.relationship_type.contains("叔");
+        if !dirty {
+            continue;
+        }
+        let Some(an) = name_of(&old.source_character_id) else {
+            continue;
+        };
+        let Some(bn) = name_of(&old.target_character_id) else {
+            continue;
+        };
+        if lock.canonical_of(an).is_none() || lock.canonical_of(bn).is_none() {
+            continue;
+        }
+        let covered = edges
+            .iter()
+            .any(|(a, b, _)| (a == an && b == bn) || (a == bn && b == an));
+        if covered {
+            continue;
+        }
+        if let Err(e) = repo.update(
+            &old.id,
+            Some("亲属"),
+            Some("近文锁定，覆盖脏亲缘"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ) {
+            log::warn!("continue director: 覆盖脏亲缘失败 {an}-{bn}: {e}");
+        }
+    }
+}
+
 fn compile_continue_beat_state(
     card: &crate::agency::beat_card::SceneBeatCard,
     parts: Option<&ContinueContextParts>,
@@ -6311,8 +6680,12 @@ pub(crate) fn assemble_continue_user_prompt(
     current_content: &str,
     chapter_outline: &str,
 ) -> Result<(String, crate::agency::beat_card::SceneBeatCard), AppError> {
-    let card = crate::agency::beat_card::compile_beat_card(pool, story_id, current_content)?;
+    let mut card = crate::agency::beat_card::compile_beat_card(pool, story_id, current_content)?;
     let Some(parts) = load_continue_context_parts(pool, story_id) else {
+        let mut admitted = Vec::new();
+        let mut l2 = Vec::new();
+        let lock =
+            compile_continue_director(None, &mut card, &mut admitted, &mut l2, current_content);
         let state = compile_continue_beat_state(&card, None, current_content);
         let user = crate::agency::beat_card::render_writer_user_prompt(
             "",
@@ -6320,10 +6693,24 @@ pub(crate) fn assemble_continue_user_prompt(
             instruction,
             current_content,
             Some(&state),
+            Some(&lock),
         );
         return Ok((user, card));
     };
-    let (admitted, l2) = admit_for_continue(&parts, &card, chapter_outline, instruction);
+    let mut parts = parts;
+    let (mut admitted, mut l2) = admit_for_continue(&parts, &card, chapter_outline, instruction);
+    let lock = compile_continue_director(
+        Some(&parts),
+        &mut card,
+        &mut admitted,
+        &mut l2,
+        current_content,
+    );
+    parts.bundle.relationship_lines =
+        crate::agency::continue_director::filter_table_rel_lines_for_lock(
+            &parts.bundle.relationship_lines,
+            &lock,
+        );
     let assets = render_parts(
         &parts,
         &admitted,
@@ -6340,6 +6727,7 @@ pub(crate) fn assemble_continue_user_prompt(
         instruction,
         current_content,
         Some(&state),
+        Some(&lock),
     );
     Ok((user, card))
 }
@@ -6832,6 +7220,7 @@ mod writer_context_tests {
                 admitted: vec!["苏会山".into()],
                 l2: vec!["苏会山".into()],
                 user: user.clone(),
+                lock: crate::agency::continue_director::DirectorLock::default(),
             },
         );
         CharacterRepository::new(pool.clone())
@@ -6846,11 +7235,135 @@ mod writer_context_tests {
                 admitted: vec!["金敏秀".into()],
                 l2: vec!["金敏秀".into()],
                 user: live,
+                lock: crate::agency::continue_director::DirectorLock::default(),
             },
         );
         assert_eq!(pinned.user, frozen.user);
         assert_eq!(pinned.card.dead, frozen.card.dead);
         assert!(pinned.user.contains("苏会山") || pinned.card.dead.iter().any(|n| n == "苏会山"));
         assert!(!pinned.admitted.iter().any(|n| n == "金敏秀"));
+    }
+
+    #[test]
+    fn continue_prompt_feeds_appearing_relations_and_drops_nephew() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("大婚关系喂给主创"))
+            .unwrap();
+        let char_repo = CharacterRepository::new(pool.clone());
+        let cao = char_repo.create(char_req(&story.id, "曹元佩")).unwrap();
+        let son = char_repo.create(char_req(&story.id, "苏亦铁")).unwrap();
+        char_repo.create(char_req(&story.id, "苏会山")).unwrap();
+        char_repo.create(char_req(&story.id, "明成公主")).unwrap();
+        CharacterRelationshipRepository::new(pool.clone())
+            .create(
+                &story.id,
+                &cao.id,
+                &son.id,
+                "侄子",
+                Some("脏亲缘"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let scene_repo = SceneRepository::new(pool.clone());
+        let sc = scene_repo.create(&story.id, 1, Some("一")).unwrap();
+        let content = crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL.to_string();
+        scene_repo
+            .update(
+                &sc.id,
+                &SceneUpdate {
+                    content: Some(content.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let (user, _) =
+            assemble_continue_user_prompt(&pool, &story.id, "续写", &content, "").unwrap();
+        assert!(
+            user.contains("【本拍人物关系】"),
+            "须把在场关系喂给主创 user={}",
+            user.chars().take(1200).collect::<String>()
+        );
+        assert!(
+            user.contains("父子"),
+            "须锁父子 user={}",
+            user.chars().take(1200).collect::<String>()
+        );
+        assert!(
+            !user.contains("社会关系=侄子"),
+            "脏侄子不得进资产区 user={}",
+            user.chars().take(1200).collect::<String>()
+        );
+    }
+
+    #[test]
+    fn persist_inferred_relationships_creates_and_overwrites_nephew() {
+        let pool = create_test_pool().unwrap();
+        let story = StoryRepository::new(pool.clone())
+            .create(story_req("关系落库"))
+            .unwrap();
+        let char_repo = CharacterRepository::new(pool.clone());
+        let dad = char_repo.create(char_req(&story.id, "苏会山")).unwrap();
+        let cao = char_repo.create(char_req(&story.id, "曹元佩")).unwrap();
+        let son = char_repo.create(char_req(&story.id, "苏亦铁")).unwrap();
+        let rel_repo = CharacterRelationshipRepository::new(pool.clone());
+        rel_repo
+            .create(
+                &story.id,
+                &cao.id,
+                &son.id,
+                "侄子",
+                Some("脏"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let table = vec!["苏会山".into(), "曹元佩".into(), "苏亦铁".into()];
+        let tail = crate::agency::continue_assets::WEDDING_ASSASSINATION_TAIL;
+        let lock = crate::agency::continue_director::lock_from_continue_inputs(
+            &table,
+            &[],
+            &["苏会山".into()],
+            tail,
+            &[("曹元佩".into(), "苏亦铁".into(), "侄子".into())],
+        );
+        persist_inferred_relationships(&pool, &story.id, &lock);
+        let got = rel_repo.get_by_story(&story.id).unwrap();
+        assert!(
+            got.iter().any(|r| r.relationship_type == "父子"
+                && ((r.source_character_id == dad.id && r.target_character_id == son.id)
+                    || (r.source_character_id == son.id && r.target_character_id == dad.id))),
+            "须写入父子 got={:?}",
+            got.iter()
+                .map(|r| format!(
+                    "{}:{}",
+                    r.relationship_type,
+                    r.description.as_deref().unwrap_or("")
+                ))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            got.iter().any(|r| r.relationship_type == "夫妻"
+                && ((r.source_character_id == dad.id && r.target_character_id == cao.id)
+                    || (r.source_character_id == cao.id && r.target_character_id == dad.id))),
+            "须写入夫妻 got={:?}",
+            got.iter()
+                .map(|r| r.relationship_type.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !got.iter().any(|r| r.relationship_type.contains("侄")),
+            "脏侄子须被覆盖 got={:?}",
+            got.iter()
+                .map(|r| r.relationship_type.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 }
