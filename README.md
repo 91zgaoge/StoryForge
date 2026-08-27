@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.56.0-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.56.1-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.56.1 · 拦住「抱着自己的衣角」和死人用眼睛盯人
+
+上一版锁住了「琬公主曹元佩＝曹元佩」，但续写改成「琬公主曹元佩抱着曹元佩的衣角」就漏了；明成公主已经气绝，仍被写成用眼睛锁定苏亦铁。本版会拦这两类，重试一次。请升级到 0.56.1 并重启，从「飞身扑上」再续写。这不是续写质量已修好。
 
 ### v0.56.0 · 续写先锁住「谁是谁」，创世时必须写下人物关系
 

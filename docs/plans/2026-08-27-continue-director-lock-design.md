@@ -1,7 +1,7 @@
 # 续写导演锁：一人一号 / 近文亲缘 / 一拍一事
 
 日期：2026-08-27
-状态：已实现（**v0.56.0**）
+状态：已实现（**v0.56.0**；探针加宽 **v0.56.1**）
 决策来源：真机续写《帝国的烟火》大婚行刺后，从「飞身扑上」往下写，人物拆成两人、亲缘写反。用户裁定 **路径 C 的实现取路径 1**：改续写流水线（导演编译 + 主创只写一件事），**不**把写正文的主创拉回 ToolLoop。
 
 承接：
@@ -218,13 +218,13 @@ System 要求：只输出 JSON；`identities[].canonical` 必须是 Rust 锁已�
 
 **新增：**
 
-1. **拆人。** 对每个 `IdentityLock`，若增量里 ≥2 个不同 `aliases∪{canonical}` 分别命中「主语行动」模式，则 `gaps.push("同一人拆成两个身体：{canonical}")`。
+1. **拆人。** 对每个 `IdentityLock`，若增量里 ≥2 个不同 `aliases∪{canonical}` **独立出现**（更长称呼盖住的短名不计），则 `gaps.push("同一人拆成两个身体：{canonical}")`。真机「琬公主曹元佩抱着曹元佩的衣角」必须命中。旧「则/蜷缩」主语模式是子集。
 
-   主语行动模式（可单测、对准用户原文）：名称后紧跟 `则` / `却` / `发出` / `蜷缩` / `看着` / `冲了` / `迈出` / `上前`（允许中间无字或仅顿号）。用户原文「曹元佩则彻底僵住了」与「琬公主曹元佩则发出」必须命中。
-
-   「苏亦铁抱住父亲」里的「父亲」不是别名主语，不触发拆人。
+   「苏亦铁抱住父亲」里的「父亲」不是别名，不触发拆人。
 
 2. **亲缘颠倒。** 若锁对 (A,B) 标明父子/父女/母子，增量在同一句或相邻句用 `侄子`/`侄女`/`姑姑`/`叔父` 描述该对，则缺口 `亲缘与人物锁相反`。不扫全书家谱，只扫锁里写明的 kin 行。
+
+3. **死人行动。** 锁 `status=dead` 的人，点名后 80 字内出现眼睛/锁定/审视等活人行动，且窗口不是尸体/残骸，则 `gaps.push("{canonical}已死仍在行动")`。点名尸体本身不算。
 
 探针缺口仍只触发 **一次** complete 重试（现有时间门）。重试 user 追加缺口原文，不重跑导演。
 
@@ -270,6 +270,8 @@ System 要求：只输出 JSON；`identities[].canonical` 必须是 Rust 锁已�
 | `rust_lock_spouse_from_sat_together` | 「苏会山与曹元佩一并坐下」未写入配偶向 kin |
 | `rust_lock_father_from_plunge` | 苏会山死 + 苏亦铁飞身扑上 未锁父子 |
 | `probe_rejects_cao_split_bodies` | 用户失败续写未报拆人 |
+| `probe_rejects_hugging_own_clothes_as_two_people` | 真机「抱着曹元佩的衣角」未报拆人 |
+| `probe_rejects_dead_princess_living_gaze` | 明成公主已死仍用眼睛锁定未报 |
 | `probe_does_not_gap_silent_present` | 只写苏亦铁扑尸、未点名曹元佩，仍报丢掉已在场者 |
 | `probe_rejects_nephew_when_lock_is_father` | 锁为父子时写侄子不报亲缘反 |
 | `probe_still_rejects_stab_replay` | v0.53.6 重演契约回归 |

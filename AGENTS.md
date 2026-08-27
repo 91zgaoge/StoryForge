@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.56.0
+- **版本**: v0.56.1
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,7 +97,7 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1569 passed / 2 ignored（+20 导演锁 / 关系 upsert）
+- `cargo test -p storymoss` ✅ 1571 passed / 2 ignored（+2 拆人衣角 / 死人目光）
 - `npx tsc --noEmit` ✅
 - `npx vitest run` ✅ 602 passed / 3 skipped
 - `npx playwright test` ✅ 本版未重跑 E2E
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.56.1 - 拆人探针认抱衣角；死人不得再用眼睛锁定
+
+真机从「飞身扑上」续写：琬公主曹元佩抱着曹元佩的衣角（同一人两个身体），明成公主已气绝却用眼睛锁定苏亦铁。根因：拆人探针只认「名字+则/蜷缩」，抱衣角漏网；死人探针只拦再刺/再气绝，不拦活人目光。现改：同一人两个称呼独立出现即缺口；已死者点名后 80 字内出现眼睛/锁定/审视则缺口。合同 Wrong 补抱衣角。不改主创零工具。
+
+- **验证**：`cargo test --lib` 1571 passed / 2 ignored（+2）。
+- **契约**：`probe_rejects_hugging_own_clothes_as_two_people`；`probe_rejects_dead_princess_living_gaze`。
+- **未关闭**：真机须从「飞身扑上」再跑；**不得宣称续写质量已修复**。探针只重试一次，仍失败会 salvage 落库。
 
 ### v0.56.0 - 续写导演锁 / 管理 Agent 必写人物关系
 
@@ -1136,7 +1144,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-27 - v0.56.0_
+_最后更新: 2026-08-28 - v0.56.1_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

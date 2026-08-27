@@ -21,8 +21,6 @@ const PURE_TITLES: &[&str] = &[
     "公主", "亲王", "王妃", "郡主", "太子", "娘娘", "皇上", "陛下", "钦差", "王",
 ];
 
-const SUBJECT_MARKERS: &[&str] = &["则", "却", "发出", "蜷缩", "看着", "冲了", "迈出", "上前"];
-
 const KIN_INVERSION_WORDS: &[&str] = &["侄子", "侄女", "姑姑", "叔父"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -662,7 +660,8 @@ fn is_char_boundary_name_start(text: &str, byte_idx: usize) -> bool {
     byte_idx == 0 || text.is_char_boundary(byte_idx)
 }
 
-/// 最长别名优先：同一跨度只记一个称呼。≥2 个不同称呼当主语行动 → 拆人。
+/// 最长别名优先：被更长称呼盖住的短名不算另一次点名。
+/// ≥2 个不同称呼各自独立出现 → 拆人（含「琬公主曹元佩抱着曹元佩的衣角」）。
 pub fn subject_split_gaps(increment: &str, lock: &DirectorLock) -> Vec<String> {
     let mut gaps = Vec::new();
     for id in &lock.identities {
@@ -674,27 +673,7 @@ pub fn subject_split_gaps(increment: &str, lock: &DirectorLock) -> Vec<String> {
             .collect();
         names.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
         names.dedup();
-        let mut spans: Vec<(usize, usize, String)> = Vec::new();
-        for name in &names {
-            for marker in SUBJECT_MARKERS {
-                let needle = format!("{name}{marker}");
-                let mut start = 0;
-                while let Some(rel) = increment[start..].find(&needle) {
-                    let at = start + rel;
-                    if is_char_boundary_name_start(increment, at) {
-                        let end = at + needle.len();
-                        let covered = spans.iter().any(|(s, e, _)| at >= *s && end <= *e);
-                        if !covered {
-                            spans.push((at, end, name.clone()));
-                        }
-                    }
-                    start = at + needle.len();
-                    if start >= increment.len() {
-                        break;
-                    }
-                }
-            }
-        }
+        let spans = independent_name_spans(increment, &names);
         let mut distinct = Vec::new();
         for (_, _, n) in &spans {
             if !distinct.iter().any(|x| x == n) {
@@ -706,6 +685,28 @@ pub fn subject_split_gaps(increment: &str, lock: &DirectorLock) -> Vec<String> {
         }
     }
     gaps
+}
+
+fn independent_name_spans(increment: &str, names: &[String]) -> Vec<(usize, usize, String)> {
+    let mut spans: Vec<(usize, usize, String)> = Vec::new();
+    for name in names {
+        let mut start = 0;
+        while let Some(rel) = increment[start..].find(name.as_str()) {
+            let at = start + rel;
+            if is_char_boundary_name_start(increment, at) {
+                let end = at + name.len();
+                let covered = spans.iter().any(|(s, e, _)| at >= *s && end <= *e);
+                if !covered {
+                    spans.push((at, end, name.clone()));
+                }
+            }
+            start = at + name.len().max(1);
+            if start >= increment.len() {
+                break;
+            }
+        }
+    }
+    spans
 }
 
 pub fn kin_inversion_gaps(increment: &str, lock: &DirectorLock) -> Vec<String> {
@@ -722,6 +723,42 @@ pub fn kin_inversion_gaps(increment: &str, lock: &DirectorLock) -> Vec<String> {
     } else {
         vec![]
     }
+}
+
+const DEAD_AGENCY_MARKERS: &[&str] = &[
+    "眼睛", "眼神", "目光", "锁定", "审视", "观察", "娇羞", "看着", "冷酷",
+];
+
+const CORPSE_WINDOW: &[&str] = &["尸体", "残骸", "头骨", "血雾"];
+
+/// 锁里已死之人不得再当活人行动（眼睛锁定、审视）。点名尸体本身不算。
+pub fn dead_acting_gaps(increment: &str, lock: &DirectorLock) -> Vec<String> {
+    let mut gaps = Vec::new();
+    for id in &lock.identities {
+        if id.status != LifeStatus::Dead {
+            continue;
+        }
+        let harvested = compounds_in_text(&id.canonical, increment);
+        let mut names: Vec<String> = std::iter::once(id.canonical.clone())
+            .chain(id.aliases.iter().cloned())
+            .chain(harvested)
+            .filter(|s| s.chars().count() >= 2)
+            .collect();
+        names.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
+        names.dedup();
+        let spans = independent_name_spans(increment, &names);
+        for (_, end, _) in &spans {
+            let after: String = increment[*end..].chars().take(80).collect();
+            if CORPSE_WINDOW.iter().any(|m| after.contains(m)) {
+                continue;
+            }
+            if DEAD_AGENCY_MARKERS.iter().any(|m| after.contains(m)) {
+                gaps.push(format!("{}已死仍在行动", id.canonical));
+                break;
+            }
+        }
+    }
+    gaps
 }
 
 pub fn lock_from_continue_inputs(
@@ -797,6 +834,18 @@ mod tests {
 琬公主曹元佩则发出了一声微弱的、压抑的呜咽，她颤抖着伸出手。\
 琬公主曹元佩则蜷缩在角落。\
 曹元佩看着苏亦铁，眼中有对眼前这个被命运推向深渊的侄子的怜惜。";
+
+    /// 真机 v0.56.0：《帝国的烟火》从「飞身扑上」续写。拆人改成抱衣角，
+    /// 死人还在用眼睛锁定。
+    const REAL_DEVICE_CONTINUE: &str = "\
+苏亦铁的动作猛地停滞在半空，他扑倒在苏会山冰冷的尸体旁，胸腔剧烈起伏。\
+景亲王那藏在人群后的身影眼神深沉地扫过现场。\
+礼仪主持见状，立刻上前一步，试图稳定局面。\
+苏福贵则迅速地从人群中抽身而出。\
+琬公主曹元佩，原本因为惊吓而僵立在原地，此刻也紧紧抱着曹元佩的衣角，脸色苍白。\
+而明成公主，她被击飞在地，身体的僵硬并未消退，只是那双眼睛，却如同淬了冰的刀锋，死死地锁定在苏亦铁身上。\
+她没有发出任何声音，只是静静地看着这一切的发生。\
+苏亦铁没有理会景亲王的呵斥，目光最终落在了明成公主身上。他看到了她眼中那份更加深沉的冷酷。";
 
     #[test]
     fn same_person_title_plus_given_name() {
@@ -981,6 +1030,61 @@ mod tests {
             gaps.iter()
                 .any(|g| g.contains("曹元佩") && g.contains("拆成两个")),
             "gaps={gaps:?}"
+        );
+    }
+
+    #[test]
+    fn probe_rejects_hugging_own_clothes_as_two_people() {
+        let table = vec![
+            "曹元佩".into(),
+            "琬公主".into(),
+            "苏亦铁".into(),
+            "明成公主".into(),
+            "苏会山".into(),
+        ];
+        let clusters = merge_identity_clusters(&table, WEDDING_TAIL);
+        let lock = compile_director_lock_rust(
+            &clusters,
+            &["苏会山".into(), "明成公主".into()],
+            WEDDING_TAIL,
+            &[],
+        );
+        let gaps = subject_split_gaps(REAL_DEVICE_CONTINUE, &lock);
+        assert!(
+            gaps.iter()
+                .any(|g| g.contains("曹元佩") && g.contains("拆成两个")),
+            "gaps={gaps:?}"
+        );
+    }
+
+    #[test]
+    fn probe_rejects_dead_princess_living_gaze() {
+        let table = vec![
+            "曹元佩".into(),
+            "苏亦铁".into(),
+            "明成公主".into(),
+            "苏会山".into(),
+        ];
+        let clusters = merge_identity_clusters(&table, WEDDING_TAIL);
+        let lock = compile_director_lock_rust(
+            &clusters,
+            &["苏会山".into(), "明成公主".into()],
+            WEDDING_TAIL,
+            &[],
+        );
+        let gaps = dead_acting_gaps(REAL_DEVICE_CONTINUE, &lock);
+        assert!(
+            gaps.iter()
+                .any(|g| g.contains("明成公主") && g.contains("已死")),
+            "gaps={gaps:?} status={:?}",
+            lock.identities
+                .iter()
+                .map(|i| (&i.canonical, &i.status))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !gaps.iter().any(|g| g.contains("苏会山")),
+            "尸体旁点名苏会山不应算活人行动 gaps={gaps:?}"
         );
     }
 

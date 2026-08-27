@@ -199,6 +199,9 @@ pub fn probe_increment(
         gaps.extend(crate::agency::continue_director::kin_inversion_gaps(
             increment, lock,
         ));
+        gaps.extend(crate::agency::continue_director::dead_acting_gaps(
+            increment, lock,
+        ));
     }
     BeatProbe { named_cast, gaps }
 }

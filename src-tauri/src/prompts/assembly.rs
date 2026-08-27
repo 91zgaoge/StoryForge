@@ -92,8 +92,8 @@ Wrong：先输出节拍任务、状态网或约束清单。\n\
 Right：直接写场面，只输出正文。\n\
 Wrong：凭书名拉出一个本拍名单没有的人。\n\
 Right：只用阵容里的名字。\n\
-Wrong：曹元佩僵住了。琬公主曹元佩蜷缩在角落。\n\
-Right：曹元佩是镇北王妃，一人。";
+Wrong：曹元佩僵住了。琬公主曹元佩蜷缩在角落。琬公主曹元佩抱着曹元佩的衣角。\n\
+Right：曹元佩是镇北王妃，一人；已死者不再看、不再审视。";
 
 pub const TOOL_LOOP_PROTOCOL: &str = "你只能输出一个 JSON action，不要输出其他内容：\n\
 - 调用工具: {\"type\":\"tool\",\"name\":\"<工具名>\",\"args\":{...}}\n\
@@ -355,8 +355,11 @@ mod tests {
         assert!(CONTINUE_BEAT_SYSTEM.contains("Right：直接写场面，只输出正文"));
         assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：凭书名拉出一个本拍名单没有的人"));
         assert!(CONTINUE_BEAT_SYSTEM.contains("Right：只用阵容里的名字"));
-        assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：曹元佩僵住了。琬公主曹元佩蜷缩在角落。"));
-        assert!(CONTINUE_BEAT_SYSTEM.contains("Right：曹元佩是镇北王妃，一人。"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains(
+            "Wrong：曹元佩僵住了。琬公主曹元佩蜷缩在角落。琬公主曹元佩抱着曹元佩的衣角。"
+        ));
+        assert!(CONTINUE_BEAT_SYSTEM
+            .contains("Right：曹元佩是镇北王妃，一人；已死者不再看、不再审视。"));
         assert!(!CONTINUE_BEAT_SYSTEM.contains("asset_read"));
         assert!(!CONTINUE_BEAT_SYSTEM.contains("JSON action"));
     }

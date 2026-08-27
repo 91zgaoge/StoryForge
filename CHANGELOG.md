@@ -2,6 +2,14 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.56.1（2026-08-28）
+
+真机续写把同一人写成抱自己衣角、把已死的明成公主写成用眼睛锁定。拆人探针改为认独立出现的两个称呼；死人探针拦眼睛/锁定/审视。主创仍零工具。
+
+### 测试
+
+- `cargo test --lib` 1571 passed / 2 ignored（+2）。
+
 ## v0.56.0（2026-08-27）
 
 续写拍前编译导演锁（一人一号 / 近文亲缘 / 本拍关系），主创仍 `complete()` 零工具。管理 Agent 写角色后必须 upsert 人物关系。不自动删角色表脏行。
