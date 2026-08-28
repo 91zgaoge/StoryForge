@@ -2,6 +2,15 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.56.2（2026-08-28）
+
+对话句号后空行 + 全角缩进不再把闭合引号排成孤段。后台编辑审查 fail-open，顶栏不再显示「编辑审计已完成后台审查失败」。
+
+### 测试
+
+- `cargo test --lib` 1572 passed / 2 ignored（+1）。
+- `npx vitest run` 606 passed / 3 skipped（+4）。
+
 ## v0.56.1（2026-08-28）
 
 真机续写把同一人写成抱自己衣角、把已死的明成公主写成用眼睛锁定。拆人探针改为认独立出现的两个称呼；死人探针拦眼睛/锁定/审视。主创仍零工具。

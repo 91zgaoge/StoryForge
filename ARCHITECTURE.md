@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.56.1 架构文档
+# StoryMoss (草苔) v0.56.2 架构文档
 
+> **v0.56.2**：`mergeHangingClosingPunct` / `merge_hanging_closing_punct` 跳过换行与闭合标点之间的空白/全角缩进/零宽字符。`autoFormatText` 空行路径也跑 `mergeLoneClosingPunctParagraphs`。后台 `editor_qc_done_detail` 固定「后台审查」，不合格走 toast。v0.56.1 探针不变量不变。
+>
 > **v0.56.1**：`subject_split_gaps` 改为同一人 ≥2 个称呼独立出现即缺口（不再只认「则/蜷缩」）。`dead_acting_gaps`：锁里已死之人点名后 80 字内眼睛/锁定/审视则缺口，尸体窗口除外。续写 `tools=None` 不变。v0.56.0 导演锁不变量不变。
 >
 > **v0.56.0**：续写 `write_beat_once` 在 `complete()` 前编译 `DirectorLock`（Rust 必跑，Producer enrich 可选、失败回退 Rust）。主创 `tools=None`。冻结快照含锁。`probe_increment` 拦拆身/亲缘写反，不罚沉默在场。`materialize_assets` 先角色后关系、同对 upsert。`ensure_assets` 在 ≥2 角色且关系表空时 `ensure_relationships`。不 DELETE 角色行。v0.55.0 短合同 / 冻结不变量不变。

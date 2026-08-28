@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.56.1
+- **版本**: v0.56.2
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1571 passed / 2 ignored（+2 拆人衣角 / 死人目光）
+- `cargo test -p storymoss` ✅ 1572 passed / 2 ignored（+1 后台审查 fail-open 文案）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 602 passed / 3 skipped
+- `npx vitest run` ✅ 606 passed / 3 skipped（+4 孤引号 / 顶栏失败文案）
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.56.2 - 下引号不再单独成段；编辑审计顶栏不再报「已完成失败」
+
+幕前对话句号后空行 + 全角缩进会把闭合引号排成带段首缩进的孤段。根因：悬挂合并只认「换行后立刻是引号」，夹着全角空格就漏；空行分段路径还不跑 HTML 孤段合并。现跳过换行与引号之间的空白并丢掉缩进，空行/存量 HTML 都并回上一句。后台编辑审查本是 fail-open（章节已落库），却把 `Err` 标成「后台审查失败」，顶栏拼成「编辑审计已完成后台审查失败」。现 done 固定「后台审查」，失败只走 toast/日志；`friendlyText` 对失败/超时不再加「已完成」。
+
+- **验证**：`cargo test --lib` 1572 passed / 2 ignored（+1）；`npx vitest run` 606 passed / 3 skipped（+4）。
+- **契约**：`blank-line path: indented hanging closing quote`；`失败/超时不得拼成「已完成…失败」`；`editor_qc_done_detail_is_fail_open_not_failure`。
+- **未关闭**：已落库旧章下次打开会并回孤引号。真机须再续写确认；**不得宣称续写质量已修复**。
 
 ### v0.56.1 - 拆人探针认抱衣角；死人不得再用眼睛锁定
 
@@ -1144,7 +1152,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-28 - v0.56.1_
+_最后更新: 2026-08-28 - v0.56.2_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

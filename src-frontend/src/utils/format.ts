@@ -43,7 +43,9 @@ export function truncateText(text: string, maxLength: number): string {
  */
 export function mergeHangingClosingPunct(text: string): string {
   if (!text) return text;
-  return text.replace(/([^\n])\n+(?=["'’”」』）】》〉\]}])/g, '$1');
+  // 跳过换行与下引号之间的空白/全角缩进/零宽字符，否则
+  // 「禁军。\n\n　　”」会落成带段首缩进的孤 <p>”</p>
+  return text.replace(/([^\n])(?:\n+[\s\u3000\u200b]*)+(?=["'’”」』）】》〉\]}])/g, '$1');
 }
 
 /** 闭合标点的 HTML 实体形态（含数据里误编码的开向实体 &ldquo;/&lsquo;） */
@@ -51,7 +53,7 @@ const CLOSING_PUNCT_ENTITY =
   '&(?:rdquo|ldquo|quot|apos|rsquo|lsquo|#x201[dD]|#x2019|#8221|#8217|#34|#39);';
 const CLOSING_PUNCT_CHAR = '["\'’”」』）】》〉\\]\\}]';
 /** 孤闭合标字段内允许出现的空白 token（&nbsp; 只算空白，不算标点） */
-const LONE_WS = '(?:\\s|&nbsp;)';
+const LONE_WS = '(?:\\s|&nbsp;|\u3000|\u200b)';
 /** 孤闭合标字段内允许出现的 token：闭合标点（字符或实体）或空白 */
 const LONE_TOKEN = `(?:${CLOSING_PUNCT_ENTITY}|${CLOSING_PUNCT_CHAR}|${LONE_WS})`;
 const LONE_PUNCT = `(?:${CLOSING_PUNCT_ENTITY}|${CLOSING_PUNCT_CHAR})`;
@@ -70,9 +72,12 @@ const LONE_CLOSING_PARA_RE = new RegExp(
 export function mergeLoneClosingPunctParagraphs(html: string): string {
   if (!html || !html.includes('<p>')) return html;
   let result = html;
+  const stripWs = new RegExp(`(?:${LONE_WS})+`, 'g');
   // 连续多个孤闭合标字段需要循环到不动点（每次替换会产生新的 </p><p> 边界）
   for (;;) {
-    const next = result.replace(LONE_CLOSING_PARA_RE, '$1</p>');
+    const next = result.replace(LONE_CLOSING_PARA_RE, (_m, inner: string) => {
+      return `${inner.replace(stripWs, '')}</p>`;
+    });
     if (next === result) return result;
     result = next;
   }
@@ -168,7 +173,9 @@ export function autoFormatText(input: string): string {
     .map(s => s.trim())
     .filter(s => s.length > 0);
   if (rawParagraphs.length >= 2) {
-    return rawParagraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('');
+    return mergeLoneClosingPunctParagraphs(
+      rawParagraphs.map(p => `<p>${escapeHtml(p)}</p>`).join('')
+    );
   }
 
   // 5. 智能句子拆分（纯文本，无空行分隔）
@@ -240,7 +247,7 @@ export function autoFormatText(input: string): string {
   }
 
   if (merged.length === 0) return '';
-  return merged.map(p => `<p>${escapeHtml(p)}</p>`).join('');
+  return mergeLoneClosingPunctParagraphs(merged.map(p => `<p>${escapeHtml(p)}</p>`).join(''));
 }
 
 /** 按中文句子边界拆分文本 */

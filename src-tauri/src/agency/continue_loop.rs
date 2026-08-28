@@ -53,6 +53,12 @@ pub fn bg_done_detail(task: &str, exit: BgExit) -> String {
     }
 }
 
+/// 后台编辑审查 fail-open：章节已落库，幕前 done 文案固定「后台审查」。
+/// 不合格走 toast（genesis-qc-result），不把「后台审查失败」打进顶栏。
+pub fn editor_qc_done_detail() -> String {
+    "后台审查".to_string()
+}
+
 pub fn persist_activity(pool: &DbPool, run_id: &str, role: AgentRole, action: &str, detail: &str) {
     if let Err(e) =
         AgencyRepository::new(pool.clone()).log_activity(run_id, role.as_str(), action, detail)
@@ -542,6 +548,15 @@ mod tests {
         );
         assert_eq!(bg_done_detail("后台审查", BgExit::Failed), "后台审查失败");
         assert_eq!(bg_done_detail("后台补齐", BgExit::Timeout), "后台补齐超时");
+    }
+
+    #[test]
+    fn editor_qc_done_detail_is_fail_open_not_failure() {
+        assert_eq!(editor_qc_done_detail(), "后台审查");
+        assert_ne!(
+            editor_qc_done_detail(),
+            bg_done_detail("后台审查", BgExit::Failed)
+        );
     }
 
     #[test]

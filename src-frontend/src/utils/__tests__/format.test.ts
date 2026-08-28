@@ -98,6 +98,15 @@ describe('autoFormatText', () => {
     expect(result).toContain('别再回头看了。」');
   });
 
+  it('blank-line path: indented hanging closing quote is not its own paragraph', () => {
+    // 真机：对话句号后空行 + 段首全角缩进 + 下引号单独成段（带 2em 缩进）
+    const input =
+      '苏福贵脸色微变，低声道：“王爷，外头有动静，似乎是……京城的禁军。\n\n　　”\n\n景亲王眼中闪过一丝凝重，对苏亦铁道：“王爷且先避一避。”';
+    const result = autoFormatText(input);
+    expect(result).not.toMatch(/<p>\s*”\s*<\/p>/);
+    expect(result).toContain('京城的禁军。”');
+  });
+
   it('passthrough path: existing <p>"</p> lone closing-punct paragraph is merged', () => {
     // DB 存量 HTML 中的孤闭合引号段落，在显示层并入上一段
     const input =
@@ -106,6 +115,15 @@ describe('autoFormatText', () => {
     expect(result).not.toContain('<p>”</p>');
     expect(result).toContain('就这样吧。”</p>');
     expect(result).toContain('<p>第二段有足够长的内容保留在此。</p>');
+  });
+
+  it('passthrough path: ideographic-indented lone closing quote is merged', () => {
+    const input =
+      '<p>苏福贵脸色微变，低声道：“王爷，外头有动静，似乎是……京城的禁军。</p><p>　　”</p><p>景亲王眼中闪过一丝凝重。</p>';
+    const result = autoFormatText(input);
+    expect(result).not.toMatch(/<p>\s*”\s*<\/p>/);
+    expect(result).not.toContain('<p>　　”</p>');
+    expect(result).toContain('京城的禁军。”');
   });
 });
 
@@ -118,6 +136,12 @@ describe('mergeHangingClosingPunct', () => {
 
   it('merges across multiple consecutive newlines', () => {
     expect(mergeHangingClosingPunct('上一行\n\n\n」')).toBe('上一行」');
+  });
+
+  it('merges when whitespace or ideographic indent sits between newline and closing quote', () => {
+    expect(mergeHangingClosingPunct('京城的禁军。\n\n　　”')).toBe('京城的禁军。”');
+    expect(mergeHangingClosingPunct('莫要再自误了。\n ”')).toBe('莫要再自误了。”');
+    expect(mergeHangingClosingPunct('上一行\n\u200b”')).toBe('上一行”');
   });
 
   it('merges every closing-direction punct in the set', () => {
@@ -165,7 +189,8 @@ describe('mergeLoneClosingPunctParagraphs', () => {
   });
 
   it('merges lone punct paragraph with surrounding whitespace inside', () => {
-    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p> ” </p>')).toBe('<p>段落。 ” </p>');
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p> ” </p>')).toBe('<p>段落。”</p>');
+    expect(mergeLoneClosingPunctParagraphs('<p>段落。</p><p>　　”</p>')).toBe('<p>段落。”</p>');
   });
 
   it('merges consecutive lone closing-punct paragraphs', () => {

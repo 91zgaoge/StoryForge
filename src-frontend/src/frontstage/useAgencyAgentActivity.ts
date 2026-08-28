@@ -49,7 +49,12 @@ export function friendlyText(role: string, action: string, detail: string): stri
   const name = ROLES.find(r => r.key === role)?.name ?? role;
   // 已完成：直接用阶段名作宾语（"已完成首章" / "已完成深度资产"），更自然；
   // 进行中：用动词短语（"正在写第一章" / "正在生成深度资产"）。
-  if (action === 'done') return `${name}已完成${detail}`;
+  // 失败/超时不得拼成「已完成…失败」（真机顶栏曾显示「编辑审计已完成后台审查失败」）。
+  if (action === 'done') {
+    const fail = detail.match(/^(.*)(失败|超时|未获得锁)$/);
+    if (fail) return `${name}${detailVerb(fail[1])}${fail[2]}`;
+    return `${name}已完成${detail}`;
+  }
   return `${name}正在${detailVerb(detail)}`;
 }
 

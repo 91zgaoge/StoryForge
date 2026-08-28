@@ -245,6 +245,8 @@ impl TextUtils {
     /// 落库/分段后会产生只含闭合引号的孤段落。只合并闭合向字符
     /// （" ' ’ ” 」 』 ） 】 》 〉 ] }），开向字符（「 『 （ 【 《 〈 [
     /// {）不合并。 边界：上一行不存在（文本以换行+闭合标点开头）时不合并。
+    /// 换行与闭合标点之间的空白/全角缩进/零宽字符一并丢掉，否则
+    /// 「禁军。\\n\\n　　”」会落成带段首缩进的孤段落。
     /// 已知限制：直引号 " ' 无方向信息，刻意以闭合引号开场的段落或
     /// 跨段引语（每段以 " 开场）会被误并——中文小说语料下罕见，属启发式取舍。
     pub fn merge_hanging_closing_punct(text: &str) -> String {
@@ -253,23 +255,36 @@ impl TextUtils {
         }
         let mut out = String::with_capacity(text.len());
         let mut pending_newlines = 0usize;
+        let mut pending_ws = String::new();
         for c in text.chars() {
             if c == '\n' {
                 pending_newlines += 1;
+                pending_ws.clear();
                 continue;
             }
             if pending_newlines > 0 {
+                if Self::is_hanging_indent(c) {
+                    pending_ws.push(c);
+                    continue;
+                }
                 // out 中不会有换行（换行一律缓冲），非空即说明上一行存在
                 let merge = Self::CLOSING_PUNCT.contains(&c) && !out.is_empty();
                 if !merge {
                     out.push_str(&"\n".repeat(pending_newlines));
+                    out.push_str(&pending_ws);
                 }
                 pending_newlines = 0;
+                pending_ws.clear();
             }
             out.push(c);
         }
         out.push_str(&"\n".repeat(pending_newlines));
+        out.push_str(&pending_ws);
         out
+    }
+
+    fn is_hanging_indent(c: char) -> bool {
+        c != '\n' && (c.is_whitespace() || c == '\u{200b}')
     }
 
     /// HTML 级：把「整段内容仅为闭合标点+空白」的 `<p>` 并入上一段。
@@ -293,7 +308,7 @@ impl TextUtils {
                     let inner = &trimmed[3..3 + inner_end];
                     if Self::is_lone_closing_punct(inner) {
                         out.truncate(out.len() - 4);
-                        out.push_str(inner);
+                        out.push_str(&Self::strip_lone_punct_ws(inner));
                         out.push_str("</p>");
                         rest = &trimmed[3 + inner_end + 4..];
                         continue;
@@ -327,7 +342,7 @@ impl TextUtils {
         let mut rest = inner;
         while !rest.is_empty() {
             let c = rest.chars().next().unwrap();
-            if c.is_whitespace() {
+            if c.is_whitespace() || c == '\u{200b}' {
                 rest = &rest[c.len_utf8()..];
             } else if Self::CLOSING_PUNCT.contains(&c) {
                 found_punct = true;
@@ -347,6 +362,14 @@ impl TextUtils {
             }
         }
         found_punct
+    }
+
+    fn strip_lone_punct_ws(inner: &str) -> String {
+        inner
+            .replace("&nbsp;", "")
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '\u{200b}')
+            .collect()
     }
 
     /// v0.26.24: 检测并裁剪散布式句子块重复。
@@ -926,6 +949,19 @@ mod tests {
             TextUtils::merge_hanging_closing_punct("上一行\n\n\n」"),
             "上一行」"
         );
+        // 全角缩进 / 半角空格 / 零宽字符夹在换行与下引号之间也并回
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("京城的禁军。\n\n　　”"),
+            "京城的禁军。”"
+        );
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("莫要再自误了。\n ”"),
+            "莫要再自误了。”"
+        );
+        assert_eq!(
+            TextUtils::merge_hanging_closing_punct("上一行\n\u{200b}”"),
+            "上一行”"
+        );
         // 闭合字符集全员
         for c in [
             '"', '\'', '\u{2019}', '\u{201D}', '」', '』', '）', '】', '》', '〉', ']', '}',
@@ -978,10 +1014,14 @@ mod tests {
             TextUtils::merge_lone_closing_punct_paragraphs("<p>甲。</p><p>”</p><p>’</p>"),
             "<p>甲。”’</p>"
         );
-        // 段内首尾空白
+        // 段内首尾空白 / 全角缩进在并入时丢掉，避免「禁军。　　”」
         assert_eq!(
             TextUtils::merge_lone_closing_punct_paragraphs("<p>段落。</p><p> ” </p>"),
-            "<p>段落。 ” </p>"
+            "<p>段落。”</p>"
+        );
+        assert_eq!(
+            TextUtils::merge_lone_closing_punct_paragraphs("<p>段落。</p><p>　　”</p>"),
+            "<p>段落。”</p>"
         );
     }
 

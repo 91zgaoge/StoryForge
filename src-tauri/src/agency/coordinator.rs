@@ -2616,7 +2616,6 @@ impl AgencyCoordinator {
                 deadline,
             )
             .await;
-            let qc_failed = result.is_err();
             let payload = match result {
                 Ok((GateOutcome::Passed { .. }, _)) => serde_json::json!({
                     "story_id": story_id,
@@ -2658,21 +2657,15 @@ impl AgencyCoordinator {
                 }
             };
             let _ = app.emit(EVENT_GENESIS_QC_RESULT, payload);
-            let done = if qc_failed {
-                crate::agency::continue_loop::bg_done_detail(
-                    "后台审查",
-                    crate::agency::continue_loop::BgExit::Failed,
-                )
-            } else {
-                "后台审查".to_string()
-            };
+            // 后台质检 fail-open：章节已落库。不合格走 toast，顶栏不得报「后台审查失败」
+            // （否则 friendlyText 会拼成「编辑审计已完成后台审查失败」）。
             crate::agency::continue_loop::emit_logged_activity(
                 &app,
                 &pool,
                 &run_id,
                 AgentRole::EditorAuditor,
                 "done",
-                &done,
+                &crate::agency::continue_loop::editor_qc_done_detail(),
             )
             .await;
         });

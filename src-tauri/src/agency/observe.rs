@@ -15,8 +15,8 @@ use crate::{
         board::BlackboardService,
         budget::{AgencyBudget, DEFAULT_RUN_TOKEN_BUDGET},
         continue_loop::{
-            beat_card_asset_projections, bg_done_detail, emit_logged_activity,
-            project_assets_to_run, run_asset_ingest, BgExit,
+            beat_card_asset_projections, bg_done_detail, editor_qc_done_detail,
+            emit_logged_activity, project_assets_to_run, run_asset_ingest, BgExit,
         },
         coordinator::{evaluate_gate_impl, AgencyLlm, GateOutcome},
         models::{AgencyRun, AgentRole, BoardItem, BoardZone, OBSERVE_PREMISE},
@@ -393,22 +393,23 @@ fn spawn_observe_editor(
             deadline,
         )
         .await;
-        let exit = match result {
-            Ok((GateOutcome::Passed { .. }, _)) => BgExit::Success,
-            Ok((GateOutcome::RevisionRequired { .. }, _)) => BgExit::Success,
-            Ok((GateOutcome::Failed { .. }, _)) => BgExit::Failed,
+        match result {
+            Ok((GateOutcome::Passed { .. }, _)) | Ok((GateOutcome::RevisionRequired { .. }, _)) => {
+            }
+            Ok((GateOutcome::Failed { reason }, _)) => {
+                log::warn!("agency: 观察编辑审查未通过 (run={run_id}): {reason}");
+            }
             Err(e) => {
                 log::warn!("agency: 观察编辑审查异常 (run={run_id}): {e}");
-                BgExit::Failed
             }
-        };
+        }
         emit_logged_activity(
             &app,
             &pool,
             &run_id,
             AgentRole::EditorAuditor,
             "done",
-            &bg_done_detail("后台审查", exit),
+            &editor_qc_done_detail(),
         )
         .await;
     })

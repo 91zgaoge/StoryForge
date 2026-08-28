@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.56.1-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.56.2-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.56.2 · 下引号贴回上一句，编辑审计不再报「已完成失败」
+
+对话结束后下引号自己占一行（带段首缩进），以及顶栏「编辑审计已完成后台审查失败」，都是显示层问题：模型在句号后空行再写引号时，全角缩进挡住了合并；后台质检失败本不挡正文，却被标成顶栏错误。请升级到 0.56.2 并重启，再打开该章或再续写一次。这不是续写质量已修好。
 
 ### v0.56.1 · 拦住「抱着自己的衣角」和死人用眼睛盯人
 

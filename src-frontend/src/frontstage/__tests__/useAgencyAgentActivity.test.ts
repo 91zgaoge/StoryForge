@@ -24,6 +24,15 @@ describe('friendlyText（DETAIL_VERB 映射）', () => {
     expect(friendlyText('producer', 'done', '资产补齐')).toBe('管理已完成资产补齐');
     expect(friendlyText('lead_writer', 'done', '第3章草稿')).toBe('主创已完成第3章草稿');
     expect(friendlyText('editor_auditor', 'done', '审查第3章')).toBe('编辑审计已完成审查第3章');
+    expect(friendlyText('editor_auditor', 'done', '后台审查')).toBe('编辑审计已完成后台审查');
+  });
+
+  it('失败/超时不得拼成「已完成…失败」', () => {
+    // 真机顶栏：「编辑审计已完成后台审查失败」读起来像成功完成了一次失败
+    expect(friendlyText('editor_auditor', 'done', '后台审查失败')).toBe('编辑审计后台质检失败');
+    expect(friendlyText('producer', 'done', '资产回流失败')).toBe('管理回流资产到记忆失败');
+    expect(friendlyText('producer', 'done', '资产回流超时')).toBe('管理回流资产到记忆超时');
+    expect(friendlyText('producer', 'done', '后台补齐未获得锁')).toBe('管理后台补齐未获得锁');
   });
 
   it('未命中映射的 detail 回退为原文', () => {
