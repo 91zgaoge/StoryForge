@@ -36,6 +36,11 @@ import { useAppStore } from '@/stores/appStore';
 import { ExportDialog } from '@/components/ExportDialog';
 import { formatDate, truncateText } from '@/utils/format';
 import type { Story } from '@/types/index';
+import {
+  StoryFormatFields,
+  productionConstraintsJson,
+  type StoryFormat,
+} from '@/components/StoryFormatFields';
 import toast from 'react-hot-toast';
 import {
   runCreationWorkflow,
@@ -370,6 +375,7 @@ export function Stories() {
   const deleteStory = useDeleteStory();
   const updateStory = useUpdateStory();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [createFormat, setCreateFormat] = useState<StoryFormat>('novel');
   const [exportStory, setExportStory] = useState<{ id: string; title: string } | null>(null);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [editForm, setEditForm] = useState({
@@ -459,8 +465,18 @@ export function Stories() {
         genre: formData.get('genre') as string,
       },
       {
-        onSuccess: () => {
+        onSuccess: story => {
+          if (createFormat === 'short_drama') {
+            updateStory.mutate({
+              id: story.id,
+              updates: {
+                story_format: 'short_drama',
+                production_constraints: productionConstraintsJson(formData),
+              },
+            });
+          }
           setIsModalOpen(false);
+          setCreateFormat('novel');
           form.reset();
         },
       }
@@ -1134,8 +1150,17 @@ export function Stories() {
                   />
                 </div>
 
+                <StoryFormatFields format={createFormat} onFormatChange={setCreateFormat} />
+
                 <div className="flex gap-3 pt-4">
-                  <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setCreateFormat('novel');
+                    }}
+                  >
                     取消
                   </Button>
                   <Button type="submit" variant="primary" isLoading={createStory.isPending}>

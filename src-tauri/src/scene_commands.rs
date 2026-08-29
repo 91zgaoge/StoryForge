@@ -261,6 +261,7 @@ fn advance_methodology_step(pool: &crate::db::DbPool, story_id: &str) -> bool {
         methodology_step: Some(next),
         reference_book_id: None,
         strategy_json: None,
+        ..Default::default()
     };
     match story_repo.update(story_id, &req) {
         Ok(_) => {
@@ -1199,6 +1200,7 @@ mod tests {
             methodology_step: Some(step),
             reference_book_id: None,
             strategy_json: None,
+            ..Default::default()
         }
     }
 

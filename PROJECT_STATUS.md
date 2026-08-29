@@ -1,6 +1,6 @@
-# StoryMoss (草苔) v0.56.2 项目完成状态
+# StoryMoss (草苔) v0.58.0 项目完成状态
 
-> 最后更新: 2026-08-28（v0.56.2 孤引号 / 编辑审计顶栏）
+> 最后更新: 2026-08-29（v0.58.0 戏剧工艺 / 短剧格式）
 >
 > v0.30.43：修复续写内容丢失根因--flushSceneSave 读取滞后 latestContentRef + onChapterUpdated 覆写未保存内容）
 > GitHub: https://github.com/91zgaoge/StoryMoss
@@ -14,6 +14,13 @@
 ---
 
 ## ✅ 最近完成功能
+
+### v0.58.0 - 戏剧工艺 + 短剧格式（2026-08-29）
+
+- 节拍卡 `change_delta`；续写合同禁原地踏步；编辑审计 impact/fix；复述近文探针。
+- V131 `story_format` 默认 novel；幕后长篇/短剧选择器。
+- **验证**：`cargo test --lib` 1583 passed / 2 ignored（+11）；`npx vitest run` 607 passed / 3 skipped（+1）。
+- **未关闭**：真机须再跑创世/续写/短剧；不得宣称续写质量已修复。
 
 ### v0.56.2 - 下引号不再单独成段；编辑审计顶栏不再报失败（2026-08-28）
 

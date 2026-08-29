@@ -76,9 +76,9 @@ pub fn assemble(layers: &[Layer]) -> Result<AssembledPrompt, AssembleError> {
     })
 }
 
-pub const GENESIS_FIRST_CHAPTER_SYSTEM: &str = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。";
+pub const GENESIS_FIRST_CHAPTER_SYSTEM: &str = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。开篇须有可见行动与未解问题。";
 
-pub const GENESIS_PROSE_FALLBACK_SYSTEM: &str = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。";
+pub const GENESIS_PROSE_FALLBACK_SYSTEM: &str = "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。开篇须有可见行动与未解问题。";
 
 pub const CONTINUE_BEAT_SYSTEM: &str = "你是小说主创。只输出本章正文，不要标题、分析或清单。\n\
 1. 按节拍任务写下一拍；人设与世界以资产区为准。\n\
@@ -86,6 +86,7 @@ pub const CONTINUE_BEAT_SYSTEM: &str = "你是小说主创。只输出本章正�
 3. 只用本拍名单；禁止按书名发明未出场角色。\n\
 4. 禁止复述已有正文，禁止同一段出现两次。\n\
 5. 一人一号；在场者可不出声；禁止点名式每人一段。\n\
+6. 本拍必须兑现节拍卡「必须改变」；禁止只复述末句或全员表态。\n\
 Wrong：大堂里再写一遍飞身扑上、刀刺苏会山。\n\
 Right：苏会山已死，写现场后果与在场活人的反应。\n\
 Wrong：先输出节拍任务、状态网或约束清单。\n\
@@ -93,7 +94,22 @@ Right：直接写场面，只输出正文。\n\
 Wrong：凭书名拉出一个本拍名单没有的人。\n\
 Right：只用阵容里的名字。\n\
 Wrong：曹元佩僵住了。琬公主曹元佩蜷缩在角落。琬公主曹元佩抱着曹元佩的衣角。\n\
-Right：曹元佩是镇北王妃，一人；已死者不再看、不再审视。";
+Right：曹元佩是镇北王妃，一人；已死者不再看、不再审视。\n\
+Wrong：众人依次震惊，场面停在原地。\n\
+Right：一件不可逆新信息或选择落地，其余人可沉默。";
+
+pub const DRAMA_BEAT_SYSTEM: &str = "你是短剧编剧。只输出可拍剧本，不要分析或清单。\n\
+1. 按节拍任务写下一场；人设与世界以资产区为准。\n\
+2. 每场标头必须含场次、内景或外景、地点、时间。\n\
+3. 动作写正在发生的可见可听内容；禁止镜号、景别、运镜或影片模型参数。\n\
+4. 台词推进冲突，不解说背景；本拍必须兑现「必须改变」。\n\
+5. 只用本拍名单；一人一号；禁止复述已有场次。\n\
+Wrong：【场景】夜里便利店，众人轮流说话。\n\
+Right：1. 内景・便利商店・夜\n\
+Wrong：加入镜头推进与 Sora 提示词。\n\
+Right：只写动作、角色名与台词。\n\
+Wrong：众人依次震惊，场面停在原地。\n\
+Right：一件不可逆新信息落地，切黑留下下一步问题。";
 
 pub const TOOL_LOOP_PROTOCOL: &str = "你只能输出一个 JSON action，不要输出其他内容：\n\
 - 调用工具: {\"type\":\"tool\",\"name\":\"<工具名>\",\"args\":{...}}\n\
@@ -118,43 +134,7 @@ pub fn assemble_genesis_first_chapter(
     concept_json: &str,
     assets_ctx: &str,
 ) -> Result<AssembledPrompt, AssembleError> {
-    assemble(&[
-        l(
-            "instruction",
-            LayerKind::Instruction,
-            Slot::System,
-            GENESIS_FIRST_CHAPTER_SYSTEM.to_string(),
-            true,
-        ),
-        l(
-            "premise",
-            LayerKind::Context,
-            Slot::User,
-            format!("故事前提：{premise}"),
-            true,
-        ),
-        l(
-            "concept",
-            LayerKind::Context,
-            Slot::User,
-            format!("概念设定：{concept_json}"),
-            true,
-        ),
-        l(
-            "assets",
-            LayerKind::Context,
-            Slot::User,
-            format!("创作资产：\n{assets_ctx}"),
-            true,
-        ),
-        l(
-            "task",
-            LayerKind::Context,
-            Slot::User,
-            GENESIS_FIRST_CHAPTER_TASK.to_string(),
-            true,
-        ),
-    ])
+    assemble_genesis_first_chapter_for(premise, concept_json, assets_ctx, "novel")
 }
 
 pub fn assemble_genesis_prose_fallback(
@@ -193,13 +173,27 @@ pub fn assemble_genesis_prose_fallback(
     ])
 }
 
+pub const GENESIS_DRAMA_FIRST_CHAPTER_SYSTEM: &str = "你是短剧编剧，只输出可拍剧本。人设、世界观以下方资产区为准，不得自相矛盾。开篇须有可见行动与未解问题。场次标头含内景或外景、地点、时间。禁止镜号、景别、运镜或影片模型参数。";
+
 pub fn assemble_continue_beat(user: &str) -> Result<AssembledPrompt, AssembleError> {
+    assemble_continue_beat_for(user, "novel")
+}
+
+pub fn assemble_continue_beat_for(
+    user: &str,
+    story_format: &str,
+) -> Result<AssembledPrompt, AssembleError> {
+    let system = if story_format == "short_drama" {
+        DRAMA_BEAT_SYSTEM
+    } else {
+        CONTINUE_BEAT_SYSTEM
+    };
     assemble(&[
         l(
             "instruction",
             LayerKind::Instruction,
             Slot::System,
-            CONTINUE_BEAT_SYSTEM.to_string(),
+            system.to_string(),
             true,
         ),
         l(
@@ -207,6 +201,61 @@ pub fn assemble_continue_beat(user: &str) -> Result<AssembledPrompt, AssembleErr
             LayerKind::Context,
             Slot::User,
             user.to_string(),
+            true,
+        ),
+    ])
+}
+
+pub fn assemble_genesis_first_chapter_for(
+    premise: &str,
+    concept_json: &str,
+    assets_ctx: &str,
+    story_format: &str,
+) -> Result<AssembledPrompt, AssembleError> {
+    let system = if story_format == "short_drama" {
+        GENESIS_DRAMA_FIRST_CHAPTER_SYSTEM
+    } else {
+        GENESIS_FIRST_CHAPTER_SYSTEM
+    };
+    assemble(&[
+        l(
+            "instruction",
+            LayerKind::Instruction,
+            Slot::System,
+            system.to_string(),
+            true,
+        ),
+        l(
+            "premise",
+            LayerKind::Context,
+            Slot::User,
+            format!("故事前提：{premise}"),
+            true,
+        ),
+        l(
+            "concept",
+            LayerKind::Context,
+            Slot::User,
+            format!("概念设定：{concept_json}"),
+            true,
+        ),
+        l(
+            "assets",
+            LayerKind::Context,
+            Slot::User,
+            format!("创作资产：\n{assets_ctx}"),
+            true,
+        ),
+        l(
+            "task",
+            LayerKind::Context,
+            Slot::User,
+            if story_format == "short_drama" {
+                "写作要求：第 1 集可拍剧本，只输出剧本。须有场次标头、可见动作、冲突与集尾钩子。故事前提是创作方向；资产是硬约束。"
+                    .to_string()
+            } else {
+                GENESIS_FIRST_CHAPTER_TASK.to_string()
+            },
             true,
         ),
     ])
@@ -308,7 +357,7 @@ mod tests {
         let out = assemble_genesis_first_chapter(premise, concept, assets).unwrap();
         assert_eq!(
             out.system,
-            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。"
+            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾、不得发明与资产冲突的角色或设定。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。开篇须有可见行动与未解问题。"
         );
         let expected_user = format!(
             "故事前提：{}\n\n概念设定：{}\n\n创作资产：\n{}\n\n写作要求：第一章正文，1500-2500 字，只输出正文，不写标题。须紧扣故事大纲的起因（第一幕）开篇。故事前提是你的创作方向；创作资产（世界观/大纲/伏笔）是硬约束，须在硬约束内落实前提核心意图，不得自相矛盾。",
@@ -318,11 +367,20 @@ mod tests {
     }
 
     #[test]
+    fn genesis_drama_first_chapter_uses_drama_system() {
+        let out =
+            assemble_genesis_first_chapter_for("竖屏短剧", "{}", "资产", "short_drama").unwrap();
+        assert_eq!(out.system, GENESIS_DRAMA_FIRST_CHAPTER_SYSTEM);
+        assert!(out.user.contains("第 1 集可拍剧本"));
+        assert!(out.system.contains("禁止镜号"));
+    }
+
+    #[test]
     fn genesis_prose_fallback_matches_legacy_format() {
         let out = assemble_genesis_prose_fallback("前提", "资产正文").unwrap();
         assert_eq!(
             out.system,
-            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。"
+            "你是小说主创，只输出章节正文。人设、世界观与已埋伏笔以下方资产区为准，不得自相矛盾。禁止重复：同一段落/句子不得出现两次，不得复述已有正文。开篇须有可见行动与未解问题。"
         );
         assert_eq!(
             out.user,
@@ -345,8 +403,8 @@ mod tests {
             .filter(|l| !l.is_empty())
             .collect();
         assert!(
-            (11..=16).contains(&lines.len()),
-            "合同应为 11–16 行，实际 {} 行: {CONTINUE_BEAT_SYSTEM}",
+            (11..=19).contains(&lines.len()),
+            "合同应为 11–19 行，实际 {} 行: {CONTINUE_BEAT_SYSTEM}",
             lines.len()
         );
         assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：大堂里再写一遍飞身扑上"));
@@ -362,6 +420,25 @@ mod tests {
             .contains("Right：曹元佩是镇北王妃，一人；已死者不再看、不再审视。"));
         assert!(!CONTINUE_BEAT_SYSTEM.contains("asset_read"));
         assert!(!CONTINUE_BEAT_SYSTEM.contains("JSON action"));
+    }
+
+    #[test]
+    fn continue_system_has_stall_example() {
+        assert!(CONTINUE_BEAT_SYSTEM.contains("必须兑现节拍卡「必须改变」"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Wrong：众人依次震惊，场面停在原地。"));
+        assert!(CONTINUE_BEAT_SYSTEM.contains("Right：一件不可逆新信息或选择落地，其余人可沉默。"));
+    }
+
+    #[test]
+    fn drama_beat_system_requires_scene_heading_not_shot_list() {
+        let out = assemble_continue_beat_for("从门口写", "short_drama").unwrap();
+        assert_eq!(out.system, DRAMA_BEAT_SYSTEM);
+        assert!(out.system.contains("内景或外景"));
+        assert!(out.system.contains("禁止镜号"));
+        assert!(!out.system.contains("asset_read"));
+        let novel = assemble_continue_beat("从门口写").unwrap();
+        assert_eq!(novel.system, CONTINUE_BEAT_SYSTEM);
+        assert!(!novel.system.contains("内景或外景"));
     }
 
     #[test]

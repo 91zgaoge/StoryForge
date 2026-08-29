@@ -265,6 +265,18 @@ fn looks_like_creation_intent(user_input: &str) -> bool {
     !has_continuation_signal
 }
 
+/// 显式短剧/竖屏/分集剧本才标 short_drama。误判小说为短剧会毁掉纸面，故默认
+/// novel。
+pub fn looks_like_short_drama_request(user_input: &str) -> bool {
+    let input = user_input.trim();
+    if input.is_empty() {
+        return false;
+    }
+    ["短剧", "竖屏", "分集剧本"]
+        .iter()
+        .any(|kw| input.contains(kw))
+}
+
 /// 会话级分类缓存：按 user_input 哈希（v0.30.23: 提示词不再注入上下文，
 /// 故缓存键仅按输入文本）。 重复输入（如"继续写"）二次命中即时返回，
 /// 避免每次生成都付 LLM 往返。仅缓存 LLM 成功结果，不缓存兜底。
@@ -1386,5 +1398,13 @@ mod input_clarity_tests {
             InputClarity::Vague,
             "'{input}' 只有题材词，应被判定为 Vague 以触发四元组补全"
         );
+    }
+
+    #[test]
+    fn looks_like_short_drama_defaults_novel() {
+        assert!(!looks_like_short_drama_request("写一部玄幻长篇"));
+        assert!(!looks_like_short_drama_request("继续写"));
+        assert!(looks_like_short_drama_request("写一部竖屏短剧"));
+        assert!(looks_like_short_drama_request("分集剧本，十二集"));
     }
 }

@@ -84,6 +84,7 @@ mod tests {
             setting_location: None,
             open_review_issues: vec![],
             dead: dead.iter().map(|s| (*s).to_string()).collect(),
+            change_delta: crate::agency::beat_card::ChangeDelta::default(),
         }
     }
 

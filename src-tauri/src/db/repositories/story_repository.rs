@@ -52,6 +52,8 @@ impl StoryRepository {
             reference_book_id: req.reference_book_id,
             logline: None,
             strategy_json: None,
+            story_format: "novel".to_string(),
+            production_constraints: None,
             created_at: now,
             updated_at: now,
         })
@@ -76,32 +78,12 @@ impl StoryRepository {
         let mut stmt = conn.prepare(
             "SELECT id, title, description, genre, tone, pacing, style_dna_id, genre_profile_id, \
              methodology_id, methodology_step, reference_book_id, logline, strategy_json, \
-             created_at, updated_at \
+             story_format, production_constraints, created_at, updated_at \
              FROM stories ORDER BY updated_at DESC",
         )?;
 
         let stories = stmt
-            .query_map([], |row| {
-                let created_str: String = row.get(13)?;
-                let updated_str: String = row.get(14)?;
-                Ok(Story {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    description: row.get(2)?,
-                    genre: row.get(3)?,
-                    tone: row.get(4)?,
-                    pacing: row.get(5)?,
-                    style_dna_id: row.get(6)?,
-                    genre_profile_id: row.get(7)?,
-                    methodology_id: row.get(8)?,
-                    methodology_step: row.get(9)?,
-                    reference_book_id: row.get(10)?,
-                    logline: row.get(11)?,
-                    strategy_json: row.get(12)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })?
+            .query_map([], map_story_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(stories)
@@ -116,7 +98,8 @@ impl StoryRepository {
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.description, s.genre, s.tone, s.pacing, s.style_dna_id, \
              s.genre_profile_id, s.methodology_id, s.methodology_step, s.reference_book_id, \
-             s.logline, s.strategy_json, s.created_at, s.updated_at, \
+             s.logline, s.strategy_json, s.story_format, s.production_constraints, s.created_at, \
+             s.updated_at, \
              (SELECT COUNT(*) FROM characters c WHERE c.story_id = s.id) AS character_count, \
              (SELECT COUNT(*) FROM scenes sc WHERE sc.story_id = s.id) AS scene_count, \
              (SELECT COUNT(*) FROM chapters ch WHERE ch.story_id = s.id) AS chapter_count, \
@@ -127,30 +110,12 @@ impl StoryRepository {
 
         let stories = stmt
             .query_map([], |row| {
-                let created_str: String = row.get(13)?;
-                let updated_str: String = row.get(14)?;
                 Ok(StoryListItem {
-                    story: Story {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        description: row.get(2)?,
-                        genre: row.get(3)?,
-                        tone: row.get(4)?,
-                        pacing: row.get(5)?,
-                        style_dna_id: row.get(6)?,
-                        genre_profile_id: row.get(7)?,
-                        methodology_id: row.get(8)?,
-                        methodology_step: row.get(9)?,
-                        reference_book_id: row.get(10)?,
-                        logline: row.get(11)?,
-                        strategy_json: row.get(12)?,
-                        created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                        updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                    },
-                    character_count: row.get(15)?,
-                    scene_count: row.get(16)?,
-                    chapter_count: row.get(17)?,
-                    word_count: row.get(18)?,
+                    story: map_story_row(row)?,
+                    character_count: row.get(17)?,
+                    scene_count: row.get(18)?,
+                    chapter_count: row.get(19)?,
+                    word_count: row.get(20)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -166,33 +131,11 @@ impl StoryRepository {
         let mut stmt = conn.prepare(
             "SELECT id, title, description, genre, tone, pacing, style_dna_id, genre_profile_id, \
              methodology_id, methodology_step, reference_book_id, logline, strategy_json, \
-             created_at, updated_at \
+             story_format, production_constraints, created_at, updated_at \
              FROM stories WHERE id = ?1",
         )?;
 
-        let story = stmt
-            .query_row([id], |row| {
-                let created_str: String = row.get(13)?;
-                let updated_str: String = row.get(14)?;
-                Ok(Story {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    description: row.get(2)?,
-                    genre: row.get(3)?,
-                    tone: row.get(4)?,
-                    pacing: row.get(5)?,
-                    style_dna_id: row.get(6)?,
-                    genre_profile_id: row.get(7)?,
-                    methodology_id: row.get(8)?,
-                    methodology_step: row.get(9)?,
-                    reference_book_id: row.get(10)?,
-                    logline: row.get(11)?,
-                    strategy_json: row.get(12)?,
-                    created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
-                    updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
-                })
-            })
-            .optional()?;
+        let story = stmt.query_row([id], map_story_row).optional()?;
 
         Ok(story)
     }
@@ -229,6 +172,30 @@ impl StoryRepository {
         Ok(())
     }
 
+    pub fn update_story_format(
+        &self,
+        id: &str,
+        format: &str,
+        constraints: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self
+            .pool
+            .get()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
+        let now = Local::now().to_rfc3339();
+        let format = if format == "short_drama" {
+            "short_drama"
+        } else {
+            "novel"
+        };
+        conn.execute(
+            "UPDATE stories SET story_format = ?1, production_constraints = COALESCE(?2, \
+             production_constraints), updated_at = ?3 WHERE id = ?4",
+            params![format, constraints, now, id],
+        )?;
+        Ok(())
+    }
+
     pub fn update(&self, id: &str, req: &UpdateStoryRequest) -> Result<usize, rusqlite::Error> {
         let conn = self
             .pool
@@ -244,7 +211,9 @@ impl StoryRepository {
              genre_profile_id),
              methodology_id = COALESCE(?9, methodology_id), methodology_step = COALESCE(?10, \
              methodology_step),
-             reference_book_id = COALESCE(?11, reference_book_id), strategy_json = COALESCE(?12, strategy_json), updated_at = ?13 WHERE id = ?1",
+             reference_book_id = COALESCE(?11, reference_book_id), strategy_json = COALESCE(?12, \
+             strategy_json), story_format = COALESCE(?13, story_format), production_constraints = \
+             COALESCE(?14, production_constraints), updated_at = ?15 WHERE id = ?1",
             params![
                 id,
                 req.title,
@@ -258,6 +227,14 @@ impl StoryRepository {
                 req.methodology_step,
                 req.reference_book_id,
                 req.strategy_json,
+                req.story_format.as_deref().map(|f| {
+                    if f == "short_drama" {
+                        "short_drama"
+                    } else {
+                        "novel"
+                    }
+                }),
+                req.production_constraints,
                 now
             ],
         )?;
@@ -345,4 +322,33 @@ impl StoryRepository {
 
         Ok(count)
     }
+}
+
+fn map_story_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Story> {
+    let created_str: String = row.get(15)?;
+    let updated_str: String = row.get(16)?;
+    let format: Option<String> = row.get(13)?;
+    Ok(Story {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        description: row.get(2)?,
+        genre: row.get(3)?,
+        tone: row.get(4)?,
+        pacing: row.get(5)?,
+        style_dna_id: row.get(6)?,
+        genre_profile_id: row.get(7)?,
+        methodology_id: row.get(8)?,
+        methodology_step: row.get(9)?,
+        reference_book_id: row.get(10)?,
+        logline: row.get(11)?,
+        strategy_json: row.get(12)?,
+        story_format: if format.as_deref() == Some("short_drama") {
+            "short_drama".to_string()
+        } else {
+            "novel".to_string()
+        },
+        production_constraints: row.get(14)?,
+        created_at: created_str.parse().unwrap_or_else(|_| Local::now()),
+        updated_at: updated_str.parse().unwrap_or_else(|_| Local::now()),
+    })
 }

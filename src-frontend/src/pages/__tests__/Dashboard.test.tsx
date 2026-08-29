@@ -67,6 +67,7 @@ vi.mock('@/hooks/useStories', () => ({
     isLoading: false,
   }),
   useCreateStory: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateStory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/utils/logger', () => ({

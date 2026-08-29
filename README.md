@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.56.2-gold"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v0.58.0-gold"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-ISC-blue.svg"></a>
   <a href="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml"><img alt="Build" src="https://github.com/91zgaoge/StoryMoss/actions/workflows/build.yml/badge.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg">
@@ -104,6 +104,10 @@ npm run build
 ## 🆕 最新动态
 
 > 完整变更日志见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
+### v0.58.0 · 每拍必须推进，可选竖屏短剧
+
+续写合同要求本拍兑现「必须改变」，禁止众人轮流震惊、场面停住。幕后新建故事可选长篇或短剧；短剧才填集数/时长。说「写一部玄幻长篇」仍是小说，不会变成剧本格式。请升级到 0.58.0 并重启。这不是续写质量已修好。
 
 ### v0.56.2 · 下引号贴回上一句，编辑审计不再报「已完成失败」
 

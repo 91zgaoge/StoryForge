@@ -670,6 +670,8 @@ mod tests {
             reference_book_id: None,
             logline: None,
             strategy_json: None,
+            story_format: "novel".to_string(),
+            production_constraints: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         }

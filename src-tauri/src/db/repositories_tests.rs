@@ -62,6 +62,34 @@ mod tests {
 
         let all = repo.get_all().unwrap();
         assert_eq!(all.len(), 2);
+        assert!(all.iter().all(|s| s.story_format == "novel"));
+    }
+
+    #[test]
+    fn new_story_defaults_to_novel_format() {
+        let pool = create_test_pool().unwrap();
+        let repo = StoryRepository::new(pool);
+        let story = repo
+            .create(CreateStoryRequest {
+                title: "默认长篇".to_string(),
+                description: None,
+                genre: None,
+                style_dna_id: None,
+                genre_profile_id: None,
+                methodology_id: None,
+                reference_book_id: None,
+            })
+            .unwrap();
+        assert_eq!(story.story_format, "novel");
+        repo.update_story_format(&story.id, "short_drama", Some(r#"{"episodes":12}"#))
+            .unwrap();
+        let loaded = repo.get_by_id(&story.id).unwrap().unwrap();
+        assert_eq!(loaded.story_format, "short_drama");
+        assert!(loaded
+            .production_constraints
+            .as_deref()
+            .unwrap()
+            .contains("12"));
     }
 
     #[test]
@@ -92,6 +120,7 @@ mod tests {
             methodology_step: None,
             reference_book_id: None,
             strategy_json: None,
+            ..Default::default()
         };
 
         let count = repo.update(&story.id, &update_req).unwrap();

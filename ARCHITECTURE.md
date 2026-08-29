@@ -1,5 +1,7 @@
-# StoryMoss (草苔) v0.56.2 架构文档
+# StoryMoss (草苔) v0.58.0 架构文档
 
+> **v0.58.0**：戏剧工艺来自 AI-drama-pound（MIT），不嵌对方进程。`SceneBeatCard.change_delta` 0 LLM 编译。`assemble_continue_beat_for` 按 `stories.story_format` 选 `CONTINUE_BEAT_SYSTEM` 或 `DRAMA_BEAT_SYSTEM`。`probe_increment_ex` 复述近文 + 未兑现改变项才 gap。`CreateStoryRequest` 不加字段；创世后 `update_story_format`。续写 `tools=None`、`scenes.content` 真相源不变。v0.56.2 孤引号 / fail-open 不变量不变。
+>
 > **v0.56.2**：`mergeHangingClosingPunct` / `merge_hanging_closing_punct` 跳过换行与闭合标点之间的空白/全角缩进/零宽字符。`autoFormatText` 空行路径也跑 `mergeLoneClosingPunctParagraphs`。后台 `editor_qc_done_detail` 固定「后台审查」，不合格走 toast。v0.56.1 探针不变量不变。
 >
 > **v0.56.1**：`subject_split_gaps` 改为同一人 ≥2 个称呼独立出现即缺口（不再只认「则/蜷缩」）。`dead_acting_gaps`：锁里已死之人点名后 80 字内眼睛/锁定/审视则缺口，尸体窗口除外。续写 `tools=None` 不变。v0.56.0 导演锁不变量不变。

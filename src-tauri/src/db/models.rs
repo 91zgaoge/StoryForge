@@ -1365,8 +1365,18 @@ pub struct Story {
     /// NULL = 旧数据，build_selected_strategy 走启发式推断。
     #[serde(default)]
     pub strategy_json: Option<String>,
+    /// novel | short_drama。V131 默认 novel。
+    #[serde(default = "default_story_format")]
+    pub story_format: String,
+    /// 短剧制作限制 JSON（集数/单集秒数/场景上限），缺省空。
+    #[serde(default)]
+    pub production_constraints: Option<String>,
     pub created_at: DateTime<Local>,
     pub updated_at: DateTime<Local>,
+}
+
+fn default_story_format() -> String {
+    "novel".to_string()
 }
 
 /// 故事列表项：在 Story 上附加聚合计数，供仪表盘等 UI 使用。

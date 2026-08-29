@@ -14,11 +14,16 @@ import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { StudioNavRail } from '@/components/ui/StudioNavRail';
 import { useAppStore } from '@/stores/appStore';
-import { useStories, useCreateStory } from '@/hooks/useStories';
+import { useStories, useCreateStory, useUpdateStory } from '@/hooks/useStories';
 import { createStoryWithWizard, loggedInvoke } from '@/services/tauri';
 import { NovelCreationWizard } from '@/components/NovelCreationWizard';
 import { GenesisPanel } from '@/components/GenesisPanel';
 import { CreationPathGuide } from '@/components/CreationPathGuide';
+import {
+  StoryFormatFields,
+  productionConstraintsJson,
+  type StoryFormat,
+} from '@/components/StoryFormatFields';
 import { formatNumber, formatDate } from '@/utils/format';
 import { createLogger } from '@/utils/logger';
 import toast from 'react-hot-toast';
@@ -34,11 +39,13 @@ export function Dashboard() {
   const isLoading = useAppStore(s => s.isLoading);
   const hasHydrated = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [createFormat, setCreateFormat] = useState<StoryFormat>('novel');
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   const { data: fetchedStories = [], isLoading: isStoriesLoading } = useStories();
   const createStory = useCreateStory();
+  const updateStory = useUpdateStory();
 
   // Sync fetched stories to store
   useEffect(() => {
@@ -111,7 +118,17 @@ export function Dashboard() {
       },
       {
         onSuccess: newStory => {
+          if (createFormat === 'short_drama') {
+            updateStory.mutate({
+              id: newStory.id,
+              updates: {
+                story_format: 'short_drama',
+                production_constraints: productionConstraintsJson(formData),
+              },
+            });
+          }
           setIsModalOpen(false);
+          setCreateFormat('novel');
           form.reset();
           // Auto-select the new story and navigate to chapters
           setCurrentStory(newStory);
@@ -422,6 +439,8 @@ export function Dashboard() {
                     placeholder="简要描述一下你的故事..."
                   />
                 </div>
+
+                <StoryFormatFields format={createFormat} onFormatChange={setCreateFormat} />
 
                 <div className="flex gap-3 pt-4">
                   <Button type="button" variant="ghost" onClick={() => setIsModalOpen(false)}>

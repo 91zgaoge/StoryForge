@@ -30,6 +30,44 @@ pub struct EmotionBeat {
     pub summary: String,
 }
 
+/// 本拍必须改变的戏剧项（AI-drama-pound：每场至少改信息/关系/目标/风险/
+/// 情绪之一）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    Information,
+    Relationship,
+    Goal,
+    Risk,
+    Emotion,
+}
+
+impl ChangeKind {
+    pub fn as_zh(self) -> &'static str {
+        match self {
+            Self::Information => "信息",
+            Self::Relationship => "关系",
+            Self::Goal => "目标",
+            Self::Risk => "风险",
+            Self::Emotion => "情绪",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeDelta {
+    pub kind: ChangeKind,
+    pub summary: String,
+}
+
+impl Default for ChangeDelta {
+    fn default() -> Self {
+        Self {
+            kind: ChangeKind::Information,
+            summary: String::new(),
+        }
+    }
+}
+
 pub const CURRENT_SCENE_OUTLINE_MARK: &str = "【当前场大纲】";
 
 #[derive(Debug, Clone)]
@@ -44,6 +82,7 @@ pub struct SceneBeatCard {
     pub open_review_issues: Vec<String>,
     /// 近文已写成尸体/气绝的人。禁止再当行动主体，禁止重演其死亡。
     pub dead: Vec<String>,
+    pub change_delta: ChangeDelta,
 }
 
 pub fn quota_text_for_beats(
@@ -80,6 +119,13 @@ impl SceneBeatCard {
         lines.push(format!("冲突：{}", self.conflict_move.action));
         lines.push(format!("情感：{}", self.emotion_beat.summary));
         lines.push(format!("推进：{}", self.next_outline_node));
+        if !self.change_delta.summary.trim().is_empty() {
+            lines.push(format!(
+                "必须改变：{} — {}",
+                self.change_delta.kind.as_zh(),
+                self.change_delta.summary
+            ));
+        }
         if !self.dead.is_empty() {
             lines.push(format!(
                 "已死（禁止再行动、禁止重演其死亡）：{}",
@@ -241,6 +287,7 @@ pub fn compile_beat_card_located(
     let conflict_move = compile_conflict(&chars, &cast, pool, story_id, protagonist);
     let emotion_beat = compile_emotion(&chars, &cast, pool, story_id, protagonist);
     let next_outline_node = compile_next_node(pool, story_id, current_content);
+    let change_delta = compile_change_delta(&conflict_move, &next_outline_node, &emotion_beat);
     let expansion_quota_text = quota_text_for_beats(&debt);
     let setting_location = current_scene_location
         .map(str::trim)
@@ -258,6 +305,7 @@ pub fn compile_beat_card_located(
         setting_location,
         open_review_issues,
         dead,
+        change_delta,
     })
 }
 
@@ -317,6 +365,40 @@ pub(crate) fn compile_conflict(
         action: format!("{names} 必须在本拍与阻力正面对峙，不得只靠对话过渡。"),
         parties,
     }
+}
+
+pub(crate) fn compile_change_delta(
+    conflict: &ConflictMove,
+    next_node: &str,
+    emotion: &EmotionBeat,
+) -> ChangeDelta {
+    let action = conflict.action.as_str();
+    if action.contains("加压") || action.contains("对峙") || action.contains("赌注") {
+        let kind = if conflict.parties.len() >= 2 || action.contains("对峙") {
+            ChangeKind::Risk
+        } else {
+            ChangeKind::Relationship
+        };
+        return ChangeDelta {
+            kind,
+            summary: conflict.action.clone(),
+        };
+    }
+    let node = next_node.trim();
+    if !node.is_empty() {
+        return ChangeDelta {
+            kind: ChangeKind::Information,
+            summary: node.to_string(),
+        };
+    }
+    let emo = emotion.summary.trim();
+    if !emo.is_empty() {
+        return ChangeDelta {
+            kind: ChangeKind::Emotion,
+            summary: emo.to_string(),
+        };
+    }
+    ChangeDelta::default()
 }
 
 fn compile_emotion(
@@ -796,6 +878,7 @@ mod tests {
             setting_location: Some("夜宴".into()),
             open_review_issues: vec![],
             dead: vec![],
+            change_delta: ChangeDelta::default(),
         };
         let prompt = render_writer_user_prompt(
             "【红线】不可飞天",
@@ -1132,12 +1215,52 @@ mod tests {
             setting_location: None,
             open_review_issues: vec!["苏会山与曹元佩的冲突未兑现".into()],
             dead: vec![],
+            change_delta: ChangeDelta {
+                kind: ChangeKind::Risk,
+                summary: "加压".into(),
+            },
         };
         let full = card.render_full();
         assert!(full.contains("【待兑现审查】"));
         assert!(full.contains("苏会山"));
+        assert!(
+            full.contains("必须改变：风险 — 加压"),
+            "节拍卡须写出本拍改变项 full={full}"
+        );
         assert!(card.render_scene_outline().contains("【当前场大纲】"));
         assert!(card.render_scene_outline().contains("下一拍：夜宴破裂"));
+    }
+
+    #[test]
+    fn change_delta_from_hostile_cast() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_three_chars_one_silent(&pool);
+        let card = compile_beat_card(&pool, &sid, "阿岩站在雨里。顾长夜冷笑。").unwrap();
+        assert_eq!(
+            card.change_delta.kind,
+            ChangeKind::Risk,
+            "敌对双方在场须编译为风险 delta={:?}",
+            card.change_delta
+        );
+        assert!(
+            card.change_delta.summary.contains("加压")
+                || card.change_delta.summary.contains("对峙"),
+            "summary={}",
+            card.change_delta.summary
+        );
+    }
+
+    #[test]
+    fn beat_card_render_includes_must_change() {
+        let pool = create_test_pool().unwrap();
+        let sid = seed_three_chars_one_silent(&pool);
+        let card = compile_beat_card(&pool, &sid, "阿岩站在雨里。顾长夜冷笑。").unwrap();
+        let full = card.render_full();
+        assert!(
+            full.contains("必须改变："),
+            "render_full 须含必须改变行 full={full}"
+        );
+        assert!(full.contains(card.change_delta.kind.as_zh()));
     }
 
     #[test]

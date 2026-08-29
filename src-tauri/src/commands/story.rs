@@ -80,6 +80,8 @@ pub fn update_story(
     genre_profile_id: Option<String>,
     methodology_id: Option<String>,
     methodology_step: Option<i32>,
+    story_format: Option<String>,
+    production_constraints: Option<String>,
     pool: State<'_, DbPool>,
     app: AppHandle,
 ) -> Result<(), AppError> {
@@ -95,6 +97,8 @@ pub fn update_story(
         methodology_step,
         reference_book_id: None,
         strategy_json: None,
+        story_format,
+        production_constraints,
     };
     StoryRepository::new(pool.inner().clone())
         .update(&id, &req)

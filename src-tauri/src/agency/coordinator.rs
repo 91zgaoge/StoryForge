@@ -33,7 +33,8 @@ use crate::{
     error::AppError,
     llm::LlmService,
     prompts::assembly::{
-        assemble_continue_beat, assemble_genesis_first_chapter, assemble_genesis_prose_fallback,
+        assemble_continue_beat_for, assemble_genesis_first_chapter_for,
+        assemble_genesis_prose_fallback,
     },
     router::TaskType,
 };
@@ -477,6 +478,24 @@ impl ModelGraderReport {
     /// blocking_issues 的字符串视图（Gate v2 合并问题清单用）。
     pub fn blocking_strings(verdict: &EditorVerdict) -> Vec<String> {
         Self::from_verdict(verdict).evidence_issues
+    }
+}
+
+/// 解析编辑审计单条问题。旧 JSON 只有 issue/evidence 时 impact/fix 为空，不判
+/// Failed。
+pub fn blocking_issue_parts(v: &serde_json::Value) -> (String, String, String, String) {
+    match v {
+        serde_json::Value::String(s) => (s.clone(), String::new(), String::new(), String::new()),
+        other => {
+            let get = |k: &str| {
+                other
+                    .get(k)
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            (get("issue"), get("evidence"), get("impact"), get("fix"))
+        }
     }
 }
 
@@ -1647,15 +1666,18 @@ impl AgencyCoordinator {
         let genre_c = pack.genre.clone();
         let premise_c = premise.to_string();
         let story = tokio::task::spawn_blocking(move || {
-            StoryRepository::new(pool).create(CreateStoryRequest {
+            let repo = StoryRepository::new(pool.clone());
+            let story = repo.create(CreateStoryRequest {
                 title: title_c,
-                description: Some(premise_c),
+                description: Some(premise_c.clone()),
                 genre: genre_c,
                 style_dna_id: None,
                 genre_profile_id: None,
                 methodology_id: None,
                 reference_book_id: None,
-            })
+            })?;
+            apply_story_format_from_premise(&pool, &story.id, &premise_c);
+            Ok::<_, rusqlite::Error>(story)
         })
         .await
         .map_err(|e| AppError::from(format!("create story join error: {}", e)))?
@@ -1874,18 +1896,23 @@ impl AgencyCoordinator {
         // turning_points），要求覆盖整本书完整故事线（不只第一卷）。DepthAssets.outline
         // 已宽松为 Value，经 normalize_outline 渲染为可读文本落库 story_outlines。
         let prompt = format!(
-            "故事前提：{}\n\n概念设定：{}\n\n输出 JSON，outline 须覆盖整本书完整故事线（起因/发展/高潮结局 + ≥3 转折点），不要只写第一卷：\n{}",
+            "故事前提：{}\n\n{}概念设定：{}\n\n输出 JSON，outline 须覆盖整本书完整故事线（起因/发展/高潮结局 + ≥3 转折点），不要只写第一卷：\n{}",
             premise,
+            if crate::intent::looks_like_short_drama_request(premise) {
+                "本故事为竖屏短剧：大纲按集节拍；每集结尾留下下一步问题；遵守用户给出的集数/时长/场景上限（若有）。\n\n"
+            } else {
+                ""
+            },
             concept_json,
             r#"{"world":"世界观设定（时代背景、地理、势力、规则、资源约束）","outline":{"core_conflict":"根植于世界观矛盾的核心冲突","three_act_structure":{"act1":"起因：催化事件与主角立足","act2":"发展：冲突升级与转折","act3":"高潮与结局：最终抉择与收束"},"turning_points":["转折点1（让情况恶化或揭示新信息）","转折点2","转折点3"]},"foreshadowing":["伏笔1（含埋设与回收计划）"]}"#
         );
+        let producer_system = if crate::intent::looks_like_short_drama_request(premise) {
+            "你是短剧策划，只输出 JSON。"
+        } else {
+            "你是小说策划，只输出 JSON。"
+        };
         let raw = llm
-            .complete_json(
-                "你是小说策划，只输出 JSON。",
-                &prompt,
-                TaskType::WorldBuilding,
-                4096,
-            )
+            .complete_json(producer_system, &prompt, TaskType::WorldBuilding, 4096)
             .await?;
         let assets: DepthAssets = match parse_lenient(&raw) {
             Some(a) => a,
@@ -2113,8 +2140,16 @@ impl AgencyCoordinator {
             .build_assets_ctx_brief(run_id)
             .await
             .unwrap_or_default();
-        let assembled = assemble_genesis_first_chapter(premise, &concept_json, &assets_ctx)
-            .map_err(|e| AppError::from(e.to_string()))?;
+        let story_format = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || Ok(load_story_format(&pool, &sid)))
+                .await
+                .unwrap_or_else(|_| "novel".into())
+        };
+        let assembled =
+            assemble_genesis_first_chapter_for(premise, &concept_json, &assets_ctx, &story_format)
+                .map_err(|e| AppError::from(e.to_string()))?;
         let text = llm
             .complete(
                 &assembled.system,
@@ -2294,15 +2329,18 @@ impl AgencyCoordinator {
                 let genre_c = genre.clone();
                 let premise_c = premise.to_string();
                 let story = tokio::task::spawn_blocking(move || {
-                    StoryRepository::new(pool).create(CreateStoryRequest {
+                    let repo = StoryRepository::new(pool.clone());
+                    let story = repo.create(CreateStoryRequest {
                         title: title_c,
-                        description: Some(premise_c),
+                        description: Some(premise_c.clone()),
                         genre: genre_c,
                         style_dna_id: None,
                         genre_profile_id: None,
                         methodology_id: None,
                         reference_book_id: None,
-                    })
+                    })?;
+                    apply_story_format_from_premise(&pool, &story.id, &premise_c);
+                    Ok::<_, rusqlite::Error>(story)
                 })
                 .await
                 .map_err(|e| AppError::from(format!("create story join error: {}", e)))?
@@ -2327,10 +2365,24 @@ impl AgencyCoordinator {
         self.emit_activity(run_id, AgentRole::Producer, "start", "资产");
         let board = self.board();
         let registry = Arc::new(ToolRegistry::agency_default());
-        let producer_out = self.run_role_with_llm_and_budget(
-            budget, AgentRole::Producer, &board, &registry, run_id, &story_id, premise,
-            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。",
-        ).await.map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
+        let producer_task = if crate::intent::looks_like_short_drama_request(premise) {
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、按集节拍的大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。本故事为竖屏短剧：每集结尾留下下一步问题；遵守用户给出的集数/时长/场景上限（若有）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。"
+        } else {
+            "请为本故事生产创世资产：世界观、至少 2 张角色卡（真名/欲望/阻力/情感内核/情感触发点/情感创伤/情感需求）、第一卷大纲、伏笔清单、至少 1 条角色间情感关系（item_type=relationship，含 source/target/relationship_type/emotional_bond/emotional_intensity；缺则建、有则改）。逐条写入资产区。注意：一次只输出一个 JSON action（不要数组），zone 只能是 asset/draft/review/schedule，写角色卡用 item_type=character、zone=asset。"
+        };
+        let producer_out = self
+            .run_role_with_llm_and_budget(
+                budget,
+                AgentRole::Producer,
+                &board,
+                &registry,
+                run_id,
+                &story_id,
+                premise,
+                producer_task,
+            )
+            .await
+            .map_err(|e| AppError::from(format!("管理 Agent 阶段失败: {}", e)))?;
         if producer_out.aborted {
             return Err(AppError::from(circuit_break_message(
                 "管理 Agent",
@@ -3257,6 +3309,7 @@ impl AgencyCoordinator {
                 methodology_step: if empty_step { Some(1) } else { None },
                 reference_book_id: None,
                 strategy_json: None,
+                ..Default::default()
             },
         )
         .map_err(AppError::from)?;
@@ -4402,7 +4455,17 @@ impl AgencyCoordinator {
             budget.clone(),
             AgentRole::LeadWriter,
         );
-        let assembled = assemble_continue_beat(&user).map_err(|e| AppError::from(e.to_string()))?;
+        let story_format = {
+            let pool = self.pool.clone();
+            let sid = story_id.to_string();
+            self.db(move || Ok(load_story_format(&pool, &sid)))
+                .await
+                .unwrap_or_else(|_| "novel".into())
+        };
+        let prior_tail =
+            crate::agency::continue_assets::prior_tail_for_cast(current_content.unwrap_or(""));
+        let assembled = assemble_continue_beat_for(&user, &story_format)
+            .map_err(|e| AppError::from(e.to_string()))?;
         let system = assembled.system;
         let user = assembled.user;
         let text = match llm
@@ -4484,12 +4547,14 @@ impl AgencyCoordinator {
         }
         let state =
             compile_continue_beat_state(&card, parts.as_ref(), current_content.unwrap_or(""));
-        let probe0 = crate::agency::beat_state::probe_increment(
+        let probe0 = crate::agency::beat_state::probe_increment_ex(
             &text,
             &card,
             &state,
             &card.expansion_quota,
             Some(&lock),
+            &prior_tail,
+            &story_format,
         );
         if !probe0.gaps.is_empty()
             && !did_short_retry
@@ -4515,12 +4580,14 @@ impl AgencyCoordinator {
             {
                 let retry = crate::agents::orchestrator::sanitize_novel_output(retry.trim());
                 if retry.chars().count() >= 200 {
-                    let probe1 = crate::agency::beat_state::probe_increment(
+                    let probe1 = crate::agency::beat_state::probe_increment_ex(
                         &retry,
                         &card,
                         &state,
                         &card.expansion_quota,
                         Some(&lock),
+                        &prior_tail,
+                        &story_format,
                     );
                     let better = probe1.gaps.len() < probe0.gaps.len()
                         || (probe1.gaps.len() == probe0.gaps.len()
@@ -6192,7 +6259,7 @@ fn default_role_prompt(prompt_id: &str) -> &'static str {
     match prompt_id {
         "agency_lead_writer_system" => "你是「主创」：基于黑板资产创作小说正文，草稿写入 draft 区。",
         "agency_producer_system" => "你是「管理」：生产世界观/角色/大纲/伏笔资产，写入 asset 区。角色达到 2 人时必须写入或更新 item_type=relationship（缺则建、有则改）。",
-        "agency_editor_auditor_system" => "你是「编辑审计」：按 rubric 审查草稿，输出裁决 JSON：verdict（pass/revise）、score（1-5 总分）、dimension_scores（continuity/style/contract/ai_tone/hook 各 1-5）、blocking_issues（阻塞问题，字符串或 {\"issue\",\"evidence\"} 对象，evidence 须引用原文证据）、suggestions、comments。",
+        "agency_editor_auditor_system" => "你是「编辑审计」：按 rubric 审查草稿，输出裁决 JSON：verdict（pass/revise）、score（1-5 总分）、dimension_scores（continuity/style/contract/ai_tone/hook/repetition/stall/reversal 各 1-5）、blocking_issues（阻塞问题，字符串或 {\"issue\",\"evidence\",\"impact\",\"fix\"} 对象，evidence 须引用原文证据；impact/fix 缺省为空串）、suggestions、comments。",
         _ => "你是创作团队的一员。",
     }
 }
@@ -6515,6 +6582,32 @@ fn compile_continue_director(
     *l2 = collapse_names(l2, &lock);
     rewrite_card_cast(card, &lock);
     lock
+}
+
+fn apply_story_format_from_premise(pool: &DbPool, story_id: &str, premise: &str) {
+    if !crate::intent::looks_like_short_drama_request(premise) {
+        return;
+    }
+    if let Err(e) =
+        StoryRepository::new(pool.clone()).update_story_format(story_id, "short_drama", None)
+    {
+        log::warn!("agency: 写短剧格式失败 story={story_id} err={e}");
+    }
+}
+
+fn load_story_format(pool: &DbPool, story_id: &str) -> String {
+    StoryRepository::new(pool.clone())
+        .get_by_id(story_id)
+        .ok()
+        .flatten()
+        .map(|s| {
+            if s.story_format == "short_drama" {
+                "short_drama".to_string()
+            } else {
+                "novel".to_string()
+            }
+        })
+        .unwrap_or_else(|| "novel".into())
 }
 
 fn persist_inferred_relationships(

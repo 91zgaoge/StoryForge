@@ -1676,6 +1676,7 @@ mod tests {
                     methodology_step: Some(2),
                     reference_book_id: None,
                     strategy_json: None,
+                    ..Default::default()
                 },
             )
             .expect("set step 2");

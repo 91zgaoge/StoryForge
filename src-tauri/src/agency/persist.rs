@@ -762,6 +762,7 @@ mod tests {
             setting_location: Some("夜宴厅".into()),
             open_review_issues: vec![],
             dead: vec![],
+            change_delta: crate::agency::beat_card::ChangeDelta::default(),
         }
     }
 
@@ -848,6 +849,7 @@ mod tests {
             setting_location: Some("夜宴厅".into()),
             open_review_issues: vec![],
             dead: vec![],
+            change_delta: crate::agency::beat_card::ChangeDelta::default(),
         };
         let scene_repo = SceneRepository::new(pool.clone());
         let update = scene_update_from_card(&pool, &story_id, &card, long_increment(), None);

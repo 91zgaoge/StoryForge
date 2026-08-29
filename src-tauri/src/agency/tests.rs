@@ -991,6 +991,23 @@ fn test_evidence_issues_collected() {
 }
 
 #[test]
+fn editor_issue_parses_impact_and_fix() {
+    let raw = r#"{"verdict":"revise","score":2.0,"blocking_issues":[{"issue":"说明性对白","evidence":"「让我告诉你十年前的秘密」","impact":"场面停在解说","fix":"改成试探与回避"}],"suggestions":[],"comments":"修"}"#;
+    let v: EditorVerdict = parse_lenient(raw).unwrap();
+    let (issue, evidence, impact, fix) = blocking_issue_parts(&v.blocking_issues[0]);
+    assert_eq!(issue, "说明性对白");
+    assert!(evidence.contains("十年前"));
+    assert_eq!(impact, "场面停在解说");
+    assert_eq!(fix, "改成试探与回避");
+    let old = serde_json::json!({"issue":"角色动机断裂","evidence":"「他突然放弃复仇」"});
+    let (i2, e2, p2, f2) = blocking_issue_parts(&old);
+    assert_eq!(i2, "角色动机断裂");
+    assert!(e2.contains("放弃复仇"));
+    assert!(p2.is_empty());
+    assert!(f2.is_empty());
+}
+
+#[test]
 fn test_request_registry_lifecycle() {
     let run = "run-registry-test";
     register_request(run, "req-1");

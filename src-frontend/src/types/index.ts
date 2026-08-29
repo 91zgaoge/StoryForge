@@ -25,6 +25,8 @@ export interface Story {
   scene_count?: number;
   chapter_count?: number;
   word_count?: number;
+  story_format?: string;
+  production_constraints?: string;
   created_at: string;
   updated_at: string;
 }

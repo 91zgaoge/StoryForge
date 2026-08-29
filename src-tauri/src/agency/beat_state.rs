@@ -139,6 +139,44 @@ pub fn probe_increment(
     quota: &[QuotaItem],
     lock: Option<&DirectorLock>,
 ) -> BeatProbe {
+    probe_increment_ex(increment, card, state, quota, lock, "", "novel")
+}
+
+pub fn probe_increment_ex(
+    increment: &str,
+    card: &SceneBeatCard,
+    state: &BeatState,
+    quota: &[QuotaItem],
+    lock: Option<&DirectorLock>,
+    prior_tail: &str,
+    story_format: &str,
+) -> BeatProbe {
+    let mut probe = probe_increment_core(increment, card, state, quota, lock);
+    if increment_is_tail_recap(increment, prior_tail) {
+        let tokens = change_delta_tokens(&card.change_delta.summary);
+        if !tokens.is_empty() && tokens.iter().all(|t| !increment.contains(t.as_str())) {
+            probe.gaps.push(format!(
+                "本拍未兑现必须改变：{}",
+                card.change_delta.kind.as_zh()
+            ));
+        }
+    }
+    if story_format == "short_drama" {
+        let has_heading = increment.contains("内景") || increment.contains("外景");
+        if !has_heading {
+            probe.gaps.push("短剧增量缺少场次标头（内景或外景）".into());
+        }
+    }
+    probe
+}
+
+fn probe_increment_core(
+    increment: &str,
+    card: &SceneBeatCard,
+    state: &BeatState,
+    quota: &[QuotaItem],
+    lock: Option<&DirectorLock>,
+) -> BeatProbe {
     let cast_names: Vec<String> = card.cast.iter().map(|c| c.name.clone()).collect();
     let matched = crate::agency::continue_assets::match_character_names(&cast_names, increment);
     let named_cast = matched.len();
@@ -206,10 +244,35 @@ pub fn probe_increment(
     BeatProbe { named_cast, gaps }
 }
 
+fn compact_ws(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+fn increment_is_tail_recap(increment: &str, prior_tail: &str) -> bool {
+    if increment.chars().count() < 20 || prior_tail.trim().is_empty() {
+        return false;
+    }
+    let inc = compact_ws(increment);
+    let tail = compact_ws(prior_tail);
+    !inc.is_empty() && tail.contains(&inc)
+}
+
+fn change_delta_tokens(summary: &str) -> Vec<String> {
+    const SKIP: &[&str] = &["必须", "本拍", "不得", "只靠", "对话", "过渡", "禁止", "与"];
+    summary
+        .split(|c: char| c.is_whitespace() || "，。；：、·—－-「」\"\"''（）()【】".contains(c))
+        .map(str::trim)
+        .filter(|s| s.chars().count() >= 2 && !SKIP.contains(s))
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agency::beat_card::{ConflictMove, EmotionBeat, SceneBeatCard};
+    use crate::agency::beat_card::{
+        CastMember, ChangeDelta, ChangeKind, ConflictMove, EmotionBeat, SceneBeatCard,
+    };
 
     #[test]
     fn beat_state_includes_next_node_and_overdue() {
@@ -260,6 +323,7 @@ mod tests {
             setting_location: Some("雨巷".into()),
             open_review_issues: vec![],
             dead: vec![],
+            change_delta: ChangeDelta::default(),
         };
         let state = BeatState {
             present: vec!["阿岩".into(), "林雪".into()],
@@ -304,6 +368,7 @@ mod tests {
             setting_location: Some("镇北王府大堂".into()),
             open_review_issues: vec![],
             dead: vec![],
+            change_delta: ChangeDelta::default(),
         };
         let state = BeatState {
             present: vec!["苏亦铁".into(), "曹元佩".into()],
@@ -351,6 +416,7 @@ mod tests {
             setting_location: Some("镇北王府大堂".into()),
             open_review_issues: vec![],
             dead: vec!["苏会山".into(), "明成公主".into()],
+            change_delta: ChangeDelta::default(),
         };
         let state = BeatState {
             present: vec!["苏亦铁".into(), "景亲王".into()],
@@ -400,6 +466,7 @@ mod tests {
             setting_location: Some("大堂".into()),
             open_review_issues: vec![],
             dead: vec!["苏会山".into()],
+            change_delta: ChangeDelta::default(),
         };
         let state = BeatState {
             present: vec!["苏亦铁".into(), "曹元佩".into()],
@@ -418,6 +485,108 @@ mod tests {
             !probe.gaps.iter().any(|g| g.contains("丢掉已在场者")),
             "gaps={:?}",
             probe.gaps
+        );
+    }
+
+    fn recap_card() -> SceneBeatCard {
+        SceneBeatCard {
+            cast: vec![CastMember {
+                name: "阿岩".into(),
+                purpose: "在场".into(),
+            }],
+            conflict_move: ConflictMove {
+                action: "加压".into(),
+                parties: vec!["阿岩".into()],
+            },
+            emotion_beat: EmotionBeat {
+                summary: "怒".into(),
+            },
+            next_outline_node: "夜宴破裂".into(),
+            expansion_quota: vec![],
+            expansion_quota_text: None,
+            setting_location: Some("雨巷".into()),
+            open_review_issues: vec![],
+            dead: vec![],
+            change_delta: ChangeDelta {
+                kind: ChangeKind::Information,
+                summary: "夜宴破裂".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn probe_gaps_when_increment_is_tail_recap() {
+        let card = recap_card();
+        let state = BeatState {
+            present: vec!["阿岩".into()],
+            locations: vec![],
+            threads: vec![],
+            offshot: vec![],
+        };
+        let tail =
+            "阿岩站在雨里一动不动。顾长夜冷笑。众人不敢出声。阿岩站在雨里一动不动。顾长夜冷笑。众人不敢出声。";
+        let increment = "阿岩站在雨里一动不动。顾长夜冷笑。众人不敢出声。";
+        let probe = probe_increment_ex(increment, &card, &state, &[], None, tail, "novel");
+        assert!(
+            probe
+                .gaps
+                .iter()
+                .any(|g| g.contains("本拍未兑现必须改变：信息")),
+            "复述近文且未出现改变项词须 gap gaps={:?}",
+            probe.gaps
+        );
+    }
+
+    #[test]
+    fn probe_does_not_gap_literary_aside_when_not_recap() {
+        let card = recap_card();
+        let state = BeatState {
+            present: vec!["阿岩".into()],
+            locations: vec![],
+            threads: vec![],
+            offshot: vec![],
+        };
+        let tail = "阿岩站在雨里。顾长夜冷笑。";
+        let increment = "雨丝斜织，青石上的灯影一颤，像有人把旧账翻到了这一页。";
+        let probe = probe_increment_ex(increment, &card, &state, &[], None, tail, "novel");
+        assert!(
+            !probe.gaps.iter().any(|g| g.contains("未兑现必须改变")),
+            "非复述旁白不得当原地踏步 gaps={:?}",
+            probe.gaps
+        );
+    }
+
+    #[test]
+    fn probe_short_drama_requires_scene_heading() {
+        let card = recap_card();
+        let state = BeatState::default();
+        let bare = probe_increment_ex(
+            "阿岩推门。顾长夜冷笑。酒盏翻倒。",
+            &card,
+            &state,
+            &[],
+            None,
+            "",
+            "short_drama",
+        );
+        assert!(
+            bare.gaps.iter().any(|g| g.contains("场次标头")),
+            "gaps={:?}",
+            bare.gaps
+        );
+        let headed = probe_increment_ex(
+            "1. 内景・雨巷酒肆・夜\n阿岩推门。顾长夜冷笑。",
+            &card,
+            &state,
+            &[],
+            None,
+            "",
+            "short_drama",
+        );
+        assert!(
+            !headed.gaps.iter().any(|g| g.contains("场次标头")),
+            "gaps={:?}",
+            headed.gaps
         );
     }
 }

@@ -2,6 +2,28 @@
 
 All notable changes to StoryMoss (草苔) project will be documented in this file.
 
+## v0.58.0（2026-08-29）
+
+把 [AI-drama-pound](https://github.com/POUND0423/AI-drama-pound)（MIT）的戏剧工艺编进现有小说创世/续写，并新增可选短剧格式。不嵌对方 skill，不把主创拉回 ToolLoop，不把剧本场次标头灌进长篇续写。
+
+### 工艺（小说路径）
+
+- 节拍卡编译 `change_delta`（信息/关系/目标/风险/情绪）；`render_full` 含「必须改变」。
+- `CONTINUE_BEAT_SYSTEM` 第 6 条 + 原地踏步 Wrong/Right；创世开篇须有可见行动与未解问题。
+- 编辑审计 `blocking_issues` 可读 `impact`/`fix`；维度补 stall / reversal；缺键空串，不 Failed。
+- 探针：增量是近文复述且未出现改变项词才 gap；旁白不误杀。后台审查 fail-open 保持 v0.56.2。
+
+### 短剧模式
+
+- V131：`stories.story_format` 默认 `novel`；显式「短剧 / 竖屏 / 分集剧本」才切 `short_drama`。「写一部玄幻长篇」保持小说。
+- 短剧续写走 `DRAMA_BEAT_SYSTEM`（场次标头、禁止镜号）；幕前仍写 `scenes.content`。
+- 幕后新建故事可选长篇/短剧；短剧才显示集数/时长/场景上限。
+
+### 测试
+
+- `cargo test --lib` 1583 passed / 2 ignored（+11）。
+- `npx vitest run` 607 passed / 3 skipped（+1）。
+
 ## v0.56.2（2026-08-28）
 
 对话句号后空行 + 全角缩进不再把闭合引号排成孤段。后台编辑审查 fail-open，顶栏不再显示「编辑审计已完成后台审查失败」。

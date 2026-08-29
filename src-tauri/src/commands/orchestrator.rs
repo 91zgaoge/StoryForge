@@ -1528,6 +1528,7 @@ fn persist_recommended_methodology(
         methodology_step: None,
         reference_book_id: None,
         strategy_json: None,
+        ..Default::default()
     };
     match crate::db::StoryRepository::new(pool.clone()).update(&story.id, &req) {
         Ok(_) => {
@@ -1600,6 +1601,8 @@ mod tests {
             reference_book_id: None,
             logline: None,
             strategy_json: None,
+            story_format: "novel".to_string(),
+            production_constraints: None,
             created_at: Local::now(),
             updated_at: Local::now(),
         }

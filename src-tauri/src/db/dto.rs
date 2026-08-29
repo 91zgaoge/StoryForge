@@ -137,7 +137,7 @@ pub struct CreateStoryRequest {
     pub reference_book_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct UpdateStoryRequest {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -150,6 +150,10 @@ pub struct UpdateStoryRequest {
     pub methodology_step: Option<i32>,
     pub reference_book_id: Option<String>,
     pub strategy_json: Option<String>,
+    #[serde(default)]
+    pub story_format: Option<String>,
+    #[serde(default)]
+    pub production_constraints: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

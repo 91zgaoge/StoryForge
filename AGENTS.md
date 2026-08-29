@@ -7,7 +7,7 @@
 **StoryMoss (草苔)** — AI 辅助小说创作桌面应用
 
 - **项目根目录**: `/Users/yuzaimu/projects/StoryMoss`
-- **版本**: v0.56.2
+- **版本**: v0.58.0
 - **GitHub**: https://github.com/91zgaoge/StoryMoss
 - **技术栈**: Tauri 2.4 + Rust 1.95.0 + React 18 + TypeScript 5.8 + Vite 6 + SQLite + LanceDB
 - **双界面**: 幕前 `/frontstage.html`（沉浸式写作），幕后 `/index.html`（工作室管理）
@@ -97,9 +97,9 @@ type:
 ## 当前编译状态
 
 - `cargo check` ✅ 零错误
-- `cargo test -p storymoss` ✅ 1572 passed / 2 ignored（+1 后台审查 fail-open 文案）
+- `cargo test -p storymoss` ✅ 1583 passed / 2 ignored（+11 戏剧工艺 / 短剧格式）
 - `npx tsc --noEmit` ✅
-- `npx vitest run` ✅ 606 passed / 3 skipped（+4 孤引号 / 顶栏失败文案）
+- `npx vitest run` ✅ 607 passed / 3 skipped（+1 短剧制作限制选择器）
 - `npx playwright test` ✅ 本版未重跑 E2E
 - `cargo +nightly fmt` ✅
 - `cargo clippy --lib` ✅ 本版未重跑
@@ -107,6 +107,14 @@ type:
 - `python3 scripts/architecture_guard.py` ✅
 
 ## 最近完成的功能
+
+### v0.58.0 - 戏剧工艺 + 短剧格式（AI-drama-pound）
+
+对照 `docs/plans/2026-08-29-drama-craft-fusion-design.md`。工艺来源 [AI-drama-pound](https://github.com/POUND0423/AI-drama-pound)（MIT），不 vendoring 对方 skill，不把主创拉回 ToolLoop。节拍卡增加本拍必须改变项；续写短合同禁止原地踏步；编辑审计可读 impact/fix；探针只在复述近文且未兑现改变项时 gap。V131 `story_format` 默认 novel；显式短剧词才切竖屏剧本组装。幕后新建可选长篇/短剧。幕前仍写 `scenes.content`。
+
+- **验证**：`cargo test --lib` 1583 passed / 2 ignored（+11）；`npx vitest run` 607 passed / 3 skipped（+1）；`tsc` / `architecture_guard.py` 全绿。
+- **契约**：`change_delta_from_hostile_cast`；`continue_system_has_stall_example`；`editor_issue_parses_impact_and_fix`；`probe_gaps_when_increment_is_tail_recap`；`probe_does_not_gap_literary_aside_when_not_recap`；`looks_like_short_drama_defaults_novel`；`continue_beat_complete_does_not_require_tools`；制作限制只在短剧显示。
+- **未关闭**：真机须再跑创世/续写/短剧；**不得宣称续写质量已修复**。不分镜、不自动删角色脏行。
 
 ### v0.56.2 - 下引号不再单独成段；编辑审计顶栏不再报「已完成失败」
 
@@ -1152,7 +1160,7 @@ v0.30.33 的关闭前 flush + AI 追加立即落库仍未能完全解决续写�
 
 ---
 
-_最后更新: 2026-08-28 - v0.56.2_
+_最后更新: 2026-08-29 - v0.58.0_
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -478,6 +478,7 @@ pub async fn apply_wizard_to_story(
                         methodology_step: None,
                         reference_book_id: None,
                         strategy_json: None,
+                        ..Default::default()
                     },
                 )
                 .map_err(AppError::from)?;
@@ -1078,6 +1079,7 @@ pub async fn set_story_style_dna(
         methodology_step: None,
         reference_book_id: None,
         strategy_json: None,
+        ..Default::default()
     };
     match repo.update(&story_id, &req) {
         Ok(_) => {
